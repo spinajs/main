@@ -1,6 +1,6 @@
 import { Injectable } from '@spinajs/di';
 import { ev } from '@spinajs/queue';
-import { AuthnEventSink } from '@spinajs/authn/contracts';
+import { AuthnEventListener } from '@spinajs/authn/contracts';
 import type { AuthnEvent } from '@spinajs/authn/contracts';
 
 import { InvalidCredentials, UserIsBanned, UserNotActive } from '../exceptions.js';
@@ -35,14 +35,14 @@ function loginError(reason: string | undefined): Error {
  * `UserPasswordChanged`, `UserPasswordExpired`, `UserPasswordChangeRequest` (also for an invite),
  * `UserImpersonationStarted` and `UserImpersonationEnded`. Each carries the `User` row, deleted ones included;
  * an event about an identity that is not a stored user is not re-emitted. MFA changes have no queue event: they reach
- * sinks as `mfa.enrol` and `mfa.disable`. Errors propagate to the publisher, which logs their class.
+ * listeners as `mfa.enrol` and `mfa.disable`. Errors propagate to the publisher, which logs their class.
  *
  * `create()` with a password also emits `UserPasswordChanged`: authn's `set` event (cause `set`) does not tell a
  * create from an admin or CLI set.
  */
-@Injectable(AuthnEventSink)
-export class QueueAuthnEventSink extends AuthnEventSink {
-  public async publish(e: AuthnEvent): Promise<void> {
+@Injectable(AuthnEventListener)
+export class QueueAuthnEventListener extends AuthnEventListener {
+  public async on(e: AuthnEvent): Promise<void> {
     const success = e.outcome === 'success';
 
     switch (e.type) {
@@ -50,8 +50,7 @@ export class QueueAuthnEventSink extends AuthnEventSink {
         if (success) {
           await this.emit(e.identity, (u) => new UserLogged(u));
         } else {
-          // Only the audit reason: the event never carries the credentials that failed.
-          await this.emit(e.identity, (u) => new UserLoginFailed(u, loginError(e.reason)));
+          await this.loginFailed(e);
         }
         return;
       case 'password.change':
@@ -81,6 +80,16 @@ export class QueueAuthnEventSink extends AuthnEventSink {
         }
         return;
     }
+  }
+
+  /**
+   * `listener_failed`: the credentials were right and a blocking listener stopped the login. No error class of
+   * UserLoginFailed describes that, and a consumer counting failed logins must not count an outage, so it re-emits nothing.
+   */
+  private async loginFailed(e: AuthnEvent): Promise<void> {
+    if (e.reason === 'listener_failed') return;
+    // Only the audit reason: the event never carries the credentials that failed.
+    await this.emit(e.identity, (u) => new UserLoginFailed(u, loginError(e.reason)));
   }
 
   private async emit(ref: Ref | undefined, make: (u: User) => Parameters<typeof ev>[0]): Promise<void> {

@@ -1,19 +1,21 @@
 # Webhooks
 
-`WebhookAuthnEventSink` sends each authn audit event to an HTTP endpoint you configure, signed so the receiver can check where it came from. It is one more `AuthnEventSink` (see [Audit events](../authn/06-audit-events.md)): it sees every event every other listener sees, the recorder of `@spinajs/audit-authn` included.
+`WebhookAuthnEventListener` sends each authentication event to an HTTP endpoint you configure, signed so the receiver can check where it came from. It is one more `AuthnEventListener` (see [Audit events](../authn/06-audit-events.md)): it sees every event every other listener sees, the recorder of `@spinajs/audit-authn` included.
 
 `@spinajs/authz-http` has the same thing for authorization changes: `WebhookChangeSink`, described [below](#authorization-changes).
 
 ## How it works
 
-1. Importing `@spinajs/authn-http` registers `WebhookAuthnEventSink` as an `AuthnEventSink`. With no `authn.webhooks` entry it does nothing.
+1. Importing `@spinajs/authn-http` registers `WebhookAuthnEventListener` as an `AuthnEventListener`. With no `authn.webhooks` entry it does nothing.
 2. For each event, it keeps the targets whose `types` list holds the event type (all targets when a target has no list).
 3. It serialises the event once with `JSON.stringify` and POSTs that body to each target in parallel, with the header `Spinajs-Signature: t=<unix seconds>,v1=<hex HMAC-SHA256 of "<t>.<body>">`. The key is the target's secret.
-4. A non-2xx answer, a redirect, a timeout or a network error is logged as a warn on the `authn-webhook` log and dropped. `publish` never rejects, and nothing is retried.
+4. A non-2xx answer, a redirect, a timeout or a network error is logged as a warn on the `authn-webhook` log and dropped. `on` never rejects, and nothing is retried.
 
-The body is the `AuthnEvent` as it is: `type`, `at`, `outcome` and the optional `identity`, `actor`, `strategy`, `reason`, `ip`, `userAgent`, `session` and `data`. The sink adds no field. Events never hold passwords, tokens or secrets (see [Audit events](../authn/06-audit-events.md)); the `session` field is the hashed handle, not the session id.
+The body is the `AuthnEvent` as it is: `type`, `at`, `outcome` and the optional `identity`, `actor`, `strategy`, `reason`, `ip`, `userAgent`, `session` and `data`. The listener adds no field. Events never hold passwords, tokens or secrets (see [Audit events](../authn/06-audit-events.md)); the `session` field is the hashed handle, not the session id.
 
-The sink waits for the answer, so a slow endpoint delays the call that published the event by at most `timeoutMs` (the auditor's own `authn.audit.listenerTimeoutMs` also applies). Keep `timeoutMs` low and let the receiver queue its work.
+It is not blocking: a success reaches it only after every blocking listener took the event, so no webhook announces a login that a blocking listener stopped; that login arrives as a `login` failure with reason `listener_failed`.
+
+The listener waits for the answer, so a slow endpoint delays the call that published the event by at most `timeoutMs` (the auditor's own `authn.audit.listenerTimeoutMs` also applies). Keep `timeoutMs` low and let the receiver queue its work.
 
 ## Examples
 
@@ -76,7 +78,7 @@ The returned function unsubscribes.
 
 ## Important behaviour
 
-- A delivery that fails is lost. If you need every event, read the database audit stream instead.
+- A delivery that fails is lost. If you need every event, record them with [`@spinajs/audit-authn`](../../packages/audit-authn/README.md) instead.
 - Redirects are not followed, so a target cannot bounce the signed body to another host.
 - Logs name the target origin only; the URL path and query, which may carry a token, are never logged.
 - `types: []` matches no event; leave `types` out to receive all of them.
@@ -95,5 +97,5 @@ The returned function unsubscribes.
 
 ## Related
 
-- [Audit events](../authn/06-audit-events.md): the event shape and the other sinks.
+- [Audit events](../authn/06-audit-events.md): the event shape and the other listeners.
 - [`@spinajs/authz-http`](../authz-http/README.md): the package that holds `WebhookChangeSink`.

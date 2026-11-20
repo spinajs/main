@@ -81,7 +81,7 @@ Rules for the move (§4.1.1):
   `LocalPasswordStrategy`, `TwoFactorAuthProvider` is now `MfaStep`, `RbacMiddleware` is now
   `AuthnMiddleware`.
 - The 2.x queue events `UserRoleGranted` and `UserRoleRevoked` become `RoleAssigned` and
-  `RoleRevoked`. The other user events keep their names through `users`' `QueueAuthnEventSink`.
+  `RoleRevoked`. The other user events keep their names through `users`' `QueueAuthnEventListener`.
 - Logger names (`rbac`, `rbac-http-token`) and the queue connection `rbac-user-empty-queue` stay
   as they were. The QR command logged as `rbac-http-user`; it now logs as `authn-totp`.
 
@@ -1499,10 +1499,10 @@ field and error code a client sees. For an app:
 ### C1, C2, C2b, C3 and C3b: users and users-http
 
 - users implements authn's ports: `UserIdentityStore`, `UserPasswordStore` (compare-and-set),
-  `UserPasswordAgeSource`, `UserPrincipalFactory`, `UserAccountStatusSource`, `QueueAuthnEventSink`,
+  `UserPasswordAgeSource`, `UserPrincipalFactory`, `UserAccountStatusSource`, `QueueAuthnEventListener`,
   and the authz-backed hooks `AuthzImpersonationGuard`, `AccessResponseExtension`, `RbacRoleSource`
   and `AuthzCredentialAdminGuard`. `import '@spinajs/users'` registers them.
-- `QueueAuthnEventSink` re-emits `UserLogged`, `UserLoginFailed`, `UserPasswordChanged`,
+- `QueueAuthnEventListener` re-emits `UserLogged`, `UserLoginFailed`, `UserPasswordChanged`,
   `UserPasswordExpired`, `UserPasswordChangeRequest`, `UserImpersonationStarted` and
   `UserImpersonationEnded`. A redeemed invite no longer emits `UserPasswordChanged`; `create()` with a
   password does. `LastLoginAt` is no longer written.

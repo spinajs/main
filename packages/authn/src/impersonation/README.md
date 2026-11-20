@@ -179,7 +179,7 @@ Impersonation publishes to `AuthnAudit` and not to a second, in-process event
 bus. `AuthnEventSink` already is the in-process observer: DI resolves every
 registered sink through `Array.chainOf`, each sink gets every event, and
 `AuthnAudit` delivers them together under a per-sink timeout, so a slow sink
-cannot hold up a login. `QueueAuthnEventSink` in `@spinajs/users` is only one
+cannot hold up a login. `QueueAuthnEventListener` in `@spinajs/users` is only one
 sink, the one that forwards to the queue (`UserImpersonationStarted` and
 `UserImpersonationEnded`). A subscriber registers a sink instead of a handler.
 A second mechanism would give two ways to observe the same fact and a second

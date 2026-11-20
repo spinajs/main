@@ -8,7 +8,7 @@ import { Argon2PasswordHasher, EXPIRED_PASSWORD_MARKER, LocalPasswordPolicy, Loc
 import type { PasswordMail } from '@spinajs/authn-local';
 
 import { Hooks } from '@spinajs/hooks';
-import { QueueAuthnEventSink, UserActivated, UserIdentityStore, UserPasswordAgeSource, UserPasswordChanged, UserPasswordStore } from '../src/index.js';
+import { QueueAuthnEventListener, UserActivated, UserIdentityStore, UserPasswordAgeSource, UserPasswordChanged, UserPasswordStore } from '../src/index.js';
 import { UserPasswordExpired } from '../src/events/UserPasswordExpired.js';
 import { bootUsersDb, registerUsersTestHost, seedUser, storedUser } from './support/users-db.js';
 import { User } from '../src/models/User.js';
@@ -53,7 +53,7 @@ describe('authn-local password flows over the users stores', function () {
     await hasher.resolve();
     const events = new RecordingEventSink();
     const mailer = new RecordingMailer();
-    const listeners = [await DI.resolve(QueueAuthnEventSink), events];
+    const listeners = [await DI.resolve(QueueAuthnEventListener), events];
     const sessions = new MemorySessionIssuer();
     const service = new LocalPasswordService({ identities, passwords, sessions, throttle: new FakeBackoffThrottle(DEFAULT_THROTTLE), tokens: null, secrets: new MemorySecretStore(), mailer, listeners, hasher, policy: new LocalPasswordPolicy({}), hooks: await DI.resolve<Hooks>(Hooks) });
     const strategy = new LocalPasswordStrategy({ identities, passwords, hasher });

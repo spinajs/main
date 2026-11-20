@@ -159,7 +159,7 @@ async function main() {
   bind(contracts.PasswordCredentialStore, 'RouteGroupsPasswordStore', passwords);
   bind(contracts.PrincipalFactory, 'RouteGroupsPrincipalFactory', principals);
   bind(contracts.AuthnThrottle, 'RouteGroupsThrottle', throttle);
-  bind(contracts.AuthnEventSink, 'RouteGroupsEventSink', events);
+  bind(contracts.AuthnEventListener, 'RouteGroupsEventSink', events);
   bind(contracts.AuthenticationStrategy, 'RouteGroupsPasswordStrategy', strategy);
   await (await loadFile(join(PKG_ROOT, 'lib', 'v3', 'register.js'))).registerAuthnHttpV3();
 

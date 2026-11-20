@@ -252,7 +252,7 @@ DI.unregister(UserAccountSink);
 DI.register(AuditedAccountSink).as(AuthnEventSink);
 ```
 
-After: the subclass of `UserPasswordStateHook` in [Password state: custom implementation](#password-state-custom-implementation). A sink of your own that listened for these authn events keeps working: authn still publishes them.
+After: the subclass of `UserPasswordStateHook` in [Password state: custom implementation](#password-state-custom-implementation). An `AuthnEventListener` of your own that listened for these authn events keeps working: authn still publishes them.
 
 ## Related
 
