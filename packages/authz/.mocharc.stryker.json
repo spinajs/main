@@ -7,7 +7,12 @@
   ],
   "ignore": [
     "test/host/**",
-    "test/admin/**"
+    "test/admin/**",
+    "test/contracts/api-snapshot.test.ts",
+    "test/contracts/fields.test.ts",
+    "test/engine/behaviour/B03-combination.test.ts"
   ],
-  "timeout": 6000
+  "require": [
+    "../../scripts/mutation/mocha-setup.mjs"
+  ]
 }

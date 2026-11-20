@@ -1,0 +1,11 @@
+{
+  "extensions": ["ts"],
+  "spec": ["test/**/*.test.ts"],
+  "ignore": [
+    "test/admin/db.test.ts",
+    "test/stores/changelog.test.ts",
+    "test/stores/db.test.ts",
+    "test/stores/policy-record.test.ts"
+  ],
+  "require": ["../../scripts/mutation/mocha-setup.mjs"]
+}

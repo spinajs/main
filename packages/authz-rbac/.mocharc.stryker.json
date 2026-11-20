@@ -1,0 +1,27 @@
+{
+  "extensions": ["ts"],
+  "spec": ["test/**/*.test.ts"],
+  "ignore": [
+    "test/admin/db/**",
+    "test/cli/discovery.test.ts",
+    "test/cli/membership.test.ts",
+    "test/config/db-alias.test.ts",
+    "test/integration/**",
+    "test/ladder/agreement.test.ts",
+    "test/membership/stores.test.ts",
+    "test/migrations/**",
+    "test/perf/**",
+    "test/plan/assignment-sql.test.ts",
+    "test/plan/assignment-term.test.ts",
+    "test/plan/rls-conformance.test.ts",
+    "test/stores/changelog.test.ts",
+    "test/stores/config-role-store.test.ts",
+    "test/stores/db-assignment-store.test.ts",
+    "test/stores/db-link-store.test.ts",
+    "test/stores/db-rule-store.test.ts",
+    "test/stores/keyset.test.ts",
+    "test/stores/records.test.ts",
+    "test/stores/store-helpers.test.ts"
+  ],
+  "require": ["../../scripts/mutation/mocha-setup.mjs", "@spinajs/log"]
+}
