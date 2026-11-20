@@ -3,6 +3,7 @@ import { Injectable } from '@spinajs/di';
 import { AuditContext } from './context.js';
 import { AuditReader, AuditStore } from './contracts.js';
 import type { AuditAppend, AuditFilter, AuditSubject, StoredAuditEvent, TrailConfig } from './contracts.js';
+import { isErasureRecord } from './erasure.js';
 
 interface Row {
   readonly trail: string;
@@ -24,7 +25,7 @@ export class MemoryAuditReader extends AuditReader {
   }
 
   redact(trail: TrailConfig, subject: AuditSubject): Promise<number> {
-    const hit = rows.filter((r) => r.trail === trail.name && r.event.subject?.type === subject.type && r.event.subject?.id === subject.id);
+    const hit = rows.filter((r) => r.trail === trail.name && r.event.subject?.type === subject.type && r.event.subject?.id === subject.id && !r.event.redacted && !isErasureRecord(r.event));
     for (const row of hit) row.event = { ...row.event, data: {}, redacted: true };
     return Promise.resolve(hit.length);
   }

@@ -3,7 +3,7 @@
 /* eslint-disable @typescript-eslint/no-empty-interface */
 /* eslint-disable prettier/prettier */
 import { InvalidOperation, InvalidArgument, MethodNotImplemented, NotSupported } from '@spinajs/exceptions';
-import { ORM_DB_VALUE_CONVERTERS, SessionSettingsQueryBuilder, SessionSettingsQueryCompiler, LimitBuilder, DropTableQueryBuilder, AlterColumnQueryBuilder, TableCloneQueryCompiler, ColumnStatement, OnDuplicateQueryBuilder, IJoinCompiler, DeleteQueryBuilder, IColumnsBuilder, IColumnsCompiler, ICompilerOutput, ILimitBuilder, LimitQueryCompiler, IGroupByCompiler, InsertQueryBuilder, IOrderByBuilder, IWhereBuilder, IWhereCompiler, OrderByBuilder, QueryBuilder, SelectQueryBuilder, UpdateQueryBuilder, SelectQueryCompiler, TableQueryCompiler, TableQueryBuilder, ColumnQueryBuilder, ColumnQueryCompiler, RawQuery, IQueryBuilder, OrderByQueryCompiler, OnDuplicateQueryCompiler, IJoinBuilder, IndexQueryCompiler, IndexQueryBuilder, IRecursiveCompiler, IWithRecursiveBuilder, ForeignKeyBuilder, ForeignKeyQueryCompiler, IGroupByBuilder, AlterTableQueryBuilder, CloneTableQueryBuilder, AlterTableQueryCompiler, ColumnAlterationType, AlterColumnQueryCompiler, TableAliasCompiler, DropTableCompiler, ValueConverter, DropEventQueryBuilder, TableHistoryQueryCompiler, EventQueryBuilder, EventQueryCompiler, DropEventQueryCompiler, LiteralQuoter, WhereStatement, IHavingCompiler, LazyQueryStatement, IQueryStatement, IQueryStatementResult, WhereBoolean, RawSchemaQueryCompiler, RawSchemaQueryBuilder, DropViewQueryBuilder, DropViewCompiler, IdentifierQuoter, CreateDatabaseCompiler, CreateDatabaseQueryBuilder, DropDatabaseCompiler, DropDatabaseQueryBuilder, SqlExpressions } from '@spinajs/orm';
+import { ORM_DB_VALUE_CONVERTERS, SessionSettingsQueryBuilder, SessionSettingsQueryCompiler, LimitBuilder, DropTableQueryBuilder, AlterColumnQueryBuilder, TableCloneQueryCompiler, ColumnStatement, OnDuplicateQueryBuilder, IJoinCompiler, DeleteQueryBuilder, IColumnsBuilder, IColumnsCompiler, ICompilerOutput, ILimitBuilder, LimitQueryCompiler, IGroupByCompiler, InsertQueryBuilder, IOrderByBuilder, IWhereBuilder, IWhereCompiler, OrderByBuilder, QueryBuilder, SelectQueryBuilder, UpdateQueryBuilder, SelectQueryCompiler, TableQueryCompiler, TableQueryBuilder, ColumnQueryBuilder, ColumnQueryCompiler, RawQuery, IQueryBuilder, OrderByQueryCompiler, OnDuplicateQueryCompiler, IJoinBuilder, IndexQueryCompiler, IndexQueryBuilder, IRecursiveCompiler, IWithRecursiveBuilder, ForeignKeyBuilder, ForeignKeyQueryCompiler, IGroupByBuilder, AlterTableQueryBuilder, CloneTableQueryBuilder, AlterTableQueryCompiler, ColumnAlterationType, AlterColumnQueryCompiler, TableAliasCompiler, DropTableCompiler, ValueConverter, DropEventQueryBuilder, EventQueryBuilder, EventQueryCompiler, DropEventQueryCompiler, LiteralQuoter, WhereStatement, IHavingCompiler, LazyQueryStatement, IQueryStatement, IQueryStatementResult, WhereBoolean, RawSchemaQueryCompiler, RawSchemaQueryBuilder, DropViewQueryBuilder, DropViewCompiler, IdentifierQuoter, CreateDatabaseCompiler, CreateDatabaseQueryBuilder, DropDatabaseCompiler, DropDatabaseQueryBuilder, SqlExpressions } from '@spinajs/orm';
 import { use } from 'typescript-mix';
 import { NewInstance, Inject, Container, IContainer, Autoinject } from '@spinajs/di';
 import _ from 'lodash';
@@ -993,111 +993,6 @@ export class SqlTruncateTableQueryCompiler extends TableQueryCompiler {
   }
 }
 
-@NewInstance()
-@Inject(Container)
-export class SqlTableHistoryQueryCompiler extends TableHistoryQueryCompiler {
-
-  constructor(protected container: Container, protected builder: TableQueryBuilder) {
-    super();
-  }
-
-  public compile(): ICompilerOutput[] {
-    const tblAliasCompiler = this.container.resolve(TableAliasCompiler);
-    const hTtblName = tblAliasCompiler.compile(this.builder, `${this.builder.Table}__history`);
-    const tblName = tblAliasCompiler.compile(this.builder, `${this.builder.Table}`);
-    const hTriggerName = `${this.builder.Table}__history`;
-    const tblTriggerName = this.builder.Table;
-
-    const dropUnique = this.builder.Columns.filter((c) => c.Unique).map((c) => {
-      return {
-        bindings: [] as any[],
-        expression: `ALTER TABLE ${hTtblName} DROP INDEX ${c.Name}`,
-      };
-    });
-
-    const pKey = this.builder.Columns.find((c) => c.PrimaryKey)!;
-
-    return [
-      // clone table
-      {
-        bindings: [],
-        expression: `CREATE TABLE ${hTtblName} LIKE ${tblAliasCompiler.compile(this.builder)}`,
-      },
-      ...dropUnique,
-      {
-        bindings: [],
-        expression: `ALTER TABLE ${hTtblName} 
-                      CHANGE COLUMN ${pKey.Name} ${pKey.Name} INT NOT NULL ,
-                     DROP PRIMARY KEY;`,
-      },
-
-      // remove primary key & add history columns
-      {
-        bindings: [],
-        expression: `ALTER TABLE ${hTtblName} ADD __action__ VARCHAR(8) DEFAULT 'insert' FIRST, ADD __revision__ INT(6) NOT NULL AFTER __action__, ADD __start__ DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) AFTER __revision__, ADD __end__ DATETIME(3) AFTER __start__`,
-      },
-
-      {
-        bindings: [],
-        expression: `ALTER TABLE ${hTtblName}  ADD PRIMARY KEY (${pKey.Name}, __revision__)`,
-      },
-
-      {
-        bindings: [],
-        expression: `CREATE TRIGGER ${hTriggerName}__insert_trigger BEFORE INSERT ON ${hTtblName} FOR EACH ROW 
-        BEGIN 
-          DECLARE rev INT;
-          SET rev = (SELECT IFNULL(MAX(__revision__), 0) FROM ${hTtblName} WHERE ${pKey.Name} = NEW.${pKey.Name});
-          SET NEW.__revision__ = rev + 1; 
-        END;`,
-      },
-
-      // create tracking triggers
-      {
-        bindings: [],
-        expression: `DROP TRIGGER IF EXISTS ${tblTriggerName}__insert_trigger`,
-      },
-      {
-        bindings: [],
-        expression: `DROP TRIGGER IF EXISTS ${tblTriggerName}__update_trigger`,
-      },
-      {
-        bindings: [],
-        expression: `DROP TRIGGER IF EXISTS ${tblTriggerName}__delete_trigger`,
-      },
-
-      // insert into history table & update __end__ date for all operations
-      {
-        bindings: [],
-        expression: `CREATE TRIGGER ${tblTriggerName}__insert_trigger AFTER INSERT ON ${tblName} FOR EACH ROW BEGIN 
-                        DECLARE rev INT;
-                        SET rev = (SELECT IFNULL(MAX(__revision__), 0) FROM ${hTtblName} WHERE ${pKey.Name} = NEW.${pKey.Name});
-                        UPDATE ${hTtblName} SET __end__ = NOW() WHERE ${pKey.Name} = NEW.${pKey.Name} AND __revision__ = rev;
-                        INSERT INTO ${hTtblName} SELECT 'insert', 0, NOW(), NULL, d.* FROM ${tblName} AS d WHERE d.${pKey.Name} = NEW.${pKey.Name}; 
-                    END;`,
-      },
-      {
-        bindings: [],
-        expression: `CREATE TRIGGER ${tblTriggerName}__update_trigger AFTER UPDATE ON ${tblName} FOR EACH ROW BEGIN 
-                        DECLARE rev INT;
-                        SET rev = (SELECT IFNULL(MAX(__revision__), 0) FROM ${hTtblName} WHERE ${pKey.Name} = NEW.${pKey.Name});
-                        UPDATE ${hTtblName} SET __end__ = NOW() WHERE ${pKey.Name} = NEW.${pKey.Name} AND __revision__ = rev;
-                        INSERT INTO ${hTtblName} SELECT 'update', 0, NOW(), NULL, d.* FROM ${tblName} AS d WHERE d.${pKey.Name} = NEW.${pKey.Name}; 
-                      END;`,
-      },
-      {
-        bindings: [],
-        expression: `CREATE TRIGGER ${tblTriggerName}__delete_trigger BEFORE DELETE ON ${tblName} FOR EACH ROW BEGIN 
-                        DECLARE rev INT;
-                        SET rev = (SELECT IFNULL(MAX(__revision__), 0) FROM ${hTtblName} WHERE ${pKey.Name} = OLD.${pKey.Name});
-                        UPDATE ${hTtblName} SET __end__ = NOW() WHERE ${pKey.Name} = OLD.${pKey.Name} AND __revision__ = rev;
-                        INSERT INTO ${hTtblName} SELECT 'delete', 0, NOW(), NULL, d.* FROM ${tblName} AS d WHERE d.${pKey.Name} = OLD.${pKey.Name}; 
-                     END;`,
-      },
-    ];
-  }
-}
-
 export interface SqlTableQueryCompiler { }
 
 @NewInstance()
@@ -1116,17 +1011,12 @@ export class SqlTableQueryCompiler extends TableQueryCompiler {
     const _keys = this._foreignKeys();
     const _primaryKey = this._primaryKeys();
 
-    const createOutput: ICompilerOutput = {
-      bindings: [],
-      expression: `${_table} (${_columns} ${_primaryKey ? ',' + _primaryKey : ''} ${_keys ? ',' + _keys : ''})`,
-    };
-
-    if (this.builder.TrackHistory) {
-      const hCompiler = this.container.resolve(TableHistoryQueryCompiler, [this.builder]);
-      return [createOutput, ...hCompiler.compile()];
-    } else {
-      return [createOutput];
-    }
+    return [
+      {
+        bindings: [],
+        expression: `${_table} (${_columns} ${_primaryKey ? ',' + _primaryKey : ''} ${_keys ? ',' + _keys : ''})`,
+      },
+    ];
   }
 
   protected _columns() {

@@ -11,7 +11,7 @@ import { AuthenticationFailed, UnexpectedServerError } from '@spinajs/exceptions
 import { Log } from '@spinajs/log';
 import { context, trace } from '@opentelemetry/api';
 import type { Span } from '@opentelemetry/api';
-import { SpinaAttr, markSpanError, tracer, withSpan } from '@spinajs/tracing';
+import { SpinaAttr, errorTypeOf, markSpanErrorType, tracer, withSpan } from '@spinajs/tracing';
 import { Configuration } from '@spinajs/configuration';
 import { RouteArgs } from './route-args/index.js';
 import { withDerivedValidators, type DerivedArgValidators } from './route-args/manifest-schema.js';
@@ -21,7 +21,7 @@ import { createOnErrorHandler, markStage, runErrorHandlers, stageOf } from './er
 import { __handle_response__ } from './response.js';
 import { answeredAsServerError, errorReplyFactory } from './error.js';
 import { createAroundHandler, recordRouteError, wrapsRoute } from './around.js';
-import { answerEarly, answeredEarly, answerReplayBeforePolicy, beginRoute, enterMiddleware, REPLAY_BEFORE_POLICY, repliedBeforePolicy, repliedInPlace, replaysBeforePolicy, routeContextOf, setErrorReply } from './reply-pipeline.js';
+import { actionEnded, actionStarted, answerEarly, answeredEarly, answerReplayBeforePolicy, beginRoute, enterMiddleware, REPLAY_BEFORE_POLICY, repliedBeforePolicy, repliedInPlace, replaysBeforePolicy, routeContextOf, setErrorReply } from './reply-pipeline.js';
 import { routeChainName } from './route-index.js';
 import type { ErrorReplier, IReplaysBeforePolicy } from './reply-pipeline.js';
 
@@ -153,9 +153,10 @@ export function createPolicyGate(policies: IResolvedRoutePolicies, route: IRoute
   const routeName = `${controller.constructor.name}:${String(route.Method)} ${basePath}/${String(route.Path || route.Method)}`;
 
   return (req: Express.Request, res: Express.Response, next: Express.NextFunction) => {
-    // Runs even when a 'beforePolicy' middleware answered: a refusal replaces that answer (fail closed). The one
-    // exception is an @Idempotent replay of this principal's own completed request: nothing executes for it.
-    if (repliedBeforePolicy(res)) {
+    // Runs even when a 'beforePolicy' middleware answered: a refusal replaces that answer (fail closed). Two exceptions:
+    // an @Idempotent replay of this principal's own completed request (nothing executes for it), and an answer sent in
+    // place (a deadline 504), which is final, so the policies would only load data for a reply that is dropped.
+    if (repliedBeforePolicy(res) || repliedInPlace(res)) {
       next();
       return;
     }
@@ -320,6 +321,7 @@ export function createActionHandler(controller: ControllerActionHost, route: IRo
       next();
       return;
     }
+    actionStarted(res);
     try {
       await storage.run(req.storage, async () => {
         const parent = context.active();
@@ -330,6 +332,7 @@ export function createActionHandler(controller: ControllerActionHost, route: IRo
           result = await context.with(trace.setSpan(parent, span), () => invokeAction(controller, route, req, res, next, derived));
         } catch (err) {
           endFailedRouteSpan(span, err);
+          actionEnded(res, { error: err });
           next(err);
           return;
         }
@@ -337,10 +340,12 @@ export function createActionHandler(controller: ControllerActionHost, route: IRo
         // next() runs outside context.with: the OTel context still carries the server span here, so the reply pipeline
         // and the __handle_response__ log lines correlate to the server span, not to the ended route span.
         span.end();
+        actionEnded(res);
         res.locals.response = result;
         next();
       });
     } catch (err) {
+      actionEnded(res, { error: err });
       next(err);
     }
   };
@@ -353,9 +358,9 @@ function endFailedRouteSpan(span: Span, err: unknown): void {
   const status = (err as { status?: unknown } | null)?.status;
   const serverError = typeof status === 'number' && Number.isInteger(status) ? status >= 500 : answeredAsServerError(err);
   if (serverError) {
-    markSpanError(span, err);
+    markSpanErrorType(span, err);
   } else {
-    span.recordException(err instanceof Error ? err : new Error(String(err)));
+    span.setAttribute('error.type', errorTypeOf(err));
   }
   span.end();
 }

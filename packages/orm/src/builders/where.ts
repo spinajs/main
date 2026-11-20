@@ -35,6 +35,9 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
 
   protected _tableAlias: string;
 
+  // Initialised lazily: SelectQueryBuilder mixes these methods in, but not the fields.
+  protected _adopted?: WeakSet<IQueryStatement>;
+
   public get TableAlias(): string {
     return this._tableAlias ?? (this._parent ? this._parent.TableAlias : undefined);
   }
@@ -80,14 +83,35 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
     builder._tableAlias = this.TableAlias;
 
     builder._statements = this._statements.map((s) => {
-      const cloned = s.clone(builder);
+      const adopted = this._adopted?.has(s) === true;
+      const cloned = adopted ? s.clone() : s.clone(builder);
       // preserve the per-statement boolean connector (clone() rebuilds the
       // statement from scratch and would otherwise reset it to the AND default)
       cloned.Boolean = s.Boolean;
+      if (adopted) {
+        builder.adopted().add(cloned);
+      }
       return cloned;
     });
 
     return builder;
+  }
+
+  /**
+   * Appends statements built on another builder, which they keep reading (its alias, the parents `outer()`
+   * walks, a `Lazy` callback's context): a clone copies them without rebinding them to the copy.
+   */
+  public adopt(statements: IQueryStatement[]): this {
+    for (const s of statements) {
+      this.adopted().add(s);
+      this._statements.push(s);
+    }
+
+    return this;
+  }
+
+  private adopted(): WeakSet<IQueryStatement> {
+    return (this._adopted ??= new WeakSet<IQueryStatement>());
   }
 
   /**

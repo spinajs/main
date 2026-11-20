@@ -5,7 +5,7 @@
 ## How it works
 
 1. `@Model()` registers the class under `__models__` (see [Models](02-models.md)).
-2. `Orm.resolve()` loads table info, wires relations, then calls `applyModelMixins()`, which binds every function of `MODEL_STATIC_MIXINS` onto each registered model class. The `Migration.OnStartup` migrations run before that; their `data()` seeds run once the `Orm` is resolved.
+2. `Orm.resolve()` loads table info, wires relations, then calls `applyModelMixins()`, which binds every function of `MODEL_STATIC_MIXINS` onto each registered model class. `Orm.resolve()` applies no migration; `migrate-up` runs the migrations' `up()` and `data()` over an `Orm` that has already resolved.
 3. A static call such as `Invoice.getOrFail(5)` runs the mixin. It calls `createQuery()`, which resolves the model's connection (`OrmConnection`), builds the builder in the connection's container, binds the model's query scopes and adds the default soft-delete and archive filters.
 4. The mixin adds its conditions (`wherePk()`, ordering) and awaits the builder. The driver executes the SQL.
 5. The builder creates a model per row through `__orm_model_factory__`, calls `hydrate()` and `takeSnapshot()` (see [Converters and hydration](04-converters-and-hydration.md)).
@@ -155,6 +155,7 @@ its connections and `OrmConnectionMissing` (with `connection`) when no connectio
 | `NoRowsAffected` | `insertModel()`, `deleteModel()` and the `_insert()` / `_delete()` wrappers when the statement changed no row. Extends `OrmException`. |
 | `UniqueViolation` | Any statement that breaks a primary key or unique constraint, on every driver. Extends `ResourceDuplicated` from `@spinajs/exceptions`, not `OrmException`. Carries `table`, `constraint` and `columns` when the driver reports them, and the native error as `inner`; its message is the native message. |
 | `ConstraintViolation` | A NOT NULL, CHECK or FOREIGN KEY failure. Extends `OrmException`. `kind` is `'not_null'`, `'check'`, `'foreign_key'` or `'other'`; `table`, `constraint`, `columns` and `inner` as for `UniqueViolation`. |
+| `DataException` | A value the database refused: SQLSTATE class 22 on postgres, PGlite and mysql (out of range, invalid text representation, invalid encoding), MySQL's `ER_WRONG_VALUE` (1525, an incorrect value such as a datetime outside the column's range), SQL Server's conversion, overflow and truncation errors. The sqlite driver never throws it. Extends `OrmException`; `inner` is the native error. Its message names the code only, not the native message, which quotes the refused value. `paginate()` reports it as `InvalidCursor` when the request carried a cursor and the database refuses the cursor's predicate on its own as well. |
 | `OrmNotResolved` | `ormConnection()`, `modelDriver()`, the helpers built on them and `createQuery()` (so the model statics) before an Orm created its connections. Extends `OrmException`. |
 | `OrmConnectionMissing` | The same helpers, and the model statics, when no connection or `db.Aliases` entry has the name; `connection` holds it. Extends `OrmException`. |
 | `NotAnOrmDriver`, `TransactionRequired`, `ConnectionMismatch` | `requireModelConnection()` / `requireModelTransaction()`. `ConnectionMismatch` carries `table`, `expected` (the model's connection) and `actual` (the given driver's). All extend `OrmException`. |
@@ -169,7 +170,7 @@ its connections and `OrmConnectionMissing` (with `connection`) when no connectio
 
 ## Important behaviour
 
-- Static methods exist only after `Orm.resolve()` reaches `applyModelMixins()`. The startup migrations' `up()` runs before that and cannot use them; their `data()` runs after and can. See [Migrations](10-migrations.md).
+- Static methods exist only after `Orm.resolve()` reaches `applyModelMixins()`. A migration's `data()` uses them: it runs after the models its run touched were re-read. See [Migrations](10-migrations.md).
 - A service that queries models injects the `Orm` (`@Autoinject(Orm)`); resolving the service then resolves the `Orm` first.
 - Construct a model after `Orm` has resolved. `hydrate()` resolves the connection's container and throws `model <Name> have invalid connection ...` when it cannot.
 - `get()`, `first()`, `last()`, `newest()` and `oldest()` resolve `undefined` when nothing matches, although their return type is the model.

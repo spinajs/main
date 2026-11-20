@@ -14,7 +14,7 @@ const model = (pkg: string, className: string, accessResource?: string): ModelEn
   id: `${pkg}:${className}`, className, tableName: className.toLowerCase(), columns: [], relations: [], ...(accessResource ? { accessResource } : {}), source: src(pkg),
 });
 
-const section = (over: Partial<AuthzSection> = {}): AuthzSection => ({ resources: [], permissions: [], entryPoints: [], findings: [], ignores: [], ...over });
+const section = (over: Partial<AuthzSection> = {}): AuthzSection => ({ resources: [], permissions: [], entryPoints: [], findings: [], ignores: [], flow: { entryPoints: 0, unresolvedRoots: 0, opaqueCalls: 0, externalCalls: 0, foreignModelQueries: 0 }, ...over });
 
 describe('manifest authz section', () => {
   it('validates a fragment with an authz section and a typed access resource', () => {
@@ -52,6 +52,12 @@ describe('manifest authz section', () => {
     const app = fragment('app', { authz: section({ resources: [{ type: 'job', model: 'dep:JobModel', relations: [], source: src() }] }) });
     const m = mergeFragments(app, [dep], meta(['dep', 'app']));
     expect(m.models.map((x) => [x.id, x.accessResource])).to.deep.equal([['dep:JobModel', 'job'], ['dep:Other', undefined]]);
+  });
+
+  it('sums the flow coverage of the fragments', () => {
+    const dep = fragment('dep', { authz: section({ flow: { entryPoints: 2, unresolvedRoots: 1, opaqueCalls: 3, externalCalls: 40, foreignModelQueries: 0 } }) });
+    const app = fragment('app', { authz: section({ flow: { entryPoints: 5, unresolvedRoots: 0, opaqueCalls: 1, externalCalls: 60, foreignModelQueries: 2 } }) });
+    expect(mergeFragments(app, [dep], meta(['dep', 'app'])).authz?.flow).to.deep.equal({ entryPoints: 7, unresolvedRoots: 1, opaqueCalls: 4, externalCalls: 100, foreignModelQueries: 2 });
   });
 
   it('covers the authz section in the hash', () => {

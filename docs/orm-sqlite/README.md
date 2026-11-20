@@ -2,7 +2,7 @@
 
 The SQLite driver for [`@spinajs/orm`](../orm/README.md). `SqliteOrmDriver` opens a database file through the `sqlite3` Node package, sends the SQL that [`@spinajs/orm-sql`](../orm-sql/README.md) compiles, and registers the compilers and statements that spell it the SQLite way.
 
-It does **not** create databases or the directory a database file lives in, run scheduled events, clone tables (`CREATE TABLE ... LIKE`) or keep history tables. Every SQLite connection has one writer handle, so writes never run in parallel.
+It does **not** create databases or the directory a database file lives in, run scheduled events or clone tables (`CREATE TABLE ... LIKE`). Every SQLite connection has one writer handle, so writes never run in parallel.
 
 ## Install
 
@@ -44,7 +44,6 @@ export class AppConfiguration extends FrameworkConfiguration {
             Driver: 'orm-driver-sqlite',
             Filename: './data/app.sqlite',
             Pool: { Max: 4 },
-            Migration: { OnStartup: true },
           },
         ],
       },
@@ -62,7 +61,7 @@ export class Customer extends ModelBase<Customer> {
 }
 
 export async function listCustomers() {
-  // applies main's Migration.OnStartup migrations and installs the model statics
+  // installs the model statics; fails on pending migrations, so run `npx spinajs migrate-up` first
   await DI.resolve(Orm);
   return await Customer.where('Email', 'like', '%@example.com');
 }

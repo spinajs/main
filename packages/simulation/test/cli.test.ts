@@ -3,7 +3,7 @@ import { expect } from 'chai';
 import { spawnSync } from 'node:child_process';
 import { isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { ensure, invariant, main, parseArgs, reportJson, SimUsageError, summaryLine, type SimSuite, type SuiteRegistry } from '../src/index.js';
+import { ensure, invariant, main, parseArgs, reportJson, SimUsageError, summaryLine, USAGE, type SimSuite, type SuiteRegistry } from '../src/index.js';
 
 function toySuite(name: string, failAfter?: number): SimSuite {
   return {
@@ -35,9 +35,14 @@ function io() {
 
 describe('simulation CLI', () => {
   it('parses suites, seeds, steps and the report directory', () => {
-    expect(parseArgs(['--suite', 'calm', '--seed', '7', '--seeds', '3', '--steps', '50', '--out', 'r'], ['calm'])).to.deep.equal({ suites: ['calm'], seed: 7, seeds: 3, steps: 50, out: 'r' });
+    expect(parseArgs(['--suite', 'calm', '--seed', '7', '--seeds', '3', '--steps', '50', '--out', 'r'], ['calm'])).to.deep.equal({ suites: ['calm'], seed: 7, seeds: 3, steps: 50, out: 'r', profile: false });
     expect(parseArgs(['--all'], ['broken', 'calm']).suites).to.deep.equal(['broken', 'calm']);
-    expect(parseArgs(['--suite', 'calm'], ['calm'])).to.deep.equal({ suites: ['calm'], seed: 1, seeds: 1, steps: undefined, out: undefined });
+    expect(parseArgs(['--suite', 'calm'], ['calm'])).to.deep.equal({ suites: ['calm'], seed: 1, seeds: 1, steps: undefined, out: undefined, profile: false });
+  });
+
+  it('turns on the per-seed profile with --profile', () => {
+    expect(parseArgs(['--suite', 'scheduler', '--profile'], ['scheduler']).profile).to.equal(true);
+    expect(USAGE).to.contain('[--profile]');
   });
 
   it('refuses unknown suites, unknown flags, missing values and an empty selection', () => {

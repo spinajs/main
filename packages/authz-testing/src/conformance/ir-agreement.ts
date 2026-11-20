@@ -21,10 +21,12 @@ export interface IrAgreementOptions extends Pick<IREvaluatorOptions, 'maxDepth' 
 
 /**
  * The three-valued answer of a vote on a concrete resource. An indeterminate vote (`error`: a limit, a store
- * failure, `model_error`) is `unknown`, which is what the IR evaluator answers past its limits.
+ * failure, `model_error`) is `unknown`, which is what the IR evaluator answers past its limits. So is a ReBAC
+ * no-permit left undecided only by caveats (`caveat_unknown`): the engine votes no-permit so that a missing env
+ * value never vetoes other models, the IR answers unknown.
  */
 export function voteTruth(vote: Vote): Truth {
-  if (vote.error !== undefined) return 'unknown';
+  if (vote.error !== undefined || vote.reason?.code === 'caveat_unknown') return 'unknown';
   if (vote.denyWhen.op === 'true' || vote.permitWhen.op === 'false') return 'deny';
   return vote.permitWhen.op === 'true' && vote.denyWhen.op === 'false' ? 'allow' : 'unknown';
 }

@@ -1,8 +1,8 @@
 import { AuthzConfigError } from '@spinajs/authz';
 import type { ResourceRef } from '@spinajs/authz';
 import { Injectable } from '@spinajs/di';
-import { DeleteQueryBuilder, InsertQueryBuilder, QueryMiddleware, UpdateQueryBuilder } from '@spinajs/orm';
-import type { QueryBuilder } from '@spinajs/orm';
+import { DeleteQueryBuilder, InsertQueryBuilder, UpdateQueryBuilder, WriteObserver, upsertKeys } from '@spinajs/orm';
+import type { CaptureInterest, CapturedWrite, QueryBuilder } from '@spinajs/orm';
 
 import { ormLog } from '../host.js';
 import { requireConnection } from '../records.js';
@@ -11,7 +11,6 @@ import type { ModelClass, ResourceEntry } from '../registry.js';
 import { cleanupDeleted } from './cleanup.js';
 import { AncestorRecord } from './record.js';
 import { rebuildFrom, removeNodes } from './rebuild.js';
-import { insertedRefs, stillThere, targetRefs } from './targets.js';
 
 interface Work {
   readonly kind: 'insert' | 'update' | 'delete';
@@ -35,58 +34,58 @@ function workOf(query: QueryBuilder): Work | undefined {
 }
 
 /**
- * Keeps authz_resource_ancestor right for writes of `@AccessResource` models (design §6.4). It never
- * changes a query; it reads the rows a write reaches and writes the table in the same transaction.
+ * Keeps authz_resource_ancestor right for writes of `@AccessResource` models (design §6.4). It never changes a query:
+ * the ORM write capture reads the rows a write reaches, and this writes the table in the write's own transaction.
  */
-@Injectable(QueryMiddleware)
-export class AncestorMiddleware extends QueryMiddleware {
-  public order = 90;
-
-  private readonly targets = new WeakMap<object, ResourceRef[]>();
+@Injectable(WriteObserver)
+export class AncestorObserver extends WriteObserver {
+  private readonly work = new WeakMap<object, Work | null>();
   private readonly warned = new WeakSet<ModelClass>();
 
-  afterQueryCreation(_query: QueryBuilder): void {}
-
-  transactional(query: QueryBuilder): boolean {
-    return workOf(query)?.transactional === true;
+  interest(query: QueryBuilder): CaptureInterest | undefined {
+    const work = this.workOf(query);
+    return work ? { columns: [work.entry.idColumn, ...new Set(work.entry.parents.map((p) => p.column))], transactional: work.transactional } : undefined;
   }
 
-  async beforeQueryExecution(query: QueryBuilder): Promise<void> {
-    const work = workOf(query);
+  prepare(query: QueryBuilder): void {
+    const work = this.workOf(query);
     if (!work) return;
     if (work.transactional && query.Driver.CurrentTransaction === undefined) {
       throw new AuthzConfigError(`authz-orm: a ${work.kind} of ${nameOf(work.model)} (resource '${work.entry.type}') must run in a transaction so authz_resource_ancestor changes with it, and none could be opened on connection ${JSON.stringify(query.Driver.Options.Name)}`);
     }
     requireConnection(AncestorRecord, query.Driver, `authz-orm: a ${work.kind} of ${nameOf(work.model)} (resource '${work.entry.type}')`);
-    if (work.kind === 'update' || work.kind === 'delete') this.targets.set(query, await targetRefs(query as UpdateQueryBuilder<unknown>, work.model, work.entry));
   }
 
-  async afterQueryExecution(query: QueryBuilder, result: unknown): Promise<void> {
-    const work = workOf(query);
+  async observe(write: CapturedWrite): Promise<void> {
+    const work = this.workOf(write.query);
     if (!work) return;
-    const driver = query.Driver;
-    if (work.kind === 'insert') {
-      const refs = insertedRefs(query as InsertQueryBuilder, result, work.entry);
-      if (refs === undefined) return this.warnUnknownIds(work);
-      await rebuildFrom(driver, refs);
+    const refsOf = (ids: readonly string[]): ResourceRef[] => ids.map((id) => ({ type: work.entry.type, id }));
+    if (write.unknownKeys) {
+      this.insertWithoutIds(work);
+      // An upsert still names the keys of rows it may have moved under another parent; access must not keep the old one.
+      if (write.query instanceof InsertQueryBuilder) await rebuildFrom(write.driver, refsOf(upsertKeys(write.query, work.entry.idColumn)));
       return;
     }
-    const refs = this.targets.get(query) ?? [];
-    this.targets.delete(query);
-    if (refs.length === 0) return;
     if (work.kind === 'update') {
-      await rebuildFrom(driver, refs);
+      await rebuildFrom(write.driver, refsOf(write.rows.map((r) => r.id)));
       return;
     }
-    const left = await stillThere(driver, work.model, work.entry, refs);
-    const deleted = refs.filter((r) => !left.has(String(r.id)));
-    await removeNodes(driver, deleted);
-    await cleanupDeleted(driver, deleted);
+    if (work.kind === 'insert') await rebuildFrom(write.driver, refsOf(write.rows.filter((r) => r.after !== undefined).map((r) => r.id)));
+    // A delete, or the rows a replace deleted through a unique column.
+    const gone = refsOf(write.rows.filter((r) => r.after === undefined).map((r) => r.id));
+    await removeNodes(write.driver, gone);
+    await cleanupDeleted(write.driver, gone);
   }
 
-  private warnUnknownIds(work: Work): void {
+  private workOf(query: QueryBuilder): Work | undefined {
+    if (!this.work.has(query)) this.work.set(query, workOf(query) ?? null);
+    return this.work.get(query) ?? undefined;
+  }
+
+  /** An insert whose ids the driver did not report, or an upsert whose rows the capture could not find. */
+  private insertWithoutIds(work: Work): void {
     if (this.warned.has(work.model)) return;
     this.warned.add(work.model);
-    ormLog().warn({ model: nameOf(work.model), resourceType: work.entry.type }, 'authz-orm: an insert of ${model} did not report the ids it wrote, so their authz_resource_ancestor rows are missing (access only narrows); insert one row at a time, supply the keys, or run authz:ancestors-rebuild ${resourceType}');
+    ormLog().warn({ model: nameOf(work.model), resourceType: work.entry.type }, 'authz-orm: an insert of ${model} did not report the rows it wrote, so authz_resource_ancestor may miss them, or keep the old parent of a row an upsert moved without naming its key; insert one row at a time or supply the keys; authz:ancestors-verify ${resourceType} finds such rows and authz:ancestors-rebuild ${resourceType} repairs them');
   }
 }

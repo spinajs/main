@@ -42,21 +42,21 @@ export const REAL_DB_TARGETS: RealDbTarget[] = [
 
 const MIGRATIONS_TABLE = 'idempotency_it_migrations';
 
-const realConnection = (target: RealDbTarget, migrate: boolean): Record<string, unknown> => ({
+const realConnection = (target: RealDbTarget): Record<string, unknown> => ({
   ...target.connection,
   Name: 'it',
-  Migration: { OnStartup: migrate, Table: MIGRATIONS_TABLE, Transaction: { Mode: MigrationTransactionMode.PerMigration } },
+  Migration: { Table: MIGRATIONS_TABLE, Transaction: { Mode: MigrationTransactionMode.PerMigration } },
 });
 
 /** Drops the table and its migration log, then boots again so the migration recreates them. */
 export async function bootRealDb(target: RealDbTarget): Promise<TestApp> {
   // While cleaning up, the model stays on SQLite: MySQL refuses to describe a model whose table is missing.
-  const cleanup = await bootIdempotencyApp({ db: { DefaultConnection: 'sqlite', Connections: [realConnection(target, false), sqlite('sqlite')], Aliases: { idempotency: 'default' } } });
+  const cleanup = await bootIdempotencyApp({ migrate: false, db: { DefaultConnection: 'sqlite', MigrationCheck: 'off', Connections: [realConnection(target), sqlite('sqlite')], Aliases: { idempotency: 'default' } } });
   const driver = (await cleanup.resolve(Orm)).Connections.get('it') as OrmDriver;
   for (const table of ['__idempotency', MIGRATIONS_TABLE]) {
     await driver.schema().dropTable(table).ifExists();
   }
   await cleanup.dispose();
 
-  return bootIdempotencyApp({ db: { DefaultConnection: 'it', Connections: [realConnection(target, true)], Aliases: { idempotency: 'default' } } });
+  return bootIdempotencyApp({ db: { DefaultConnection: 'it', Connections: [realConnection(target)], Aliases: { idempotency: 'default' } } });
 }
