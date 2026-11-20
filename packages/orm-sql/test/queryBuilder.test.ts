@@ -6,7 +6,7 @@ import 'mocha';
 // Registers the concrete logger. Without it every `@Logger` field resolves the abstract
 // `Log` from log-common and the first `Log.trace()` in Orm.resolve() throws.
 import '@spinajs/log';
-import { SelectQueryBuilder, SchemaQueryBuilder, DeleteQueryBuilder, InsertQueryBuilder, RawQuery, TableQueryBuilder, Orm, IWhereBuilder, Wrapper, IndexQueryBuilder, ReferentialAction, ICompilerOutput, ISelectQueryBuilder, ModelBase, SortOrder, AlterColumnQueryCompiler, JoinStatement } from '@spinajs/orm';
+import { SelectQueryBuilder, SchemaQueryBuilder, DeleteQueryBuilder, InsertQueryBuilder, RawQuery, TableQueryBuilder, Orm, IWhereBuilder, Wrapper, IndexQueryBuilder, ReferentialAction, ICompilerOutput, ISelectQueryBuilder, ModelBase, SortOrder, AlterColumnQueryCompiler, JoinStatement, extractModelDescriptor } from '@spinajs/orm';
 import { SqlAlterColumnQueryCompiler } from '../src/compilers.js';
 import { DI } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
