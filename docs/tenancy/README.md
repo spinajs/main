@@ -57,6 +57,7 @@ export async function invoicePrefixFor(host: string): Promise<string> {
 - [`@spinajs/tenancy-http`](../tenancy-http/README.md): resolves the tenant of an HTTP request or a socket connection, admits it with `admitTenant` and writes the scope with `applyTenantScope`; reads `tenancy.http.*`.
 - [`@spinajs/authz`](../authz/README.md): shares the request store; a new tenant scope starts with an empty authz request cache, and `runWithPrincipal` keeps the tenant.
 - [`@spinajs/log`](../log/README.md): log lines carry the scope as `Tenant`: the tenant id, or `*` for the cross-tenant scope.
+- [`@spinajs/tenancy-tracing`](../tenancy-tracing/README.md): spans carry the scope as `spina.tenant.id`, the same way.
 - [`@spinajs/configuration`](../configuration/README.md): the `tenancy` schema and the config-selected registry and access check.
 - [`@spinajs/di`](../di/README.md): the shared `AsyncLocalStorage` and the named registrations of `TenantRegistry` and `TenantAccess`.
 - `@spinajs/principal`: the `Principal` that `TenantAccess.canEnter` and `admitTenant` receive.
