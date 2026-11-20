@@ -17,6 +17,7 @@ export interface AuditSeal {
   readonly previousHash: string | null;
   readonly sealedAt: Date;
   readonly pruned: boolean;
+  readonly prunedAt: Date | undefined;
 }
 
 export const SEAL_PAGE_SIZE = 200;
@@ -45,7 +46,12 @@ function toSeal(row: AuditRow): AuditSeal {
     // Compared in JavaScript, never in SQL; an unreadable time is an invalid date, which retention treats as too young.
     sealedAt: instantFromDb(row.sealed_at)?.toJSDate() ?? new Date(Number.NaN),
     pruned: row.pruned_at !== null && row.pruned_at !== undefined,
+    prunedAt: instantFromDb(row.pruned_at)?.toJSDate(),
   };
+}
+
+export async function sealById(driver: OrmDriver, id: number): Promise<AuditSeal | undefined> {
+  return rowsOf(await driver.select().from(AUDIT_SEAL_TABLE).where('id', id)).map(toSeal)[0];
 }
 
 /** One page of the seals of a table after `toSeq`, in chain order. */
