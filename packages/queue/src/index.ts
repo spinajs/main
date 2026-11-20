@@ -8,6 +8,7 @@ import { AutoinjectService } from '@spinajs/configuration';
 import { DateTime } from 'luxon';
 import { runAroundHandle, runBeforeEmit, tracked } from './hook-runner.js';
 import { isPermanentJobFailure } from './hooks.js';
+import { OutboxRelay } from './outbox/relay.js';
 import { OutboxWriter } from './outbox/writer.js';
 import { context } from '@opentelemetry/api';
 import { withConsumerSpan, withProducerSpan } from './tracing.js';
@@ -68,12 +69,17 @@ export class DefaultQueueService extends QueueService {
   @Autoinject(OutboxWriter)
   protected Outbox: OutboxWriter;
 
+  protected Relay?: OutboxRelay;
+
   public async resolve(): Promise<void> {
     await super.resolve();
     await this.Outbox.ready();
+    if (this.Outbox.Config.enabled && this.Outbox.Config.relay) this.Relay = await DI.resolve(OutboxRelay, [{}]);
   }
 
   public async dispose() {
+    await this.Relay?.stop();
+
     if (this.Retention) {
       try {
         await this.Retention.dispose();
@@ -102,15 +108,13 @@ export class DefaultQueueService extends QueueService {
     // generate only; the consumer writes the row
     const jobId = isJob(event) ? (event.JobId = event.JobId ?? event.MessageId) : undefined;
 
-    await withProducerSpan(event, context.active(), async () => {
-      // a misrouted message must fail the caller, not wait in the outbox
-      this.connectionsFor(event);
-      if (await this.Outbox.enlistOn(event)) {
-        return;
-      }
-
-      await this.publishDirect(event);
-    });
+    // a misrouted message must fail the caller, not wait in the outbox
+    this.connectionsFor(event);
+    const target = await this.Outbox.enlistOn(event);
+    if (target) {
+      await target.driver.afterCommit(() => this.Relay?.nudge(target.connection));
+      return jobId;
+    }
 
     // for jobs this is the id the caller uses to track progress / status
     return jobId;

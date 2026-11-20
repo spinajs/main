@@ -188,7 +188,7 @@ describe('queue outbox: relay claim, publish, mark', function () {
     expect(broker.sent).to.have.length(2);
   });
 
-  it('stops a batch before a row the claim cannot cover and releases the rest', async () => {
+  it('releases the rows of a batch its claim can no longer cover', async () => {
     const env = await bootOutbox({ outbox: { claimTtl: 30_000, maxPublishMs: 10_000 } });
     await emitCommitted(env, 5);
     broker.onEmit = () => env.clock.set(env.clock.now() + 12_000);
