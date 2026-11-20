@@ -1,7 +1,8 @@
 import { DI } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 
-import type { AuditFilter, AuditQuery, AuditReader, AuditService, AuditSubject, AuditTrail, AuditVerifyReport, StoredAuditEvent, TrailConfig } from './contracts.js';
+import type { AuditFilter, AuditPinnedHead, AuditQuery, AuditReader, AuditSubject, AuditTrail, AuditVerifyReport, StoredAuditEvent, TrailConfig } from './contracts.js';
+import type { RecordErasure } from './erasure.js';
 import { AuditConfigError, AuditNotSupported } from './errors.js';
 import { quoted } from './guards.js';
 import { auditStore } from './stores.js';
@@ -26,7 +27,7 @@ export async function listAudit(config: TrailConfig, operation: string, by: Pick
 }
 
 export class StoreAuditTrail implements AuditTrail {
-  constructor(private readonly service: AuditService, public readonly config: TrailConfig, private readonly container: IContainer = DI.RootContainer) {}
+  constructor(private readonly recordErasure: RecordErasure, public readonly config: TrailConfig, private readonly container: IContainer = DI.RootContainer) {}
 
   byActor(actor: string, query?: AuditQuery): Promise<readonly StoredAuditEvent[]> {
     return listAudit(this.config, 'byActor', { actor }, query, this.container);
@@ -47,16 +48,19 @@ export class StoreAuditTrail implements AuditTrail {
 
   async forget(subject: AuditSubject, source?: string): Promise<number> {
     const reader = await readerOf(this.config, 'forget', this.container);
-    const redacted = await reader.redact(this.config, subject, source);
-    await this.service.record({ kind: 'custom', action: 'erasure', subject, data: { redacted } }, { trail: this.config.name, mode: 'confirmed', connection: source });
-    return redacted;
+    let total = 0;
+    for await (const { connection, redacted } of reader.redactEach(this.config, subject, source)) {
+      await this.recordErasure(subject, redacted, { trail: this.config.name, connection });
+      total += redacted;
+    }
+    return total;
   }
 
-  async verify(source?: string): Promise<AuditVerifyReport> {
+  async verify(source?: string, pinned?: AuditPinnedHead): Promise<AuditVerifyReport> {
     const { name, integrity } = this.config;
     if (integrity !== 'sealed') throw new AuditNotSupported(`audit: trail ${quoted(name)} is not sealed, so it has nothing to verify (audit.trails.${name}.integrity)`);
     const reader = await readerOf(this.config, 'verify', this.container);
     if (!reader.verify) throw new AuditNotSupported(`audit: the reader ${reader.constructor.name} of trail ${quoted(name)} cannot verify seals`);
-    return reader.verify(this.config, source);
+    return reader.verify(this.config, source, pinned);
   }
 }

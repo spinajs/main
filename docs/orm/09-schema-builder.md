@@ -63,7 +63,6 @@ The optional `schema` argument of `dropTable`, `dropView` and `tableExists` qual
 | `foreignKey(column)` | Adds a `ForeignKeyBuilder` for `column` and returns it. |
 | `ifExists()` | The SQL compilers emit `CREATE TABLE IF NOT EXISTS`. |
 | `temporary()` | `CREATE TEMPORARY TABLE`. |
-| `trackHistory()` | Adds a `<table>__history` table and triggers that record every change; see [Historical models](02-models.md). |
 | `comment(text)`, `charset(name)` | Store the value only. No shipped compiler emits a table comment or charset, and both return `void`. |
 
 Several columns marked `primaryKey()` form a composite key: the SQL compiler emits one table-level `PRIMARY KEY (a, b)`.
@@ -90,7 +89,7 @@ Several columns marked `primaryKey()` form a composite key: the SQL compiler emi
 
 How each type maps to SQL is dialect business: see [`@spinajs/orm-sql` compilers](../orm-sql/02-query-compilers.md#ddl) and the [SQLite type mapping](../orm-sqlite/04-schema-and-ddl.md#type-mapping).
 
-`dateTime()` and `timestamp()` create the dialect's instant type and hold UTC: `TIMESTAMPTZ(3)` on PostgreSQL, `DATETIME(3)` and `TIMESTAMP(3)` on MySQL (the driver runs its sessions in UTC; `TIMESTAMP` ends in 2038), `DATETIMEOFFSET(3)` on MSSQL, and ISO-8601 UTC text in a `TEXT` column on SQLite. `default().dateTime()` is the database clock: `CURRENT_TIMESTAMP`, `CURRENT_TIMESTAMP(3)`, `SYSDATETIMEOFFSET()`, `strftime('%Y-%m-%dT%H:%M:%fZ', 'now')`.
+`dateTime()` and `timestamp()` create the dialect's instant type and hold UTC: `TIMESTAMPTZ(3)` on PostgreSQL, `DATETIME(3)` and `TIMESTAMP(3)` on MySQL (in the session zone, `TimeZone`, see [MySQL driver](../orm-mysql/01-mysql-driver.md); `TIMESTAMP` ends in 2038), `DATETIMEOFFSET(3)` on MSSQL, and ISO-8601 UTC text in a `TEXT` column on SQLite. `default().dateTime()` is the database clock: `CURRENT_TIMESTAMP`, `CURRENT_TIMESTAMP(3)`, `SYSDATETIMEOFFSET()`, `strftime('%Y-%m-%dT%H:%M:%fZ', 'now')`.
 
 ### `ColumnQueryBuilder`
 
@@ -279,8 +278,6 @@ Which statements and clauses work depends on the connection's driver. A compiler
 
 See the dialect pages for the details: [MySQL](../orm-mysql/06-schema-views-and-events.md), [SQLite](../orm-sqlite/04-schema-and-ddl.md), [MSSQL](../orm-mssql/06-schema-dialect.md), and the [generic SQL compilers](../orm-sql/02-query-compilers.md).
 
-<!-- TODO(docs-hook): verify which dialects compile trackHistory(); the shipped SqlTableHistoryQueryCompiler emits MySQL-only syntax (CREATE TABLE ... LIKE, DELIMITER, triggers). -->
-
 ## Services and extension points
 
 | Service | Role | Default implementation | How to override |
@@ -294,7 +291,7 @@ See the dialect pages for the details: [MySQL](../orm-mysql/06-schema-views-and-
 - Nothing runs until you `await` the builder (or call `execute()`, `then()`, `catch()`, `finally()`). A builder that is only created is silently dropped.
 - A builder executes at most once. Awaiting it again returns the memoized result and sends nothing.
 - `toDB()` compiles without executing. Use it to preview the SQL a builder produces.
-- `alterTable`, a deep `cloneTable` and `createTable` with `trackHistory()` compile to several statements. `SqlDriver.execute()` sends them one after another, in compile order. Outside a transaction a pooled driver may run each on a different connection.
+- `alterTable` and a deep `cloneTable` compile to several statements. `SqlDriver.execute()` sends them one after another, in compile order. Outside a transaction a pooled driver may run each on a different connection.
 - Schema statements pass through query middlewares like every other builder: `QueryMiddleware.beforeQueryExecution()` runs before the driver call. See [Query builder](05-query-builder.md).
 - Names that reach the SQL unquoted are validated, not escaped: view options and event units against fixed lists in `@spinajs/orm`, and database charset and collation names against `[A-Za-z0-9_]` in `@spinajs/orm-sql`.
 - DDL is not transactional on MySQL: a migration transaction does not undo a `CREATE TABLE`. See [MySQL: DDL is not transactional](../orm-mysql/06-schema-views-and-events.md#ddl-is-not-transactional) and [Migrations](10-migrations.md#transaction-modes).
@@ -518,7 +515,7 @@ const indexes = await driver.tableIndexes?.('posts');      // LiveIndex[]
 const keys = await driver.tableForeignKeys?.('posts');     // LiveForeignKey[]
 ```
 
-- `LiveIndex { name, columns, unique, primary }`: every index of the table, sorted by name, columns in key order.
+- `LiveIndex { name, columns, unique, primary, inexact? }`: every index of the table, sorted by name, columns in key order. `inexact: true` marks an index with an expression part (left out of `columns`) or a column prefix part (MySQL), whose `columns` do not say exactly what it compares.
   The primary key is one of them, with `primary: true`.
 - `LiveForeignKey { name, column, table, references, onDelete?, onUpdate? }`: one entry per column of a foreign
   key, in key order; actions are spelled `NO ACTION`, `RESTRICT`, `CASCADE`, `SET NULL` or `SET DEFAULT`.
@@ -533,6 +530,5 @@ per dialect.
 - [Connections](01-connections.md): `OrmDriver`, which owns `schema()`, `index()` and `truncate()`.
 - [Query builder](05-query-builder.md): `SelectQueryBuilder` and `RawQuery`, used for view bodies, clone filters and event actions; also `ColumnMethods` aggregates.
 - [Architecture](12-architecture.md): how a builder becomes SQL, and the compiler extension points.
-- [Models](02-models.md): `@Historical` reads the history table `trackHistory()` creates.
 - [`@spinajs/orm-sql`](../orm-sql/README.md): the generic SQL compilers behind every statement on this page.
 - [`@spinajs/orm-sqlite`](../orm-sqlite/README.md), [`@spinajs/orm-mysql`](../orm-mysql/README.md), [`@spinajs/orm-mssql`](../orm-mssql/README.md): dialect limits.

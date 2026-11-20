@@ -21,7 +21,7 @@ class IdemOrmConfiguration extends TestConfiguration {
     await super.resolve();
     this.Config.db = {
       DefaultConnection: 'sqlite',
-      Connections: [{ Driver: 'orm-driver-sqlite', Filename: ':memory:', Name: 'sqlite', Migration: { OnStartup: true, Table: 'orm_migrations', Transaction: { Mode: MigrationTransactionMode.PerMigration } } }],
+      Connections: [{ Driver: 'orm-driver-sqlite', Filename: ':memory:', Name: 'sqlite', Migration: { Table: 'orm_migrations', Transaction: { Mode: MigrationTransactionMode.PerMigration } } }],
     };
     this.Config.idempotency = { store: 'OrmIdempotencyStore', lease: '30s', sweepBatch: 500, sweepEvery: '5m' };
   }

@@ -3,7 +3,7 @@ import { expect } from 'chai';
 import { Bootstrapper, DI } from '@spinajs/di';
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
-import { Orm } from '@spinajs/orm';
+import { migrateTestDatabase } from '@spinajs/orm/testing';
 import { FromDbModel } from '../src/index.js';
 import { Test } from './models/Test.js';
 import { Test5 } from './models/Test5.js';
@@ -46,7 +46,7 @@ import './controllers/FromModelOverride.js';
  * (non-array) type to the LAST *distinct* class ever registered for that abstract token
  * (`container.ts`'s `getCurrentType`), and re-registering the exact same `TestConfiguration`
  * class a second time is a no-op dedup - it does not move it back to the end of that list.
- * `filters.test.ts` registers its own `FilterTestConfiguration` (`Migration.OnStartup: false`)
+ * `filters.test.ts` registers its own `FilterTestConfiguration` (no migration run)
  * as `Configuration` earlier in the same mocha process; reusing `TestConfiguration` here would
  * silently resolve to THAT config instead, and `Orm` would skip migrations against a
  * `test` table that was never created ("no such table: test"). A distinct class name sorts
@@ -70,7 +70,7 @@ class FromModelOverrideTestConfiguration extends FrameworkConfiguration {
             Driver: 'orm-driver-sqlite',
             Filename: ':memory:',
             Name: 'sqlite',
-            Migration: { Table: 'orm_migrations', OnStartup: true },
+            Migration: { Table: 'orm_migrations' },
           },
         ],
       },
@@ -91,7 +91,7 @@ describe('from-model-override: FromDbModel model override (@FromModel({ model })
       await b.bootstrap();
     }
 
-    await (await DI.resolve(Orm)).Migrator.ready(); // runs migrations, seeds `test` table (Id 1 = 'witaj')
+    await migrateTestDatabase(); // runs migrations, seeds `test` table (Id 1 = 'witaj')
   });
 
   const req = (params: Record<string, unknown>) => ({ params, query: {}, headers: {}, body: null }) as any;

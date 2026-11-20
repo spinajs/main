@@ -17,7 +17,8 @@ its bootstrapper, configuration source, model and migration.
 1. **Provide a db connection.** The source loads last (Order `999`) and reads
    `db.Connections` that an earlier source (eg. a config file) already produced.
 2. **Create the table.** Run the bundled migration (it creates `configuration`
-   on the default connection) — eg. via `Migration.OnStartup` on the connection.
+   on the default connection) with `npx spinajs migrate-up`; the ORM refuses to
+   resolve until it is applied.
 3. **Load.** On `Configuration.load()` the source reads every row whose `Exposed`
    flag is set and merges it into the config under its `Slug`.
 4. **(Optional) Expose & watch.** `@Config` properties marked `expose: true` are

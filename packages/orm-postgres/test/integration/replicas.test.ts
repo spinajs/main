@@ -28,7 +28,6 @@ class ReplicaConf extends FrameworkConfiguration {
               Database: database,
               Options: { Schema: 'public' },
               Replicas: [{ Options: { Schema: 'replica' } }],
-              Migration: { OnStartup: false },
             },
           ],
         },

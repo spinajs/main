@@ -28,6 +28,9 @@
     },
     {
       "path": "../log/tsconfig.json"
+    },
+    {
+      "path": "../tracing/tsconfig.json"
     }
   ]
 }
