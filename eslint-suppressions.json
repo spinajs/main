@@ -7800,9 +7800,9 @@
       "count": 1
     }
   },
-  "packages/telemetry/src/policies/TelemetryAccessPolicy.ts": {
-    "@typescript-eslint/no-unnecessary-type-assertion": {
-      "count": 1
+  "packages/telemetry/src/middleware.ts": {
+    "@typescript-eslint/no-unsafe-member-access": {
+      "count": 5
     }
   },
   "packages/telemetry/src/requestStats.ts": {
