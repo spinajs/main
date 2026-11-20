@@ -1,5 +1,5 @@
 import type { AuthnContext, IdentityRef } from '@spinajs/authn/contracts';
-import { DEFAULT_THROTTLE, FakeBackoffThrottle, FakeIdentityStore, MemoryPasswordCredentialStore, MemorySecretStore, MemorySessionIssuer, RecordingEventSink } from '@spinajs/authn-testing';
+import { DEFAULT_THROTTLE, FakeBackoffThrottle, FakeIdentityStore, MemoryPasswordCredentialStore, MemorySecretStore, MemorySessionIssuer, RecordingEventListener } from '@spinajs/authn-testing';
 
 import { Argon2PasswordHasher } from '../../src/hasher.js';
 import { PasswordMail, PasswordMailer } from '../../src/mailer.js';
@@ -39,7 +39,7 @@ export class RecordingDispatcher extends AuthnMailDispatcher {
 export async function setup<D extends AuthnMailDispatcher = AuthnMailDispatcher>(over: Partial<LocalPasswordServiceDeps> = {}, dispatcher?: (deliver: AuthnMailDelivery) => D) {
   const identities = new FakeIdentityStore();
   const passwords = new MemoryPasswordCredentialStore();
-  const events = new RecordingEventSink();
+  const events = new RecordingEventListener();
   const secrets = new MemorySecretStore();
   const mailer = new RecordingMailer();
   const hasher = new Argon2PasswordHasher({});

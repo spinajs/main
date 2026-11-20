@@ -5,7 +5,7 @@ import { DI } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
 import { CredentialChangeBus } from '@spinajs/authn/contracts';
 import type { AuthnContext, IdentityRef, TokenCreateOptions, TokenCreateResult, TokenValidation } from '@spinajs/authn/contracts';
-import { EnrolledMfaPolicy, FakeAuthnService, FakeBackoffThrottle, FakeIdentityStore, MemoryLinkStore, MemorySessionIssuer, RecordingEventSink, RecordingPrincipalFactory, throttleParams } from '@spinajs/authn-testing';
+import { EnrolledMfaPolicy, FakeAuthnService, FakeBackoffThrottle, FakeIdentityStore, MemoryLinkStore, MemorySessionIssuer, RecordingEventListener, RecordingPrincipalFactory, throttleParams } from '@spinajs/authn-testing';
 import { AuthnAudit } from '@spinajs/authn/audit';
 
 import '../../src/generator.js';
@@ -345,7 +345,7 @@ describe('agent tokens (A15)', function () {
         policy: new EnrolledMfaPolicy([]),
         steps: [],
         sessions: new MemorySessionIssuer(),
-        listeners: [new RecordingEventSink()],
+        listeners: [new RecordingEventListener()],
         principals: new RecordingPrincipalFactory(),
       });
 

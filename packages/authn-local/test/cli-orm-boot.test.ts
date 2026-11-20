@@ -8,7 +8,7 @@ import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 import { AuthnEventListener, AuthnThrottle, IdentityStore, PasswordCredentialStore, PasswordService, SecretStore, SessionIssuer } from '@spinajs/authn/contracts';
 import type { IdentityRef } from '@spinajs/authn/contracts';
 import { AuthnAudit } from '@spinajs/authn/audit';
-import { DEFAULT_THROTTLE, FakeBackoffThrottle, FakeIdentityStore, MemoryPasswordCredentialStore, MemorySecretStore, MemorySessionIssuer, RecordingEventSink } from '@spinajs/authn-testing';
+import { DEFAULT_THROTTLE, FakeBackoffThrottle, FakeIdentityStore, MemoryPasswordCredentialStore, MemorySecretStore, MemorySessionIssuer, RecordingEventListener } from '@spinajs/authn-testing';
 
 import { Argon2PasswordHasher, PasswordHasher } from '../src/hasher.js';
 import { PasswordMail, PasswordMailer } from '../src/mailer.js';
@@ -106,7 +106,7 @@ describe('authn-local cli commands on a Migration.OnStartup connection', functio
     [DbBackedIdentityStore, IdentityStore],
     [MemoryPasswordCredentialStore, PasswordCredentialStore],
     [MemorySessionIssuer, SessionIssuer],
-    [RecordingEventSink, AuthnEventListener],
+    [RecordingEventListener, AuthnEventListener],
     [CliOrmBackoffThrottle, AuthnThrottle],
     [MemorySecretStore, SecretStore],
     [CliOrmMailer, PasswordMailer],
@@ -137,7 +137,7 @@ describe('authn-local cli commands on a Migration.OnStartup connection', functio
       DI.uncache<unknown>(type);
       DI.uncache<unknown>(as);
     }
-    // AuthnAudit keeps the listeners of its first resolve; a later suite registers its own RecordingEventSink.
+    // AuthnAudit keeps the listeners of its first resolve; a later suite registers its own RecordingEventListener.
     for (const t of [PasswordHasher, Argon2PasswordHasher, LocalPasswordPolicy, AuthnAudit]) DI.uncache<unknown>(t);
   });
 

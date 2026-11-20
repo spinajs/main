@@ -1,7 +1,7 @@
 import 'mocha';
 // Only the published entry point: what a lane without its own AuthnService (N3, N6, N7, N10) can build on.
 import type { Credentials, IdentityRef } from '@spinajs/authn/contracts';
-import { EnrolledMfaPolicy, FakeAuthnService, FakeBackoffThrottle, FakeIdentityStore, FakeMfaStep, FakeStrategy, KIT_ATTRIBUTES, MemoryLinkStore, MemoryPasswordCredentialStore, MemorySessionIssuer, RecordingEventSink, RecordingPrincipalFactory, UnsupportedConfig, fakeSeedPort, runAuthnBehaviour, throttleParams } from '../src/index.js';
+import { EnrolledMfaPolicy, FakeAuthnService, FakeBackoffThrottle, FakeIdentityStore, FakeMfaStep, FakeStrategy, KIT_ATTRIBUTES, MemoryLinkStore, MemoryPasswordCredentialStore, MemorySessionIssuer, RecordingEventListener, RecordingPrincipalFactory, UnsupportedConfig, fakeSeedPort, runAuthnBehaviour, throttleParams } from '../src/index.js';
 import type { Facet, Harness, HarnessContext } from '../src/index.js';
 
 const attributedId = (c: Credentials): IdentityRef | undefined => (c as unknown as { id?: IdentityRef }).id;
@@ -31,7 +31,7 @@ function laneHarness(ctx: HarnessContext): Harness {
   const sessions = new MemorySessionIssuer();
   const params = throttleParams(ctx.config);
   const throttle = new FakeBackoffThrottle(params);
-  const events = new RecordingEventSink();
+  const events = new RecordingEventListener();
   const step = new FakeMfaStep();
   const local = FakeStrategy.password({ identities, passwords });
   const strategies = [local, attributed('kit-attributed-login', true), attributed('kit-attributed-request', false)];

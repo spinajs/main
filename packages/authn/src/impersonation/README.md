@@ -173,14 +173,15 @@ issuer: the old ids are revoked. `start` in this form needs the actor's
 session to be `aal2` and fresh unless you turn those keys off; pass a
 `reauth` credential as the fourth argument when it is not fresh.
 
-## Why audit sinks, not a separate event bus
+## Why audit listeners, not a separate event bus
 
 Impersonation publishes to `AuthnAudit` and not to a second, in-process event
-bus. `AuthnEventSink` already is the in-process observer: DI resolves every
-registered sink through `Array.chainOf`, each sink gets every event, and
-`AuthnAudit` delivers them together under a per-sink timeout, so a slow sink
-cannot hold up a login. `QueueAuthnEventListener` in `@spinajs/users` is only one
-sink, the one that forwards to the queue (`UserImpersonationStarted` and
-`UserImpersonationEnded`). A subscriber registers a sink instead of a handler.
+bus. `AuthnEventListener` already is the in-process observer: DI resolves every
+registered listener through `Array.chainOf`, each listener gets every event, and
+`AuthnAudit` delivers them together under a per-listener timeout, so a slow
+listener cannot hold up a login. `QueueAuthnEventListener` in `@spinajs/users`
+is only one listener, the one that forwards to the queue
+(`UserImpersonationStarted` and `UserImpersonationEnded`). A subscriber
+registers a listener instead of a handler.
 A second mechanism would give two ways to observe the same fact and a second
 place to decide delivery, ordering and failure.

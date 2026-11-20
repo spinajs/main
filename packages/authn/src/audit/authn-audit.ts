@@ -5,7 +5,7 @@ import { Log, Logger } from '@spinajs/log-common';
 import { ResiliencePipelineBuilder, TimeoutRejectedException, TimeSpan, frozenCopy, isNonEmptyString } from '@spinajs/util';
 import type { ResiliencePipeline } from '@spinajs/util';
 
-import { AuthnEventListener, AuthnEventSink, AuthnListenerFailed } from '../contracts/audit.js';
+import { AuthnEventListener, AuthnListenerFailed } from '../contracts/audit.js';
 import type { AuthnEvent } from '../contracts/audit.js';
 import type { AuthnContext } from '../contracts/credentials.js';
 import { errorClass } from '../support/guards.js';
@@ -144,10 +144,6 @@ export class AuthnAudit extends AsyncService {
   @Autoinject(Array.chainOf(AuthnEventListener))
   protected Listeners: AuthnEventListener[];
 
-  // What is still registered under the deprecated name; goes with AuthnEventSink.
-  @Autoinject(Array.chainOf(AuthnEventSink))
-  protected Sinks: AuthnEventSink[];
-
   private delivery!: ListenerDelivery;
 
   /** The same delivery over explicit listeners, for a service built outside DI with its listeners passed in. */
@@ -160,7 +156,7 @@ export class AuthnAudit extends AsyncService {
     const config = this.Config;
     if (!config) throw new InvalidOperation('authn.audit is unset: AUTHN_CONFIGURATION_SCHEMA is not registered');
 
-    const listeners = Object.freeze([...new Set<AuthnEventListener>([...this.Listeners, ...this.Sinks])]);
+    const listeners = Object.freeze([...this.Listeners]);
     if (listeners.length === 0) this.Log.warn('AuthnAudit: no AuthnEventListener is registered; authentication events are neither recorded nor acted on');
     // Neither bounded nor caught: a listener that cannot work, such as a recorder whose trail does not exist, fails the boot.
     for (const listener of listeners) await listener.ready?.();

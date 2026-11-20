@@ -19,7 +19,7 @@ import { AuthenticationStrategy, AuthnEventListener, AuthnThrottle, IMPERSONATIO
 import type { AuthnFacts, IdentityRef, Principal, StrategyOutcome } from '@spinajs/authn';
 import { DefaultSessionIssuer, MemorySessionStore, appEnvOf, sessionCookieName } from '@spinajs/authn-session';
 import type { ISessionCookieConfig } from '@spinajs/authn-session';
-import { EnrolledMfaPolicy, FakeIdentityStore, FakeImpersonationGuard, FakeMfaStep, FakeStrategy, MemoryPasswordCredentialStore, RecordingEventSink, RecordingPrincipalFactory, RecordingThrottle, fakeHash } from '@spinajs/authn-testing';
+import { EnrolledMfaPolicy, FakeIdentityStore, FakeImpersonationGuard, FakeMfaStep, FakeStrategy, MemoryPasswordCredentialStore, RecordingEventListener, RecordingPrincipalFactory, RecordingThrottle, fakeHash } from '@spinajs/authn-testing';
 
 import * as barrel from '../../src/index.js';
 import * as v3 from '../../src/v3/index.js';
@@ -77,7 +77,7 @@ interface Suite {
   step: FakeMfaStep;
   tokens: Map<string, StrategyOutcome>;
   passwordStrategy: FakeStrategy;
-  events: RecordingEventSink;
+  events: RecordingEventListener;
 }
 
 async function buildSuite(): Promise<Suite> {
@@ -93,7 +93,7 @@ async function buildSuite(): Promise<Suite> {
   Object.defineProperty(issuer, 'PendingTtlSeconds', { value: 300 });
   Object.defineProperty(issuer, 'Container', { value: child });
   const throttle = new RecordingThrottle();
-  const events = new RecordingEventSink();
+  const events = new RecordingEventListener();
   const step = new FakeMfaStep({ name: 'totp' });
   const tokens = new Map<string, StrategyOutcome>();
   const passwordStrategy = FakeStrategy.password({ identities, passwords, name: 'local' });

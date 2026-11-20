@@ -2,7 +2,7 @@ import 'mocha';
 import { expect } from 'chai';
 import { createHash, randomUUID } from 'node:crypto';
 import type { AuthnContext, AuthnFacts, IdentityRef, ThrottleKey } from '@spinajs/authn/contracts';
-import { DEFAULT_THROTTLE, FakeBackoffThrottle, FakeIdentityStore, MemoryPasswordCredentialStore, MemorySecretStore, MemorySessionIssuer, RecordingEventSink } from '@spinajs/authn-testing';
+import { DEFAULT_THROTTLE, FakeBackoffThrottle, FakeIdentityStore, MemoryPasswordCredentialStore, MemorySecretStore, MemorySessionIssuer, RecordingEventListener } from '@spinajs/authn-testing';
 
 import { Argon2PasswordHasher } from '../src/hasher.js';
 import { PasswordMail, PasswordMailer } from '../src/mailer.js';
@@ -63,7 +63,7 @@ async function setup(over: Partial<LocalPasswordServiceDeps> = {}) {
   const passwords = new MemoryPasswordCredentialStore();
   const sessions = new MemorySessionIssuer();
   const throttle = new FakeBackoffThrottle(DEFAULT_THROTTLE);
-  const events = new RecordingEventSink();
+  const events = new RecordingEventListener();
   const tokens = new RecordingTokenService();
   const secrets = new CountingSecretStore();
   const mailer = new RecordingMailer();

@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import type { IdentityRef } from '@spinajs/authn/contracts';
 import { DbMfaStore, identityKey } from '@spinajs/authn-orm';
-import { EnrolledMfaPolicy, FakeAuthnService, FakeBackoffThrottle, FakeIdentityStore, FakeStrategy, MemoryLinkStore, MemoryPasswordCredentialStore, MemorySessionIssuer, RecordingEventSink, RecordingPrincipalFactory, UnsupportedConfig, fakeSeedPort, parseOtpauth, throttleParams, totp } from '@spinajs/authn-testing';
+import { EnrolledMfaPolicy, FakeAuthnService, FakeBackoffThrottle, FakeIdentityStore, FakeStrategy, MemoryLinkStore, MemoryPasswordCredentialStore, MemorySessionIssuer, RecordingEventListener, RecordingPrincipalFactory, UnsupportedConfig, fakeSeedPort, parseOtpauth, throttleParams, totp } from '@spinajs/authn-testing';
 import type { ConfigOverrides, Harness, HarnessContext, MfaStoragePort } from '@spinajs/authn-testing';
 import { mfaKeyRingFrom } from '../../src/cipher/index.js';
 import { DbMfaSecretStore } from '../../src/db.js';
@@ -81,7 +81,7 @@ export async function totpHarness(ctx: HarnessContext, kind: StoreKind = 'memory
   const step = new TotpMfaStep({ store, keys: mfaKeyRingFrom({ secret: randomBytes(32).toString('hex') }), options, identities });
   const params = throttleParams(ctx.config);
   const throttle = new FakeBackoffThrottle(params);
-  const events = new RecordingEventSink();
+  const events = new RecordingEventListener();
   const sessions = new MemorySessionIssuer();
   const service = new FakeAuthnService({
     strategies: [FakeStrategy.password({ identities, passwords })],

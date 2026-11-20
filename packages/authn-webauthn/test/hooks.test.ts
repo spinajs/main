@@ -3,7 +3,7 @@ import 'mocha';
 import assert from 'node:assert/strict';
 import { ActionRefused } from '@spinajs/hooks';
 import type { AuthnContext } from '@spinajs/authn/contracts';
-import { FakeClock, RecordingEventSink, ScriptedActionHook, kitHooks } from '@spinajs/authn-testing';
+import { FakeClock, RecordingEventListener, ScriptedActionHook, kitHooks } from '@spinajs/authn-testing';
 import type { SoftAuthenticator } from '@spinajs/authn-testing';
 
 import { MemoryWebAuthnChallengeStore } from '../src/challenge.js';
@@ -24,7 +24,7 @@ describe('WebAuthnPasskeyService action hooks', function () {
   this.timeout(30000);
   let clock: FakeClock;
   let credentials: MemoryWebAuthnCredentialStore;
-  let events: RecordingEventSink;
+  let events: RecordingEventListener;
   let hook: ScriptedActionHook;
   let service: WebAuthnPasskeyService;
   let key: SoftAuthenticator;
@@ -40,7 +40,7 @@ describe('WebAuthnPasskeyService action hooks', function () {
     clock = new FakeClock(START);
     clock.install();
     credentials = new MemoryWebAuthnCredentialStore();
-    events = new RecordingEventSink();
+    events = new RecordingEventListener();
     hook = new ScriptedActionHook();
     service = new WebAuthnPasskeyService({ credentials, challenges: new MemoryWebAuthnChallengeStore(), options: webauthnOptions(), identities: null, listeners: [events], hooks: await kitHooks([hook]) });
     key = authenticator('alice');

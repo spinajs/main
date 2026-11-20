@@ -6,7 +6,7 @@ import { AuthnAudit } from '@spinajs/authn/audit';
 import { AuthnEventListener, AuthnThrottle, JwsVerifier, KeyRegistry, NonceStore, SecretStore } from '@spinajs/authn/contracts';
 import { MemoryNonceStore } from '@spinajs/authn/nonces';
 import type { AuthnContext, KeyChallenge, KeyOwner, KeyRegistration } from '@spinajs/authn/contracts';
-import { FakeBackoffThrottle, FakeClock, MemorySecretStore, RecordingEventSink, generateKeyPair, throttleParams } from '@spinajs/authn-testing';
+import { FakeBackoffThrottle, FakeClock, MemorySecretStore, RecordingEventListener, generateKeyPair, throttleParams } from '@spinajs/authn-testing';
 import type { KitKeyPair } from '@spinajs/authn-testing';
 import { challengeSecretPurpose, parseChallengeId, signChallenge } from '../src/challenge/index.js';
 import { keysOptionsFor } from './support/keys-options.js';
@@ -24,7 +24,7 @@ const AUD = 'https://keys.kit.test';
 function world(options = keysOptionsFor({ assertion: { audience: AUD } })) {
   const clock = new FakeClock();
   const secrets = new MemorySecretStore();
-  const events = new RecordingEventSink();
+  const events = new RecordingEventListener();
   const registry = new DefaultKeyRegistry({ store: new MemoryKeyStore(), secrets, throttle: new FakeBackoffThrottle(throttleParams()), audit: AuthnAudit.over([events]), options });
   const ctx = (): AuthnContext => clock.ctx();
   const challenge = async (owner = ALICE): Promise<KeyChallenge> => {
@@ -44,7 +44,7 @@ const userReg = (kp: KitKeyPair, proof: unknown, owner = ALICE, over: object = {
 describe('DefaultKeyRegistry', () => {
   it('throttles login challenges on the IPv6 /64 of the client', async () => {
     const throttle = new FakeBackoffThrottle(throttleParams({ authn: { throttle: { login: { ip: { free: 1, baseDelayMs: 1000, maxDelayMs: 1000 } } } } }));
-    const registry = new DefaultKeyRegistry({ store: new MemoryKeyStore(), secrets: new MemorySecretStore(), throttle, audit: AuthnAudit.over([new RecordingEventSink()]), options: keysOptionsFor({ assertion: { audience: AUD } }) });
+    const registry = new DefaultKeyRegistry({ store: new MemoryKeyStore(), secrets: new MemorySecretStore(), throttle, audit: AuthnAudit.over([new RecordingEventListener()]), options: keysOptionsFor({ assertion: { audience: AUD } }) });
     const clock = new FakeClock();
     const at = (ip: string) => clock.ctx({ ip });
     const challenge = (ip: string) => registry.challenge({ purpose: 'login', kid: 'k' }, at(ip));
@@ -244,7 +244,7 @@ describe('DefaultKeyRegistry', () => {
         return new Promise(() => undefined);
       }
     }
-    const events = new RecordingEventSink();
+    const events = new RecordingEventListener();
     const registry = new DefaultKeyRegistry({ store: new MemoryKeyStore(), secrets: new MemorySecretStore(), throttle: new FakeBackoffThrottle(throttleParams()), audit: AuthnAudit.over([new ThrowingSink(), new HangingSink(), events], { listenerTimeoutMs: 20 }), options: keysOptionsFor({ assertion: { audience: AUD } }) });
     const ctx = new FakeClock().ctx();
     const started = Date.now();
@@ -285,7 +285,7 @@ describe('DefaultKeyRegistry', () => {
         super(throttleParams());
       }
     }
-    class SpySink extends RecordingEventSink {
+    class SpySink extends RecordingEventListener {
       static last: SpySink | undefined;
       constructor() {
         super();

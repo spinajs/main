@@ -9,7 +9,7 @@ import { renderTemplate } from '@spinajs/log';
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { AuthnEventListener, AuthnThrottle, IdentityStore, PasswordCredentialStore, PasswordService, SecretStore, SessionIssuer } from '@spinajs/authn/contracts';
 import type { IdentityRef } from '@spinajs/authn/contracts';
-import { DEFAULT_THROTTLE, FakeBackoffThrottle, FakeIdentityStore, MemoryPasswordCredentialStore, MemorySecretStore, MemorySessionIssuer, RecordingEventSink } from '@spinajs/authn-testing';
+import { DEFAULT_THROTTLE, FakeBackoffThrottle, FakeIdentityStore, MemoryPasswordCredentialStore, MemorySecretStore, MemorySessionIssuer, RecordingEventListener } from '@spinajs/authn-testing';
 
 import { Argon2PasswordHasher, EXPIRED_PASSWORD_MARKER, PasswordHasher } from '../src/hasher.js';
 import { PasswordMail, PasswordMailer } from '../src/mailer.js';
@@ -64,7 +64,7 @@ describe('authn-local cli commands', function () {
     DI.register(FakeIdentityStore).as(IdentityStore);
     DI.register(MemoryPasswordCredentialStore).as(PasswordCredentialStore);
     DI.register(MemorySessionIssuer).as(SessionIssuer);
-    DI.register(RecordingEventSink).as(AuthnEventListener);
+    DI.register(RecordingEventListener).as(AuthnEventListener);
     DI.register(CliBackoffThrottle).as(AuthnThrottle);
     DI.register(MemorySecretStore).as(SecretStore);
     DI.register(CliRecordingMailer).as(PasswordMailer);
@@ -77,7 +77,7 @@ describe('authn-local cli commands', function () {
     DI.unregister(FakeIdentityStore);
     DI.unregister(MemoryPasswordCredentialStore);
     DI.unregister(MemorySessionIssuer);
-    DI.unregister(RecordingEventSink);
+    DI.unregister(RecordingEventListener);
     DI.unregister(CliBackoffThrottle);
     DI.unregister(MemorySecretStore);
     DI.unregister(CliRecordingMailer);
@@ -86,7 +86,7 @@ describe('authn-local cli commands', function () {
     DI.uncache(FakeIdentityStore);
     DI.uncache(MemoryPasswordCredentialStore);
     DI.uncache(MemorySessionIssuer);
-    DI.uncache(RecordingEventSink);
+    DI.uncache(RecordingEventListener);
     DI.uncache(CliBackoffThrottle);
     DI.uncache(MemorySecretStore);
     DI.uncache(CliRecordingMailer);
@@ -175,7 +175,7 @@ describe('authn-local cli commands', function () {
       const identities = DI.resolve(IdentityStore) as FakeIdentityStore;
       const passwords = DI.resolve(PasswordCredentialStore) as MemoryPasswordCredentialStore;
       const hasher = (await DI.resolve(PasswordHasher)) as Argon2PasswordHasher;
-      const sink = (DI.resolve(Array.ofType(AuthnEventListener)) as unknown[]).find((s) => s instanceof RecordingEventSink) as RecordingEventSink;
+      const sink = (DI.resolve(Array.ofType(AuthnEventListener)) as unknown[]).find((s) => s instanceof RecordingEventListener) as RecordingEventListener;
       const id = identities.add({ login });
       const hash = await hasher.hash(OLD);
       await passwords.set(id, hash);
@@ -328,7 +328,7 @@ describe('authn-local cli commands', function () {
     it('an unknown login fails the command without calling set or naming the login', async () => {
       const service = (await DI.resolve(PasswordService)) as LocalPasswordService;
       const passwords = DI.resolve(PasswordCredentialStore) as MemoryPasswordCredentialStore;
-      const sink = (DI.resolve(Array.ofType(AuthnEventListener)) as unknown[]).find((s) => s instanceof RecordingEventSink) as RecordingEventSink;
+      const sink = (DI.resolve(Array.ofType(AuthnEventListener)) as unknown[]).find((s) => s instanceof RecordingEventListener) as RecordingEventListener;
       const writes = passwords.writes.length;
       const events = sink.all().length;
       const original = service.set;

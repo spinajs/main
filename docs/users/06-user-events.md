@@ -4,7 +4,7 @@ Queue events (`@spinajs/queue`) that tell other services what happened to an acc
 
 ## How it works
 
-1. An action, or a sink, builds the event with the `User` row: `new UserBanned(user)`.
+1. An action, or an authn event listener, builds the event with the `User` row: `new UserBanned(user)`.
 2. `UserEvent`'s constructor copies `user.Uuid` into `UserUUID`; subclasses copy more fields.
 3. `ev(event)` resolves `QueueService` and emits it to the connection `queue.routing.<EventName>` names, or to `queue.default` when there is no route.
 4. The connection's transport delivers it to subscribers. The shipped routes point the events at `rbac-user-empty-queue`, a `BlackHoleQueueClient` connection that drops every message.
@@ -113,7 +113,7 @@ export async function upgradePlan(uuid: string, plan: string): Promise<User> {
 
 - Route only the events a consumer needs; leave the rest on the black hole.
 - Key consumers on `UserUUID`, never on a numeric id.
-- Treat `UserLogged` as a notification, not an audit log; authn's audit sinks are the record.
+- Treat `UserLogged` as a notification, not an audit log; the audit trail of `@spinajs/audit-authn` is the record.
 
 ## Patterns and antipatterns
 

@@ -3,7 +3,7 @@ import { expect } from 'chai';
 import * as sinon from 'sinon';
 import { DefaultQueueService } from '@spinajs/queue';
 import { AuthnAudit } from '@spinajs/authn/audit';
-import { AuthnEventListener, AuthnEventSink } from '@spinajs/authn/contracts';
+import { AuthnEventListener } from '@spinajs/authn/contracts';
 import type { AuthnEvent, AuthnEventType, IdentityRef } from '@spinajs/authn/contracts';
 
 import { QueueAuthnEventListener, UserImpersonationEnded, UserImpersonationStarted, UserLogged, UserLoginFailed, UserPasswordChangeRequest, UserPasswordChanged } from '../src/index.js';
@@ -44,21 +44,16 @@ describe('users authn event listeners', function () {
     expect(listeners.map((s) => s.constructor.name)).to.not.include('UserAccountSink');
   });
 
-  it('AuthnAudit delivers once to QueueAuthnEventListener registered under both ports, and its failure does not fail the publish', async () => {
-    DI.register(QueueAuthnEventListener).as(AuthnEventSink);
-    try {
-      const { ref } = await seedUser({ login: 'twice', password: HASH });
-      const audit = await DI.resolve(AuthnAudit);
+  it('AuthnAudit delivers once to QueueAuthnEventListener, and its failure does not fail the publish', async () => {
+    const { ref } = await seedUser({ login: 'once', password: HASH });
+    const audit = await DI.resolve(AuthnAudit);
 
-      expect(audit.listeners().filter((l) => l instanceof QueueAuthnEventListener)).to.have.lengthOf(1);
-      await audit.publish(event('login', ref));
-      expect(emitted().map((x) => x.constructor)).to.deep.eq([UserLogged]);
+    expect(audit.listeners().filter((l) => l instanceof QueueAuthnEventListener)).to.have.lengthOf(1);
+    await audit.publish(event('login', ref));
+    expect(emitted().map((x) => x.constructor)).to.deep.eq([UserLogged]);
 
-      emit.rejects(new Error('queue down'));
-      await audit.publish(event('login', ref));
-    } finally {
-      DI.unregister(AuthnEventSink, QueueAuthnEventListener);
-    }
+    emit.rejects(new Error('queue down'));
+    await audit.publish(event('login', ref));
   });
 
   describe('QueueAuthnEventListener', () => {

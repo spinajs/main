@@ -182,8 +182,8 @@ password bounds outside 8-128, `session.hashIds: false` and an `mfa.steps[].name
 **Core keys as built (N1).** `@spinajs/authn` ships defaults for `strategies`, `mfa.policy`,
 `throttle`, `freshAuth`, `linking`, `impersonation`, `audit` and `config`. They equal the schema and
 code defaults. The package lists **no strategy and no MFA step**, because a configured array replaces
-the default in 4.0: you list each strategy once, in one file. Every registered `AuthnEventSink` gets the audit
-events; `authn.audit` has no sink list.
+the default in 4.0: you list each strategy once, in one file. Every registered `AuthnEventListener` gets the audit
+events; `authn.audit` has no listener list.
 `authn.throttle.service` has no default. Left out, the only registered throttle runs, or the only one
 besides `MemoryAuthnThrottle`. `@spinajs/authn` registers `MemoryAuthnThrottle`; importing
 `@spinajs/authn-orm` adds `DbAuthnThrottle`, which then runs (K6) and needs `authn.audit.hashKey.secret`
@@ -199,7 +199,7 @@ services, never values.
 | Secrets (A24, SR-16) | `http.cookie.secret` missing, empty or the public `1234adreewD`; `authn.mfa.encryptionKey.secret` missing while a listed MFA step stores secrets; both **outside development and test**. A malformed pepper in every env fails boot as `InvalidConfiguration` with the full path of each bad value (`version` below 1, `secret` not a string or `null`, a `previous` entry without a non-empty `secret` and a version, a `previous` version that repeats or equals the current `version`) | The same secrets in development and test; an empty `authn.local.pepper.secret` there |
 | Throttle | `authn.throttle.service` names a throttle that is not registered, or is unset while none or several are registered. Boot never falls back to memory, which would split the counts of a multi-instance app | |
 | MFA policy | `force` or `forceForRoles` with no `authn.mfa.steps`; `forceForRoles` with no `RoleSource` or `PrincipalFactory` | |
-| Audit | An unknown key in `authn.audit` (`sinks` included), a bad `listenerTimeoutMs` or `hashKey` (under 32 characters) | No sink registered at all |
+| Audit | An unknown key in `authn.audit` (`sinks` included), a bad `listenerTimeoutMs` or `hashKey` (under 32 characters) | No listener registered at all |
 | Neighbours | No `IdentityStore`, `PrincipalFactory` or `SessionIssuer` (also when only per-request strategies are listed) | |
 | Env | | No env named by `--env`, `APP_ENV` or `NODE_ENV`: the configuration fell back to `development`, but authn treats the deployment as production, with the strict secret checks. The warning says so. |
 
@@ -364,7 +364,7 @@ on that resource, such as `user:impersonate`. You may collapse by hand when you 
 | `user.Role`, raw SQL on `users.Role`, `withRole` | `RbacService.rolesOf(principal)`, `AssignmentStore.holders(role, scope)`, or a join on `authz_assignment` |
 | `import { ... } from '@spinajs/rbac'` and the other `rbac*` packages | the new names of section 2 |
 | `UserRoleGranted`, `UserRoleRevoked` subscribers | `RoleAssigned`, `RoleRevoked` (`subject`, `role`, `scope`, `actor`, `expiresAt`) through an `AuthzEventSink`; 3.0 ships no queue sink ([section 11](#11-open-items-in-300-rc1)) |
-| `User2Fa*` queue events | gone; the audit events `mfa.enrol` and `mfa.disable` reach every `AuthnEventSink` |
+| `User2Fa*` queue events | gone; the audit events `mfa.enrol` and `mfa.disable` reach every `AuthnEventListener` |
 | `login(email, password)`, `SimpleDbAuthProvider.authenticate` | `AuthnService.authenticate({ kind: 'password', login, password }, ctx)` (`DefaultAuthnService`) |
 | `passwordChangeRequest`, `confirmPasswordReset`, `changeUserPassword` | `PasswordService.requestReset`, `.redeemReset`, `.change` (`LocalPasswordService` in `authn-local`) |
 | `SessionProvider`, `UserSession`, `regenerateSession`, `revokeUserSessions` | `SessionProvider` from `@spinajs/authn-session`; `SessionIssuer.rotate`, `.revokeAll(subject)` |
@@ -381,7 +381,7 @@ Removed with no replacement (§11.5): `@Resource`, `@Permission`, `RbacPolicy`,
 `checkRbacPermission`, `checkUserPermission`, `checkRoutePermission`, `GrantsController`,
 `IGrantsMap`, `FilterAttribute`, `@SkipModelPermission`, `ACL_CONTROLLER_DESCRIPTOR`, the swagger
 `x-rbac-*` keys (use `x-authz-permission` and `x-authz-resource`), the `LogoutHandler` extension point
-(listen for the `logout` event in an `AuthnEventSink`) and the `orm-api` package.
+(listen for the `logout` event in an `AuthnEventListener`) and the `orm-api` package.
 
 ### 5.2 What the HTTP layer adds
 
@@ -1153,8 +1153,9 @@ The flow is in the [authentication flow](../authn/01-authentication-flow.md). Wh
   `requirePassword` means fresh auth or an inline re-authentication. An impersonation session is never
   fresh, `reauthenticate` refuses it, and its lifetime is bounded by `maxMinutes` and by
   `authn.session.expiration.maxLifetime`.
-- **Audit.** Each event goes to every sink concurrently, each bounded by `authn.audit.listenerTimeoutMs`
-  (default 2000). A sink that fails or times out is logged by error class only and never fails a login.
+- **Audit.** Each event goes to every listener concurrently, each bounded by `authn.audit.listenerTimeoutMs`
+  (default 2000). A listener that fails or times out is logged by error class only and fails a login only
+  when it is blocking.
   `token.use` and `key.use` successes are no longer sampled; `authn.audit.sampleUse` is gone and a config that still sets it fails boot.
 - **Boot.** Services that read config are per child container, so a child boot reads its own list.
 - **Per-request credentials count failures only (K5).** See the K5 subsection below; the parallel-load
@@ -1447,7 +1448,7 @@ The full description is in the [authn-totp docs](../authn-totp/README.md).
 - **Throttle.** Confirming and disabling count into the `mfa` throttle, in the same budget as the
   login. Pick the `mfa` limits with that in mind.
 - `User2FaEnabled` and the other 2.x 2FA queue events are gone; listen for `mfa.enrol` and
-  `mfa.disable` in an `AuthnEventSink`.
+  `mfa.disable` in an `AuthnEventListener`.
 - Known limits: parallel regeneration can leave two live recovery-code sets (the store has no
   transaction), and `TotpService` finds the MFA steps in the root container.
 

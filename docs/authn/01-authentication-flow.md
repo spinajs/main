@@ -2,7 +2,7 @@
 
 `AuthnService` turns credentials into a result: a session, a pending MFA session, a per-request success, or one opaque failure. `DefaultAuthnService` is the implementation. Every login method, HTTP route and CLI command goes through it.
 
-Use this page to see what runs, in which order, and what each step can refuse. The strategies, the MFA policy, the throttle and the audit sinks have their own pages.
+Use this page to see what runs, in which order, and what each step can refuse. The strategies, the MFA policy, the throttle and the audit listeners have their own pages.
 
 ## How it works
 

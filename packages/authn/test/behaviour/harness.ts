@@ -2,7 +2,7 @@ import { randomBytes } from 'node:crypto';
 import { DI } from '@spinajs/di';
 import type { Class, IContainer } from '@spinajs/di';
 import { CONFIGURATION_CONTAINER_KEY, Configuration, FrameworkConfiguration, InvalidConfiguration } from '@spinajs/configuration';
-import { FakeIdentityStore, FakeImpersonationGuard, FakeImpersonationStartHook, FakeMfaStep, FakeStrategy, KIT_ATTRIBUTES, KitActionHooks, MemoryLinkStore, MemoryPasswordCredentialStore, MemorySessionIssuer, RecordingEventSink, RecordingPrincipalFactory, UnsupportedConfig, fakeSeedPort } from '@spinajs/authn-testing';
+import { FakeIdentityStore, FakeImpersonationGuard, FakeImpersonationStartHook, FakeMfaStep, FakeStrategy, KIT_ATTRIBUTES, KitActionHooks, MemoryLinkStore, MemoryPasswordCredentialStore, MemorySessionIssuer, RecordingEventListener, RecordingPrincipalFactory, UnsupportedConfig, fakeSeedPort } from '@spinajs/authn-testing';
 import { ActionHook, DefaultHooks, Hooks } from '@spinajs/hooks';
 import type { BootPort, BootSpec, ConfigOverrides, Harness, HarnessContext, MemorySessionOptions } from '@spinajs/authn-testing';
 
@@ -60,8 +60,8 @@ export interface CoreParts {
   readonly passwords: MemoryPasswordCredentialStore;
   readonly sessions: MemorySessionIssuer;
   readonly throttle: AuthnThrottle;
-  readonly events: RecordingEventSink;
-  readonly second: RecordingEventSink;
+  readonly events: RecordingEventListener;
+  readonly second: RecordingEventListener;
   readonly principals: RecordingPrincipalFactory;
   readonly links: MemoryLinkStore;
   readonly step: FakeMfaStep;
@@ -217,8 +217,8 @@ async function prepareCore(config: ConfigOverrides, opts: CoreOptions): Promise<
   const identities = new FakeIdentityStore({ jit });
   const passwords = new MemoryPasswordCredentialStore();
   const sessions = new MemorySessionIssuer({ ...sessionOptions(config), memoryBacked: opts.memorySessionStore });
-  const events = new RecordingEventSink();
-  const second = new RecordingEventSink();
+  const events = new RecordingEventListener();
+  const second = new RecordingEventListener();
   const principals = new RecordingPrincipalFactory();
   const links = new MemoryLinkStore();
   const step = new FakeMfaStep();

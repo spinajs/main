@@ -2,7 +2,7 @@ import 'mocha';
 import assert from 'node:assert/strict';
 import { PasskeyChallengesFull } from '@spinajs/authn/contracts';
 import type { AuthnContext } from '@spinajs/authn/contracts';
-import { FakeClock, RecordingEventSink } from '@spinajs/authn-testing';
+import { FakeClock, RecordingEventListener } from '@spinajs/authn-testing';
 import type { SoftAuthenticator } from '@spinajs/authn-testing';
 
 import { MemoryWebAuthnChallengeStore } from '../src/challenge.js';
@@ -16,7 +16,7 @@ describe('WebAuthnPasskeyService', function () {
   let clock: FakeClock;
   let credentials: MemoryWebAuthnCredentialStore;
   let challenges: MemoryWebAuthnChallengeStore;
-  let events: RecordingEventSink;
+  let events: RecordingEventListener;
   let service: WebAuthnPasskeyService;
   let key: SoftAuthenticator;
 
@@ -32,7 +32,7 @@ describe('WebAuthnPasskeyService', function () {
     clock.install();
     credentials = new MemoryWebAuthnCredentialStore();
     challenges = new MemoryWebAuthnChallengeStore();
-    events = new RecordingEventSink();
+    events = new RecordingEventListener();
     service = new WebAuthnPasskeyService({ credentials, challenges, options: webauthnOptions(), identities: null, listeners: [events] });
     key = authenticator('alice');
   });

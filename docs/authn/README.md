@@ -77,5 +77,5 @@ export async function signIn(login: string, password: string, ip: string): Promi
 - [`@spinajs/authn-orm`](../authn-orm/README.md): the database stores: `DbAuthnThrottle`, `DbIdentityLinkStore`, `DbSecretStore`, `DbNonceStore`, `DbMfaEnrolments`.
 - [`@spinajs/session-provider-db`](../session-provider-db/README.md), [`@spinajs/session-provider-redis`](../session-provider-redis/README.md), [`@spinajs/session-provider-dynamodb`](../session-provider-dynamodb/README.md): session stores for `authn-session`.
 - [`@spinajs/authn-testing`](../authn-testing/README.md): fakes, conformance suites and the behaviour rules for strategies and stores.
-- [`@spinajs/users`](../users/README.md): `IdentityStore`, `PasswordCredentialStore`, `PrincipalFactory`, the guards and the event sinks over the user model.
+- [`@spinajs/users`](../users/README.md): `IdentityStore`, `PasswordCredentialStore`, `PrincipalFactory`, the guards and the event listener over the user model.
 - [`@spinajs/authz`](../authz/README.md): decides what the principal may do; imports only the principal types from `@spinajs/authn/contracts`.

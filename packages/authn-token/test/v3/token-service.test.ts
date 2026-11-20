@@ -9,7 +9,7 @@ import { InvalidArgument, InvalidOperation } from '@spinajs/exceptions';
 import { AuthnEventListener, CredentialChangeBus, IdentityStore, RoleSource, TokenService } from '@spinajs/authn/contracts';
 import type { AuthnAuditor } from '@spinajs/authn/audit';
 import type { AuthnContext, AuthnEvent, IdentityRef, IdentityStatus, Principal, TokenCreateOptions, TokenCreateResult } from '@spinajs/authn/contracts';
-import { FakeIdentityStore, RecordingEventSink, kitHooks } from '@spinajs/authn-testing';
+import { FakeIdentityStore, RecordingEventListener, kitHooks } from '@spinajs/authn-testing';
 import { ActionHook, ActionHookFailed } from '@spinajs/hooks';
 import type { ActionName, ActionPattern, BeforeContext } from '@spinajs/hooks';
 import { DateTime } from 'luxon';
@@ -34,7 +34,7 @@ const at = (ms: number): Date => new Date(NOW.getTime() + ms);
 const ctx = (now: Date = NOW, over: Partial<AuthnContext> = {}): AuthnContext => ({ now, purpose: 'request', ...over });
 const sha256 = (s: string): string => createHash('sha256').update(s).digest('hex');
 
-class TokenTestSink extends RecordingEventSink {}
+class TokenTestSink extends RecordingEventListener {}
 
 class StubProfilePolicy extends TokenProfilePolicy {
   public allowed: string[] = [];

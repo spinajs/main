@@ -8,7 +8,7 @@ import { AUTHN_CONFIGURATION_SCHEMA, AuthenticationStrategy, AuthnEventListener,
 import type { AuthenticationResult, AuthnLoginIdentifiedInput, Credentials, ExternalSubject, IdentityRef } from '@spinajs/authn';
 import { ActionHook, DefaultHooks, Hooks } from '@spinajs/hooks';
 import type { ActionPattern, BeforeContext } from '@spinajs/hooks';
-import { FakeIdentityStore, FakeMfaStep, MemoryLinkStore, MemorySessionIssuer, RecordingEventSink, RecordingPrincipalFactory } from '@spinajs/authn-testing';
+import { FakeIdentityStore, FakeMfaStep, MemoryLinkStore, MemorySessionIssuer, RecordingEventListener, RecordingPrincipalFactory } from '@spinajs/authn-testing';
 
 import { encodeFlow } from '../src/flow/cookie.js';
 import { AUTHN_OIDC_CONFIGURATION_SCHEMA } from '../src/options/schema.js';
@@ -52,7 +52,7 @@ interface Core {
   identities: FakeIdentityStore;
   links: MemoryLinkStore;
   sessions: MemorySessionIssuer;
-  events: RecordingEventSink;
+  events: RecordingEventListener;
   credentials(sub: string, extra?: Record<string, unknown>): Promise<Credentials>;
 }
 
@@ -83,7 +83,7 @@ async function core(linking: { jit: boolean; byVerifiedEmail: boolean }, provide
   bind(child, SessionIssuer, 'KitSessionIssuer', sessions);
   bind(child, PrincipalFactory, 'KitPrincipalFactory', new RecordingPrincipalFactory());
   bind(child, MfaStep, 'KitMfaStep', step);
-  const events = new RecordingEventSink();
+  const events = new RecordingEventListener();
   bind(child, AuthnEventListener, 'KitEvents', events);
   bind(child, OidcHttpClient, 'KitIdp', idp);
   bind(child, NonceStore, 'KitNonces', new MemoryNonceStore());

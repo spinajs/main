@@ -4,7 +4,7 @@ import { expect } from 'chai';
 import { ActionRefused } from '@spinajs/hooks';
 import { IdentityAddressVerifier } from '@spinajs/authn/contracts';
 import type { AuthnContext, AuthnFacts, IdentityRef, PrincipalRef } from '@spinajs/authn/contracts';
-import { DEFAULT_THROTTLE, FakeBackoffThrottle, FakeIdentityStore, MemoryPasswordCredentialStore, MemorySecretStore, MemorySessionIssuer, RecordingEventSink, ScriptedActionHook, kitHooks } from '@spinajs/authn-testing';
+import { DEFAULT_THROTTLE, FakeBackoffThrottle, FakeIdentityStore, MemoryPasswordCredentialStore, MemorySecretStore, MemorySessionIssuer, RecordingEventListener, ScriptedActionHook, kitHooks } from '@spinajs/authn-testing';
 
 import { Argon2PasswordHasher, EXPIRED_PASSWORD_MARKER } from '../src/hasher.js';
 import { PasswordMail, PasswordMailer } from '../src/mailer.js';
@@ -72,7 +72,7 @@ async function setup() {
   const identities = new FakeIdentityStore();
   const passwords = new SpyPasswordStore();
   const sessions = new MemorySessionIssuer();
-  const events = new RecordingEventSink();
+  const events = new RecordingEventListener();
   const secrets = new MemorySecretStore();
   const mailer = new RecordingMailer();
   const verifier = new RecordingVerifier();

@@ -8,7 +8,7 @@ import type { Class, IContainer } from '@spinajs/di';
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { ACTIVE_ROLE_KEY, AUTHN_CONFIGURATION_SCHEMA, AuthnEventListener, AuthnService, AuthnThrottle, DefaultAuthnService, DEFAULT_THROTTLE_PARAMS, IdentityLinkStore, IdentityStore, MemoryAuthnThrottle, MemoryNonceStore, MfaStep, NonceStore, PrincipalFactory, SessionIssuer } from '@spinajs/authn';
 import type { AuthnLoginIdentifiedInput, IdentityRef, SessionHandle } from '@spinajs/authn';
-import { FakeIdentityStore, FakeMfaStep, MemoryLinkStore, MemorySessionIssuer, RecordingEventSink, RecordingPrincipalFactory } from '@spinajs/authn-testing';
+import { FakeIdentityStore, FakeMfaStep, MemoryLinkStore, MemorySessionIssuer, RecordingEventListener, RecordingPrincipalFactory } from '@spinajs/authn-testing';
 import { ActionHook, DefaultHooks, Hooks } from '@spinajs/hooks';
 import type { ActionName, ActionPattern, BeforeContext } from '@spinajs/hooks';
 import { RecordingActionHook, mutatingHook, refusingHook } from '@spinajs/hooks/testing';
@@ -115,7 +115,7 @@ async function world(hooks: (sessions: MemorySessionIssuer) => readonly ActionHo
   bind(child, SessionIssuer, 'KitSessionIssuer', sessions);
   bind(child, PrincipalFactory, 'KitPrincipalFactory', new RecordingPrincipalFactory());
   bind(child, MfaStep, 'KitMfaStep', step);
-  bind(child, AuthnEventListener, 'KitEvents', new RecordingEventSink());
+  bind(child, AuthnEventListener, 'KitEvents', new RecordingEventListener());
   bind(child, OidcHttpClient, 'KitIdp', idp);
   bind(child, NonceStore, 'KitNonces', new MemoryNonceStore());
   registerOidcStrategies(['corp'], child);

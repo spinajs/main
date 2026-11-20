@@ -149,7 +149,7 @@ async function main() {
   const identities = new kit.FakeIdentityStore();
   const passwords = new kit.MemoryPasswordCredentialStore();
   const throttle = new kit.RecordingThrottle();
-  const events = new kit.RecordingEventSink();
+  const events = new kit.RecordingEventListener();
   const principals = new kit.RecordingPrincipalFactory();
   const strategy = kit.FakeStrategy.password({ identities, passwords, name: 'local' });
   const bind = (base, name, value) => DI.register({ [name]: () => value }[name]).as(base);

@@ -11,7 +11,7 @@ import { AdminAssignmentStore, AdminLinkStore, AdminRuleStore, AssignmentStore, 
 import type { LadderDef, RoleDef } from '@spinajs/authz-rbac';
 import { hostHarness, runBehaviour, testHost } from '@spinajs/authz-testing';
 import type { BehaviourHarness, Facet } from '@spinajs/authz-testing';
-import { EnrolledMfaPolicy, FakeAuthnService, FakeBackoffThrottle, MemoryLinkStore as MemoryIdentityLinkStore, MemorySecretStore, RecordingEventSink, RecordingPrincipalFactory, UnsupportedConfig, runAuthnBehaviour, throttleParams } from '@spinajs/authn-testing';
+import { EnrolledMfaPolicy, FakeAuthnService, FakeBackoffThrottle, MemoryLinkStore as MemoryIdentityLinkStore, MemorySecretStore, RecordingEventListener, RecordingPrincipalFactory, UnsupportedConfig, runAuthnBehaviour, throttleParams } from '@spinajs/authn-testing';
 import type { Harness, HarnessContext } from '@spinajs/authn-testing';
 import { SessionIssuer } from '@spinajs/authn/contracts';
 import type { IdentityRef } from '@spinajs/authn/contracts';
@@ -213,7 +213,7 @@ describe('plan C1 acceptance', function () {
       const hasher = new Argon2PasswordHasher({});
       await hasher.resolve();
       const throttle = new FakeBackoffThrottle(throttleParams(ctx.config));
-      const events = new RecordingEventSink();
+      const events = new RecordingEventListener();
       const listeners = [await DI.resolve(QueueAuthnEventListener), events];
       const strategy = new LocalPasswordStrategy({ identities, passwords, hasher });
       await strategy.resolve();

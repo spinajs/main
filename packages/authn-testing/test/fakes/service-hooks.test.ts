@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import 'mocha';
 import { ActionHookFailed, ActionRefused, Hooks } from '@spinajs/hooks';
 import type { ActionName, InputOf, OutputOf, RunOptions } from '@spinajs/hooks';
-import { EnrolledMfaPolicy, FakeAuthnService, FakeBackoffThrottle, FakeIdentityStore, FakeStrategy, MemoryLinkStore, MemoryPasswordCredentialStore, MemorySessionIssuer, RecordingEventSink, RecordingPrincipalFactory, fakeHash, throttleParams } from '../../src/index.js';
+import { EnrolledMfaPolicy, FakeAuthnService, FakeBackoffThrottle, FakeIdentityStore, FakeStrategy, MemoryLinkStore, MemoryPasswordCredentialStore, MemorySessionIssuer, RecordingEventListener, RecordingPrincipalFactory, fakeHash, throttleParams } from '../../src/index.js';
 
 const ALICE = { login: 'alice@example.test', password: 'Alice-Pass-1234' };
 
@@ -28,7 +28,7 @@ class ScriptedHooks extends Hooks {
 function build(hooks: Hooks) {
   const identities = new FakeIdentityStore();
   const passwords = new MemoryPasswordCredentialStore();
-  const events = new RecordingEventSink();
+  const events = new RecordingEventListener();
   const sessions = new MemorySessionIssuer();
   const service = new FakeAuthnService({
     strategies: [FakeStrategy.password({ identities, passwords })],

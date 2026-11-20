@@ -115,7 +115,7 @@ Override points of `DefaultKeyRegistry`:
 | --- | --- |
 | `register`, `revoke`, `challenge` | Add a policy before or after the default, then call `super` |
 | `proofHolds(owner, key, proof)` | Change how a user's proof of possession is checked |
-| `publish(ctx, body)` | Change how `key.register` and `key.revoke` events reach the sinks; the default calls `AuthnAudit.publishIn(ctx, body)` |
+| `publish(ctx, body)` | Change how `key.register` and `key.revoke` events reach the listeners; the default calls `AuthnAudit.publishIn(ctx, body)` |
 | `options` | Read the options from somewhere other than `authn.keys` |
 
 The constructor takes an optional `DefaultKeyRegistryDeps`, a seam for building the registry with `new` in tests. Each field replaces what DI injects: `store`, `secrets`, `throttle`, `audit` (an `AuthnAuditor`, such as `AuthnAudit.over(listeners)`), `options` (complete `KeysOptions` from `keysOptionsOf()`, which bypass the configuration), `bus` (a `CredentialChangeBus`) and `hooks` (a `Hooks`; without it a registry built with `new` runs no action hook). The protected `maxStamped` (10,000) caps how many kids `touch` remembers.

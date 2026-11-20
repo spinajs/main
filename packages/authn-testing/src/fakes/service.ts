@@ -71,7 +71,7 @@ export class FakeAuthnService extends AuthnService {
 
   private readonly detached = new Set<Promise<void>>();
 
-  /** Delivered as AuthnAudit delivers: blocking listeners first, and a listener resolved under two ports gets it once. */
+  /** Delivered as AuthnAudit delivers: blocking listeners first. */
   protected async audit(ctx: AuthnContext, e: Omit<AuthnEvent, 'at' | 'ip' | 'userAgent'>): Promise<void> {
     await this.delivery().publishIn(ctx, e);
   }
@@ -90,7 +90,7 @@ export class FakeAuthnService extends AuthnService {
   }
 
   private delivery() {
-    return AuthnAudit.over([...new Set(this.d.listeners)], this.d.log ? { log: this.d.log } : {});
+    return AuthnAudit.over(this.d.listeners, this.d.log ? { log: this.d.log } : {});
   }
 
   /** As the core: a session whose announcement a blocking listener stopped is revoked, and the told events go out again as failures. */
