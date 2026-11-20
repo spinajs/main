@@ -5,7 +5,8 @@ import { expect } from 'chai';
 import { Configuration } from '@spinajs/configuration';
 
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
-import { SelectQueryBuilder, Orm } from '@spinajs/orm';
+import { SelectQueryBuilder } from '@spinajs/orm';
+import { migrateTestDatabase } from '@spinajs/orm/testing';
 import { DI } from '@spinajs/di';
 
 import { TestConfiguration } from './common.js';
@@ -28,7 +29,7 @@ describe('ORM intl tests', function () {
   });
 
   beforeEach(async () => {
-    await (await DI.resolve(Orm)).Migrator.ready();
+    await migrateTestDatabase();
   });
 
   afterEach(async () => {

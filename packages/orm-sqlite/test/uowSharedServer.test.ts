@@ -33,6 +33,7 @@ class SharedServerConf extends FrameworkConfiguration {
         db: {
           // In-memory database: the tables come from migrations().up() or test DDL after the Orm boots.
           StrictTableCheck: false,
+          MigrationCheck: 'off',
           Connections: [
             { Driver: 'orm-driver-sqlite', Filename: ':memory:', Name: 'sqlite', SharedServer: 'memory', Migration: { Table: TEST_MIGRATION_TABLE_NAME } },
             { Driver: 'orm-driver-sqlite', Filename: ':memory:', Name: 'sqlite-shared', SharedServer: 'memory' },

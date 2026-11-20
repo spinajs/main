@@ -396,7 +396,7 @@ export abstract class JoinStatement extends QueryStatement {
 
 @NewInstance()
 export abstract class InStatement extends QueryStatement {
-  protected _val: any[];
+  protected _val: unknown[];
   protected _not: boolean;
   protected _column: string | Wrap;
   protected _builder: SelectQueryBuilder<any>;
@@ -408,6 +408,18 @@ export abstract class InStatement extends QueryStatement {
     this._not = not || false;
     this._column = column || '';
     this._builder = builder;
+  }
+
+  public get Column() {
+    return this._column;
+  }
+
+  public get Values(): readonly unknown[] {
+    return this._val;
+  }
+
+  public get Not() {
+    return this._not;
   }
 
   public abstract build(): IQueryStatementResult;

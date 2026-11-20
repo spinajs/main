@@ -152,6 +152,7 @@ export class DefaultAuthzService extends AuthzService {
     return currentPrincipal();
   }
 
+  /** @spinajs run-as */
   async runAs<T>(principal: Principal, reason: string, fn: () => Promise<T>): Promise<T> {
     const s = this.state();
     if (!isObject(principal)) throw new AuthzConfigError(`Authz domain ${q(s.name)}: runAs needs a principal object`);
