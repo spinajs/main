@@ -85,7 +85,7 @@ The DDL the schema builder compiles to on PostgreSQL, the DDL this driver refuse
 | `createView(...).algorithm('MERGE')` | throws `MethodNotImplemented` naming `ALGORITHM` | `PostgresCreateViewCompiler` |
 | `dropView('v').ifExists()` | `DROP VIEW IF EXISTS "v"` | shared `SqlDropViewQueryCompiler` |
 | `createEvent(...)`, `dropEvent(...)` | throws `MethodNotImplemented('orm-driver-postgres has no native scheduled events')` | `UnsupportedEventQueryCompiler`, `UnsupportedDropEventQueryCompiler` |
-| `cloneTable(...)`, table history | fails resolving `TableCloneQueryCompiler` / `TableHistoryQueryCompiler`, which this driver does not register | none |
+| `cloneTable(...)` | fails resolving `TableCloneQueryCompiler`, which this driver does not register | none |
 
 A view built from a select builder has its bindings inlined as PostgreSQL literals by `PostgresLiteralQuoter`: `WHERE "name" = 'it''s'`. `security_invoker` needs PostgreSQL 15 or later.
 
@@ -112,7 +112,7 @@ A view built from a select builder has its bindings inlined as PostgreSQL litera
 | `Unsigned`, `Uuid`, `IsForeignKey`, `Virtual`, `Aggregate`, `Ignore` | `false` |
 | `ForeignKeyDescription`, `Converter` | `null` |
 
-`tableIndexes()` reads `pg_index` and `tableForeignKeys()` reads `pg_constraint`, both in the schema `tableInfo()` uses (`Options.Schema`, else `public`; the connection's own database name means that default). Expression parts of an index are left out. `tableInfo()` now reports `MaxLength` from `character_maximum_length` for `varchar(n)` and `char(n)` columns (`-1` for every other type, as before). Model JSON schemas built from such a column carry `maxLength`, so orm-http validation and OpenAPI output reject over-long strings on postgres as they already did on mssql.
+`tableIndexes()` reads `pg_index` and `tableForeignKeys()` reads `pg_constraint`, both in the schema `tableInfo()` uses (`Options.Schema`, else `public`; the connection's own database name means that default). Expression parts of an index are left out and mark it `inexact`. `tableInfo()` now reports `MaxLength` from `character_maximum_length` for `varchar(n)` and `char(n)` columns (`-1` for every other type, as before). Model JSON schemas built from such a column carry `maxLength`, so orm-http validation and OpenAPI output reject over-long strings on postgres as they already did on mssql.
 
 ## Services and extension points
 
@@ -130,7 +130,7 @@ A view built from a select builder has its bindings inlined as PostgreSQL litera
 | Recursive CTE compiler | `RecursiveQueryCompiler` | shared `SqlWithRecursiveCompiler` | | Register your own class. |
 | View compiler | `CreateViewCompiler`, `@NewInstance()`, `@Inject(Container)` | `PostgresCreateViewCompiler` | | Subclass; override the [view hooks](../orm-sql/06-view-compiler-hooks.md). |
 | Event compilers | `EventQueryCompiler`, `DropEventQueryCompiler` | `UnsupportedEventQueryCompiler`, `UnsupportedDropEventQueryCompiler` (throw) | | Register a working compiler, e.g. on `pg_cron`. See the [example](07-customizing-dialect-compilers.md#schedule-jobs-with-pg_cron). |
-| Clone and history compilers | `TableCloneQueryCompiler`, `TableHistoryQueryCompiler` | not registered | `SqlTableCloneQueryCompiler` and the shared history compiler emit MySQL syntax | Register a PostgreSQL implementation in a driver subclass. |
+| Clone compiler | `TableCloneQueryCompiler` | not registered | `SqlTableCloneQueryCompiler` emits MySQL syntax | Register a PostgreSQL implementation in a driver subclass. |
 | Reflection | `tableInfo(name, schema?)`, method of the driver | `PostgresOrmDriver.tableInfo()` | | Override in a [driver subclass](06-extending-the-driver.md), e.g. to fill `MaxLength`. |
 
 ## Important behaviour

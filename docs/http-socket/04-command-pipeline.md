@@ -383,16 +383,17 @@ DI.unregister(SizeStage);
 
 ### `SocketDispatcher`: add fields to every call store
 
-`callStorage(connection, call, requestId?, traceparent?)` builds the AsyncLocalStorage store of each command, event and hook. Fields you add there are visible to middlewares, policies, hydrators, handlers and log lines.
+`callStorage(connection, call, requestId?, ids?)` builds the AsyncLocalStorage store of each command, event and hook. For a command, `ids` are the trace and span ids of its SERVER span ([Observability](16-observability.md)). Fields you add there are visible to middlewares, policies, hydrators, handlers and log lines.
 
 ```ts sample
 import { DI, Injectable } from '@spinajs/di';
 import { ISocketCallStorage, SocketConnection, SocketDispatcher } from '@spinajs/http-socket';
+import type { TraceIds } from '@spinajs/tracing';
 
 @Injectable()
 export class TenantDispatcher extends SocketDispatcher {
-  protected callStorage(connection: SocketConnection, call: string, requestId?: string, traceparent?: string): ISocketCallStorage {
-    const storage = super.callStorage(connection, call, requestId, traceparent);
+  protected callStorage(connection: SocketConnection, call: string, requestId?: string, ids?: TraceIds): ISocketCallStorage {
+    const storage = super.callStorage(connection, call, requestId, ids);
     const tenant = connection.handshake.auth.tenant;
     return { ...storage, tenantId: typeof tenant === 'string' ? tenant : null };
   }

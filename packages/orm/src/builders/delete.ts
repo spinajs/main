@@ -13,6 +13,7 @@ import { WhereBuilder } from './where.js';
 
 export interface DeleteQueryBuilder<T> extends IDeleteQueryBuilder<T> { }
 
+/** @spinajs query delete */
 @NewInstance()
 export class DeleteQueryBuilder<T> extends QueryBuilder<IUpdateResult> {
   /**

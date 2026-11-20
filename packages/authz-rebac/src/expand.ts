@@ -54,7 +54,7 @@ export class RebacWalk {
   async targets(object: ResourceRef, tupleset: string): Promise<ResourceRef[]> {
     const rel = this.schema.relation(object.type, tupleset);
     if (!rel) return [];
-    return (await this.read(object, tupleset)).flatMap((t) => (!isSubjectSet(t.subject) && rel.direct.includes(t.subject.type) && this.schema.namespaces.has(t.subject.type) ? [{ type: t.subject.type, id: t.subject.id }] : []));
+    return (await this.read(object, tupleset)).flatMap((t) => (!t.caveat && !isSubjectSet(t.subject) && rel.direct.includes(t.subject.type) && this.schema.namespaces.has(t.subject.type) ? [{ type: t.subject.type, id: t.subject.id }] : []));
   }
 }
 
@@ -73,7 +73,7 @@ export function expand(walk: RebacWalk, object: ResourceRef, relation: string, d
 
 async function leaf(walk: RebacWalk, object: ResourceRef, relation: string): Promise<UsersetTree> {
   const rel = walk.schema.relation(object.type, relation);
-  const subjects = rel === undefined ? [] : (await walk.read(object, relation)).map((t) => t.subject).filter((s) => (isSubjectSet(s) ? rel.sets.some((x) => x.type === s.object.type && x.relation === s.relation) : rel.direct.includes(s.type)));
+  const subjects = rel === undefined ? [] : (await walk.read(object, relation)).flatMap((t) => (t.caveat ? [] : [t.subject])).filter((s) => (isSubjectSet(s) ? rel.sets.some((x) => x.type === s.object.type && x.relation === s.relation) : rel.direct.includes(s.type)));
   return { kind: 'tuples', object, relation, subjects };
 }
 

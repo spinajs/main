@@ -14,6 +14,7 @@ export * from './cli/MigrateUp.js';
 export * from './cli/MigrateDown.js';
 export * from './cli/MigrateStatus.js';
 export * from './cli/MigrateResolve.js';
+export * from './cli/MigrateSeed.js';
 export * from './cli/MigrateCreate.js';
 export * from './cli/MigrateDiff.js';
 export * from './migration-scaffold.js';

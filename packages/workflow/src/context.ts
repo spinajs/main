@@ -4,12 +4,14 @@ import { computeBackoff, isRetryable, parseDuration, type Clock, type DbClock, t
 import { InvalidArgument, InvalidOperation, NotSupported } from '@spinajs/exceptions';
 import type { Log } from '@spinajs/log-common';
 import type { QueueEvent, QueueJob } from '@spinajs/queue';
+import { markSpanErrorType, SpinaAttr, withSpan } from '@spinajs/tracing';
 import { v5 as uuidv5 } from 'uuid';
-import type { CompensationContext, SerializedError, StepKind, StepMeta, StepStatus, WaitForEventOptions, WorkflowContext, WorkflowEvent, WorkflowStepOptions } from './contract.js';
+import type { CompensationContext, SerializedError, StepKind, StepMeta, StepStatus, WaitForEventOptions, WorkflowAllOptions, WorkflowContext, WorkflowEvent, WorkflowStepOptions } from './contract.js';
 import { isCrash, LeaseLostError, NonDeterminismError, serializeError, WorkflowAborted, WorkflowCompensationTimeout, WorkflowFailure, WorkflowNestingError, WorkflowStepFailed, WorkflowStepResultTooLarge, WorkflowSuspended, WorkflowTimeout, type AbortReason } from './errors.js';
 import { nextMacrotask, ReplayGate } from './gate.js';
 import { eventNameProblem, identifierProblem } from './identifier.js';
 import { COMPENSATION_SEQ_BASE, type Journal, type StepRow } from './journal.js';
+import { Lineage } from './lineage.js';
 import { safeStringify } from './json.js';
 import { WorkflowEventModel } from './models/WorkflowEventModel.js';
 import { normalizeRetry, unitHash } from './policy.js';
@@ -71,6 +73,8 @@ export interface Op {
   name: string;
   key: string;
   seq: number;
+  /** Its number among the calls of its branch. A compensation takes no key from the lineage and has none. */
+  call?: number;
   /** Results delivered to run() before this call. */
   after: number;
   /** Set once the operation's result is journaled. */
@@ -149,7 +153,7 @@ export class ActivationContext implements WorkflowContext {
   protected sealed = false;
 
   protected seq = 0;
-  protected occurrences = new Map<string, number>();
+  protected readonly lineage = new Lineage();
   protected inflight = new Set<Promise<unknown>>();
   /** Blocking operations that cannot finish in this activation; their promises stay pending until the park or the end. */
   protected parked: ((err: unknown) => void)[] = [];
@@ -173,7 +177,7 @@ export class ActivationContext implements WorkflowContext {
     this.version = i.Version;
     this.input = i.Input ?? null;
     this.signal = init.signal;
-    this.gate = new ReplayGate(init.journal.rows(), init.journal.causal, (error) => this.interrupt({ kind: 'nondeterminism', error }), init.timers && { timers: init.timers, ms: init.config.leaseTtl });
+    this.gate = new ReplayGate(init.journal.rows(), (error) => this.interrupt({ kind: 'nondeterminism', error }), init.timers && { timers: init.timers, ms: init.config.leaseTtl });
     init.signal.addEventListener(
       'abort',
       () => {
@@ -236,6 +240,37 @@ export class ActivationContext implements WorkflowContext {
     return Promise.reject(new NotSupported('ctx.emit()'));
   }
 
+  public branch<T>(name: string, fn: () => Promise<T> | T): Promise<T> {
+    const problem = identifierProblem(name, MAX_NAME);
+    if (problem) return Promise.reject(new InvalidArgument(`branch name ${problem}, got ${JSON.stringify(name.slice(0, 40))}`));
+    // async, so a synchronous throw of fn rejects like any other failure of the branch
+    return this.lineage.fork(name, async (): Promise<T> => fn());
+  }
+
+  public all<T, R>(items: readonly T[], fn: (item: T, index: number) => Promise<R> | R, opts: WorkflowAllOptions = {}): Promise<R[]> {
+    const { concurrency } = opts;
+    if (concurrency !== undefined && (!Number.isInteger(concurrency) || concurrency < 1)) return Promise.reject(new InvalidArgument(`ctx.all concurrency must be an integer >= 1, got ${String(concurrency)}`));
+    // Named now, in the caller's turn: a branch started later runs where another branch has just finished.
+    const branches = items.map((_, index) => this.lineage.open(`all:${index}`));
+    const results = new Array<R>(items.length);
+    let started = 0;
+    let failed = false;
+    const worker = async (): Promise<void> => {
+      while (!failed && started < items.length) {
+        const index = started++;
+        try {
+          await this.lineage.within(branches[index], async (): Promise<void> => {
+            results[index] = await fn(items[index], index);
+          });
+        } catch (err) {
+          failed = true;
+          throw err;
+        }
+      }
+    };
+    return Promise.all(Array.from({ length: Math.min(concurrency ?? items.length, items.length) }, worker)).then(() => results);
+  }
+
   public now(): number {
     const op = this.marker('now');
     if (this.init.journal.get(op.key)?.Status === 'succeeded') return this.init.journal.value(op.key) as number;
@@ -271,6 +306,11 @@ export class ActivationContext implements WorkflowContext {
       this.closed = true;
     };
     void run.then(settled, settled);
+  }
+
+  /** Runs `run()` in this activation's root branch. */
+  public enter<T>(fn: () => T): T {
+    return this.lineage.run(fn);
   }
 
   /** Waits for every operation still in flight, e.g. the sibling of a suspended `Promise.all`; parked ones are abandoned. */
@@ -329,12 +369,10 @@ export class ActivationContext implements WorkflowContext {
     const problem = identifierProblem(name, MAX_NAME);
     if (problem) throw new InvalidArgument(`${kind} name ${problem}, got ${JSON.stringify(name.slice(0, 40))}`);
     this.assertLive();
-    const base = `${kind}:${name}`;
-    const occurrence = (this.occurrences.get(base) ?? 0) + 1;
-    this.occurrences.set(base, occurrence);
-    const op: Op = { kind, name, key: `${base}#${occurrence}`, seq: ++this.seq, after: this.gate.delivered };
+    const { key, call } = this.lineage.take(`${kind}:${name}`, kind !== 'marker');
+    const op: Op = { kind, name, key, seq: ++this.seq, call, after: this.gate.delivered };
     try {
-      this.init.journal.check(op.seq, op.key, op.after);
+      this.init.journal.check(op.key, call);
     } catch (err) {
       this.interrupt({ kind: 'nondeterminism', error: err as NonDeterminismError });
       throw err;
@@ -496,7 +534,7 @@ export class ActivationContext implements WorkflowContext {
     let value: T;
     if (opts.compensate) this.liveCompensable++;
     try {
-      value = await this.execute(op, fn, attempt, startedAt, opts);
+      value = await withSpan(`step ${op.name}`, { attributes: { [SpinaAttr.WorkflowStep]: op.name, [SpinaAttr.WorkflowStepAttempt]: attempt } }, () => this.execute(op, fn, attempt, startedAt, opts), markSpanErrorType);
     } catch (err) {
       throw await this.stepFailed(op, err, attempt, startedAt, retry);
     } finally {
@@ -819,7 +857,7 @@ export class ActivationContext implements WorkflowContext {
     if (this.sealed && op.kind !== 'compensate') throw new WorkflowAborted(this.abortReason());
     await this.fault('workflow.before-journal', op.key);
     const { store, journal, clock, epoch } = this.init;
-    if (journal.causal && !Number.isInteger(op.after)) throw new InvalidOperation(`'${op.key}' has no Meta.after: the journal would lose its causality metadata`);
+    if (!Number.isInteger(op.after)) throw new InvalidOperation(`'${op.key}' has no Meta.after: the replay gate could not place its result`);
     const final = s.status === 'succeeded' || s.status === 'failed';
     const kept = s.meta === undefined ? journal.get(op.key)?.Meta : s.meta;
     const row = await this.guarded(() => {
@@ -827,7 +865,7 @@ export class ActivationContext implements WorkflowContext {
       return store.fenced(this.instanceId, epoch, now, async () => {
         if (claim && !(await claim())) return null;
         // Taken under the row lock the fence UPDATE holds until commit, so the order is the commit order.
-        const meta: StepMeta = { ...kept, after: op.after, ...(final ? { order: journal.nextOrder() } : {}) };
+        const meta: StepMeta = { ...kept, after: op.after, ...(op.call === undefined ? {} : { call: op.call }), ...(final ? { order: journal.nextOrder() } : {}) };
         op.order = meta.order;
         return store.saveStep(journal.get(op.key), this.stepWrite(op, { ...s, meta }, now));
       });

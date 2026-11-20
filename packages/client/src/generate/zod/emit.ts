@@ -105,10 +105,13 @@ class ZodFile {
   private readonly replyRoutes: ReplyRoute[] = [];
   private readonly types = new Set<string>(['manifestHash']);
   private usesZod = false;
+  /** The declarations (`key|variant`) whose build cut a node or a replay: they accept more than the server does. */
+  public readonly cut = new Set<string>();
 
   constructor(
     private readonly model: ClientModel,
     options: ZodOptions,
+    tainted: ReadonlySet<string> = new Set(),
   ) {
     const { ctx } = model;
     this.diagnostics = new Diagnostics(options.unsupported === 'error' ? 'error' : 'warning');
@@ -120,7 +123,7 @@ class ZodFile {
     const inlineNamed = inlineIds.filter((id) => !ctx.used.has(id) && containsLocalRef(ctx.schemaOf(id)));
     this.graph = new SchemaGraph(ctx, [...ctx.used, ...inlineNamed, ...this.inlineRefs()]);
     this.nameVariants();
-    this.builder = new ZodBuilder(this.graph, ctx, this.diagnostics, (entry, variant) => this.variantName(entry, variant));
+    this.builder = new ZodBuilder(this.graph, ctx, this.diagnostics, (entry, variant) => this.variantName(entry, variant), tainted);
   }
 
   private variantName(entry: NamedSchema, variant: Variant): string {
@@ -233,7 +236,9 @@ class ZodFile {
       this.diagnostics.report('ZOD001', { schema: entry.owner, pointer: entry.pointer }, `the server does not validate this schema: ${refused}; it accepts any value`);
       return custom;
     }
+    const cuts = this.builder.cutCount();
     const node = this.builder.root(entry.schema, { at: { schema: entry.owner, pointer: entry.pointer }, current: entry.key, state, typePath: entry.typeName, variant });
+    if (this.builder.cutCount() !== cuts) this.cut.add(`${entry.key}|${variant}`);
     this.collectTypes(node);
     if (node.kind === 'call' && node.fn === 'unknown' && !node.checks?.length && !node.inputChecks?.length && !node.before?.length) {
       return { ...custom, ...(node.description !== undefined ? { description: node.description } : {}) };
@@ -410,5 +415,14 @@ function oneOfReply<const A extends ${tuple}, const B extends ${tuple}>(exact: A
  * path, header or cookie argument reaches, `<Name>Defaults` for object schemas, and `routeSchemas` for the validated arguments.
  */
 export function emitZod(model: ClientModel, options: ZodOptions, clientModule = './client.js'): ZodEmitResult {
-  return new ZodFile(model, options).emit(clientModule);
+  // A declaration that was cut accepts more than the server, so one that reads it through a test or a count would be stricter:
+  // what each one reads is taken from the pass before, until no declaration is newly cut. The loop ends: `tainted` only
+  // grows, and it holds at most one key per declaration and variant.
+  let tainted = new Set<string>();
+  for (;;) {
+    const file = new ZodFile(model, options, tainted);
+    const result = file.emit(clientModule);
+    if ([...file.cut].every((key) => tainted.has(key))) return result;
+    tainted = new Set([...tainted, ...file.cut]);
+  }
 }

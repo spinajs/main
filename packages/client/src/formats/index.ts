@@ -30,6 +30,7 @@ export * from './keywords.js';
 export * from './equal.js';
 export * from './applicators.js';
 export * from './coerce.js';
+export * from './replay.js';
 
 const DECIMAL = /^-?(0|[1-9][0-9]*)(\.[0-9]+)?$/;
 
