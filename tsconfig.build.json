@@ -372,6 +372,18 @@
     },
     {
       "path": "packages/simulation/tsconfig.build.json"
+    },
+    {
+      "path": "packages/audit/tsconfig.build.json"
+    },
+    {
+      "path": "packages/audit-orm/tsconfig.build.json"
+    },
+    {
+      "path": "packages/audit-http/tsconfig.build.json"
+    },
+    {
+      "path": "packages/audit-authn/tsconfig.build.json"
     }
   ]
 }

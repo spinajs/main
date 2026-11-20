@@ -24,16 +24,16 @@ function controllerFiles(dir: string): string[] {
  * entry. Every other suite shares one process with files that import `src/index.ts`, so the scan alone is checked in
  * a process of its own.
  */
-describe('@spinajs/authn-http: the controller scan registers the webhook audit sink', function () {
+describe('@spinajs/authn-http: the controller scan registers the webhook listener', function () {
   this.timeout(120000);
 
-  it('registers the webhook audit sink when only the scanned controller files are imported', async () => {
+  it('registers the webhook listener when only the scanned controller files are imported', async () => {
     const script = [
       `for (const f of ${JSON.stringify([...SCANNED_DIRS.flatMap(controllerFiles)])}) await import(f);`,
       `const { DI } = await import('@spinajs/di');`,
       `const found = {};`,
-      `const { AuthnEventSink } = await import('@spinajs/authn/contracts');`,
-      `found['AuthnEventSink'] = (DI.RootContainer.getRegisteredTypes(AuthnEventSink) ?? []).map((t) => t.name);`,
+      `const { AuthnEventListener } = await import('@spinajs/authn/contracts');`,
+      `found['AuthnEventListener'] = (DI.RootContainer.getRegisteredTypes(AuthnEventListener) ?? []).map((t) => t.name);`,
       `console.log(JSON.stringify(found));`,
       `process.exit(0);`,
     ].join('\n');
@@ -45,6 +45,6 @@ describe('@spinajs/authn-http: the controller scan registers the webhook audit s
     });
     const found = JSON.parse(stdout.trim().split('\n').pop() ?? '{}') as Record<string, string[]>;
 
-    expect(found.AuthnEventSink).to.include('WebhookAuthnEventSink');
+    expect(found.AuthnEventListener).to.include('WebhookAuthnEventListener');
   });
 });

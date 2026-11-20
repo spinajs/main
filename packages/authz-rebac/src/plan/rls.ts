@@ -5,7 +5,7 @@ import type { RlsSqlContext } from '@spinajs/authz-orm/plan';
 import { Injectable, Singleton } from '@spinajs/di';
 
 import { subjectKey } from '../keys.js';
-import { rebacHolders, rebacListSupport } from '../model/filter.js';
+import { reachFind, rebacHolders, rebacListSupport } from '../model/filter.js';
 import { RebacModel } from '../model/model.js';
 import type { CompiledRewrite, NamespaceSchema } from '../namespace/compile.js';
 import { AUTHZ_REBAC_TUPLE_TABLE } from '../stores/db.js';
@@ -105,15 +105,16 @@ export function parseRebacRlsExpr(args: unknown, path = ''): RebacRlsExpr {
   }
 }
 
+// RLS has no request env to evaluate a caveat with: conditional tuples (caveat_key set) never hold.
 function render(e: RebacRlsExpr, ns: string, id: string, ctx: RlsSqlContext, next: () => number): string {
   if ('tuples' in e) {
     const a = `rt${next()}`;
-    return `EXISTS (SELECT 1 FROM ${AUTHZ_REBAC_TUPLE_TABLE} ${a} WHERE ${a}.namespace = ${ns} AND ${a}.object_id = ${id} AND ${a}.relation = ${ctx.literal(e.tuples)} AND ${a}.subject_key IN (${ctx.subjectKeys}))`;
+    return `EXISTS (SELECT 1 FROM ${AUTHZ_REBAC_TUPLE_TABLE} ${a} WHERE ${a}.namespace = ${ns} AND ${a}.object_id = ${id} AND ${a}.relation = ${ctx.literal(e.tuples)} AND ${a}.subject_key IN (${ctx.subjectKeys}) AND ${a}.caveat_key IS NULL)`;
   }
   if ('arrow' in e) {
     const a = `rp${next()}`;
     const { tupleset, type, expr } = e.arrow;
-    return `EXISTS (SELECT 1 FROM ${AUTHZ_REBAC_TUPLE_TABLE} ${a} WHERE ${a}.namespace = ${ns} AND ${a}.object_id = ${id} AND ${a}.relation = ${ctx.literal(tupleset)} AND ${a}.subject_type = ${ctx.literal(type)} AND ${a}.subject_relation = '' AND ${render(expr, ctx.literal(type), `${a}.subject_id`, ctx, next)})`;
+    return `EXISTS (SELECT 1 FROM ${AUTHZ_REBAC_TUPLE_TABLE} ${a} WHERE ${a}.namespace = ${ns} AND ${a}.object_id = ${id} AND ${a}.relation = ${ctx.literal(tupleset)} AND ${a}.subject_type = ${ctx.literal(type)} AND ${a}.subject_relation = '' AND ${a}.caveat_key IS NULL AND ${render(expr, ctx.literal(type), `${a}.subject_id`, ctx, next)})`;
   }
   const [parts, glue, empty] = 'any' in e ? [e.any, ' OR ', 'FALSE'] : [e.all, ' AND ', 'TRUE'];
   return parts.length === 0 ? empty : `(${parts.map((p) => render(p, ns, id, ctx, next)).join(glue)})`;
@@ -151,11 +152,16 @@ export class RebacRlsPlanSource extends RlsPlanSource {
     const support = rebacListSupport(schema, permission.name, type);
     if (support !== true) throw new Error(support.reason);
     const target = schema.targets.get(permission.name)!;
+    const conditional = reachFind(schema, type, target.name, { relation: (rel) => rel.conditional.length > 0 });
+    if (conditional !== undefined) throw new Error(`rebac: ${permission.name} on ${type} reaches the conditional relation ${conditional}, whose caveats read the request; the database has no request to read`);
     return { kind: 'terms', permit: [{ op: REBAC_RLS_PLAN_OP, args: rebacRlsExpr(schema, type, target.name, m.limit().maxDepth) }], deny: [] };
   }
 }
 
-/** ReBAC's session keys: the principal's own and every userset key a relation names that holds it, within maxDepth - 1 hops. */
+/**
+ * ReBAC's session keys: the principal's own and every userset key a relation names that holds it, within maxDepth - 1
+ * hops. Without a request no caveat can be decided, so a conditional membership gives no key.
+ */
 @Singleton()
 @Injectable(RlsSubjectKeys)
 export class RebacRlsSubjectKeys extends RlsSubjectKeys {

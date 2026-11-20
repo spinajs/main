@@ -89,3 +89,34 @@ The contract:
 - The instance ends `compensated` (`cancelled` after a cancel) with the original `Reason` and `Error`, or `failed` with
   `Reason: 'compensation-failed'` and the original failure in `Error.details`; `retry()` resumes the pass. A run that
   failed with `non-determinism` is not compensated. `cancel()` compensates only with `workflow.compensateOnCancel`.
+
+## Tracing
+
+Activations and step attempts run under OpenTelemetry spans on the provider `@spinajs/tracing` owns.
+
+- **Activations.** Each activation (one claim of an instance by the engine) runs under a root span `workflow <name>`
+  (kind INTERNAL): it runs on the engine loop, long after `start()` returned, so it starts a trace of its own. It
+  carries `spina.workflow.name`, `spina.workflow.instance_id` and `spina.workflow.version`.
+- **The link to the start.** `start()` keeps the `traceparent` of the span it ran in in `__workflow.TraceParent`, and
+  every activation of the instance links to it. An instance started outside a span, or while tracing was disabled,
+  keeps `null` and its activations have no link; so does a malformed stored value, which never fails an activation.
+  The link holds only the span context of the start (trace id, span id, trace flags).
+- **Steps.** Each step attempt whose body runs gets a child span `step <name>` with `spina.workflow.step` and
+  `spina.workflow.step_attempt`; a retry is a new span in a later activation, with the next attempt number. A step
+  answered from the journal on a replay gets no span. Sleeps, waits, `ctx.emit`, markers and compensations get no
+  span of their own; compensations run inside the activation span.
+- **What marks a span.** A step attempt that throws (its body, a result over `maxStepResultBytes`, a journal write
+  that fails, an abort the body observes) sets `error.type` to the error's class name and an ERROR status with that
+  name as its message. An activation that ends the instance `failed` (an error, `ctx.fail()`, the instance timeout,
+  non-determinism, `compensation-failed`) sets an ERROR status with the fixed word `failed`; an activation that
+  throws inside the engine (a crashed replica, a database error) records the error's class like a step. Every other
+  activation stays UNSET: one that parks, completes, ends `compensated` or `cancelled`, and one that is abandoned
+  (lost lease, failed journal write, shutdown), because none of them ends the instance failed; an abandoned
+  activation replays later.
+- **No message reaches a span.** Error messages, input, step results and events never go onto a span. The error's
+  text is in the instance's `Error` and in the step's journal row.
+- **Names go onto spans verbatim.** The workflow name is in the activation span's name and attributes, a step name in
+  the step span's. A per-item step name (`save:${id}`) puts that id on a span: build step names from identifiers,
+  never from personal data or secrets.
+- **A step whose body never settles** after an abort and the grace period leaves its `step` span open: it is never
+  ended and never exported, while the activation span above it ends.

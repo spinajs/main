@@ -8,6 +8,8 @@ export interface ExecutedStatement {
   driver: OrmDriver;
   traceId?: string;
   spanId?: string;
+  /** The compile emitted caller-written SQL (a `RawQuery`, a `sql` fragment); see `trackRawSql`. */
+  rawSql: boolean;
 }
 
 /**

@@ -8,7 +8,7 @@ The package config adds its compiled `cli` folder to `system.dirs.cli`, so the C
 
 ### `authn:mfa-reset <login>`
 
-1. `MfaReset` injects the `Orm` (which boots the ORM and applies its [`Migration.OnStartup` migrations](../orm/10-migrations.md) first), `IdentityStore` and `TotpService`. `IdentityStore` is injected with `{ check: true }`: without a registered one the command cannot be resolved.
+1. `MfaReset` injects `IdentityStore` and `TotpService`. A DB-backed `IdentityStore` or `MfaStore` injects the `Orm`, which boots the ORM; the boot fails until [`npx spinajs migrate-up`](../orm/10-migrations.md#deploying-migrations) has applied the migrations. `IdentityStore` is injected with `{ check: true }`: without a registered one the command cannot be resolved.
 2. `IdentityStore.findByLogin(login)` finds the account by login or email. An unknown login throws `InvalidArgument` `no account with login <login>` and changes nothing.
 3. `TotpService.adminReset(CLI_ACTOR, identity, cliContext())` removes the enrolment and the recovery codes. `CLI_ACTOR` (`{ type: 'system', id: 'cli' }`) and `cliContext()` (purpose `'request'`, `userAgent` `spinajs-cli`) come from `@spinajs/authn/contracts`. See [Disable and admin reset](05-disable-and-reset.md).
 4. It logs `MFA reset for <login>` or `No MFA enrolment for <login>` on the `authn-totp` logger. It prints no secret.
@@ -61,7 +61,7 @@ npx spinajs authn:mfa-qr "JBSW Y3DP EHPK 3PXP" --label jane.doe@acme.example --o
 
 ## Important behaviour
 
-- `authn:mfa-reset` audits `mfa.disable` with the actor `{ type: 'system', id: 'cli' }` through `AuthnAudit`, so every registered `AuthnEventSink` gets it.
+- `authn:mfa-reset` audits `mfa.disable` with the actor `{ type: 'system', id: 'cli' }` through `AuthnAudit`, so every registered `AuthnEventListener` gets it.
 - `authn:mfa-reset` needs no `SessionIssuer`, `AuthnService` or `AuthnThrottle`: `TotpService` injects them as optional.
 - `authn:mfa-qr` does not touch any stored enrolment. It renders what you pass it, so the operator sees the secret: use it for test accounts and devices you own, not to enrol users.
 - `authn:mfa-qr` takes `algorithm`, `digits` and `period` from config even when they differ from what the secret was made for; a full `otpauth://` URI keeps its own.

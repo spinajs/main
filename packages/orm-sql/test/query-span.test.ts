@@ -316,7 +316,7 @@ describe('SqlDriver db.query spans', () => {
     expect(JSON.stringify({ status: span.status, attributes: span.attributes, events: span.events })).to.not.contain('secret-binding-42');
   });
 
-  it('ends the span of a stream whose cursor fails to close', async () => {
+  it('ends the span of a stream whose cursor fails to close, marked with the error type', async () => {
     const d = new BrokenCursorDriver(OPTIONS);
     const stream = d.executeStream(query(d, 'SELECT * FROM `items`'), { batchSize: 10 });
     await stream.next();
@@ -327,6 +327,9 @@ describe('SqlDriver db.query spans', () => {
 
     expect(failure).to.be.instanceOf(StatementFailed);
     expect(memory.byName('db.query')).to.have.length(1);
-    expect(memory.byName('db.query')[0].attributes['db.response.returned_rows']).to.equal(1);
+    const [span] = memory.byName('db.query');
+    expect(span.attributes['db.response.returned_rows']).to.equal(1);
+    expect(span.status).to.deep.equal({ code: SpanStatusCode.ERROR, message: 'StatementFailed' });
+    expect(span.attributes['error.type']).to.equal('StatementFailed');
   });
 });

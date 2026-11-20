@@ -41,6 +41,13 @@ Importing `@spinajs/orm-pglite` registers the driver under `orm-driver-pglite`.
 - **A newer PostgreSQL**: PGlite 0.5.10 runs PostgreSQL 18.6, while the CI server runs 16.6.
 - **Its own SQL dialect profile.** The driver declares `pglite` (`PGLITE_SQL_DIALECT`), which types raw rows exactly as the `postgresql` profile does. An app that uses PGlite in tests and postgres in production should leave `package.json#spinajs.orm.dialects` unset, or set it per connection.
 
+## Query plans
+
+`driver.explain(sql, bindings)` is the postgres driver's `EXPLAIN (FORMAT JSON)`, inherited unchanged; see
+[Plans: postgres](../orm/13-observability-and-resilience.md#plans-postgres). PGlite has one session, so the EXPLAIN
+cannot run beside an open transaction: never await `explain()` inside one. It fails with the acquire timeout, or never
+settles when session settings apply.
+
 ## Snapshots
 
 `driver.dumpDataDir()` returns a tarball of the whole database; a connection with `Options.LoadDataDir` starts from a

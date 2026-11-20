@@ -1,9 +1,11 @@
 import { GLOBAL_OBJECT, GLOBAL_TYPE, parseSubjectTypeRef } from '../ir.js';
 import type { ObjectRef, ParsedSubjectType, PolicyIR, RelationDef, RelationName, Rewrite, TupleSubjectRef } from '../ir.js';
+import { tupleContextPaths } from './caveats.js';
 import type { CaveatEvaluator, CaveatInput } from './caveats.js';
 import { and3, explainNode, not3, or3 } from './explain.js';
 import type { ExplainNode, Truth } from './explain.js';
 import type { TupleSource } from './evaluator.js';
+import { TupleSourceGap } from '../replay/gap.js';
 
 /** A check ran past `maxCalls`. */
 export class IRLimitExceeded extends Error {}
@@ -55,6 +57,22 @@ export async function subjectsOf(tuples: TupleSource, object: ObjectRef, name: R
       return readAll(tuples, object, name);
     default:
       return readAll(tuples, object, name);
+  }
+}
+
+export interface SubjectRead {
+  readonly subjects: readonly TupleSubjectRef[];
+  /** Set when the source could establish only `subjects`: the relation may hold more. */
+  readonly gap?: TupleSourceGap;
+}
+
+/** `subjectsOf`, with a partial read (`TupleSourceGap`) returned as its known subjects and the gap. */
+export async function readSubjects(tuples: TupleSource, object: ObjectRef, name: RelationName, rel: RelationDef): Promise<SubjectRead> {
+  try {
+    return { subjects: await subjectsOf(tuples, object, name, rel) };
+  } catch (e) {
+    if (e instanceof TupleSourceGap) return { subjects: e.known, gap: e };
+    throw e;
   }
 }
 
@@ -122,13 +140,14 @@ export class Walker {
     const allowed = rel.allowed.map(parseSubjectTypeRef);
     const p = this.o.input.principal;
     const branches: Array<() => Promise<Step>> = [];
-    for (const s of await subjectsOf(this.o.tuples, object, name, rel)) {
+    const read = await readSubjects(this.o.tuples, object, name, rel);
+    for (const s of read.subjects) {
       if (!admits(allowed, s)) continue;
       const label = `${objectLabel(object)}#${name}@${subjectLabel(s)}`;
       if (s.relation !== undefined) branches.push(() => this.caveated(s.caveat?.name, s.caveat?.context, () => this.hop({ type: s.type, id: s.id }, s.relation!, depth), label));
       else if (s.type === p.type && (s.id === p.id || s.id === '*')) branches.push(() => this.caveated(s.caveat?.name, s.caveat?.context, () => Promise.resolve(leaf(label, 'allow', rel.source.kind)), label));
     }
-    return this.junction('union', branches);
+    return partial(await this.junction('union', branches), read.gap);
   }
 
   /** A node one tuple hop below `depth`, or `unknown` past maxDepth. */
@@ -145,10 +164,11 @@ export class Walker {
     const rel = this.o.ir.types[object.type].relations[tupleset];
     if (rel === undefined) return leaf(`${tupleset} is not a tupleset`, 'deny', `types.${object.type}`);
     const allowed = rel.allowed.map(parseSubjectTypeRef);
-    const branches = (await subjectsOf(this.o.tuples, object, tupleset, rel))
+    const read = await readSubjects(this.o.tuples, object, tupleset, rel);
+    const branches = read.subjects
       .filter((s) => s.relation === undefined && s.id !== '*' && own(this.o.ir.types, s.type) && admits(allowed, s))
       .map((s) => () => this.caveated(s.caveat?.name, s.caveat?.context, () => this.hop({ type: s.type, id: s.id }, computed, depth), `${objectLabel(object)}#${tupleset}@${subjectLabel(s)}`));
-    const out = await this.junction('union', branches);
+    const out = partial(await this.junction('union', branches), read.gap);
     return { ...out, node: explainNode(`${tupleset}->${computed}`, out.truth, 'tupleToUserset', out.node.children) };
   }
 
@@ -180,10 +200,12 @@ export class Walker {
   private async caveated(caveat: string | undefined, tupleContext: Readonly<Record<string, unknown>> | undefined, inner: () => Promise<Step>, label?: string): Promise<Step> {
     if (caveat === undefined) {
       const r = await inner();
+      // Stryker disable next-line ConditionalExpression: a call without a caveat always has a label (only `{ caveat, of }` omits one, and it has a caveat), so this is never true
       return label === undefined ? r : { ...r, node: explainNode(label, r.truth, 'tuple', [r.node]) };
     }
     const c = await this.o.caveats.evaluate(caveat, this.o.input, tupleContext);
-    const cNode = explainNode(`caveat ${caveat}`, c, `caveats.${caveat}`);
+    const supplied = tupleContextPaths(tupleContext);
+    const cNode: ExplainNode = { ...explainNode(`caveat ${caveat}`, c, `caveats.${caveat}`), ...(supplied.length === 0 ? {} : { tupleContext: supplied }) };
     if (c === 'deny') return { truth: 'deny', cut: false, node: explainNode(label ?? `with ${caveat}`, 'deny', 'caveat', [cNode]) };
     const r = await inner();
     const truth = and3(c, r.truth);
@@ -193,6 +215,7 @@ export class Walker {
   /** First-applicable: entry i decides when its `when` holds and no earlier `when` does, the Kleene form of `FirstApplicable.combine`. */
   private async priority(object: ObjectRef, self: RelationName, entries: ReadonlyArray<{ when: Rewrite; then: 'permit' | 'deny' }>, depth: number): Promise<Step> {
     let result: Truth = 'deny';
+    // Stryker disable next-line StringLiteral: its initial value is read only by and3, which treats every value but 'deny' and 'unknown' as 'allow'
     let earlierMiss: Truth = 'allow';
     let cut = false;
     const children: ExplainNode[] = [];
@@ -220,4 +243,11 @@ export class Walker {
 }
 
 const leaf = (label: string, truth: Truth, source: string): Step => ({ truth, cut: false, node: explainNode(label, truth, source) });
+
+/** A union over a partial read: the subjects the read missed could still allow. */
+function partial(out: Step, gap: TupleSourceGap | undefined): Step {
+  if (gap === undefined) return out;
+  const truth = or3(out.truth, 'unknown');
+  return { ...out, truth, node: explainNode(out.node.label, truth, out.node.source, [...out.node.children, explainNode(gap.message, 'unknown', 'gap')]) };
+}
 

@@ -1,0 +1,140 @@
+import * as chai from 'chai';
+import 'mocha';
+import { createHmac } from 'node:crypto';
+import '@spinajs/log';
+import { configurationViolations, createTestApp } from '@spinajs/testing';
+import { AuditConfigError, SECURITY_HASH_PATHS, auditHash, deferredConfig, trailConfig, trailNames } from '../src/index.js';
+
+const expect = chai.expect;
+const SILENT = { targets: [{ name: 'Empty', type: 'BlackHoleTarget' }], rules: [{ name: '*', level: 'trace', target: 'Empty' }] };
+
+describe('trailConfig', function () {
+  this.timeout(15000);
+
+  it('answers the three built-in trails when nothing is configured', () => {
+    expect(trailConfig()).to.include({ name: 'default', store: 'TableAuditStore', table: 'audit_event', connection: 'default', onFailure: 'continue', integrity: 'none', retentionDays: undefined, sink: undefined, reader: undefined, archiveConnection: undefined });
+    expect(trailConfig().retry).to.deep.eq({ attempts: 3, delayMs: 100 });
+    expect([trailConfig().omit, trailConfig().mask, trailConfig().hash]).to.deep.eq([[], [], []]);
+    expect(trailConfig('history')).to.include({ store: 'TableAuditStore', table: 'orm_history' });
+    expect(trailConfig('security')).to.include({ store: 'LogAuditStore' });
+    expect(trailConfig('security').hash).to.deep.eq(SECURITY_HASH_PATHS);
+    expect(trailNames()).to.deep.eq(['default', 'history', 'security']);
+    expect(deferredConfig()).to.deep.eq({ flushMs: 1000, maxBatch: 500, maxBuffered: 10000, timeoutMs: 2000, blockCeilingMs: 20000 });
+  });
+
+  it('refuses an unknown trail', () => {
+    expect(() => trailConfig('nope')).to.throw(AuditConfigError, 'audit: no trail named "nope" (configured: default, history, security)');
+    expect(() => trailConfig('__proto__')).to.throw(AuditConfigError, 'audit: no trail named "__proto__"');
+  });
+
+  it('lays a configured trail over the built-in of its name and parses the retry delay', async () => {
+    const restricted = { table: 'audit_restricted', onFailure: 'reject', retry: { attempts: 5, delay: '2s' }, integrity: 'sealed', mask: ['data.args.password'], sink: 'ArchiveAuditSink', archiveConnection: 'audit' };
+    const app = await createTestApp({ config: { logger: SILENT, audit: { deferred: { flushMs: 5, timeoutMs: 300 }, trails: { history: { retentionDays: 30, retry: { delay: 250 } }, restricted, ms: { retry: { delay: '100ms' } }, minute: { retry: { delay: '1m' } }, bare: { retry: { delay: '100' } } } } } });
+    try {
+      expect(['ms', 'minute', 'bare'].map((name) => trailConfig(name).retry.delayMs)).to.deep.eq([100, 60000, 100]);
+      expect(trailConfig('history')).to.include({ table: 'orm_history', retentionDays: 30 });
+      expect(trailConfig('history').retry).to.deep.eq({ attempts: 3, delayMs: 250 });
+      expect(trailConfig('restricted')).to.include({ store: 'TableAuditStore', table: 'audit_restricted', connection: 'default', onFailure: 'reject', integrity: 'sealed', sink: 'ArchiveAuditSink', archiveConnection: 'audit' });
+      expect(trailConfig('restricted').retry).to.deep.eq({ attempts: 5, delayMs: 2000 });
+      expect(trailConfig('restricted').mask).to.deep.eq(['data.args.password']);
+      expect(trailNames()).to.deep.eq(['default', 'history', 'security', 'restricted', 'ms', 'minute', 'bare']);
+      expect(deferredConfig()).to.include({ flushMs: 5, timeoutMs: 300, blockCeilingMs: 3000 });
+    } finally {
+      await app.dispose();
+    }
+  });
+
+  it('gives a trail without a table the table audit_<trail>, and keeps the tables of default and history', async () => {
+    const app = await createTestApp({ config: { logger: SILENT, audit: { trails: { default: { retentionDays: 1 }, history: { retentionDays: 1 }, billing: {}, security: { store: 'TableAuditStore' }, owned: { table: 'audit_event_owned' } } } } });
+    try {
+      expect(['default', 'history', 'billing', 'security', 'owned'].map((name) => trailConfig(name).table)).to.deep.eq(['audit_event', 'orm_history', 'audit_billing', 'audit_security', 'audit_event_owned']);
+    } finally {
+      await app.dispose();
+    }
+  });
+
+  it('refuses a trail without a table whose name is not a plain identifier', async () => {
+    const longest = `t${'x'.repeat(56)}`;
+    const app = await createTestApp({ config: { logger: SILENT, audit: { trails: { Billing: {}, 'my-trail': {}, [longest]: {}, [`${longest}x`]: {}, 'Named-Table': { table: 'audit_named' } } } } });
+    try {
+      const refused = (name: string): string => `audit: trail "${name}" has no table, and its name is not a plain identifier (^[a-z][a-z0-9_]{0,56}$) to derive audit_<trail> from; set audit.trails.${name}.table`;
+      for (const name of ['Billing', 'my-trail', `${longest}x`]) expect(() => trailConfig(name)).to.throw(AuditConfigError, refused(name));
+      expect(trailConfig(longest).table).to.eq(`audit_${longest}`);
+      expect(trailConfig('Named-Table').table).to.eq('audit_named');
+    } finally {
+      await app.dispose();
+    }
+  });
+
+  it('refuses a path that would break the event, and a delay it cannot read', async () => {
+    const app = await createTestApp({ config: { logger: SILENT, audit: { trails: { bad: { omit: ['actor'] }, worse: { mask: ['kind'] }, slow: { retry: { delay: 'soon' } } } } } });
+    try {
+      expect(() => trailConfig('bad')).to.throw(AuditConfigError, 'audit: trail "bad": omit path "actor" is not maskable; use data.<path>, or actor, onBehalfOf, origin or dataSubject (actor cannot be omitted)');
+      expect(() => trailConfig('worse')).to.throw(AuditConfigError, 'audit: trail "worse": mask path "kind" is not maskable');
+      expect(() => trailConfig('slow')).to.throw(AuditConfigError, 'audit: trail "slow": retry.delay must be milliseconds or a duration like "100ms", "2s" or "1m"');
+    } finally {
+      await app.dispose();
+    }
+  });
+
+  it('fails the boot on a misspelt trail or retry key, and boots a trail with every accepted key', async () => {
+    const bad = (trail: Record<string, unknown>): Promise<string[]> => configurationViolations({ config: { logger: SILENT, audit: { trails: { t: trail } } } });
+    expect(await bad({ onFailur: 'reject' })).to.include('audit.trails.t.onFailur');
+    expect(await bad({ retry: { atempts: 2 } })).to.include('audit.trails.t.retry.atempts');
+    const every = { store: 'MemoryAuditStore', table: 'audit_t', connection: 'default', onFailure: 'reject', retry: { attempts: 2, delay: '1s' }, integrity: 'sealed', omit: ['data.a'], mask: ['data.b'], hash: ['origin'], retentionDays: 30, sink: 'ArchiveAuditSink', reader: 'TableAuditReader', archiveConnection: 'audit' };
+    expect(await bad(every)).to.deep.eq([]);
+  });
+
+  it('fails the boot on a misspelt hashKey or deferred key', async () => {
+    const bad = (audit: Record<string, unknown>): Promise<string[]> => configurationViolations({ config: { logger: SILENT, audit } });
+    expect(await bad({ hashKey: { secrte: 'x'.repeat(32) } })).to.include('audit.hashKey.secrte');
+    expect(await bad({ deferred: { timeoutMS: 100 } })).to.include('audit.deferred.timeoutMS');
+    expect(await bad({ hashKey: { secret: 'x'.repeat(32) }, deferred: { flushMs: 1, maxBatch: 1, maxBuffered: 1, timeoutMs: 1, blockCeilingMs: 1 } })).to.deep.eq([]);
+  });
+
+  it('leaves the sections other packages keep under audit alone', async () => {
+    const others = { http: { rules: [{ match: 'DELETE /admin/**', action: 'admin.delete' }] }, data: { rules: [{ models: '*', trail: 'history' }] }, authn: { trail: 'security' }, queue: { maxMessageBytes: 200000 }, seal: { settleSeconds: 30 } };
+    // What a package that owns a section registers: its own schema, under the audit root.
+    const ship = { $id: 'test/audit.ship.schema.json', $configurationModule: 'audit.ship', type: 'object', properties: { batchSize: { type: 'integer', minimum: 1 }, maxBatches: { type: 'integer', default: 50 } } };
+    const shipped = { store: 'OutboxAuditStore', archiveConnection: 'audit' };
+    const app = await createTestApp({ config: { logger: SILENT, audit: { ...others, ship: { batchSize: 200 }, trails: { shipped } } }, schemas: [ship] });
+    try {
+      const read = (name: string): unknown => app.config.get<unknown>(['audit', name]);
+      expect([read('http'), read('data'), read('authn'), read('queue'), read('seal')]).to.deep.eq([others.http, others.data, others.authn, others.queue, others.seal]);
+      expect(read('ship')).to.deep.eq({ batchSize: 200, maxBatches: 50 });
+      expect(trailConfig('shipped')).to.include({ store: 'OutboxAuditStore', archiveConnection: 'audit' });
+      expect(app.config.get<unknown>(['audit', 'trails', 'shipped'])).to.deep.eq({ store: 'OutboxAuditStore', archiveConnection: 'audit' });
+    } finally {
+      await app.dispose();
+    }
+  });
+
+  it('reads the configuration of the container it is given, and the built-in trails when there is none', async () => {
+    const app = await createTestApp({ scope: 'child', bootstrap: false, config: { logger: SILENT, audit: { trails: { child: { table: 'audit_child' } } } } });
+    try {
+      expect(trailConfig('child', app.container)).to.include({ name: 'child', table: 'audit_child' });
+      expect(trailConfig('child', app.container.child()).table).to.eq('audit_child');
+      expect(trailNames(app.container)).to.deep.eq(['default', 'history', 'security', 'child']);
+      // The root container has no Configuration here.
+      expect(trailNames()).to.deep.eq(['default', 'history', 'security']);
+      expect(trailConfig('security').store).to.eq('LogAuditStore');
+      expect(() => trailConfig('child')).to.throw(AuditConfigError, 'audit: no trail named "child"');
+    } finally {
+      await app.dispose();
+    }
+  });
+
+  it('hashes under audit.hashKey.secret, alike in every container that configures it', async () => {
+    const secret = 'k'.repeat(32);
+    const expected = createHmac('sha256', secret).update('user:u1').digest('base64url');
+    for (let i = 0; i < 2; i++) {
+      const app = await createTestApp({ scope: 'child', bootstrap: false, config: { logger: SILENT, audit: { hashKey: { secret } } } });
+      try {
+        expect(auditHash('user:u1', app.container)).to.eq(expected);
+      } finally {
+        await app.dispose();
+      }
+    }
+    expect(auditHash('user:u1')).to.not.eq(expected);
+  });
+});

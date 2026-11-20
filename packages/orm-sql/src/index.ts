@@ -1,12 +1,13 @@
 import { SqlTableAliasCompiler, SqlSelectQueryCompiler, SqlUpdateQueryCompiler, SqlDeleteQueryCompiler, SqlInsertQueryCompiler, SqlTableQueryCompiler, SqlOrderByQueryCompiler, SqlIndexQueryCompiler, SqlForeignKeyQueryCompiler, SqlGroupByCompiler, SqlDropTableQueryCompiler, SqlRawSchemaQueryCompiler, SqlDropViewQueryCompiler, SqlCreateDatabaseQueryCompiler, SqlDropDatabaseQueryCompiler, UnsupportedSessionSettingsCompiler } from './compilers.js';
 /* eslint-disable prettier/prettier */
 import { SqlDatetimeValueConverter, SqlSetConverter, SqlBooleanValueConverter, SqlTimeValueConverter } from './converters.js';
-import { SetValueConverter, ColumnCompareStatement, ColumnConditionStatement, GroupByStatement, DateTimeWrapper, DateWrapper, TextWrapper, OrmDriver, InStatement, InQueryStatement, RawQueryStatement, SqlExpressions, BetweenStatement, WhereStatement, ColumnStatement, ColumnMethodStatement, ExistsQueryStatement, ColumnRawStatement, WhereQueryStatement, SelectQueryCompiler, UpdateQueryCompiler, DeleteQueryCompiler, InsertQueryCompiler, TableQueryCompiler, OrderByQueryCompiler, JoinStatement, IndexQueryCompiler, WithRecursiveStatement, ForeignKeyQueryCompiler, GroupByQueryCompiler, TableAliasCompiler, DatetimeValueConverter, DropTableCompiler, QueryContext, Builder, BooleanValueConverter, LazyQueryStatement, TimeValueConverter, InSetStatement, StartsWithStatement, RawSchemaQueryCompiler, DropViewCompiler, CreateDatabaseCompiler, DropDatabaseCompiler, SessionSettingsQueryCompiler, StreamNotSupported, QueryBuilder, recordStatement, statementRecording } from '@spinajs/orm';
+import { SetValueConverter, ColumnCompareStatement, ColumnConditionStatement, GroupByStatement, DateTimeWrapper, DateWrapper, TextWrapper, OrmDriver, InStatement, InQueryStatement, RawQueryStatement, SqlExpressions, BetweenStatement, WhereStatement, ColumnStatement, ColumnMethodStatement, ExistsQueryStatement, ColumnRawStatement, WhereQueryStatement, SelectQueryCompiler, UpdateQueryCompiler, DeleteQueryCompiler, InsertQueryCompiler, TableQueryCompiler, OrderByQueryCompiler, JoinStatement, IndexQueryCompiler, WithRecursiveStatement, ForeignKeyQueryCompiler, GroupByQueryCompiler, TableAliasCompiler, DatetimeValueConverter, DropTableCompiler, QueryContext, Builder, BooleanValueConverter, LazyQueryStatement, TimeValueConverter, InSetStatement, StartsWithStatement, RawSchemaQueryCompiler, DropViewCompiler, CreateDatabaseCompiler, DropDatabaseCompiler, SessionSettingsQueryCompiler, StreamNotSupported, QueryBuilder, recordStatement, statementRecording, trackRawSql, isExplainable } from '@spinajs/orm';
 import type { ICompilerOutput } from '@spinajs/orm';
 import { SqlInStatement, SqlRawStatement, SqlBetweenStatement, SqlWhereStatement, SqlColumnStatement, SqlColumnMethodStatement, SqlExistsQueryStatement, SqlInQueryStatement, SqlColumnRawStatement, SqlWhereQueryStatement, SqlColumnCompareStatement, SqlColumnConditionStatement, SqlJoinStatement, SqlWithRecursiveStatement, SqlGroupByStatement, SqlDateTimeWrapper, SqlDateWrapper, SqlTextWrapper, SqlLazyQueryStatement, SqlInSetStatement, SqlStartsWithStatement } from './statements.js';
 import { Perf } from '@spinajs/log-common';
+import { InvalidArgument } from '@spinajs/exceptions';
 import { markSpanErrorType } from '@spinajs/tracing';
-import { endStatementSpan, failStatementSpan, spanIds, startStatementSpan } from './tracing.js';
+import { closeStreamCursor, endStatementSpan, failStatementSpan, spanIds, startStatementSpan } from './tracing.js';
 import type { StatementTarget } from './tracing.js';
 import { DateTime } from 'luxon';
 
@@ -66,7 +67,7 @@ export abstract class SqlDriver extends OrmDriver {
 
   public execute(builder: Builder<any>) {
     try {
-      const compiled = builder.toDB();
+      const [compiled, rawSql] = trackRawSql(() => builder.toDB());
       const labels = { driver: String(this.Options.Driver ?? 'unknown'), context: String(builder.QueryContext) };
 
       if (Array.isArray(compiled)) {
@@ -75,13 +76,13 @@ export abstract class SqlDriver extends OrmDriver {
         return (async () => {
           const results: unknown[] = [];
           for (const c of compiled) {
-            results.push(await this.executeStatement(builder, c.expression ?? '', c.bindings ?? [], labels));
+            results.push(await this.executeStatement(builder, c.expression ?? '', c.bindings ?? [], labels, rawSql));
           }
           return results;
         })() as Promise<any>;
       }
 
-      return this.executeStatement(builder, compiled.expression ?? '', compiled.bindings ?? [], labels);
+      return this.executeStatement(builder, compiled.expression ?? '', compiled.bindings ?? [], labels, rawSql);
     } catch (err: any) {
       this.Log.error({ error: err, model: builder.Model?.name, context: builder.QueryContext }, 'Error during query execution, model: ${model}, context: ${context}');
       throw err;
@@ -89,7 +90,7 @@ export abstract class SqlDriver extends OrmDriver {
   }
 
   /** One compiled statement: the query log, the `orm.query` perf span, the `db.query` trace span and, while a reader asked for it, the statement record. */
-  protected async executeStatement(builder: Builder<unknown>, sql: string, bindings: unknown[], labels: Record<string, string>): ReturnType<SqlDriver['executeOnDb']> {
+  protected async executeStatement(builder: Builder<unknown>, sql: string, bindings: unknown[], labels: Record<string, string>, rawSql = true): ReturnType<SqlDriver['executeOnDb']> {
     this.logQuery(sql, bindings, builder);
 
     const span = startStatementSpan(sql, this.statementTarget(builder));
@@ -103,7 +104,7 @@ export abstract class SqlDriver extends OrmDriver {
       });
 
       if (recorded) {
-        recordStatement(builder, { sql, bindings, durationMs: performance.now() - started, driver: this, ...spanIds(span) });
+        recordStatement(builder, { sql, bindings, rawSql, durationMs: performance.now() - started, driver: this, ...spanIds(span) });
       }
       endStatementSpan(span, result);
       return result;
@@ -121,6 +122,21 @@ export abstract class SqlDriver extends OrmDriver {
       table: builder instanceof QueryBuilder && builder.Table ? builder.Table : undefined,
       ansiQuotedIdentifiers: this.ansiQuotedIdentifiers(),
     };
+  }
+
+  /**
+   * Runs `<prefix> <sql>` as a read on a connection of its own: the slow-query capture calls it on
+   * the async path of the query it explains, which may still be inside that query's transaction.
+   * A driver without concurrent transactions (sqlite without a read pool, PGlite) cannot run it
+   * until the open transaction ends, so never await it inside one. Caller-written SQL (`rawSql`) must
+   * pass `isExplainable`; SQL the builder compiled itself is planned as it is.
+   */
+  protected runExplain(prefix: string, sql: string, bindings: unknown[], rawSql = true): Promise<unknown> {
+    if (rawSql && !isExplainable(sql)) {
+      return Promise.reject(new InvalidArgument('only a single SELECT or WITH statement can be explained'));
+    }
+
+    return this.outsideTransaction(() => this.executeOnDb(`${prefix} ${sql}`, bindings, QueryContext.Select));
   }
 
   public async *executeStream(builder: Builder<any>, options: { batchSize: number }): AsyncGenerator<unknown> {
@@ -155,7 +171,7 @@ export abstract class SqlDriver extends OrmDriver {
     } finally {
       try {
         if (next?.done !== true) {
-          await rows.return?.();
+          await closeStreamCursor(rows, span);
         }
       } finally {
         span.setAttribute('db.response.returned_rows', returned);

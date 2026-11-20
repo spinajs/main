@@ -61,7 +61,7 @@ Every hook is optional; a middleware implements only those it needs.
 | --- | --- |
 | `IMiddlewareContext` | `req`, `res`, `storage` (the same object as `req.storage`), and for a route middleware `route`, `controller` and `path` (`http:<METHOD> <mounted path>`) |
 | `IReplyContext` | `IMiddlewareContext` plus `response: Response` (the reply about to be sent; a hook may replace it) and `error?: unknown` (the error the reply answers, when it is an error reply) |
-| `IFinishContext` | `IMiddlewareContext` plus `aborted: boolean` (`true` when the client went away before the response finished) |
+| `IFinishContext` | `IMiddlewareContext` plus `aborted: boolean` (`true` when the client went away before the response finished) and `settled: Promise<{ error?: unknown }>` (resolves when the action ended, with the error it threw; see below) |
 | `IRouteInvocation` | `IMiddlewareContext` with `route`, `controller` and `path` always set |
 
 A route middleware's hooks get the route fields set. The fields are optional on `IMiddlewareContext` because the same base class, `HttpMiddleware`, carries [server middlewares](15-server-middlewares.md), whose `onBefore` and `onAround` run before routing and get only a [best-effort match](15-server-middlewares.md#the-route-before-routing).
@@ -348,7 +348,7 @@ On a replay `ctx.response.data` is the stored JSON body, which those outer hooks
 
 | `Stage` | Runs |
 | --- | --- |
-| `'beforePolicy'` | before the [policy gate](13-policies.md): it is entered first, so its `onAfter` and `onFinish` see a policy refusal (401, 403) as an error reply. The shipped [`Audit`](30-audit.md) uses it. The policies always run after the `'beforePolicy'` middlewares: when an `onBefore` answers, the gate still runs, and a refusal replaces that answer; the action never runs. There are two exceptions. An `@Idempotent` replay of an unrestricted principal's completed request is answered right after this stage without the policies ([Replays before the policies](26-idempotency.md#replays-before-the-policies)). And when a [request deadline](29-request-deadlines.md) answered 504 while a middleware of this stage was still running, that answer is final: the gate evaluates no policy, and nothing after it runs. |
+| `'beforePolicy'` | before the [policy gate](13-policies.md): it is entered first, so its `onAfter` and `onFinish` see a policy refusal (401, 403) as an error reply. The [`Audit`](../audit-http/01-audit.md) middleware of `@spinajs/audit-http` uses it. The policies always run after the `'beforePolicy'` middlewares: when an `onBefore` answers, the gate still runs, and a refusal replaces that answer; the action never runs. The one exception is an `@Idempotent` replay of an unrestricted principal's completed request, which is answered right after this stage without the policies ([Replays before the policies](26-idempotency.md#replays-before-the-policies)). |
 | `'outer'` | right after the policy gate, before every `'inner'` one |
 | `'inner'` (unset) | after every `'outer'` one |
 
@@ -582,12 +582,6 @@ The route documentation says so too:
 
 - The compiler records `@Deprecated` on a route or a controller in the manifest as `doc.deprecated` of the route, as the JSDoc `@deprecated` tag does, so the OpenAPI document `@spinajs/openapi` generates from the manifest marks the operation `deprecated: true`. It does not see a `DeprecationMiddleware` mounted with `@Middleware`, nor the inherited routes of a `@Deprecated` subclass.
 - At runtime both controller metadata providers (`ManifestControllerMetadata` and `CacheControllerMetadata`, which http-swagger reads) mark every route whose own or controller middlewares include a `DeprecationMiddleware`, however it was mounted and inherited ones included, through `withDeprecatedRoutes(controller, documentation)`.
-## Built-in: `Audit`
-
-`Audit` records each request of a route, with its body and query redacted, its status, error, principal and time, and
-writes the record to an `AuditSink` once the response finished; the default sink logs it on the `audit` logger. Mount it
-with `@Middleware(Audit, options?)` or as `'Audit'` in `http.routes.middlewares`. See [Audit](30-audit.md).
-
 ## Important behaviour
 
 - `isEnabled()` runs once per route at startup; a middleware cannot switch itself on or off per request. Decide in `onBefore()` instead.
@@ -595,6 +589,7 @@ with `@Middleware(Audit, options?)` or as `'Audit'` in `http.routes.middlewares`
 - `onAfter` may replace `ctx.response` with another `Response`, or change the reply in place: `ctx.response.data` (the data `execute()` sends), `ctx.response.statusCode`, `ctx.response.setHeader(name, value)`. The hooks that run after it, the `proceed()` outcome of an enclosing `onAround`, the reply `@Idempotent` stores and the client get the change; headers a hook adds, other than `Content-Type`, `Location` and `ETag`, are left out of the outcome's `reply` and of the stored reply.
 - An error raised after the headers were sent (an action wrote `res`, then threw) gets no error reply: it is logged on the `http` logger, and a reply cut short drops the connection, as Express does.
 - `onFinish` runs exactly once per request, after `finish`, or after `close` when the client went away (`ctx.aborted: true`). A streamed reply (SSE, a pipe) the client closed is `aborted` too, although its status and headers were sent: `ctx.res.headersSent` is then `true`.
+- `ctx.settled` resolves once the action ended, with `error` set when it threw. After `aborted` the response is gone but the action runs on: `await ctx.settled` to learn whether it committed. A request whose action did not run (a policy or `onBefore` refusal, an early answer, a replay, a client gone before an `onAround` could proceed) resolves once the chain answered or stopped without it, with the error it answered. A deadline 504 sent in place of a running action does not resolve it: the action does. It is the same promise for every hook of the request, and it never rejects. An `onFinish` that waits on it should bound the wait: an action may never end.
 - A singleton middleware resolved with different options keeps the first ones; use `@NewInstance()` for configurable middlewares. This holds across a global entry and a `@Middleware` of the same class too.
 
 ## Migrating from the positional hooks
@@ -636,7 +631,7 @@ public async onBefore({ req }: IMiddlewareContext) {
 
 ### Audit every write to an admin controller
 
-The shipped [`Audit`](30-audit.md) middleware does this with redaction and a pluggable sink; this hand-written one shows the hooks.
+The [`Audit`](../audit-http/01-audit.md) middleware of `@spinajs/audit-http` does this with redaction and an audit trail; this hand-written one shows the hooks.
 
 ```ts sample
 import { Log, Logger } from '@spinajs/log';

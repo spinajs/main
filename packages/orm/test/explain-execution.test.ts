@@ -1,4 +1,5 @@
 import { useTestApp } from '@spinajs/testing';
+import { Configuration } from '@spinajs/configuration-common';
 import { DI } from '@spinajs/di';
 import { expect } from 'chai';
 import 'mocha';
@@ -6,7 +7,7 @@ import type { Builder } from '../src/builders.js';
 import { adoptStatements, executedStatements, recordStatement, setStatementRecording, statementRecording } from '../src/explain/execution.js';
 import type { ExecutedStatement } from '../src/explain/execution.js';
 import { Orm } from '../src/orm.js';
-import { FakeSqliteDriver, ormApp } from './misc.js';
+import { FakeSqliteDriver, ormApp, slowQueryMiddleware } from './misc.js';
 import '../src/bootstrap.js';
 import '@spinajs/log';
 
@@ -15,13 +16,13 @@ class ChunkingDriver extends FakeSqliteDriver {
   public readonly MaxInsertRows = 1;
 
   public execute(builder: Builder<unknown>): Promise<unknown> {
-    recordStatement(builder, { sql: 'INSERT INTO users (Name) VALUES (?)', bindings: [], durationMs: 1, driver: this });
+    recordStatement(builder, { sql: 'INSERT INTO users (Name) VALUES (?)', bindings: [], rawSql: false, durationMs: 1, driver: this });
     return Promise.resolve({ RowsAffected: 1, LastInsertId: 1 });
   }
 }
 
 const detached = new FakeSqliteDriver({ Driver: 'sqlite', Name: 'detached' });
-const statement = (sql: string): ExecutedStatement => ({ sql, bindings: [], durationMs: 1, driver: detached });
+const statement = (sql: string): ExecutedStatement => ({ sql, bindings: [], rawSql: false, durationMs: 1, driver: detached });
 
 describe('executed-statement side channel', () => {
   useTestApp(() => ormApp({ register: (c) => c.register(ChunkingDriver).as('sqlite'), resolve: [Orm] }));
@@ -61,7 +62,9 @@ describe('executed-statement side channel', () => {
   });
 
   it('gives a chunked insert the statements of every chunk', async () => {
-    setStatementRecording(true);
+    // a query through the pipeline sets the switch from db.Explain.Enabled
+    DI.get(Configuration)?.set('db.Explain', { Enabled: true });
+    slowQueryMiddleware().reload();
     const insert = connection().insert().into('users').values([{ Name: 'ann' }, { Name: 'bob' }, { Name: 'cy' }]);
     await insert;
     expect(executedStatements(insert)).to.have.length(3);

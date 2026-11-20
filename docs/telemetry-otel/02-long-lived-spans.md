@@ -12,7 +12,7 @@
 3. `childSpan(key, name, attrs, fn)` runs `fn` inside a short span:
    1. with an open span under `key`, the child is started in `trace.setSpan(ROOT_CONTEXT, parent)`, so it is a child of the long span;
    2. otherwise in `context.active()`, a standalone span;
-   3. on success status `OK` and the result is returned; on a throw `recordException()`, status `ERROR` with the message, and the error is re-thrown; `end()` runs in both cases.
+   3. on success status `OK` and the result is returned; on a throw `error.type` and status `ERROR` with the error's class name, without its message or an `exception` event, and the error is re-thrown; `end()` runs in both cases.
 4. `close(key, status, attrs?)` sets `attrs`, sets status `OK` for `'ok'` or `ERROR` for `'error'`, ends the span and removes the key. With no span left, the sweep timer stops.
 5. The sweep timer calls `sweep()` every `otel.longSpan.sweepIntervalMs`. `sweep()` ends every span open for `otel.longSpan.maxAgeMs` or longer: attribute `orphaned: true`, status `ERROR` with message `span outlived otel.longSpan.maxAgeMs`, and a `warn` log entry.
 6. `dispose()` closes every open span with `close(key, 'error', { shutdown: true })` and stops the timer.

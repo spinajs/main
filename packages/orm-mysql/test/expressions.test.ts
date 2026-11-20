@@ -42,11 +42,27 @@ describe('mysql sql expressions', function () {
     expect(expressions.concat('`Name`')).to.eq('`Name`');
   });
 
-  it('ago() subtracts an INTERVAL from UTC_TIMESTAMP(3), the clock of now()', () => {
-    expect(expressions.ago(7, 'day')).to.eq('(UTC_TIMESTAMP(3) - INTERVAL 7 DAY)');
-    expect(driver.ago(30, 'second').Query).to.eq('(UTC_TIMESTAMP(3) - INTERVAL 30 SECOND)');
-    expect(driver.ago(5, 'minute').Query).to.eq('(UTC_TIMESTAMP(3) - INTERVAL 5 MINUTE)');
-    expect(driver.ago(2, 'hour').Query).to.eq('(UTC_TIMESTAMP(3) - INTERVAL 2 HOUR)');
+  it('ago() subtracts an INTERVAL from NOW(3), the session clock of now(), by default', () => {
+    expect(driver.now().Query).to.eq('NOW(3)');
+    expect(expressions.ago(7, 'day')).to.eq('(NOW(3) - INTERVAL 7 DAY)');
+    expect(driver.ago(30, 'second').Query).to.eq('(NOW(3) - INTERVAL 30 SECOND)');
+  });
+
+  it('ago() subtracts an INTERVAL from UTC_TIMESTAMP(3), the clock of now(), in a UTC connection', async () => {
+    const utc = await DI.resolve(MySqlOrmDriver, [{ Name: 'mysql-expr-utc', Driver: 'orm-driver-mysql', TimeZone: 'UTC' } as any]);
+
+    expect(utc.now().Query).to.eq('UTC_TIMESTAMP(3)');
+    expect(utc.Container.resolve(SqlExpressions).ago(7, 'day')).to.eq('(UTC_TIMESTAMP(3) - INTERVAL 7 DAY)');
+    expect(utc.ago(30, 'second').Query).to.eq('(UTC_TIMESTAMP(3) - INTERVAL 30 SECOND)');
+    expect(utc.ago(5, 'minute').Query).to.eq('(UTC_TIMESTAMP(3) - INTERVAL 5 MINUTE)');
+    expect(utc.ago(2, 'hour').Query).to.eq('(UTC_TIMESTAMP(3) - INTERVAL 2 HOUR)');
+  });
+
+  it('reads epoch milliseconds from UTC_TIMESTAMP in a session that is not UTC too', async () => {
+    const offset = await DI.resolve(MySqlOrmDriver, [{ Name: 'mysql-expr-offset', Driver: 'orm-driver-mysql', TimeZone: '+02:00' } as any]);
+
+    expect(offset.Container.resolve(SqlExpressions).epochMillis()).to.eq("TIMESTAMPDIFF(MICROSECOND, '1970-01-01 00:00:00', UTC_TIMESTAMP(3)) DIV 1000");
+    expect(offset.ago(1, 'day').Query).to.eq('(NOW(3) - INTERVAL 1 DAY)');
   });
 
   it('locks selected rows after the LIMIT', () => {
