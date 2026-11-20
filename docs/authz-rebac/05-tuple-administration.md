@@ -15,10 +15,16 @@ Commands and queries work on the domain's one `MemoryTupleStore` or `DbTupleStor
 { kind: 'tuple.delete', tuple: { object: { type: 'doc', id: 'd1' }, relation: 'viewer', subject: { type: 'user', id: 'dave' } } }
 ```
 
-1. **Validate**: the tuple's shape (`invalid_command`, field `tuple`). For a write, every `RebacModel` of the domain must admit it: `unknown_relation` (field `tuple.object` or `tuple.relation`) or `subject_not_allowed` (field `tuple.subject`); for a `DbTupleStore` the values must fit the columns.
+1. **Validate**: the tuple's shape (`invalid_command`, field `tuple`, or `tuple.caveat` / `tuple.caveat.context` for a malformed caveat). For a write, every `RebacModel` of the domain must admit it: `unknown_relation` (field `tuple.object` or `tuple.relation`), `subject_not_allowed` (field `tuple.subject`) or `invalid_caveat_context` (field `tuple.caveat.context`); for a `DbTupleStore` the values must fit the columns.
 2. **Permission**: `authz:tuples.manage` on the tuple's object (mappable in `authz.admin.permissions`).
 3. **Apply**: the write joins the batch transaction; a memory write undoes itself on rollback.
-4. **Result**: `affected: 1`, the tags `rebac`, `rebac:<namespace>`, `model:<name>` of every `RebacModel`, and the event `TupleChanged { object, relation, subject, op }`. Writing a stored tuple or deleting a missing one is `affected: 0`, without tags or event.
+4. **Result**: `affected: 1`, the tags `rebac`, `rebac:<namespace>`, `model:<name>` of every `RebacModel`, and the event `TupleChanged { object, relation, subject, op, caveat? }` built from the stored tuple. Writing a stored tuple or deleting a missing one is `affected: 0`, without tags or event.
+
+### Conditional tuples
+
+A tuple may carry `caveat: { name, context? }` ([Conditional tuples](06-conditional-tuples.md)). Writing a stored tuple with another caveat fails with `caveat_conflict` (field `tuple.caveat`) and rolls the batch back; to change a caveat, delete and write in one batch. A delete matches by key: it may omit the caveat, and its `TupleChanged` carries the stored one.
+
+The `tuples.subjects` query takes an optional `env`. With it, caveats are evaluated and holders whose caveat stays undecided come back as `{ type, id, conditional: true }`; without it, every conditional holder does.
 
 ### The `tuples` query
 
@@ -34,7 +40,7 @@ Removes the tuples whose object is the forgotten node, one `TupleChanged` each.
 
 ### HTTP
 
-`import '@spinajs/authz-rebac/http'` registers `RebacCommandSchemas`, so `POST /authz/commands` of `@spinajs/authz-http-admin` accepts and documents both commands. `@spinajs/authz-http-admin` is an optional peer dependency.
+`import '@spinajs/authz-rebac/http'` registers `RebacCommandSchemas`, so `POST /authz/commands` of `@spinajs/authz-http-admin` accepts and documents both commands, `caveat` included. `@spinajs/authz-http-admin` is an optional peer dependency.
 
 ## See also
 

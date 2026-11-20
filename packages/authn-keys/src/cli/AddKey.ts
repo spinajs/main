@@ -1,11 +1,10 @@
 import { Autoinject } from '@spinajs/di';
-import { Argument, Command, Option } from '@spinajs/cli';
+import { Argument, CliCommand, Command, Option } from '@spinajs/cli';
 import { Log, Logger } from '@spinajs/log';
 import { CLI_ACTOR, KeyRegistry, cliContext } from '@spinajs/authn/contracts';
 import type { KeyRegistration } from '@spinajs/authn/contracts';
 import { InvalidArgument } from '@spinajs/exceptions';
 import { ownerArg, readPublicJwk } from './common.js';
-import { KeyCliCommand } from './KeyCliCommand.js';
 
 interface AddKeyOptions {
   jwk?: string;
@@ -24,7 +23,7 @@ interface AddKeyOptions {
 @Option('--kid <kid>', false, 'key id, 1-64 of [A-Za-z0-9._-]; default: the RFC 7638 thumbprint')
 @Option('--name <name>', false, 'label, up to 128 characters')
 @Option('--expires <iso>', false, 'ISO 8601 expiry instant with Z or an offset')
-export class AddKey extends KeyCliCommand {
+export class AddKey extends CliCommand {
   @Logger('authn-keys')
   protected Log: Log;
 

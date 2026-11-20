@@ -22,6 +22,13 @@ export class JobAccessDenied extends PermanentJobFailure {
   }
 }
 
+/** A `runAs: 'system'` job with no `access` and no `@SystemTask(reason)`: refused before it runs; a retry cannot fix it. */
+export class JobWithoutSystemTask extends PermanentJobFailure {
+  constructor(job: string) {
+    super('system_task_missing', `job ${job} runs as SYSTEM with no access and no @SystemTask(reason)`);
+  }
+}
+
 // A conditional allow on one row cannot be settled here, as no row is loaded: only a definite one, or a type-level one, passes.
 const passes = (d: Decision): boolean => d.allowed && (d.residual.op === 'true' || d.resource.id === undefined);
 
@@ -34,6 +41,10 @@ export class AuthzQueueHook extends QueueMessageHook {
   /** The authz domain whose principal is stamped and whose `runAs` the handler uses. */
   @Config('authz.queue.domain')
   protected Domain: string;
+
+  /** `'warn'` lets an undeclared SYSTEM job run and logs once per job class; the default `'deny'` refuses it. */
+  @Config('authz.queue.systemTask')
+  protected SystemTaskMode: 'warn' | 'deny';
 
   @Autoinject(InitiatorPrincipalFactory)
   protected Initiators: InitiatorPrincipalFactory;
@@ -71,11 +82,11 @@ export class AuthzQueueHook extends QueueMessageHook {
     const service = await this.service();
     const options = jobOptions(message);
     const { runAs, access } = options;
+    if (runAs === 'system' && access === undefined) this.undeclaredSystemJob(message);
 
     let principal: Principal = UNATTENDED;
     if (runAs === 'system') principal = SYSTEM;
     else if (runAs === 'initiator' && message.Initiator) principal = await this.initiator(message.Initiator as Initiator);
-    if (runAs === 'system' && access === undefined) this.warnUndeclared(message);
 
     // Also for unattended: a consumer running inside the emitter's async context must not inherit its principal.
     return service.runAs(principal, `job:${message.Name}`, async () => {
@@ -95,10 +106,17 @@ export class AuthzQueueHook extends QueueMessageHook {
     throw new JobAccessDenied(message.Name, denied);
   }
 
-  /** `runAs: 'system'` without `access` should say why with `@SystemTask` (doctor AUTHZ004); 4.x only warns, once per job class. */
-  protected warnUndeclared(message: IQueueMessage): void {
+  /** Anything but `'warn'` refuses, so a value the schema never saw fails closed. */
+  protected refusesUndeclared(): boolean {
+    return this.SystemTaskMode !== 'warn';
+  }
+
+  /** `runAs: 'system'` without `access` says why with `@SystemTask` (G12, doctor AUTHZ004). @throws JobWithoutSystemTask */
+  protected undeclaredSystemJob(message: IQueueMessage): void {
     const type = message.constructor;
-    if (systemTaskOf(type) !== undefined || this.undeclared.has(type)) return;
+    if (systemTaskOf(type) !== undefined) return;
+    if (this.refusesUndeclared()) throw new JobWithoutSystemTask(message.Name);
+    if (this.undeclared.has(type)) return;
     this.undeclared.add(type);
     this.Log.warn({ job: message.Name }, "Job ${job} runs as SYSTEM with no access and no @SystemTask(reason)");
   }

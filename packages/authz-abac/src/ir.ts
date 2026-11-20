@@ -1,5 +1,6 @@
 import { GLOBAL } from '@spinajs/authz';
 import type { Condition, ConditionOp, ConditionOperand, ParsedCondition, Permission, PermissionRegistry } from '@spinajs/authz';
+import { storedPolicyName } from '@spinajs/authz-ir';
 import type { CaveatDef, CaveatParamType, FragmentBinding, IRFragment, OpaqueRef, Rewrite, TypeDef } from '@spinajs/authz-ir';
 
 import { PolicyIndex } from './model/policies.js';
@@ -8,6 +9,15 @@ import type { LoadedPolicy } from './model/policies.js';
 export interface AbacIROptions {
   /** Default 'abac'. */
   readonly model?: string;
+  /** Stores whose policies are not compiled (IRCompileContext.stored 'opaque'): each adds a stored placeholder to every permission. */
+  readonly storedStores?: readonly string[];
+}
+
+export interface AbacPolicyTerms {
+  readonly permit: Map<Permission, Rewrite[]>;
+  readonly deny: Map<Permission, Rewrite[]>;
+  readonly caveats: Record<string, CaveatDef>;
+  readonly opaque: OpaqueRef[];
 }
 
 /** Every principal: an intersection of nothing holds. */
@@ -16,6 +26,12 @@ const EVERYONE: Rewrite = { intersection: [] };
 const union = (items: Rewrite[]): Rewrite => (items.length === 1 ? items[0] : { union: items });
 const safe = (s: string): string => s.replace(/[^A-Za-z0-9_]/g, '_');
 
+/** The relation that holds a permission's permit or deny policies on its resource type (`abac_permit_<P>`). */
+export const abacRelation = (side: 'permit' | 'deny', permission: Permission): string => `abac_${side}_${safe(permission)}`;
+
+/** The caveat a policy with targets or a `when` compiles to; ids that differ only in characters `safe` replaces share it. */
+export const abacCaveatName = (policyId: string): string => `abac_${safe(policyId)}`;
+
 /**
  * Policies become caveated union members of `abac_permit_<P>` (permit) or `abac_deny_<P>` (deny) on the permission's
  * resource type (G4). Principal and actor types join the policy's `when` in its caveat. A non-global `scope` and an
@@ -23,26 +39,42 @@ const safe = (s: string): string => s.replace(/[^A-Za-z0-9_]/g, '_');
  */
 export function abacToIR(policies: readonly LoadedPolicy[], registry: PermissionRegistry, options: AbacIROptions = {}): IRFragment {
   const model = options.model ?? 'abac';
-  const index = new PolicyIndex(policies, registry);
+  const { permit, deny, caveats, opaque } = abacPolicyTerms(policies, registry);
+  const placeholders = (options.storedStores ?? []).map((store) => opaqueTerm(storedPolicyName(model, store), opaque));
+  const names = placeholders.length > 0 ? registry.all().map((d) => d.name).sort() : [...permit.keys()];
   const types: Record<string, TypeDef> = {};
+  const permissions: Record<Permission, FragmentBinding> = {};
+  for (const permission of names) {
+    const type = registry.get(permission)?.types[0];
+    if (type === undefined) continue;
+    const permits = [...(permit.get(permission) ?? []), ...placeholders];
+    const denies = [...(deny.get(permission) ?? []), ...placeholders];
+    if (permits.length + denies.length === 0) continue;
+    const def = (types[type] ??= { relations: {}, permissions: {} });
+    const binding: FragmentBinding = { type, list: registry.get(permission)?.list === true, source: { origin: `config:authz.${model}.policies` } };
+    if (permits.length > 0) def.permissions[(binding.permit = abacRelation('permit', permission))] = union(permits);
+    if (denies.length > 0) def.permissions[(binding.deny = abacRelation('deny', permission))] = union(denies);
+    permissions[permission] = binding;
+  }
+  return { model, types, permissions, caveats, opaque };
+}
+
+/** The permit and deny terms of each permission the policies apply to; `abacToIR` unions them, decision replay splices them into a stored placeholder. */
+export function abacPolicyTerms(policies: readonly LoadedPolicy[], registry: PermissionRegistry): AbacPolicyTerms {
+  const index = new PolicyIndex(policies, registry);
   const caveats: Record<string, CaveatDef> = {};
   const opaque: OpaqueRef[] = [];
-  const permissions: Record<Permission, FragmentBinding> = {};
+  const permit = new Map<Permission, Rewrite[]>();
+  const deny = new Map<Permission, Rewrite[]>();
   const term = (p: LoadedPolicy): Rewrite => policyTerm(p, caveats, opaque);
   for (const permission of [...index.permissions()].sort()) {
     const type = registry.get(permission)?.types[0];
     if (type === undefined) continue;
     const candidates = index.candidates(permission, type);
-    const permits = candidates.filter((p) => p.policy.effect === 'permit').map(term);
-    const denies = candidates.filter((p) => p.policy.effect === 'deny').map(term);
-    if (permits.length + denies.length === 0) continue;
-    const def = (types[type] ??= { relations: {}, permissions: {} });
-    const binding: FragmentBinding = { type, list: registry.get(permission)?.list === true, source: { origin: `config:authz.${model}.policies` } };
-    if (permits.length > 0) def.permissions[(binding.permit = `abac_permit_${safe(permission)}`)] = union(permits);
-    if (denies.length > 0) def.permissions[(binding.deny = `abac_deny_${safe(permission)}`)] = union(denies);
-    permissions[permission] = binding;
+    permit.set(permission, candidates.filter((p) => p.policy.effect === 'permit').map(term));
+    deny.set(permission, candidates.filter((p) => p.policy.effect === 'deny').map(term));
   }
-  return { model, types, permissions, caveats, opaque };
+  return { permit, deny, caveats, opaque };
 }
 
 function policyTerm(p: LoadedPolicy, caveats: Record<string, CaveatDef>, opaque: OpaqueRef[]): Rewrite {
@@ -72,7 +104,7 @@ function policyCaveat(p: LoadedPolicy, caveats: Record<string, CaveatDef>, opaqu
     for (const fn of p.when.facts.functions) if (!opaque.some((o) => o.name === fn)) opaque.push({ kind: 'condition-function', name: fn });
   }
   if (conditions.length === 0) return EVERYONE;
-  const name = `abac_${safe(p.policy.id)}`;
+  const name = abacCaveatName(p.policy.id);
   caveats[name] = { params, expr: conditions.length === 1 ? conditions[0] : { all: conditions } };
   return { caveat: name, of: EVERYONE };
 }

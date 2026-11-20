@@ -12,6 +12,9 @@ import { loadPolicy } from '../policies.js';
 import { AUTHZ_POLICY_TABLE, POLICY_ACTOR_MAX_LENGTH, POLICY_ID_MAX_LENGTH, POLICY_TEXT_MAX_LENGTH, PolicyRecord, requirePolicyTransaction } from './policy-record.js';
 import type { PolicyFields, PolicyValues } from './policy-record.js';
 
+/** `DbPolicyStore.name`, which the stored policies' placeholder names; the only policy store that logs its changes. */
+export const DB_POLICY_STORE_NAME = 'db';
+
 /** The store's tags for an AuthzChange after a write commits; AbacModel reloads on them. */
 export const policyTags = (id: string): readonly string[] => Object.freeze(['policy', `policy:${id}`]);
 
@@ -22,7 +25,7 @@ export const policyTags = (id: string): readonly string[] => Object.freeze(['pol
  * command. `version()` hashes the rows, so it changes with every write, also one made outside this process.
  */
 export class DbPolicyStore extends PolicyStore {
-  readonly name: string = 'db';
+  readonly name: string = DB_POLICY_STORE_NAME;
 
   constructor() {
     super();
@@ -50,6 +53,7 @@ export class DbPolicyStore extends PolicyStore {
     fits(checked);
     if (actor && principalKey(actor).length > POLICY_ACTOR_MAX_LENGTH) throw new AuthzConfigError(`DbPolicyStore: the actor key is longer than the created_by column (${POLICY_ACTOR_MAX_LENGTH})`);
     requirePolicyTransaction(tx, where);
+    const before = await storedPolicy(checked.id);
     const { RowsAffected: replaced } = await PolicyRecord.destroy().where('id', checked.id);
     try {
       await PolicyRecord.insert(policyToRecord(checked, actor, now) as Partial<PolicyRecord>);
@@ -57,17 +61,18 @@ export class DbPolicyStore extends PolicyStore {
       if (!(err instanceof UniqueViolation)) throw err;
       throw new AuthzAdminFailure('conflict', `${where}: another transaction wrote policy ${JSON.stringify(checked.id)} meanwhile; retry`, undefined, { cause: err });
     }
-    await changeLog().append([{ kind: 'policy', op: replaced > 0 ? 'put' : 'add', key: checked.id, payload: checked, ...(actor ? { actor: principalKey(actor) } : {}), at: now }]);
+    // Logged as a read of the row gives it (no `expiresAt: null`, no bare `$global` scope): replay compares the two.
+    const payload = recordToPolicy(policyToRecord(checked, actor, now));
+    await changeLog().append([{ kind: 'policy', op: replaced > 0 ? 'put' : 'add', key: checked.id, payload, ...(before ? { before } : {}), ...(actor ? { actor: principalKey(actor) } : {}), at: now }]);
     return { affected: 1, tags: policyTags(checked.id) };
   }
 
   async delete(id: string, tx: AuthzTx): Promise<{ readonly affected: number; readonly tags: readonly string[] }> {
     requirePolicyTransaction(tx, 'DbPolicyStore.delete');
-    // Only the id, so a row whose JSON no longer parses can still be deleted (load, version and policy reads refuse it).
-    const [before] = await PolicyRecord.query().select('id').where('id', id);
-    if (!before) return { affected: 0, tags: [] };
+    const removed = await storedPolicy(id);
+    if (removed === undefined) return { affected: 0, tags: [] };
     await PolicyRecord.destroy().where('id', id);
-    await changeLog().append([{ kind: 'policy', op: 'remove', key: id }]);
+    await changeLog().append([{ kind: 'policy', op: 'remove', key: id, ...(removed ? { payload: removed } : {}) }]);
     return { affected: 1, tags: policyTags(id) };
   }
 
@@ -75,6 +80,20 @@ export class DbPolicyStore extends PolicyStore {
   private async records(): Promise<PolicyRecord[]> {
     const rows = await hydrateRecords(PolicyRecord.query());
     return rows.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  }
+}
+
+/**
+ * The policy row `id` holds: undefined without one, null when its JSON no longer parses. Such a row can still be
+ * replaced and deleted (load, version and policy reads refuse it); its change is logged without the image.
+ */
+async function storedPolicy(id: string): Promise<Policy | null | undefined> {
+  try {
+    const [row] = await hydrateRecords(PolicyRecord.query().where('id', id));
+    return row ? recordToPolicy(row) : undefined;
+  } catch (err) {
+    if (err instanceof AuthzConfigError) return null;
+    throw err;
   }
 }
 
@@ -118,7 +137,7 @@ function fits(p: Policy): void {
 const versionKey = (r: PolicyFields): unknown[] => [r.id, r.effect, r.permissions, r.resource_types, r.principal_types, r.actor_types, r.scope_type, r.scope_id, r.condition, r.fields, r.reason, r.priority, r.expires_at?.toMillis() ?? null, r.created_at.toMillis()];
 
 /** The `authz_policy` values of a policy `loadPolicy` checked. */
-export function policyToRecord(p: Policy, actor: PrincipalRef | undefined, now: Date): PolicyValues {
+export function policyToRecord(p: Policy, actor: PrincipalRef | undefined, now: Date): Required<PolicyValues> {
   const scope = p.scope ?? GLOBAL;
   return {
     id: p.id,

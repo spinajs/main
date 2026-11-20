@@ -5,7 +5,7 @@ import { DI } from '@spinajs/di';
 import { Configuration, FrameworkConfiguration, InvalidConfiguration } from '@spinajs/configuration';
 import { AuthenticationStrategy, IdentityStore, SessionIssuer, TokenService } from '@spinajs/authn/contracts';
 import type { AuthnContext, Credentials, IdentityRef, StrategyOutcome, TokenCreateOptions, TokenCreateResult, TokenValidation } from '@spinajs/authn/contracts';
-import { FakeIdentityStore, MemorySessionIssuer, RecordingEventSink } from '@spinajs/authn-testing';
+import { FakeIdentityStore, MemorySessionIssuer, RecordingEventListener } from '@spinajs/authn-testing';
 import { AuthnAudit } from '@spinajs/authn/audit';
 import { DateTime } from 'luxon';
 
@@ -65,7 +65,7 @@ class SpyTokenService extends DbTokenService {
   }
 }
 
-class StrategyTestSink extends RecordingEventSink {}
+class StrategyTestSink extends RecordingEventListener {}
 class StrategyTestSessions extends MemorySessionIssuer {}
 class StrategyTestIdentityStore extends FakeIdentityStore {}
 

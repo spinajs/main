@@ -50,8 +50,8 @@ await DI.resolve(Orm);
 - **`OFFSET ... FETCH NEXT`** instead of `LIMIT`. A query without `orderBy()` gets
   `ORDER BY (SELECT NULL)`, since T-SQL requires an `ORDER BY` before `OFFSET`.
 - **`DELETE TOP (n)`** for limited deletes.
-- **`INSERT IGNORE` and `INSERT OR REPLACE` throw** — `InsertBehaviour.InsertOrIgnore` and
-  `InsertOrReplace` are unsupported; upserts are a `MERGE`.
+- **`INSERT OR REPLACE` throws** — `InsertBehaviour.InsertOrReplace` is unsupported; upserts are a
+  `MERGE`. `orIgnore()` is a `TRY…CATCH` batch that leaves a duplicate key alone, one row per statement.
 - **No native `SET`, `ENUM` or `JSON`**: they are `NVARCHAR` columns, `whereInSet` /
   `whereNotInSet` use `CHARINDEX`, and `@Json()` is required for JSON columns.
 - **DDL *is* transactional**, unlike MySQL — `Migration.Transaction.Mode = PerMigration` gives a

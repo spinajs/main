@@ -5,8 +5,7 @@ import type { ResourceRef } from '@spinajs/authz';
 import type { ModelBase, OrmDriver } from '@spinajs/orm';
 
 import { readParents } from '../../src/ancestors/store.js';
-import { stillThere } from '../../src/ancestors/targets.js';
-import { AccessResource, Parent, entryOf } from '../../src/index.js';
+import { AccessResource, Parent } from '../../src/index.js';
 import { findRows } from '../../src/rows.js';
 import { readAncestors } from '../../src/ancestors/read.js';
 import { rebuildNodes, removeNodes } from '../../src/ancestors/rebuild.js';
@@ -95,14 +94,6 @@ describe('reads of many resources', function () {
         expect(count).to.equal(1);
         expect(result.size).to.equal(COUNT);
         expect(result.get('task:2500')).to.deep.equal([{ type: 'project', id: 'p2500' }]);
-      });
-
-      it('stillThere checks every ref in one statement', async () => {
-        const d = db.driver(dialect);
-        const { result, count } = await statements(d, () => stillThere(d, Task, entryOf(Task)!, [...tasks(), { type: 'task', id: '999999' }]));
-        expect(count).to.equal(1);
-        expect(result.size).to.equal(COUNT);
-        expect(result.has('999999')).to.equal(false);
       });
 
       it('findRows loads every row of a class in one statement', async () => {
