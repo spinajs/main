@@ -16,7 +16,7 @@ A shipping trail does not keep its events in the application database. It buffer
 {
   "audit": {
     "trails": {
-      "shipped": { "store": "OutboxAuditStore", "sink": "ArchiveAuditSink", "reader": "ArchiveAuditReader", "archiveConnection": "audit", "table": "audit_shipped" }
+      "shipped": { "store": "OutboxAuditStore", "sink": "ArchiveAuditSink", "reader": "ArchiveAuditReader", "archiveConnection": "audit" }
     }
   }
 }
@@ -40,7 +40,7 @@ export class AuditShipped_2026_11_17_00_00_01 extends AuditArchiveTableMigration
 }
 ```
 
-The archive table is the trail's `table` plus a `source` column (64 characters) and a unique index on `id`; `seq` there is the arrival order. One archive table per trail: the table-per-trail rule of [Trails and guarantees](01-trails-and-guarantees.md#tables) holds for archives too, so a shipping trail with an archive (`archiveConnection`) but without its own `table` (`audit_event`) collides with `default` and is refused. A shipping trail without an archive in this application (`archiveConnection` unset: shipped through a queue or a custom sink) claims no table.
+The archive table is the trail's `table` plus a `source` column (64 characters) and a unique index on `id`; `seq` there is the arrival order. One archive table per trail: the table-per-trail rule of [Trails and guarantees](01-trails-and-guarantees.md#tables) holds for archives too. A shipping trail without `table` archives into `audit_<trail>` (`audit_shipped` above); `AuditArchiveTableMigration` creates `audit_event` unless `table()` is overridden, so override it as above. A shipping trail without an archive in this application (`archiveConnection` unset: shipped through a queue or a custom sink) claims no table.
 
 ## The shipping task
 
@@ -103,13 +103,31 @@ export async function startAuditService(): Promise<void> {
 
 `consumeAuditBatches(subscriptionId?)` subscribes durably (`audit-archive` by default) and stores each batch through `ArchiveAuditSink`. A redelivered or duplicated message stores each event once. After storing a batch it blanks the arriving events of subjects erased at or after them; it looks for pending erasures in the archive and in the service's `audit_outbox` on the trail's own connection only, so after `forget(subject, source)` in the receiving service, with one of its own connections other than the trail's as `source`, the window lasts until its next shipping run ([Erasure](08-erasure.md#a-trail-shipped-through-a-queue)).
 
-**Trust boundary.** The consumer stores every well-formed `AuditBatchRecorded` message as genuine audit events, with the publisher's `id`, `source`, `actor` and `at`. Whoever can publish to the route can add, backdate or misfile events in the archive, and a seal proves integrity only from archiving on. Make the route writable by the shipping applications only.
+**Trust boundary.** Without [signed batches](#signed-batches) the consumer stores every well-formed `AuditBatchRecorded` message as genuine audit events, with the publisher's `id`, `source`, `actor` and `at`. Whoever can publish to the route can add, backdate or misfile events in the archive, and a seal proves integrity only from archiving on. Make the route writable by the shipping applications only; broker permissions stay the first line with signing too.
 
-**Refused messages.** A message is refused whole when an event is not what the sink writes: `at` must be the `toISOString()` text, every string field must fit its column, an optional field is a string or absent, `kind` and `outcome` must be known. The error names the first refused event and field (`audit: malformed AuditBatchRecorded message: event <id>: <field> ...`). A refused message, a batch of a trail the service does not configure, or a `Source` over 64 characters fails on every redelivery: configure a dead-letter queue for `AuditBatchRecorded`. When a release adds an event kind or outcome, upgrade the receiving service before the shipping applications.
+**Refused messages.** A message is refused whole when an event is not what the sink writes: `at` must be the `toISOString()` text, every string field must fit its column, an optional field is a string or absent, `kind` and `outcome` must be known. The error names the first refused event and field (`audit: malformed AuditBatchRecorded message: event <id>: <field> ...`). A refused message, a batch of a trail the service does not configure, or a `Source` over 64 characters fails on every delivery: SQS redelivers it until its redrive policy moves it to a dead-letter queue, so configure one for `AuditBatchRecorded`; AMQP and STOMP drop a failed event after one warning line. When a release adds an event kind or outcome, upgrade the receiving service before the shipping applications.
 
 **Clocks.** An event whose `at` is more than 5 minutes ahead of the receiving service's clock is refused until that clock catches up: it is delayed, or moved to the dead-letter queue past the queue's maximum receive count. Keep the clocks of every application that shares an archive synchronized; erasure on arrival depends on them too ([Erasure](08-erasure.md#a-trail-shipped-through-a-queue)).
 
 **Sources across applications.** The archive files events under the shipping application's driver name. The receiving service maps `default` and its trail's `connection` to its own driver names, so its reads without a `source` find none of the shipped events: pass `source`, the shipping connection's name, to `of`, `byActor`, `since` and the other reads. Retention and `forget` without a `source` cover every source of the archive, so applications that share an archive use subject keys unique among them.
+
+### Signed batches
+
+Signing is off by default. A shipping application signs every message with one key; the receiving service lists, per `source`, the keys it accepts:
+
+```json
+{ "audit": { "queue": { "signing": { "keyId": "billing-2026", "secret": "<at least 16 characters, from the environment>" } } } }
+```
+
+```json
+{ "audit": { "queue": { "verify": { "required": true, "keys": { "billing-app": [{ "id": "billing-2026", "secret": "<the same secret>" }] } } } } }
+```
+
+A signed message carries `KeyId` and `Sig`, the base64url HMAC-SHA256 of the canonical JSON (`canonicalJson` of `@spinajs/audit`) of `{ trail, source, events }`, the events as they travel (`at` as `toISOString()` text). A message without signing has the same fields as before. The consumer checks the signature before it reads an event, by the key the message names among the keys of its `Source`, in constant time. It refuses a message whose source has no keys, whose key id is not listed for its source, whose `KeyId` or `Sig` is missing or not a string, or whose signature does not match, and with `required: true` also an unsigned one. Without `required` an unsigned message is accepted, so producers can be switched on one by one; a signed one is checked all the same. Without `audit.queue.verify` nothing is checked.
+
+A refused message stores nothing. The consumer logs one error line on `audit-queue` (`audit: refused AuditBatchRecorded of trail ... from source ...: <reason>`, with `trail`, `source`, `keyId` and `reason`) and fails it with a `PermanentJobFailure` (reason `audit_signature`). The transport handles the failed event as it handles any: AMQP and STOMP drop it, SQS redelivers it until its redrive policy moves it to the dead-letter queue, and each redelivery is refused and logged again. Set `required: true` only after every producer of the trail signs: a genuine batch refused on AMQP or STOMP is lost, and its producer counts it as shipped.
+
+Rotation: list the new key beside the old one in the receiving service, then switch the producer's `signing` to it, then remove the old key once nothing signed with it is in flight. Keys are per source: a stolen producer key forges events of that source, and a compromised producer signs whatever it likes for its own source. The damage does not stay in that source: an `erasure` record (`kind: 'custom'`, `action: 'erasure'`) signed with it blanks the payloads of its subject's events in every source, archived and arriving, with `at` at or before its own, and `verify` counts them as explained redactions, not as `unexplainedRedactions`. A replayed message is harmless while its events are retained, since events are deduplicated by `id`; replayed after retention pruned them, it stores them again with their payloads.
 
 ## Limits
 

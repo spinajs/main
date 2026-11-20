@@ -7,9 +7,9 @@ import type { AuditEvent, AuditInput, TrailConfig } from '@spinajs/audit';
 import { DI } from '@spinajs/di';
 import type { OrmDriver } from '@spinajs/orm';
 import { TableAuditReader, auditEventColumns, insertRows, rowsOf, storedColumns } from '../src/index.js';
-import { DIALECTS, TestDb } from '../src/testing.js';
+import { DIALECTS, TestDb } from './support/db.js';
 import { trailTableOn } from '../src/trail-tables.js';
-import type { Dialect } from '../src/testing.js';
+import type { Dialect } from './support/db.js';
 
 chai.use(chaiAsPromised);
 const expect = chai.expect;

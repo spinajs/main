@@ -13,7 +13,7 @@ export const DEFAULT_TRAIL = 'default';
 export const SECURITY_HASH_PATHS: readonly string[] = ['actor', 'onBehalfOf', 'origin', 'data.identity', 'data.actor', 'data.ip', 'data.session'];
 
 const BUILT_IN = new Map<string, Readonly<Record<string, unknown>>>([
-  [DEFAULT_TRAIL, {}],
+  [DEFAULT_TRAIL, { table: 'audit_event' }],
   ['history', { table: 'orm_history' }],
   ['security', { store: 'LogAuditStore', hash: SECURITY_HASH_PATHS }],
 ]);
@@ -35,6 +35,16 @@ const section = (name: string, container: IContainer): Record<string, unknown> =
 
 const text = (v: unknown): string | undefined => (typeof v === 'string' && v !== '' ? v : undefined);
 const list = (v: unknown): readonly string[] => (Array.isArray(v) ? v.filter((p): p is string => typeof p === 'string') : []);
+// Bounded so that audit_<trail> fits the schema's 63-character table names.
+const DERIVABLE = /^[a-z][a-z0-9_]{0,56}$/;
+
+function tableOf(name: string, raw: Record<string, unknown>): string {
+  const own = text(raw.table);
+  if (own !== undefined) return own;
+  if (!DERIVABLE.test(name)) throw new AuditConfigError(`audit: trail ${quoted(name)} has no table, and its name is not a plain identifier (${DERIVABLE.source}) to derive audit_<trail> from; set audit.trails.${name}.table`);
+  return `audit_${name}`;
+}
+
 const positive = (v: unknown, fallback: number): number => (typeof v === 'number' && Number.isInteger(v) && v > 0 ? v : fallback);
 
 function delayMs(value: unknown, trail: string): number {
@@ -68,7 +78,7 @@ export function trailConfig(name: string = DEFAULT_TRAIL, container: IContainer 
   const config: TrailConfig = {
     name,
     store: text(raw.store) ?? 'TableAuditStore',
-    table: text(raw.table) ?? 'audit_event',
+    table: tableOf(name, raw),
     connection: text(raw.connection) ?? 'default',
     onFailure: raw.onFailure === 'reject' ? 'reject' : 'continue',
     retry: { attempts: positive(retry.attempts, 3), delayMs: delayMs(retry.delay, name) },

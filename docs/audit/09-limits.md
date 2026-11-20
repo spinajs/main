@@ -11,7 +11,7 @@ What a reader of the trail, and an operator of it, must not assume.
 - **Inside a transaction, await every `record`;** never `Promise.all` them (use `Promise.allSettled`), or a joined write may land after the transaction ended.
 - **Configuration is checked at boot, not all of it alike.** An unknown key in a trail, in `audit.deferred`, `audit.hashKey` or `audit.seal` fails the boot. An unknown key in `audit.ship` or `audit.queue` is dropped silently, so a misspelt option there keeps its default. A trail that names an unregistered store, or a table that is not migrated, fails where it is written.
 - **Hashed values** are comparable across restarts and processes only with `audit.hashKey.secret`.
-- **Tables:** one table per trail on every connection. A second trail on the same table is refused; a configured table trail without its own `table` collides with `default`. `audit_outbox` and `audit_seal` are reserved.
+- **Tables:** one table per trail on every connection. A second trail on the same table is refused. A trail without `table` uses `audit_<trail>`, and needs `table` when its name is not a plain identifier; renaming a trail leaves its old table unread. `audit_outbox` and `audit_seal` are reserved.
 
 ## Reading
 
@@ -26,7 +26,7 @@ What a reader of the trail, and an operator of it, must not assume.
 - Delivery is at least once; a destination that does not deduplicate on `id` sees duplicates.
 - Reads of a shipping trail lag by at least one shipping interval, longer while a delivery fails.
 - The shipper has no dead-letter: an event a sink always refuses blocks its trail on that connection. On the queue, refused messages need a dead-letter queue.
-- Whoever can publish `AuditBatchRecorded` to the route can forge archived events.
+- Whoever can publish `AuditBatchRecorded` to the route can forge archived events, unless the receiving service requires [signed batches](06-shipping.md#signed-batches); then only the holder of a source's key can, for that source. With that key it can also sign an `erasure` record (`custom`/`erasure`), which blanks the payloads of its subject's events in every source; `verify` reports them as explained.
 - A message whose events are more than 5 minutes ahead of the receiving service's clock waits or is dead-lettered.
 - On MSSQL two archive indexes, `(subject_type, subject_id, action)` and `(source, subject_type, subject_id, seq)`, have keys wider than 900 bytes: the archive needs SQL Server 2016 or later, whose nonclustered keys hold 1700 bytes.
 

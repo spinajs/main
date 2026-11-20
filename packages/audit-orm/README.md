@@ -2,11 +2,10 @@
 
 The database side of `@spinajs/audit`:
 
-- `TableAuditStore`: a trail in a table (`audit_event` by default), written inside the audited transaction or on the trail's connection. Each trail owns its table: a trail of a table store whose table another such trail uses is refused with `AuditConfigError` (on write, read and retention; the other trails keep working), whatever their connections, because a trail table can hold events on any connection. A trail you add needs its own `table`.
+- `TableAuditStore`: a trail in a table (`audit_<trail>` by default, `audit_event` for `default`), written inside the audited transaction or on the trail's connection. Each trail owns its table: a trail of a table store whose table another such trail uses is refused with `AuditConfigError` (on write, read and retention; the other trails keep working), whatever their connections, because a trail table can hold events on any connection. A trail you add gets `audit_<trail>` unless it names a `table`; migrate that table.
 - `AuditTrailTableMigration`: creates a trail table; the package migrates `audit_event` on the default connection. For another table or connection, extend it, override `table()` and add `@Migration(connection)`.
 - `TableAuditReader`, `pruneAudit()` and `@spinajs/audit-orm/scheduler` (`AuditRetentionTask`). Retention applies per trail, to the trail's own table; a trail or connection that fails is reported after the others were pruned.
 - `Model.audit()` and `row.audit()`: the `default` trail unless named; when the model's connection is not the trail's, both are read and merged by time. They apply no authorization scoping: the application decides who may call them. A producer that writes events about rows names them with `auditSubjectType(model)` and `auditSubjectId(key)` (composite keys as their escaped parts joined with `:`, binary keys as hex), passing the key as the loaded model holds it, after its converters, so these reads find them.
-- `@spinajs/audit-orm/testing`: `TestDb`, one ORM over sqlite, PGlite and the Postgres and MySQL servers that answer, for suites that write to trail tables.
 
 ## Confirmed writes inside a transaction
 
@@ -27,6 +26,8 @@ Call `forget` on a shipping trail outside a transaction. Inside one, the buffer 
 ## Queue shipping
 
 **Trust boundary.** The consumer stores every well-formed `AuditBatchRecorded` message as genuine audit events, with the publisher's `id`, `source`, `actor` and `at`: whoever can publish to the route can add, backdate or misfile events in the archive, and a seal (`integrity: 'sealed'`) proves only that nothing changed after archiving. Make the route writable by the shipping applications only.
+
+**Signed batches** (off by default). `audit.queue.signing: { keyId, secret }` in a shipping application adds `KeyId` and `Sig` (base64url HMAC-SHA256 of the canonical JSON of `{ trail, source, events }`) to every message. `audit.queue.verify: { required?, keys: { <source>: [{ id, secret }] } }` in the receiving service checks them before any event is read: a message of a source without keys, under an unlisted key id, with a wrong signature, or, with `required: true`, unsigned, stores nothing, is logged once on `audit-queue` and fails with a `PermanentJobFailure`. Several keys per source allow rotation. A stolen key forges events of its own source, and through an `erasure` record (`custom`/`erasure`) blanks the payloads of that subject's events in every source, which `verify` reports as explained. Without `audit.queue.verify` nothing is checked.
 
 **Erasure window.** Events still buffered in a shipping application or in flight in the broker when `forget` runs arrive with their payload. The consumer blanks them on arrival, after storing a batch, and keeps their `data_hash`:
 - an arriving event is blanked when its subject has an `erasure` event at or after the arriving event's `at`, in the archive or still in the receiving service's own `audit_outbox` (two selects per batch); newer events of the subject and erasure records keep their payload;

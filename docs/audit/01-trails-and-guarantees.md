@@ -41,7 +41,7 @@ A trail is a named destination under `audit.trails`. `record` writes to `default
 | Option | Default | Meaning |
 | --- | --- | --- |
 | `store` | `TableAuditStore` | Registration name of the `AuditStore`. |
-| `table` | `audit_event` | The table of a table store, or the archive table of a shipping trail. `^[A-Za-z_][A-Za-z0-9_]{0,62}$`. |
+| `table` | `audit_<trail>` | The table of a table store, or the archive table of a shipping trail. `^[A-Za-z_][A-Za-z0-9_]{0,62}$`. See [Tables](#tables). |
 | `connection` | `default` | ORM connection of confirmed and deferred writes, and of reads without a `source`. |
 | `onFailure` | `continue` | `continue` logs a lost event; `reject` throws `AuditWriteFailed` into the caller. |
 | `retry` | `{ attempts: 3, delay: 100 }` | `attempts` counts every try, the first included (1 to 10); `delay` is milliseconds or `"100ms"`, `"2s"`, `"1m"`. |
@@ -66,13 +66,18 @@ Configuring a built-in trail overrides its options one by one. Without `@spinajs
 
 ### Tables
 
-`AuditTrailTableMigration` creates a trail table: `seq` (bigint, autoincrement), the event columns `id` to `data_hash`, and indexes on `(subject_type, subject_id, seq)`, `(actor, seq)`, `trace_id` and `at`. `data` is `LONGTEXT` on MySQL, `TEXT` on Postgres and sqlite, `NVARCHAR(MAX)` on MSSQL. Every text column, `data` included, is declared `exact()`, whatever the database's default: `utf8mb4` with `utf8mb4_bin` on MySQL, `COLLATE "C"` on Postgres, `NVARCHAR` with `Latin1_General_100_BIN2` on MSSQL. So every character is stored as given, and `ABC` and `abc` are different subjects, actors and traces. The buffer, archive and seal tables of [Shipping](06-shipping.md) and [Integrity and verification](07-integrity-and-verification.md) are declared the same way. A query of your own that joins one of these columns to a text column with the default collation needs an explicit `COLLATE` on Postgres and MSSQL, which otherwise refuse to pick one of the two. The package migrates `audit_event` on `default`; for another table or connection, extend the migration:
+`AuditTrailTableMigration` creates a trail table: `seq` (bigint, autoincrement), the event columns `id` to `data_hash`, and indexes on `(subject_type, subject_id, seq)`, `(actor, seq)`, `trace_id` and `at`. `data` is `LONGTEXT` on MySQL, `TEXT` on Postgres and sqlite, `NVARCHAR(MAX)` on MSSQL. Every text column, `data` included, is declared `exact()`, whatever the database's default: `utf8mb4` with `utf8mb4_bin` on MySQL, `COLLATE "C"` on Postgres, `NVARCHAR` with `Latin1_General_100_BIN2` on MSSQL. So every character is stored as given, and `ABC` and `abc` are different subjects, actors and traces. The buffer, archive and seal tables of [Shipping](06-shipping.md) and [Integrity and verification](07-integrity-and-verification.md) are declared the same way. A query of your own that joins one of these columns to a text column with the default collation needs an explicit `COLLATE` on Postgres and MSSQL, which otherwise refuse to pick one of the two.
+
+A trail without `table` uses `audit_<trail>` (`billing` uses `audit_billing`); `default` keeps `audit_event` and `history` keeps `orm_history`. Only a name that is a plain identifier, `^[a-z][a-z0-9_]{0,56}$`, gives a table: any other trail without `table` (`Billing`, `my-trail`) is refused with `AuditConfigError`, whatever its store, until you set one. The table follows the name, so renaming a trail moves it to another table: the old table is no longer read, pruned or reached by `forget`. A trail named `event`, `outbox` or `seal` lands on `audit_event`, `audit_outbox` or `audit_seal` and is refused like any trail on a taken or reserved table.
+
+The package migrates `audit_event` on `default`; for another table or connection, extend the migration:
 
 ```ts sample
 import { AuditTrailTableMigration } from '@spinajs/audit-orm';
 import { Migration } from '@spinajs/orm';
 
 @Migration('default')
+// The table of a trail `billing` configured without `table`.
 export class AuditBilling_2026_11_17_00_00_00 extends AuditTrailTableMigration {
   protected override table(): string {
     return 'audit_billing';
@@ -80,7 +85,7 @@ export class AuditBilling_2026_11_17_00_00_00 extends AuditTrailTableMigration {
 }
 ```
 
-**One table per trail, on every connection.** A trail table has no trail column, and transactional events sit on the connection of each audited write, so two table trails that name the same table would read, erase and prune each other's events whatever their connections. The later of the two (built-in trails first, then configuration order) is refused with `AuditConfigError` on write, read and retention; the first keeps working. A configured table trail without its own `table` gets `audit_event` and therefore collides with `default`. The tables `audit_outbox` and `audit_seal` are reserved: a trail that names one is refused. The check reads the trails of the root container's configuration and the store classes registered there: trails a child container configures on its own, and a store registered through a factory, are not checked.
+**One table per trail, on every connection.** A trail table has no trail column, and transactional events sit on the connection of each audited write, so two table trails that name the same table would read, erase and prune each other's events whatever their connections. The later of the two (built-in trails first, then configuration order) is refused with `AuditConfigError` on write, read and retention; the first keeps working. The tables `audit_outbox` and `audit_seal` are reserved: a trail that names one is refused. The check reads the trails of the root container's configuration and the store classes registered there: trails a child container configures on its own, and a store registered through a factory, are not checked.
 
 ## Write modes
 

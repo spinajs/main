@@ -82,14 +82,14 @@ const TRAILS = {
   twice: { store: 'FlakyStore', onFailure: 'reject', retry: { attempts: 2, delay: '1ms' } },
   flaky: { store: 'FlakyStore', retry: { attempts: 2, delay: 1 } },
   sleepy: { store: 'FlakyStore', retry: { attempts: 3, delay: '1s' } },
-  sleepyStrict: { store: 'FlakyStore', onFailure: 'reject', retry: { attempts: 3, delay: '1s' } },
+  sleepy_strict: { store: 'FlakyStore', onFailure: 'reject', retry: { attempts: 3, delay: '1s' } },
   slow: { store: 'SlowStore', retry: { attempts: 3, delay: 1 } },
-  slowStrict: { store: 'SlowStore', onFailure: 'reject', retry: { attempts: 3, delay: 1 } },
+  slow_strict: { store: 'SlowStore', onFailure: 'reject', retry: { attempts: 3, delay: 1 } },
   misconfigured: { store: 'MisconfiguredStore', retry: { attempts: 3, delay: 1 } },
-  misconfiguredStrict: { store: 'MisconfiguredStore', onFailure: 'reject', retry: { attempts: 3, delay: 1 } },
+  misconfigured_strict: { store: 'MisconfiguredStore', onFailure: 'reject', retry: { attempts: 3, delay: 1 } },
   probe: { store: 'ProbeStore' },
-  askFails: { store: 'AskFailsStore' },
-  askFailsToo: { store: 'AskFailsStore' },
+  ask_fails: { store: 'AskFailsStore' },
+  ask_fails_too: { store: 'AskFailsStore' },
   orphan: { store: 'NoSuchStore' },
 };
 
@@ -313,17 +313,17 @@ describe('audit().record', function () {
 
   it('writes detached when joinsCaller throws, and says so once per trail; a configuration error it raises fails the write', async () => {
     const lines = pipelineLog(app.container);
-    await audit().record(actions('a'), { trail: 'askFails', mode: 'confirmed' });
-    await audit().record(actions('b'), { trail: 'askFails', mode: 'confirmed' });
-    await audit().record(actions('c'), { trail: 'askFailsToo', mode: 'confirmed' });
+    await audit().record(actions('a'), { trail: 'ask_fails', mode: 'confirmed' });
+    await audit().record(actions('b'), { trail: 'ask_fails', mode: 'confirmed' });
+    await audit().record(actions('c'), { trail: 'ask_fails_too', mode: 'confirmed' });
     expect(MemoryAuditStore.events().map((e) => e.action)).to.deep.eq(['a', 'b', 'c']);
     const unknown = 'audit: trail ${trail} could not tell whether its store joins the caller; it writes detached';
     expect(lines.map((l) => [l.level, l.fields.trail, l.message])).to.deep.eq([
-      ['warn', 'askFails', unknown],
-      ['warn', 'askFailsToo', unknown],
+      ['warn', 'ask_fails', unknown],
+      ['warn', 'ask_fails_too', unknown],
     ]);
     AskFailsStore.failure = new AuditConfigError('audit: no ORM connection "nope"');
-    await expect(audit().record(actions('d'), { trail: 'askFails', mode: 'confirmed' })).to.be.rejectedWith(AuditConfigError, 'audit: no ORM connection "nope"');
+    await expect(audit().record(actions('d'), { trail: 'ask_fails', mode: 'confirmed' })).to.be.rejectedWith(AuditConfigError, 'audit: no ORM connection "nope"');
     AskFailsStore.failure = new Error('cannot tell');
   });
 
@@ -386,9 +386,9 @@ describe('audit(): confirmed deadline', function () {
     const lines = pipelineLog(app.container);
     SlowStore.holds = 2;
     const failed: unknown = await audit()
-      .record(actions('a'), { trail: 'slowStrict' })
+      .record(actions('a'), { trail: 'slow_strict' })
       .catch((e: unknown) => e);
-    expect(failed instanceof AuditWriteFailed && failed.inner instanceof Error ? [failed.message, failed.inner.message] : []).to.deep.eq(['audit: trail "slowStrict" could not record 1 event(s) after 1 attempt(s)', 'audit: a confirmed write did not finish within 50 ms']);
+    expect(failed instanceof AuditWriteFailed && failed.inner instanceof Error ? [failed.message, failed.inner.message] : []).to.deep.eq(['audit: trail "slow_strict" could not record 1 event(s) after 1 attempt(s)', 'audit: a confirmed write did not finish within 50 ms']);
     await audit().record(actions('b'), { trail: 'slow', mode: 'confirmed' });
     expect(lines.map((l) => [l.level, l.fields.trail, l.message.includes('not confirmed in time')])).to.deep.eq([['error', 'slow', true]]);
 
@@ -397,7 +397,7 @@ describe('audit(): confirmed deadline', function () {
     // The caller of a reject trail was told the write failed: its late landing is an error.
     const stored = 'audit: trail ${trail} stored ${count} event(s) it had given up on: ${ids}';
     expect(lines.slice(1).map((l) => [l.level, l.fields.trail, l.fields.mode, l.fields.onFailure, l.message])).to.deep.eq([
-      ['error', 'slowStrict', 'confirmed', 'reject', stored],
+      ['error', 'slow_strict', 'confirmed', 'reject', stored],
       ['warn', 'slow', 'confirmed', 'continue', stored],
     ]);
     expect(SlowStore.calls).to.eq(2);
@@ -427,9 +427,9 @@ describe('audit(): confirmed deadline', function () {
     FlakyStore.down = true;
     try {
       const failed: unknown = await audit()
-        .record(actions('a'), { trail: 'sleepyStrict' })
+        .record(actions('a'), { trail: 'sleepy_strict' })
         .catch((e: unknown) => e);
-      expect(failed instanceof AuditWriteFailed && failed.inner instanceof Error ? [failed.message, failed.inner.message] : []).to.deep.eq(['audit: trail "sleepyStrict" could not record 1 event(s) after 1 attempt(s)', 'audit: a confirmed write did not finish within 50 ms']);
+      expect(failed instanceof AuditWriteFailed && failed.inner instanceof Error ? [failed.message, failed.inner.message] : []).to.deep.eq(['audit: trail "sleepy_strict" could not record 1 event(s) after 1 attempt(s)', 'audit: a confirmed write did not finish within 50 ms']);
       await audit().record(actions('b'), { trail: 'sleepy', mode: 'confirmed' });
       expect(lines.map((l) => [l.level, l.fields.trail, l.message])).to.deep.eq([['error', 'sleepy', 'audit: trail ${trail} lost ${count} event(s): ${ids}']]);
       expect(FlakyStore.calls).to.eq(2);
@@ -445,7 +445,7 @@ describe('audit(): confirmed deadline', function () {
     SlowStore.holds = 1;
     let settled = false;
     const write = audit()
-      .record(actions('a'), { trail: 'slowStrict' })
+      .record(actions('a'), { trail: 'slow_strict' })
       .finally(() => (settled = true));
     await pause(100);
     expect(settled).to.eq(false);
@@ -668,7 +668,7 @@ describe('audit(): deferred batches and failure paths', function () {
       .record(actions('a'), { trail: 'misconfigured', mode: 'confirmed' })
       .catch((e: unknown) => e);
     expect(confirmed).to.be.instanceOf(AuditConfigError).and.to.have.property('message', 'audit: no ORM connection "nope"');
-    await expect(audit().record(actions('b'), { trail: 'misconfiguredStrict' })).to.be.rejectedWith(AuditConfigError, 'audit: no ORM connection "nope"');
+    await expect(audit().record(actions('b'), { trail: 'misconfigured_strict' })).to.be.rejectedWith(AuditConfigError, 'audit: no ORM connection "nope"');
     expect(MisconfiguredStore.calls).to.eq(2);
 
     // A deferred write cannot reach its caller: it is tried once, dropped and logged as a misconfiguration.
