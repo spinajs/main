@@ -165,7 +165,8 @@ describe('GET /authz/decisions/:id/explain', function () {
     const hidden = await get(URL, 'bob');
     expect(hidden.status).to.eq(404);
     expect(hidden.body).to.deep.eq(unknown.body);
-    expect(running.domains[0].audit.of('deny')).to.deep.eq([{ kind: 'deny', principal: { type: 'user', id: 'bob' }, permission: 'file:read', resource: { type: 'file', id: 'f1' }, reason: `replay ${ID} refused: domain ${OTHER}` }]);
+    // The refused call is authz:replay in the record's domain, not the record's own permission.
+    expect(running.domains[0].audit.of('deny')).to.deep.eq([{ kind: 'deny', principal: { type: 'user', id: 'bob' }, permission: 'authz:replay', resource: { type: 'authz' }, reason: `replay ${ID} refused: domain ${OTHER}` }]);
     expect(running.domains[0].audit.of('explain'), 'an unknown id names no record').to.have.length(0);
     expect((await get(URL, 'erin')).status, 'held in both domains').to.eq(200);
 
@@ -176,6 +177,20 @@ describe('GET /authz/decisions/:id/explain', function () {
     const undeclared = await get(URL, 'erin');
     expect(undeclared.status, 'a domain that does not declare authz:replay').to.eq(404);
     expect(undeclared.body).to.deep.eq(unknown.body);
+
+    // Listed by names(), but its service cannot boot: the audit service it names is not registered.
+    const BROKEN = 'dec-broken';
+    testHost.config().set(['authz', 'domains', BROKEN], { audit: { service: 'Missing' } });
+    const broken = (await testHost.domains()).create(BROKEN, 'root');
+    try {
+      answer = async () => report({}, BROKEN);
+      const unbootable = await get(URL, 'erin');
+      expect(unbootable.status, 'a domain whose service fails to boot').to.eq(404);
+      expect(unbootable.body).to.deep.eq(unknown.body);
+    } finally {
+      await broken.dispose();
+      testHost.config().unset(['authz', 'domains', BROKEN]);
+    }
   });
 
   it('refuses an id that is not a UUID with 400, before any replay', async () => {

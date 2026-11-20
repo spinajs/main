@@ -1,4 +1,4 @@
-import { AuthzDomains, DecisionReplay, ReplayBusy, ReplayInTransaction } from '@spinajs/authz';
+import { AuthzDomains, DecisionReplay, ReplayBusy, ReplayInTransaction, parsePermission, thrownError } from '@spinajs/authz';
 import type { Permission, Principal, ReplayReport } from '@spinajs/authz';
 import { BaseController, BasePath, BasePolicy, Get, NotFound, Ok, Policy, ServerError, TooManyRequests } from '@spinajs/http';
 import type { Request } from '@spinajs/http';
@@ -85,25 +85,28 @@ export class DecisionsController extends BaseController {
     }
     const notFound = new NotFound({ error: 'not_found', message: `no decision ${id}` });
     if (report === undefined) return notFound;
+    const authz = await this.Domains.service(domain);
+    const who = { type: principal.type, id: principal.id };
     if (!(await this.mayReplayIn(report.decision.domain, domain, principal))) {
-      await this.audit(domain, principal, report, 'deny', `replay ${id} refused: domain ${report.decision.domain}`);
+      // What was refused is the replay permission in the record's domain; the record appears only by id in the reason.
+      authz.audit?.({ kind: 'deny', principal: who, permission: this.ReplayPermission, resource: { type: parsePermission(this.ReplayPermission).resource }, reason: `replay ${id} refused: domain ${report.decision.domain}` });
       return notFound;
     }
 
-    await this.audit(domain, principal, report, 'explain', `replay ${id}`);
+    authz.audit?.({ kind: 'explain', principal: who, permission: report.decision.permission, resource: report.decision.resource, reason: `replay ${id}` });
     return new Ok(format === 'tree' ? report.tree : report);
   }
 
   private async mayReplayIn(recordDomain: string, accessDomain: string, principal: Principal): Promise<boolean> {
     if (recordDomain === accessDomain) return true;
     if (!this.Domains.names().includes(recordDomain)) return false;
-    // A failing check (the domain does not declare the permission) is not a grant, and a 500 would confirm the id.
-    const held = await holdsExplain(await this.Domains.service(recordDomain), principal, this.ReplayPermission).catch(() => undefined);
+    // A failing check is not a grant, and a 500 would confirm the id: logged, so a broken domain stays visible.
+    const held = await this.Domains.service(recordDomain)
+      .then((authz) => holdsExplain(authz, principal, this.ReplayPermission))
+      .catch((e: unknown) => {
+        this.Log.warn({ error: thrownError(e), domain: recordDomain, permission: this.ReplayPermission }, 'authz-http: the check of ${permission} in domain ${domain} failed; the replay is answered as unknown');
+        return undefined;
+      });
     return held?.held === true;
-  }
-
-  private async audit(domain: string, principal: Principal, report: ReplayReport, kind: 'explain' | 'deny', reason: string): Promise<void> {
-    const { permission, resource } = report.decision;
-    (await this.Domains.service(domain)).audit?.({ kind, principal: { type: principal.type, id: principal.id }, permission, resource, reason });
   }
 }
