@@ -1,5 +1,5 @@
 ---
-"@spinajs/audit": major
+"@spinajs/audit": minor
 "@spinajs/audit-orm": minor
 ---
 
