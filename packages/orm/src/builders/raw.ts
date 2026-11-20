@@ -1,8 +1,10 @@
 import { NewInstance } from '@spinajs/di';
+import { noteRawSql } from '../explain/raw-sql.js';
 
 @NewInstance()
 export class RawQuery {
   get Query() {
+    noteRawSql();
     return this._query;
   }
 

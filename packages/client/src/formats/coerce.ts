@@ -31,25 +31,51 @@ const COERCIONS: Record<Exclude<JsonType, 'object'>, (data: unknown) => unknown>
  * Types are tried in the order given, as in the schema.
  */
 export function ajvCoerce(value: unknown, types: readonly JsonType[]): unknown {
+  const result = ajvCoerceInPlace(value, types);
+  if (!result.set) return value;
+  return typeof result.local === 'number' && !Number.isFinite(result.local) ? value : result.local;
+}
+
+/**
+ * The variable Ajv's compiled code reads the data from once the type check has run, and whether it assigned that to the
+ * parent. A one-item array is unwrapped into the variable before anything is tried, and stays unwrapped when no
+ * coercion follows: the next keyword of the node reads the item.
+ * A coercion to a non-finite number is returned as Ajv makes it: the server refuses it afterwards, and the replay has to
+ * see it to refuse it too.
+ */
+export function ajvCoerceInPlace(value: unknown, types: readonly JsonType[]): { local: unknown; set: boolean } {
   const coerceTo = types.filter((type): type is Exclude<JsonType, 'object'> => type !== 'object');
   if (coerceTo.length === 0 || !checkDataTypes(types, value, false)) {
-    return value;
+    return { local: value, set: false };
   }
   let data = value;
   if (Array.isArray(data) && data.length === 1) {
     data = (data as unknown[])[0];
     if (checkDataTypes(types, data, true)) {
-      return data;
+      return { local: data, set: true };
     }
   }
   for (const type of coerceTo) {
     const coerced = COERCIONS[type](data);
     if (coerced !== NOT_COERCED) {
-      return typeof coerced === 'number' && !Number.isFinite(coerced) ? value : coerced;
+      return { local: coerced, set: true };
     }
   }
-  return value;
+  return { local: data, set: false };
 }
+
+/** The value Ajv's variable holds after the type check of `types`, for types fixed in advance. */
+export function coerceLocal(types: readonly JsonType[]): (value: unknown) => unknown {
+  return (value) => ajvCoerceInPlace(value, types).local;
+}
+
+/** `ajvCoerceInPlace` for types fixed in advance: what a replay plan holds. */
+export function coerceIn(types: readonly JsonType[]): CoerceIn {
+  return Object.assign((value: unknown) => ajvCoerceInPlace(value, types), { numeric: types.includes('number') || types.includes('integer') });
+}
+
+/** What `coerceIn` makes; `numeric` when the node's `type` holds a number, whose finite check fails on an infinity. */
+export type CoerceIn = ((value: unknown) => { local: unknown; set: boolean }) & { numeric?: boolean };
 
 export const coerceString = (value: unknown): unknown => ajvCoerce(value, ['string']);
 export const coerceNumber = (value: unknown): unknown => ajvCoerce(value, ['number']);

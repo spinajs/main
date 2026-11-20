@@ -2,7 +2,7 @@ import { hostname } from 'os';
 import { randomBytes } from 'crypto';
 
 /**
- * Upper bound for a generated identity: `__mutex__.Tenant` is VARCHAR(32).
+ * Upper bound for a generated identity: `__mutex__.Holder` is VARCHAR(32).
  */
 export const MAX_PROCESS_IDENTITY_LENGTH = 32;
 
@@ -21,7 +21,7 @@ export function createProcessIdentity(host: string = hostname(), pid: number = p
 }
 
 /**
- * Identity of this process, generated once. It is the default mutex tenant.
+ * Identity of this process, generated once. It is the default mutex holder.
  */
 export function processIdentity(): string {
   if (!current) {

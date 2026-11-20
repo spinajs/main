@@ -25,6 +25,7 @@ defineCase({
   seed: BASE,                       // rows inserted into a freshly created fixture
   order: 'unordered',               // rows are sorted before comparison
   booleans: ['Active'],             // optional: keys whose 0/1 are booleans in raw rows
+  expected: ['Ann', 'Dora'],        // optional: PGlite's result, pinned
   run: async () => (await CfUser.where('Age', 31)).map((u) => u.Name),
 });
 ```
@@ -32,6 +33,25 @@ defineCase({
 `run` returns plain data. A throw is recorded as `{ $error: '<error class>' }`, so an error that every dialect
 raises agrees. Results are normalized before comparison: dates to ISO UTC strings, numeric strings to numbers,
 bigints to strings, bytes to hex, object keys sorted.
+
+`expected` pins PGlite's result, normalized like every result: the case fails when PGlite returns anything else. Without
+it a case that throws the same error on every target agrees with itself, so a new case states it.
+
+## The corpus
+
+| File | Cases |
+|---|---|
+| `where.case.ts`, `null.case.ts` | operators, `IN` with an empty list, `NULL` handling |
+| `order.case.ts`, `join.case.ts` | NULL ordering, multi-column order, offset, joins, `EXISTS` |
+| `populate.case.ts` | has-many, belongs-to, many-to-many, nested, filtered |
+| `aggregate.case.ts` | `COUNT`, `SUM/MIN/MAX`, fractional `AVG`, `GROUP BY`, `DISTINCT` |
+| `types.case.ts` | datetimes, a date in a far-east zone, booleans, JSON, `LIKE` case and accents, collation order |
+| `write.case.ts` | generated keys, a unit-of-work graph, savepoints |
+| `introspection.case.ts` | `tableIndexes()` / `tableForeignKeys()` |
+| `expressions.case.ts`, `ago.case.ts` | epoch milliseconds, `concat`, row locks, relative time cut-offs |
+| `stream.case.ts` | `stream()`: batches, early exit, batched `populate`, empty result, inside a transaction with a write in the loop |
+| `keyset.case.ts` | `paginate()`: forward, backward, mixed directions, a row inserted between pages, a cursor of another order |
+| `version.case.ts` | `@Version()`: insert, stale `update()`, stale `save()`, stale `destroy()` |
 
 ## Divergences
 

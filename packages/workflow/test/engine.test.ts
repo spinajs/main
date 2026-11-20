@@ -269,7 +269,7 @@ describe('WorkflowEngine.tick', () => {
   it('a journal that does not match the code fails the instance with non-determinism', async () => {
     await boot();
     const { id } = await service.start('eng-sum', { a: 1, b: 1 });
-    await seedStep(id, 1, 'step:other#1', { Meta: { after: 0, order: 1 } });
+    await seedStep(id, 1, 'step:other#1', { Meta: { after: 0, order: 1, call: 1 } });
     await (await engine()).tick();
     const row = await instance(id);
     expect(pick(row, 'Status', 'Reason')).to.deep.equal({ Status: 'failed', Reason: 'non-determinism' });
@@ -280,8 +280,8 @@ describe('WorkflowEngine.tick', () => {
   it('a recorded step the run no longer reaches fails the instance with non-determinism instead of completing it', async () => {
     await boot();
     const { id } = await service.start('eng-sum', { a: 1, b: 1 });
-    await seedStep(id, 1, 'step:add#1', { Result: 2, ResultStored: true, Meta: { after: 0, order: 1 } });
-    await seedStep(id, 2, 'step:notify#1', { Meta: { after: 1, order: 2 } });
+    await seedStep(id, 1, 'step:add#1', { Result: 2, ResultStored: true, Meta: { after: 0, order: 1, call: 1 } });
+    await seedStep(id, 2, 'step:notify#1', { Meta: { after: 1, order: 2, call: 2 } });
     await (await engine()).tick();
     const row = await instance(id);
     expect(pick(row, 'Status', 'Reason', 'Result')).to.deep.equal({ Status: 'failed', Reason: 'non-determinism', Result: null });

@@ -14,7 +14,7 @@ Register `OrmMutex` from `@spinajs/orm-threading` for locks shared through a dat
 
 ## Configuration
 
-`@spinajs/threading` reads no configuration. A backend adds its own keys: `OrmMutex` reads `threading.mutex.tenant`, `threading.mutex.ttl` and `threading.mutex.checkInterval`; see [Database mutex](../orm-threading/01-database-mutex.md#configuration).
+`@spinajs/threading` reads no configuration. A backend adds its own keys: `OrmMutex` reads `threading.mutex.holder`, `threading.mutex.ttl` and `threading.mutex.checkInterval`; see [Database mutex](../orm-threading/01-database-mutex.md#configuration).
 
 ## Services and extension points
 
@@ -28,15 +28,15 @@ Implement all seven abstract methods. The helpers pass arguments through unchang
 
 | Method | Must do |
 | --- | --- |
-| `acquire(options: MutexLockOptions): Promise<LockResult>` | Create the lock when missing. Return `Locked: true` when `options.Tenant` now holds it, including when it already held it; `Locked: false` when another tenant holds it. Return at once, never wait. With `options.ttl` above `0`, let the lock expire `ttl` ms later. |
-| `renew(options: MutexLockOptions): Promise<boolean>` | When `options.Tenant` still holds the lock, move its expiry to now + `ttl` and return `true`; otherwise return `false`. Never take a lock. A backend without expiry only reports whether the tenant holds the lock. |
-| `release(options: MutexLockOptions, deleteOnClose?: boolean): Promise<boolean>` | Unlock, or delete with `deleteOnClose`, only when `options.Tenant` owns the lock. Return `true` when something changed. |
+| `acquire(options: MutexLockOptions): Promise<LockResult>` | Create the lock when missing. Return `Locked: true` when `options.Holder` now holds it, including when it already held it; `Locked: false` when another holder holds it. Return at once, never wait. With `options.ttl` above `0`, let the lock expire `ttl` ms later. |
+| `renew(options: MutexLockOptions): Promise<boolean>` | When `options.Holder` still holds the lock, move its expiry to now + `ttl` and return `true`; otherwise return `false`. Never take a lock. A backend without expiry only reports whether the holder holds the lock. |
+| `release(options: MutexLockOptions, deleteOnClose?: boolean): Promise<boolean>` | Unlock, or delete with `deleteOnClose`, only when `options.Holder` owns the lock. Return `true` when something changed. |
 | `create(options: MutexLockOptions): Promise<MutexLock>` | Return the lock, creating it unlocked when missing. Never lock it. |
 | `delete(options: MutexLockOptions): Promise<boolean>` | Delete the lock when it is not locked. Return `true` when deleted. |
 | `get(name: string): Promise<MutexLock \| null>` | Return the lock data, or `null` when missing. |
 | `wait(name: string, timeout?: number): Promise<boolean>` | Resolve `true` once the lock is free, `false` after `timeout` ms. `0` or `undefined` waits forever. |
 
-A missing `options.Tenant` or `options.ttl` is the backend's choice. `processIdentity()` gives one tenant per process; `OrmMutex` uses `threading.mutex.tenant`, or `processIdentity()` when that is empty, and `threading.mutex.ttl`.
+A missing `options.Holder` or `options.ttl` is the backend's choice. `processIdentity()` gives one holder per process; `OrmMutex` uses `threading.mutex.holder`, or `processIdentity()` when that is empty, and `threading.mutex.ttl`.
 
 ### When to register
 
@@ -61,8 +61,8 @@ export class LeaseMutex extends Mutex {
   protected locks = new Map<string, MutexLock>();
   protected released = new EventEmitter();
 
-  protected tenantOf(options: MutexLockOptions): string {
-    return options.Tenant?.trim() || `pid-${process.pid}`;
+  protected holderOf(options: MutexLockOptions): string {
+    return options.Holder?.trim() || `pid-${process.pid}`;
   }
 
   protected isHeld(lock: MutexLock): boolean {
@@ -70,22 +70,22 @@ export class LeaseMutex extends Mutex {
   }
 
   public async acquire(options: MutexLockOptions): Promise<LockResult> {
-    const tenant = this.tenantOf(options);
+    const holder = this.holderOf(options);
     const lock = await this.create(options);
 
-    if (this.isHeld(lock) && lock.Tenant !== tenant) {
+    if (this.isHeld(lock) && lock.Holder !== holder) {
       return { Locked: false, Mutex: { ...lock } };
     }
 
     lock.Locked = true;
-    lock.Tenant = tenant;
+    lock.Holder = holder;
     lock.Updated_at = DateTime.now();
     return { Locked: true, Mutex: { ...lock } };
   }
 
   public async renew(options: MutexLockOptions): Promise<boolean> {
     const lock = this.locks.get(options.Name);
-    if (!lock || !this.isHeld(lock) || lock.Tenant !== this.tenantOf(options)) {
+    if (!lock || !this.isHeld(lock) || lock.Holder !== this.holderOf(options)) {
       return false;
     }
 
@@ -95,7 +95,7 @@ export class LeaseMutex extends Mutex {
 
   public async release(options: MutexLockOptions, deleteOnClose?: boolean): Promise<boolean> {
     const lock = this.locks.get(options.Name);
-    if (!lock || lock.Tenant !== this.tenantOf(options)) {
+    if (!lock || lock.Holder !== this.holderOf(options)) {
       return false;
     }
 
@@ -114,7 +114,7 @@ export class LeaseMutex extends Mutex {
     let lock = this.locks.get(options.Name);
     if (!lock) {
       const now = DateTime.now();
-      lock = { Name: options.Name, Tenant: this.tenantOf(options), Locked: false, Created_at: now, Updated_at: now };
+      lock = { Name: options.Name, Holder: this.holderOf(options), Locked: false, Created_at: now, Updated_at: now };
       this.locks.set(options.Name, lock);
     }
     return lock;
@@ -159,7 +159,7 @@ export class LeaseMutex extends Mutex {
 }
 
 export async function rotateLogs(rotate: () => Promise<void>): Promise<boolean> {
-  const options = { Name: 'log-rotation', Tenant: 'rotator' };
+  const options = { Name: 'log-rotation', Holder: 'rotator' };
   if (!(await mutex_acquire(options)).Locked) {
     return false;
   }
@@ -211,7 +211,7 @@ export function locksBlockedAtLeast(times: number): string[] {
 }
 ```
 
-More `OrmMutex` subclasses (a custom default tenant) are in [Custom mutex backends](../orm-threading/02-custom-mutex-backends.md).
+More `OrmMutex` subclasses (a custom default holder) are in [Custom mutex backends](../orm-threading/02-custom-mutex-backends.md).
 
 ### Replace the backend in tests
 
@@ -225,7 +225,7 @@ import { LockResult, Mutex, MutexLock, MutexLockOptions, mutex_acquire } from '@
 export class AlwaysBusyMutex extends Mutex {
   protected lock(name: string): MutexLock {
     const now = DateTime.now();
-    return { Name: name, Tenant: 'someone-else', Locked: true, Created_at: now, Updated_at: now };
+    return { Name: name, Holder: 'someone-else', Locked: true, Created_at: now, Updated_at: now };
   }
 
   public async acquire(options: MutexLockOptions): Promise<LockResult> {
@@ -254,7 +254,7 @@ export class AlwaysBusyMutex extends Mutex {
 export async function importSkipsWhenLocked(runImport: () => Promise<'done' | 'skipped'>): Promise<boolean> {
   DI.register(AlwaysBusyMutex).as(Mutex);
 
-  const blocked = await mutex_acquire({ Name: 'product-import', Tenant: 'test' });
+  const blocked = await mutex_acquire({ Name: 'product-import', Holder: 'test' });
   return blocked.Locked === false && (await runImport()) === 'skipped';
 }
 ```
@@ -264,13 +264,13 @@ export async function importSkipsWhenLocked(runImport: () => Promise<'done' | 's
 - Lock strength is the backend's: `OrmMutex.acquire()` is one conditional `UPDATE`, so of two processes racing for a lock only one gets `Locked: true`. See [Database mutex](../orm-threading/01-database-mutex.md#important-behaviour).
 - `Mutex` has no lifetime decorator; DI treats a registered subclass as a singleton. Keep per-lock state in the instance (as `LeaseMutex` does), not in module globals.
 - The contract declares expiry (`ttl`) and its heartbeat (`renew()`), but no fencing token: a holder whose lock expired keeps running until it notices that `renew()` returned `false`.
-- `acquire()` is not re-entrant by count: a second acquire by the same tenant returns `Locked: true`, and one release frees the lock.
+- `acquire()` is not re-entrant by count: a second acquire by the same holder returns `Locked: true`, and one release frees the lock.
 
 ## Best practices
 
 - Keep the seven contract results exact: callers treat only `Locked: false` from `acquire()` as "held by someone else", and only `false` from `renew()` as a lost lock.
 - Return copies of `MutexLock` from `acquire()` and `get()`, so callers cannot change your stored state.
-- Default a missing `Tenant` to something unique per process, such as `processIdentity()`, not to a shared app name.
+- Default a missing `Holder` to something unique per process, such as `processIdentity()`, not to a shared app name.
 - Give an in-memory backend a lease when holders can crash or hang.
 
 ## Patterns and antipatterns
@@ -294,6 +294,28 @@ public async acquire(options: MutexLockOptions) {
 
 // Do: return Locked: false at once and let the caller decide to wait with mutex_wait()
 ```
+
+## Migration
+
+### A backend reads `options.Holder` and returns `MutexLock.Holder`
+
+`MutexLockOptions.Tenant` and `MutexLock.Tenant` are renamed to `Holder`, with no alias. A `Mutex` subclass of your own reads the owner from `options.Holder` and returns it as `Holder` in every `MutexLock`.
+
+```ts
+// Before
+public async renew(options: MutexLockOptions): Promise<boolean> {
+  const lock = this.locks.get(options.Name);
+  return !!lock && lock.Locked && lock.Tenant === (options.Tenant?.trim() || processIdentity());
+}
+
+// After
+public async renew(options: MutexLockOptions): Promise<boolean> {
+  const lock = this.locks.get(options.Name);
+  return !!lock && lock.Locked && lock.Holder === (options.Holder?.trim() || processIdentity());
+}
+```
+
+`OrmMutex` subclasses rename two protected members as well; see [Custom mutex backends](../orm-threading/02-custom-mutex-backends.md#migration).
 
 ## Related
 
