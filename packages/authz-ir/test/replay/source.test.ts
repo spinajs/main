@@ -204,6 +204,17 @@ describe('HistoricalTupleSource', () => {
     expect((await gapOf(subjects(s, doc('d2'), 'editor'))).gaps[0]).to.deep.include({ kind: 'tuple', key: 'doc:d2#editor' });
   });
 
+  it('names a kind no boot covered without reading its store, which may have no table', async () => {
+    const log = new MemoryChangeLog();
+    const tuples = new Tuples(log);
+    tuples.onCurrent = () => {
+      throw new Error('no such table: authz_rebac_tuple');
+    };
+    const s = await source(log, [tuples]);
+    const gap = await gapOf(subjects(s, doc('d1'), 'editor'));
+    expect(gap.gaps).to.deep.equal([{ kind: 'tuple', key: 'doc:d1#editor', origin: 'gap', reason: 'the tuple history starts nowhere (not covered)' }]);
+  });
+
   it('names a relation no contributor serves', async () => {
     const { log, tuples } = await setup();
     const s = await source(log, [tuples]);
@@ -357,8 +368,9 @@ describe('HistoricalTupleSource', () => {
         if (m === 'latest') log.prune(ms(-1_000));
       };
       expect((await gapOf(subjects(s, doc('d1'), 'editor'))).message).to.match(/history starts at/);
+      // The first read only spares the store of an uncovered kind; the last decides.
       expect(order.at(-1)).to.equal('coveredSince');
-      expect(order.indexOf('coveredSince')).to.equal(order.length - 1);
+      expect(order.slice(1, -1)).to.not.include('coveredSince');
     });
   });
 

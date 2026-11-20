@@ -29,6 +29,7 @@ const sameSubject = (a: TupleSubjectRef, b: TupleSubjectRef): boolean => a.type 
  */
 export class HistoricalTupleSource implements TupleSource {
   readonly reads: ReplayRead[] = [];
+  private readonly covered = new Set<string>();
 
   constructor(
     private readonly ir: PolicyIR,
@@ -164,8 +165,16 @@ export class HistoricalTupleSource implements TupleSource {
     return s !== undefined && sameSubject(s, subject);
   }
 
-  /** Current rows, then the tail of the scan, then each key's head, its change before T and the coverage, in that order (3.2). */
+  /** Current rows, then the tail of the scan, then each key's head, its change before T and the coverage, in that order. */
   private async resolve<T>(c: HistoryContributor, label: string, source: RelationDef['source'], current: () => Promise<CurrentItem<T>[]>, match: (e: HistoryEdge) => T | undefined, type: ResourceType | undefined, elsewhere?: (missing: ReadonlyMap<string, T>) => Promise<ReadonlyMap<string, unknown>>): Promise<Resolved<T>> {
+    const slot = `${c.kind}\u0000${type ?? ''}`;
+    if (!this.covered.has(slot)) {
+      // Also read before the store: a kind no boot covered may have no table (a memory store with the contributor
+      // registered). Coverage only moves forward, so an early gap stands; the read after the history still decides.
+      const early = (await this.coverage(c, type)).uncovered;
+      if (early !== undefined) return this.uncoveredRead(c, label, type, early);
+      this.covered.add(slot);
+    }
     for (let attempt = 0; ; attempt++) {
       const now = await current();
       await this.history.catchUp();
@@ -179,15 +188,8 @@ export class HistoricalTupleSource implements TupleSource {
       const keys = [...candidates.keys()];
       const heads = await this.history.headOf(c.kind, keys);
       const befores = await this.history.beforeOf(c.kind, keys);
-      // Before `since`: a boot that restarts the type writes its new fingerprint and its new `since` in one statement.
-      const distrusted = await c.coverageGap?.(type);
-      const since = await this.history.since(c.kind, type);
-      const uncovered = distrusted ?? coverageGap(this.at, c.kind, since, this.history.window);
-      if (uncovered !== undefined) {
-        const read: ReplayRead = { kind: c.kind, key: type === undefined ? label : `${c.kind}:${type}`, origin: 'gap', reason: uncovered };
-        this.reads.push(read);
-        return { present: [], gaps: [read] };
-      }
+      const { since, uncovered } = await this.coverage(c, type);
+      if (uncovered !== undefined) return this.uncoveredRead(c, label, type, uncovered);
       const moved = keys.filter((k) => {
         const head = heads.get(k);
         const after = this.history.afterFor(c.kind, k);
@@ -196,6 +198,19 @@ export class HistoricalTupleSource implements TupleSource {
       if (moved.length > 0 && attempt === 0) continue;
       return this.settle(c, source, candidates, befores, since, new Set(moved));
     }
+  }
+
+  private async coverage(c: HistoryContributor, type: ResourceType | undefined): Promise<{ since: Date | undefined; uncovered: string | undefined }> {
+    // Before `since`: a boot that restarts the type writes its new fingerprint and its new `since` in one statement.
+    const distrusted = await c.coverageGap?.(type);
+    const since = await this.history.since(c.kind, type);
+    return { since, uncovered: distrusted ?? coverageGap(this.at, c.kind, since, this.history.window) };
+  }
+
+  private uncoveredRead<T>(c: HistoryContributor, label: string, type: ResourceType | undefined, reason: string): Resolved<T> {
+    const read: ReplayRead = { kind: c.kind, key: type === undefined ? label : `${c.kind}:${type}`, origin: 'gap', reason };
+    this.reads.push(read);
+    return { present: [], gaps: [read] };
   }
 
   private async fillElsewhere<T>(c: HistoryContributor, candidates: ReadonlyMap<string, Candidate<T>>, current: ReadonlySet<string>, elsewhere: (missing: ReadonlyMap<string, T>) => Promise<ReadonlyMap<string, unknown>>): Promise<void> {
