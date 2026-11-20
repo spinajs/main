@@ -83,11 +83,12 @@ export class QueueAuthnEventListener extends AuthnEventListener {
   }
 
   /**
-   * `listener_failed`: the credentials were right and a blocking listener stopped the login. No error class of
-   * UserLoginFailed describes that, and a consumer counting failed logins must not count an outage, so it re-emits nothing.
+   * `listener_failed` (a blocking listener stopped the login) and `hook_error` (an action hook failed): the credentials
+   * were not wrong. No error class of UserLoginFailed describes that, and a consumer counting failed logins must not
+   * count an outage, so it re-emits nothing.
    */
   private async loginFailed(e: AuthnEvent): Promise<void> {
-    if (e.reason === 'listener_failed') return;
+    if (e.reason === 'listener_failed' || e.reason === 'hook_error') return;
     // Only the audit reason: the event never carries the credentials that failed.
     await this.emit(e.identity, (u) => new UserLoginFailed(u, loginError(e.reason)));
   }
