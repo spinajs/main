@@ -68,6 +68,10 @@ class ListenerDelivery implements AuthnAuditor {
     return this.publish(stamped(ctx, body));
   }
 
+  public holdIn(ctx: Pick<AuthnContext, 'now' | 'ip' | 'userAgent'>, body: AuthnEventBody): Promise<() => Promise<void>> {
+    return this.hold(frozenCopy(stamped(ctx, body)), true);
+  }
+
   public publishDetached(ctx: Pick<AuthnContext, 'now' | 'ip' | 'userAgent'>, body: AuthnEventBody): void {
     // The operation has returned, so nothing can stop it any more.
     const delivery: Promise<void> = this.deliverAll(frozenCopy(stamped(ctx, body)), false)
@@ -86,10 +90,19 @@ class ListenerDelivery implements AuthnAuditor {
    * else is told and the failure goes to the emitter. Every other delivery is concurrent, bounded and only logged.
    */
   private async deliverAll(event: AuthnEvent, stoppable: boolean): Promise<void> {
+    const tell = await this.hold(event, stoppable);
+    await tell();
+  }
+
+  // The listeners left to tell are fixed here, so each `blocking` getter is asked once per event.
+  private async hold(event: AuthnEvent, stoppable: boolean): Promise<() => Promise<void>> {
     const gates = stoppable && event.outcome === 'success' ? this.listeners.flatMap((listener) => gateOf(listener, event)) : [];
     await Promise.all(gates.map((gate) => this.required(gate, event)));
     const first = gates.map((gate) => gate.listener);
-    await Promise.allSettled(this.listeners.filter((listener) => !first.includes(listener)).map((listener) => this.deliver(listener, event)));
+    const rest = this.listeners.filter((listener) => !first.includes(listener));
+    return async () => {
+      await Promise.allSettled(rest.map((listener) => this.deliver(listener, event)));
+    };
   }
 
   // Running out of time counts as a failure: a blocking listener that does not answer has not taken the event.
@@ -147,7 +160,7 @@ export class AuthnAudit extends AsyncService {
   private delivery!: ListenerDelivery;
 
   /** The same delivery over explicit listeners, for a service built outside DI with its listeners passed in. */
-  public static over(listeners: readonly AuthnEventListener[], options: AuthnAuditOverOptions = {}): AuthnAuditor & Pick<AuthnAudit, 'publishDetached' | 'settled'> {
+  public static over(listeners: readonly AuthnEventListener[], options: AuthnAuditOverOptions = {}): AuthnAuditor & Pick<AuthnAudit, 'holdIn' | 'publishDetached' | 'settled'> {
     const log = options.log ?? SILENT;
     return new ListenerDelivery(Object.freeze([...listeners]), options.listenerTimeoutMs ?? 2000, () => log);
   }
@@ -179,6 +192,16 @@ export class AuthnAudit extends AsyncService {
   /** Publishes `body` stamped with the context's `now`, `ip` and `userAgent`. Rejects as `publish` does. */
   public publishIn(ctx: Pick<AuthnContext, 'now' | 'ip' | 'userAgent'>, body: AuthnEventBody): Promise<void> {
     return this.publish(stamped(ctx, body));
+  }
+
+  /**
+   * `publishIn` in two steps. Resolves once the blocking listeners took the event, to a function that delivers it to
+   * the other listeners and never rejects; rejects as `publishIn` does, and then nobody else is told. An operation that
+   * announces several events holds each of them and tells only after every one was taken.
+   */
+  public holdIn(ctx: Pick<AuthnContext, 'now' | 'ip' | 'userAgent'>, body: AuthnEventBody): Promise<() => Promise<void>> {
+    this.assertResolved();
+    return this.delivery.holdIn(ctx, body);
   }
 
   /** Fire-and-forget: listener errors and timeouts are logged as by `publishIn`; returns at once. */

@@ -787,15 +787,18 @@ export class DefaultAuthnService extends AuthnService {
   }
 
   /**
-   * Publishes what a session that was just issued or elevated did. When a blocking listener stops one of the events,
-   * the session is revoked before the failure goes on: no session outlives a login that could not be announced.
+   * Publishes what a session that was just issued or elevated did. Every event goes to the blocking listeners first;
+   * the others hear any of them only when all were taken, so no webhook or queue event announces a login that did not
+   * stand. When a blocking listener stops one, the session is revoked before the failure goes on: no session outlives
+   * a login that could not be announced.
    */
   private async announce(ctx: AuthnContext, session: SessionHandle, ...events: AuthnEventBody[]): Promise<void> {
     let told = 0;
+    const tells: (() => Promise<void>)[] = [];
     try {
       for (const e of events) {
         told++;
-        await this.Auditor.publishIn(ctx, e);
+        tells.push(await this.Auditor.holdIn(ctx, e));
       }
     } catch (err) {
       // A failed revocation must not replace the 503: no client holds the session, which lives until it expires.
@@ -805,6 +808,7 @@ export class DefaultAuthnService extends AuthnService {
       for (const e of events.slice(0, told)) await this.Auditor.publishIn(ctx, { ...e, outcome: 'failure', reason: 'listener_failed' });
       throw err;
     }
+    for (const tell of tells) await tell();
   }
 
   /** Interactive strategies log in; the others are uses of a token or a key. */

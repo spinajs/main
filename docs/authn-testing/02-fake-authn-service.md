@@ -83,6 +83,7 @@ Protected members meant for subclasses:
 | `countBeforeVerify` | `true` | `false` claims the throttle slot only after `verify`. It exists to prove that rule A05 catches that bug |
 | `statusReason(status)` | `unknown_identity`, `deleted`, `banned`, `inactive` or `null` | Refuse more statuses, or report other audit reasons |
 | `audit(ctx, event)` | Adds `at`, `ip` and `userAgent` from `ctx`, then publishes to every listener as `AuthnAudit` does: a failing listener is logged on `log` (dropped silently without it), a failing blocking one rejects with `AuthnListenerFailed` | Filter or enrich events |
+| `hold(ctx, event)` | Stamps the event as `audit` does and hands it to the blocking listeners only, as `AuthnAudit.holdIn`; resolves to the delivery to the others. Used for the events of a login, an MFA challenge or completion and a step-up, which the other listeners hear only when every one was taken | Filter or enrich the announced events |
 | `auditDetached(ctx, event)` | Stamps the event as `audit` does and publishes it detached: returns at once, no listener can stop it, failures are logged on `log`, and `settled()` waits for it. Used for `token.use` and `key.use` | Filter or enrich the per-request events |
 | `d` | The constructor deps | Read the wired fakes from a subclass |
 

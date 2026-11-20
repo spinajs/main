@@ -49,6 +49,22 @@ class Gate extends AuthnEventListener {
   }
 }
 
+/** A Gate that also writes `<name> <type> <outcome>` to a journal shared with other listeners. */
+class Journal extends Gate {
+  constructor(
+    blocks: boolean,
+    private readonly name: string,
+    private readonly journal: string[],
+  ) {
+    super(blocks);
+  }
+
+  override async on(e: AuthnEvent): Promise<void> {
+    this.journal.push(`${this.name} ${e.type} ${e.outcome}`);
+    await super.on(e);
+  }
+}
+
 describe('blocking listeners', function () {
   this.timeout(30000);
 
@@ -76,8 +92,12 @@ describe('blocking listeners', function () {
   }
 
   /** The kit's password login and MFA step, with an identity enrolled in the step and `gate` registered. */
-  async function bootMfa(gate: Gate): Promise<{ p: CoreParts; id: IdentityRef }> {
-    parts = await buildCore({}, { register: (c) => bind(c, AuthnEventListener, 'Gate', gate) });
+  async function bootMfa(gate: Gate, observer?: Gate): Promise<{ p: CoreParts; id: IdentityRef }> {
+    const register = (c: IContainer): void => {
+      bind(c, AuthnEventListener, 'Gate', gate);
+      if (observer) bind(c, AuthnEventListener, 'Observer', observer);
+    };
+    parts = await buildCore({}, { register });
     const id = parts.identities.add({ login: 'mfa-blocking@example.test' });
     await parts.passwords.set(id, fakeHash('Mfa-Pass-1234'));
     parts.step.enrol(id);
@@ -172,7 +192,7 @@ describe('blocking listeners', function () {
     assert.deepStrictEqual([failure.status, failure.code, failure.listener, failure.eventType, failure.details], [503, 'authn_listener_failed', 'LedgerListener', 'login', undefined]);
   });
 
-  it('a login stopped on its second event is announced again as refused, and leaves no session', async () => {
+  it('a login stopped on its second event reaches the other listeners only as refused, and leaves no session', async () => {
     const gate = new Gate(true);
     gate.failOn = 'session.issue';
     const observer = new Gate(false);
@@ -185,12 +205,65 @@ describe('blocking listeners', function () {
     assert.deepStrictEqual(
       observer.seen.map((e) => [e.type, e.outcome, e.reason]),
       [
+        ['login', 'failure', 'listener_failed'],
+        ['session.issue', 'failure', 'listener_failed'],
+      ],
+    );
+    assert.deepStrictEqual(
+      gate.seen.map((e) => [e.type, e.outcome, e.reason]),
+      [
         ['login', 'success', undefined],
+        ['session.issue', 'success', undefined],
         ['login', 'failure', 'listener_failed'],
         ['session.issue', 'failure', 'listener_failed'],
       ],
     );
     assert.strictEqual((await p.sessions.list(OWNER)).length, 0);
+  });
+
+  it('a login reaches the other listeners only after the blocking one took every event of it', async () => {
+    const journal: string[] = [];
+    const p = await boot(new Journal(true, 'gate', journal), new Journal(false, 'observer', journal));
+
+    const result = await p.service.authenticate(RIGHT, ctx());
+
+    assert.strictEqual(result.status, 'success');
+    assert.deepStrictEqual(journal, ['gate login success', 'gate session.issue success', 'observer login success', 'observer session.issue success']);
+  });
+
+  it('holdIn hands a success to the blocking listeners only; the others hear the same event when told', async () => {
+    const gate = new Gate(true);
+    const other = new Gate(false);
+
+    const tell = await AuthnAudit.over([other, gate]).holdIn(ctx(), { type: 'login', outcome: 'success', identity: OWNER });
+
+    assert.deepStrictEqual([gate.seen.length, other.seen.length], [1, 0]);
+    await tell();
+    assert.strictEqual(other.seen.length, 1);
+    assert.strictEqual(other.seen[0], gate.seen[0]);
+    assert.ok(Object.isFrozen(other.seen[0]));
+  });
+
+  it('a hold a blocking listener stops rejects and tells nobody else', async () => {
+    const gate = new Gate(true);
+    gate.down = true;
+    const other = new Gate(false);
+
+    const failure = await failureOf(AuthnAudit.over([other, gate]).holdIn(ctx(), { type: 'login', outcome: 'success', identity: OWNER }));
+
+    assert.ok(failure instanceof AuthnListenerFailed);
+    assert.strictEqual(other.seen.length, 0);
+  });
+
+  it('a held failure event is never stopped, and its tell reaches the others', async () => {
+    const gate = new Gate(true);
+    gate.down = true;
+    const other = new Gate(false);
+
+    const tell = await AuthnAudit.over([other, gate]).holdIn(ctx(), { type: 'login', outcome: 'failure', reason: 'invalid_credentials' });
+    await tell();
+
+    assert.deepStrictEqual([gate.seen.length, other.seen.length], [1, 1]);
   });
 
   it('a revocation that fails after a stopped announcement is logged, and the 503 stands', async () => {
@@ -262,6 +335,50 @@ describe('blocking listeners', function () {
 
     assert.ok(failure instanceof AuthnListenerFailed);
     assert.strictEqual(failure.eventType, 'mfa.verify');
+    assert.deepStrictEqual(await p.sessions.list(id), []);
+  });
+
+  it('an MFA completion stopped on its login event reaches the other listeners only as refused', async () => {
+    const gate = new Gate(true);
+    const observer = new Gate(false);
+    const { p, id } = await bootMfa(gate, observer);
+    const challenged = await kitLogin(p);
+    assert.strictEqual(challenged.status, 'mfa_required', JSON.stringify(challenged));
+    observer.seen.length = 0;
+    gate.failOn = 'login';
+
+    const failure = await failureOf(p.service.completeMfa(challenged.pending, p.step.name, p.step.nextCode(id), ctx()));
+
+    assert.ok(failure instanceof AuthnListenerFailed);
+    assert.strictEqual(failure.eventType, 'login');
+    assert.deepStrictEqual(
+      observer.seen.map((e) => [e.type, e.outcome, e.reason]),
+      [
+        ['mfa.verify', 'failure', 'listener_failed'],
+        ['login', 'failure', 'listener_failed'],
+      ],
+    );
+    assert.deepStrictEqual(await p.sessions.list(id), []);
+  });
+
+  it('a step-up stopped on its session.rotate event reaches the other listeners only as refused', async () => {
+    const gate = new Gate(true);
+    gate.failOn = 'session.rotate';
+    const observer = new Gate(false);
+    const { p, id } = await bootMfa(gate, observer);
+    const session = await p.sessions.issue(id, { method: 'password', strategy: 'local', assurance: 'aal1', mfa: [], authenticatedAt: AT });
+
+    const failure = await failureOf(p.service.stepUp(session, p.step.name, p.step.nextCode(id), ctx()));
+
+    assert.ok(failure instanceof AuthnListenerFailed);
+    assert.strictEqual(failure.eventType, 'session.rotate');
+    assert.deepStrictEqual(
+      observer.seen.map((e) => [e.type, e.outcome, e.reason]),
+      [
+        ['mfa.verify', 'failure', 'listener_failed'],
+        ['session.rotate', 'failure', 'listener_failed'],
+      ],
+    );
     assert.deepStrictEqual(await p.sessions.list(id), []);
   });
 

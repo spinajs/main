@@ -5,7 +5,9 @@ import { createHmac } from 'node:crypto';
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { AUTHN_CONFIGURATION_SCHEMA } from '@spinajs/authn/schemas';
+import { AuthnEventListener, AuthnListenerFailed } from '@spinajs/authn/contracts';
 import type { AuthnEvent } from '@spinajs/authn/contracts';
+import { EnrolledMfaPolicy, FakeAuthnService, FakeBackoffThrottle, FakeIdentityStore, FakeStrategy, MemoryLinkStore, MemorySessionIssuer, RecordingPrincipalFactory, throttleParams } from '@spinajs/authn-testing';
 
 import { WEBHOOK_SIGNATURE_HEADER, WebhookAuthnEventListener, signWebhook } from '../src/index.js';
 import type { AuthnWebhookTarget } from '../src/index.js';
@@ -75,6 +77,36 @@ const target = (url: string, over: Partial<AuthnWebhookTarget> = {}): AuthnWebho
 
 const logged = (warn: sinon.SinonSpy): string => JSON.stringify(warn.args);
 
+/** A blocking listener that stops every `session.issue` success. */
+class SessionIssueStopper extends AuthnEventListener {
+  public override get blocking(): boolean {
+    return true;
+  }
+
+  async on(e: AuthnEvent): Promise<void> {
+    if (e.type === 'session.issue' && e.outcome === 'success') throw new Error('ledger down');
+  }
+}
+
+/** A login through the kit's fake service, which announces as the core does, with `listeners` registered. */
+function loginWith(listeners: readonly AuthnEventListener[]) {
+  const identities = new FakeIdentityStore();
+  const id = identities.add({ login: 'webhooked' });
+  const service = new FakeAuthnService({
+    strategies: [new FakeStrategy({ name: 'form', kinds: ['password'], interactive: true, keys: () => [], verify: () => ({ ok: true, identity: id, method: 'password' }) })],
+    throttle: new FakeBackoffThrottle(throttleParams({})),
+    identities,
+    links: new MemoryLinkStore(),
+    linking: { jit: false, byVerifiedEmail: false },
+    policy: new EnrolledMfaPolicy([]),
+    steps: [],
+    sessions: new MemorySessionIssuer(),
+    listeners,
+    principals: new RecordingPrincipalFactory(),
+  });
+  return service.authenticate({ kind: 'password', login: 'webhooked', password: 'any' }, { now: new Date(), purpose: 'login' });
+}
+
 describe('signWebhook', () => {
   it('signs "<t>.<body>" with HMAC-SHA256 and writes t and v1', () => {
     const body = '{"type":"login"}';
@@ -133,6 +165,19 @@ describe('WebhookAuthnEventListener', function () {
     expect(t).to.be.within(before, after);
     expect(m![2]).to.equal(createHmac('sha256', SECRET).update(`${t}.${hit.body}`).digest('hex'));
     expect(warn.callCount).to.equal(0);
+  });
+
+  it('posts only the failures of a login whose session.issue a blocking listener stopped', async () => {
+    const rx = await listen();
+    const { sink } = sinkFor([target(rx.url)]);
+
+    const failure = await loginWith([new SessionIssueStopper(), sink]).catch((err: unknown) => err);
+
+    expect(failure).to.be.instanceOf(AuthnListenerFailed);
+    expect(rx.hits.map((h) => JSON.parse(h.body) as AuthnEvent).map((e) => [e.type, e.outcome, e.reason])).to.deep.equal([
+      ['login', 'failure', 'listener_failed'],
+      ['session.issue', 'failure', 'listener_failed'],
+    ]);
   });
 
   it('signs for each target with its own secret and delivers each matching event once', async () => {
