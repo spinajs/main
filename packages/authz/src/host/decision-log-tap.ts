@@ -41,6 +41,10 @@ export class DecisionLogTap extends DecisionTap {
     this.random = options.random ?? Math.random;
   }
 
+  get policy(): PolicyHashSource | undefined {
+    return this.options.policy;
+  }
+
   /** `sampled` cannot tell an allow apart before it rolls, which onDecision does. */
   wants(decision: Decision): boolean {
     const mode = this.options.mode;
