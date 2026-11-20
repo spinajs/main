@@ -10,6 +10,9 @@ import { Lazy } from '@spinajs/util';
 import { InvalidArgument } from '@spinajs/exceptions';
 import { extractModelDescriptor } from './descriptor.js';
 import { noteRawSql } from './explain/raw-sql.js';
+import type { BuilderExecution } from './extensions.js';
+
+const MERGED_INTO_JOIN: BuilderExecution = { kind: 'merged', into: 'join' };
 
 export interface IQueryStatementResult {
   Statements: string[];
@@ -333,7 +336,7 @@ export abstract class JoinStatement extends QueryStatement {
       const driver = joinModelDescriptor!.Driver!;
       const container = joinModelDescriptor!.Driver!.Container;
 
-      this._whereBuilder = container.resolve<SelectQueryBuilder>('SelectQueryBuilder', [driver, _options.joinModel, this]);
+      this._whereBuilder = container.resolve<SelectQueryBuilder>('SelectQueryBuilder', [driver, _options.joinModel, this, true, MERGED_INTO_JOIN]);
       this._whereBuilder.database(driver.Options.Database!);
       this._whereBuilder.where(_options.callback!);
 

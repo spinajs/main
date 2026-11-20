@@ -26,7 +26,7 @@ import { readRouteOf, withReadRoute } from '../read-route.js';
 import { ConnectionState } from '../resilience.js';
 import type { IRelationSort } from './internal.js';
 import { executionCopy, runCloneHooks } from './internal.js';
-import type { BuilderState } from '../extensions.js';
+import type { BuilderExecution, BuilderState } from '../extensions.js';
 import { QueryBuilder } from './base.js';
 import { LimitBuilder } from './limit.js';
 import { OrderByBuilder } from './order-by.js';
@@ -203,10 +203,13 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
    * time to evaluate a deferred `Lazy` callback in isolation, so every query carrying a
    * `Lazy` where-statement hit it on every compile.
    */
-  constructor(container: IContainer, driver: OrmDriver, model?: Constructor<any>, owner?: IOrmRelation, applyMiddlewares = true) {
+  constructor(container: IContainer, driver: OrmDriver, model?: Constructor<any>, owner?: IOrmRelation, applyMiddlewares = true, execution?: BuilderExecution) {
     super(container, driver, model);
 
     this._owner = owner;
+    if (execution !== undefined) {
+      this._execution = Object.freeze(execution);
+    }
     this._distinct = false;
     this._method = QueryMethod.SELECT;
 
@@ -333,7 +336,7 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
   // relations.ts clones a relation's query for a copy of the relation, which then owns the clone
   protected _cloneOwnedBy(owner: IOrmRelation | undefined): this {
     // Middlewares are deliberately NOT run for the clone — see the constructor's note.
-    const builder = new SelectQueryBuilder<T>(this._container, this._driver, this._model, owner, false);
+    const builder = new SelectQueryBuilder<T>(this._container, this._driver, this._model, owner, false, this._execution);
 
     // Table, alias and correlation are restored BEFORE the statements are cloned. Statements
     // rebind to `builder` and several of them read these during their own clone.

@@ -11,7 +11,9 @@ import { isNullOrWhitespace } from '@spinajs/util';
 import { executeRecorded } from '../schema-touches.js';
 import type { SchemaTouch } from '../schema-touches.js';
 import { markWrite } from '../replica-router.js';
-import type { BuilderState } from '../extensions.js';
+import type { BuilderExecution, BuilderState } from '../extensions.js';
+
+const OWN: BuilderExecution = Object.freeze({ kind: 'own' });
 
 /** Stable: Array.prototype.sort keeps the DI order of equal keys. A non-finite order counts as 0. */
 function sortQueryMiddlewares(list: QueryMiddleware[]): QueryMiddleware[] {
@@ -248,6 +250,9 @@ export class QueryBuilder<T = any> extends Builder<T> implements IQueryBuilder {
   protected _tableAlias!: string;
   protected _database!: string;
 
+  // SelectQueryBuilder's constructor replaces it for a builder that a relation or a join statement folds into another one.
+  protected _execution: BuilderExecution = OWN;
+
   constructor(container: IContainer, driver: OrmDriver, model?: Constructor<ModelBase>) {
     super(container, driver, model);
   }
@@ -330,6 +335,6 @@ export class QueryBuilder<T = any> extends Builder<T> implements IQueryBuilder {
 
   /** What a query extension method may read from the builder. */
   public state(): Readonly<BuilderState> {
-    return { model: this._model, relations: [], container: this._container, owner: undefined, connection: this._driver };
+    return { model: this._model, relations: [], container: this._container, owner: undefined, connection: this._driver, execution: this._execution };
   }
 }
