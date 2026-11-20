@@ -36,6 +36,7 @@ describe('audit.data.rules', function () {
       expect(() => app.config.set('audit.data.rules', [{ trail: 'billing' }])).to.throw(InvalidConfiguration);
       expect(() => app.config.set('audit.data.rules', [{ models: [] }])).to.throw(InvalidConfiguration);
       expect(() => app.config.set('audit.data.rules', [{ models: '*', trail: ' ' }])).to.throw(InvalidConfiguration);
+      expect(() => app.config.set('audit.data.rules', [{ models: ['Invoice'], trial: 'billing' }])).to.throw(InvalidConfiguration);
       expect(app.config.get('audit.data.rules')).to.deep.eq([]);
     } finally {
       await app.dispose();
@@ -44,5 +45,10 @@ describe('audit.data.rules', function () {
 
   it('fails the boot on a rule list the schema refuses', async () => {
     await expect(createTestApp({ config: { logger: SILENT, audit: { data: { rules: 'everything' } } } })).to.be.rejectedWith(InvalidConfiguration);
+  });
+
+  it('fails the boot on a misspelt key of the section or of a rule', async () => {
+    await expect(createTestApp({ config: { logger: SILENT, audit: { data: { rule: [{ models: '*' }] } } } })).to.be.rejectedWith(InvalidConfiguration);
+    await expect(createTestApp({ config: { logger: SILENT, audit: { data: { rules: [{ models: ['Invoice'], trial: 'billing' }] } } } })).to.be.rejectedWith(InvalidConfiguration);
   });
 });

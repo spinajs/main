@@ -21,7 +21,8 @@ export interface PendingEntry {
 }
 
 export function toHistoryValue(value: unknown): unknown {
-  if (value instanceof Date) return value.toISOString();
+  // An invalid date (mysql2's zero DATETIME) is null, as JSON.stringify and canonicalJson write it.
+  if (value instanceof Date) return Number.isNaN(value.getTime()) ? null : value.toISOString();
   if (typeof value === 'bigint') return value.toString();
   if (value instanceof Uint8Array) return { $bytes: Buffer.from(value).toString('base64') };
   return value;
@@ -38,9 +39,11 @@ function same(a: unknown, b: unknown): boolean {
 const isNullish = (v: unknown): boolean => v === null || v === undefined;
 
 function visibleRow(spec: HistorySpec, row: CapturedRow): Record<string, unknown> {
-  const out: Record<string, unknown> = {};
-  for (const [k, v] of Object.entries(row)) if (!spec.exclude.has(k) && !spec.masked.has(k)) out[k] = toHistoryValue(v);
-  return out;
+  return Object.fromEntries(
+    Object.entries(row)
+      .filter(([k]) => !spec.exclude.has(k) && !spec.masked.has(k))
+      .map(([k, v]) => [k, toHistoryValue(v)]),
+  );
 }
 
 function pick(row: CapturedRow, columns: readonly string[]): Record<string, unknown> {

@@ -8,17 +8,21 @@ export const DEFAULT_HISTORY_TRAIL = 'history';
 const TRAIL_NAME = '^[A-Za-z][A-Za-z0-9_-]{0,63}$';
 
 // The audit root is open: each section under it is validated by the package that reads it.
+// The section and a rule are closed with propertyNames, not additionalProperties, as in @spinajs/audit: the
+// configuration's removeAdditional would drop a misspelt key silently. Each enum lists every key of its properties.
 export const AUDIT_DATA_CONFIGURATION_SCHEMA = {
   $id: 'spinajs/orm-history.audit-data.configuration.schema.json',
   $configurationModule: 'audit.data',
   description: 'Row history of ORM models (audit.data.*)',
   type: 'object',
+  propertyNames: { enum: ['rules'] },
   properties: {
     rules: {
       type: 'array',
       items: {
         type: 'object',
         required: ['models'],
+        propertyNames: { enum: ['models', 'trail'] },
         properties: {
           models: { anyOf: [{ const: '*' }, { type: 'array', minItems: 1, items: { type: 'string', minLength: 1 } }] },
           trail: { type: 'string', pattern: TRAIL_NAME },

@@ -106,7 +106,7 @@ function buildSpec(model: Constructor<ModelBase>, o: HistoryOptions): HistorySpe
     entity: o.entity ?? d.TableName,
     pk: d.PrimaryKey[0],
     columns: o.columns ? [...new Set([...o.columns, ...(softDelete ? [softDelete] : [])])] : '*',
-    exclude: new Set(o.exclude ?? []),
+    exclude: new Set((o.exclude ?? []).filter((c) => c !== softDelete)),
     masked: o.hidden === 'record' ? new Set() : new Set((d.Hidden ?? []).filter((h) => !listed.has(h))),
     softDelete,
     trail: o.trail ?? DEFAULT_HISTORY_TRAIL,

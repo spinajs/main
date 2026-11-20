@@ -25,6 +25,11 @@ describe('history encoding', () => {
     expect(toHistoryValue({ a: 1 })).to.deep.eq({ a: 1 });
   });
 
+  it('writes an invalid date as null, as JSON does, and reads it as unchanged', () => {
+    expect(toHistoryValue(new Date(NaN))).to.eq(null);
+    expect(historyEntryOf(spec(), { id: '1', before: { id: 1, at: new Date(NaN) }, after: { id: 1, at: new Date(NaN) } })).to.eq(undefined);
+  });
+
   it('records an insert as its row and a delete as the row it removed', () => {
     expect(historyEntryOf(spec(), { id: '1', before: undefined, after: { id: 1, status: 'draft' } })).to.deep.eq({ id: '1', op: 'insert', data: { after: { id: 1, status: 'draft' } } });
     expect(historyEntryOf(spec(), { id: '1', before: { id: 1, status: 'paid' }, after: undefined })).to.deep.eq({ id: '1', op: 'delete', data: { before: { id: 1, status: 'paid' } } });
@@ -56,6 +61,12 @@ describe('history encoding', () => {
 
   it('drops excluded columns entirely', () => {
     expect(historyEntryOf(spec({ exclude: new Set(['seen']) }), { id: '1', before: { id: 1, seen: 1 }, after: { id: 1, seen: 2 } })).to.eq(undefined);
+  });
+
+  it('keeps excluded values out of the stored rows', () => {
+    const s = spec({ exclude: new Set(['seen']) });
+    expect(historyEntryOf(s, { id: '1', before: { id: 1, status: 'draft', seen: 1 }, after: { id: 1, status: 'paid', seen: 2 } })?.data).to.deep.eq({ before: { status: 'draft' }, after: { id: 1, status: 'paid' }, changed: ['status'] });
+    expect(historyEntryOf(s, { id: '1', before: undefined, after: { id: 1, status: 'draft', seen: 1 } })?.data).to.deep.eq({ after: { id: 1, status: 'draft' } });
   });
 
   it('names soft deletes and restores', () => {
