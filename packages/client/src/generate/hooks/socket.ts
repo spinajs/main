@@ -1,15 +1,13 @@
 import type { SocketControllerEntry, TypeRef } from '@spinajs/manifest';
-import { companionHeader, manifestHashCheck } from '../companion.js';
+import { companionHeader, manifestHashCheck, siblingSpecifier, type SiblingImports } from '../companion.js';
 import type { ClientModel } from '../model.js';
 import { contractName } from '../socket.js';
 import { literal, type TypeContext } from '../ts-type.js';
 import { withUseClient } from './directive.js';
 import { DEFAULT_KEY_PREFIX } from './shared.js';
 
-export interface SocketHooksOptions {
+export interface SocketHooksOptions extends SiblingImports {
   keyPrefix?: string;
-  /** File name of the client without extension, default `client`. */
-  basename?: string;
 }
 
 interface Printed {
@@ -245,7 +243,7 @@ export function emitSocketHooks(model: ClientModel, options: SocketHooksOptions 
     companionHeader('socket', model),
     ...reactImport(contracts),
     ...(contracts.length > 0 ? ["import type { ContractOf, TypedSocketClient } from '@spinajs/http-socket-client';"] : []),
-    `import type { ${clientImports.join(', ')} } from './${options.basename ?? 'client'}.js';`,
+    `import type { ${clientImports.join(', ')} } from '${siblingSpecifier(options)}';`,
     '',
     ...manifestHashCheck(model),
     ...contracts.flatMap((c) => ['', `export type ${c.socketType} = TypedSocketClient<ContractOf<typeof ${c.contract}>>;`]),
@@ -275,7 +273,6 @@ const SOCKET_ID_HELPER = [
 export function emitSwrSocketHooks(model: ClientModel, options: SocketHooksOptions = {}): string {
   const contracts = socketHooks(model);
   const withEvents = contracts.filter((c) => c.events.length > 0);
-  const basename = options.basename ?? 'client';
   const prefix = options.keyPrefix ?? DEFAULT_KEY_PREFIX;
   const hooks = withEvents.flatMap((c) =>
     c.events.flatMap((e) => [
@@ -293,8 +290,8 @@ export function emitSwrSocketHooks(model: ClientModel, options: SocketHooksOptio
   const lines = [
     companionHeader('socket-swr', model),
     ...(withEvents.length > 0 ? ["import useSWRSubscription, { type SWRSubscriptionResponse } from 'swr/subscription';"] : []),
-    `import type { ${[...typeNames(withEvents, { latest: true }), 'manifestHash'].join(', ')} } from './${basename}.js';`,
-    ...(withEvents.length > 0 ? [`import type { ${withEvents.map((c) => c.socketType).join(', ')} } from './${basename}.socket.js';`] : []),
+    `import type { ${[...typeNames(withEvents, { latest: true }), 'manifestHash'].join(', ')} } from '${siblingSpecifier(options)}';`,
+    ...(withEvents.length > 0 ? [`import type { ${withEvents.map((c) => c.socketType).join(', ')} } from '${siblingSpecifier(options, '.socket')}';`] : []),
     '',
     ...manifestHashCheck(model),
     ...(withEvents.length > 0 ? ['', ...SOCKET_ID_HELPER] : []),

@@ -4,10 +4,10 @@ import { randomUUID } from 'node:crypto';
 import { DI } from '@spinajs/di';
 import type { Class, IContainer } from '@spinajs/di';
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
-import { AuthenticationStrategy, AuthnEventSink, AuthnService, AuthnThrottle, IdentityLinkStore, IdentityStore, PrincipalFactory, SessionIssuer } from '@spinajs/authn/contracts';
+import { AuthenticationStrategy, AuthnEventListener, AuthnService, AuthnThrottle, IdentityLinkStore, IdentityStore, PrincipalFactory, SessionIssuer } from '@spinajs/authn/contracts';
 import type { AuthenticationResult, AuthnContext, Credentials, IdentityRef, TokenCreateOptions } from '@spinajs/authn/contracts';
 import { MemoryAuthnThrottle } from '@spinajs/authn';
-import { FakeIdentityStore, MemoryLinkStore, MemorySessionIssuer, RecordingEventSink, RecordingPrincipalFactory, generateKeyPair, signCompactJws, throttleParams } from '@spinajs/authn-testing';
+import { FakeIdentityStore, MemoryLinkStore, MemorySessionIssuer, RecordingEventListener, RecordingPrincipalFactory, generateKeyPair, signCompactJws, throttleParams } from '@spinajs/authn-testing';
 import { AuthnAudit } from '@spinajs/authn/audit';
 import type { ConfigOverrides, KitKeyPair } from '@spinajs/authn-testing';
 
@@ -107,7 +107,7 @@ describe('authn-token per-request throttling (K5, K6, DefaultAuthnService)', fun
     bind(child, IdentityLinkStore, 'K5Links', links);
     bind(child, PrincipalFactory, 'K5PrincipalFactory', new RecordingPrincipalFactory());
     bind(child, SessionIssuer, 'K5SessionIssuer', new MemorySessionIssuer());
-    bind(child, AuthnEventSink, 'K5Events', new RecordingEventSink());
+    bind(child, AuthnEventListener, 'K5Events', new RecordingEventListener());
     for (const s of listed) bind(child, AuthenticationStrategy, s.service, s.instance);
     const service = (await child.resolve(AuthnService)) as AuthnService;
 

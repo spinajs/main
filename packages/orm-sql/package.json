@@ -50,10 +50,12 @@
   },
   "homepage": "https://github.com/spinajs/main#readme",
   "dependencies": {
+    "@opentelemetry/api": "^1.9.0",
     "@spinajs/di": "3.0.23",
+    "@spinajs/exceptions": "3.0.23",
     "@spinajs/log-common": "3.0.23",
     "@spinajs/orm": "3.0.23",
-    "@spinajs/exceptions": "3.0.23",
+    "@spinajs/tracing": "3.0.23",
     "@spinajs/util": "3.0.23",
     "luxon": "^3.6.1",
     "typescript-mix": "^3.1.3"

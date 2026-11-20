@@ -2,7 +2,7 @@
 import { InvalidOperation } from '@spinajs/exceptions';
 import { RelationType } from './interfaces.js';
 import type { IRelationDescriptor, IModelDescriptor, ForwardRefFunction, ISelectQueryBuilder, IColumnDescriptor } from './interfaces.js';
-import type { IQueryStatement } from './statements.js';
+import { JoinStatement } from './statements.js';
 import { NewInstance, DI, Inject, Container } from '@spinajs/di';
 import type { Constructor } from '@spinajs/di';
 
@@ -15,7 +15,7 @@ import type _ from 'lodash';
 import { JoinMethod } from './enums.js';
 import { extractModelDescriptor } from './descriptor.js';
 import { registerRelation } from './relation-registry.js';
-import { cloneOwnedBy } from './builders/internal.js';
+import type { BuilderExecution } from './extensions.js';
 
 
 /**
@@ -141,7 +141,7 @@ export abstract class NativeOrmRelation extends OrmRelation {
     this._targetModel = this._description.TargetModel;
     this._targetModelDescriptor = _paramCheck(() => extractModelDescriptor(this._targetModel), `Model ${this._targetModel?.name} does not have model descriptor set`);
     this._driver = _paramCheck(() => DI.resolve<OrmDriver>('OrmConnection', [this._targetModelDescriptor.Connection!]), `Connection ${this._targetModelDescriptor.Connection} is not set in configuration file`);
-    this._relationQuery = this._container.resolve('SelectQueryBuilder', [this._driver, this._targetModel, this]);
+    this._relationQuery = this._container.resolve('SelectQueryBuilder', [this._driver, this._targetModel, this, true, this.relationQueryExecution()]);
     this._separator = this._driver.Options.AliasSeparator ?? '';
 
     if (this._driver.Options.Database) {
@@ -151,10 +151,15 @@ export abstract class NativeOrmRelation extends OrmRelation {
 
   public abstract compile(): void;
 
+  /** How this relation's query reaches the database. A relation that folds its query into another builder overrides it. */
+  protected relationQueryExecution(): BuilderExecution {
+    return { kind: 'own' };
+  }
+
   public cloneFor(query: ISelectQueryBuilder, owner: IOrmRelation | undefined): IOrmRelation {
     const copy = super.cloneFor(query, owner) as this;
     if (copy !== this) {
-      copy._relationQuery = cloneOwnedBy(this._relationQuery, copy);
+      copy._relationQuery = this._relationQuery.clone(copy);
     }
 
     return copy;
@@ -185,6 +190,10 @@ export class BelongsToRelation extends NativeOrmRelation {
     });
   }
 
+  protected relationQueryExecution(): BuilderExecution {
+    return { kind: 'merged', into: 'parent', relation: this._description };
+  }
+
   public compile() {
     if (this._compiled) {
       return;
@@ -209,8 +218,12 @@ export class BelongsToRelation extends NativeOrmRelation {
     // PARENT rows survive - an INNER JOIN there drops campaigns whose client misses the
     // filter - and two populates of the same model would collide on the synthesised alias.
     const separator = this._targetModelDescriptor.Driver?.Options.AliasSeparator ?? '';
-    const nestedJoins = (this._relationQuery as any)._joinStatements.splice(0) as IQueryStatement[];
-    nestedJoins.forEach((j) => (j as any).nestUnder?.(this.Alias, separator));
+    const nestedJoins = this._relationQuery.JoinStatements.splice(0);
+    for (const join of nestedJoins) {
+      if (join instanceof JoinStatement) {
+        join.nestUnder(this.Alias, separator);
+      }
+    }
 
     this._query.leftJoin({
       joinTable: this._targetModelDescriptor.TableName,
@@ -221,16 +234,16 @@ export class BelongsToRelation extends NativeOrmRelation {
       joinTableDriver: this._targetModelDescriptor.Driver!,
       onStatements: onStatements.length ? onStatements : undefined,
       nestedJoins: nestedJoins.length ? nestedJoins : undefined,
-    } as any)
+    });
 
     this._relationQuery.Relations.forEach((r) => r.compile());
 
     // merge relation builder into parent, but skip join-scoped conditions ( routed to ON above )
-    // todo: fix this cast
-    (this._query as any).mergeBuilder(this._relationQuery, false);
-    (this._query as any).mergeStatements(this._relationQuery, (s: IQueryStatement) => !s.OnJoin);
+    this._query.mergeBuilder(this._relationQuery, false);
+    // grouped: compile() runs after every beforeQueryExecution hook, so a flat orWhere would escape what they added
+    this._query.mergeStatementsAsGroup(this._relationQuery, (s) => !s.OnJoin);
 
-    this._query.middleware(new BelongsToPopulateDataMiddleware(this._description, this));
+    this._query.middleware(new BelongsToPopulateDataMiddleware(this._description, this._relationQuery));
     if (!this.parentRelation || !(this.parentRelation instanceof BelongsToRelation)) {
       // if we are on top of the belongsTo relation stack
       // add transform middleware
@@ -255,14 +268,16 @@ export class BelongsToRecursiveRelation extends NativeOrmRelation {
     });
   }
 
+  protected relationQueryExecution(): BuilderExecution {
+    return { kind: 'recursive', relation: this._description };
+  }
+
   public compile() {
     if (this._compiled) {
       return;
     }
 
     this._relationQuery.Relations.forEach((r) => r.compile());
-    // todo: fix this cast
-    // (this._query as any).mergeBuilder(this._relationQuery);
     this._query.middleware(new BelongsToRelationRecursiveMiddleware(this._relationQuery, this._description, this._targetModelDescriptor));
 
     this._compiled = true;
@@ -370,10 +385,14 @@ export class ManyToManyRelation extends NativeOrmRelation {
     return this._relationQuery;
   }
 
+  protected relationQueryExecution(): BuilderExecution {
+    return { kind: 'merged', into: 'junction', relation: this._description };
+  }
+
   public cloneFor(query: ISelectQueryBuilder, owner: IOrmRelation | undefined): IOrmRelation {
     const copy = super.cloneFor(query, owner) as this;
     if (copy !== this) {
-      copy._joinQuery = cloneOwnedBy(this._joinQuery, copy);
+      copy._joinQuery = this._joinQuery.clone(copy);
     }
 
     return copy;
@@ -448,7 +467,7 @@ export class ManyToManyRelation extends NativeOrmRelation {
         joinTableDatabase: this._targetModelDescriptor.Driver?.Options.Database,
         joinTableForeignKey: this._description.PrimaryKey,
         joinTableDriver: this._targetModelDescriptor.Driver!,
-      } as any
+      }
     )
 
 
@@ -465,9 +484,8 @@ export class ManyToManyRelation extends NativeOrmRelation {
       Recursive: false,
     };
 
-    // todo fix this cast
-    (this._joinQuery as any).mergeBuilder(this._relationQuery);
-    (this._joinQuery as any).mergeRelations(this._relationQuery);
+    this._joinQuery.mergeBuilder(this._relationQuery);
+    this._joinQuery.mergeRelations(this._relationQuery);
 
     this._query.middleware(new HasManyToManyRelationMiddleware(this._joinQuery, joinRelationDescriptor, this._targetModelDescriptor, this._description));
 

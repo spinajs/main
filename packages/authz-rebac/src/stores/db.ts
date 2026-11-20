@@ -3,20 +3,21 @@ import { AUTHZ_CONNECTION, AuthzConfigError, changeLog, principalKey } from '@sp
 import type { AuthzTx, ChangeEntry, PrincipalRef, ResourceRef, ResourceType } from '@spinajs/authz';
 // Registers DbChangeLog and its migration: the tuple writes below append to it.
 import '@spinajs/authz-orm/changelog';
+import { stableStringify } from '@spinajs/authz-ir';
 import { Connection, ConnectionMismatch, DateTime as DateTimeColumn, Model, ModelBase, NotAnOrmDriver, OrmConnectionMissing, OrmNotResolved, Primary, TransactionRequired, UniqueViolation, modelDriver, requireModelTransaction } from '@spinajs/orm';
 import type { OrmDriver } from '@spinajs/orm';
 // A value import: @DateTime() reads the property's design type.
 import { DateTime } from 'luxon';
 
-import { TupleStore } from '../contracts.js';
-import type { Tuple, TuplePage, TupleQuery, TupleSubject } from '../contracts.js';
-import { isSubjectSet, readTuple, subjectKey, tupleKey } from '../keys.js';
+import { TupleCaveatConflict, TupleStore } from '../contracts.js';
+import type { Tuple, TupleCaveat, TuplePage, TupleQuery, TupleSubject } from '../contracts.js';
+import { CAVEAT_CONTEXT_MAX, caveatKey, isSubjectSet, readTuple, sameCaveat, subjectKey, tupleKey } from '../keys.js';
 import type { NamespaceSchema } from '../namespace/compile.js';
 
 export const AUTHZ_REBAC_TUPLE_TABLE = 'authz_rebac_tuple';
 
 /** Widths of the authz_rebac_tuple columns a tuple fills. */
-export const TUPLE_COLUMN_WIDTHS = Object.freeze({ namespace: 64, object_id: 128, relation: 64, subject_key: 320, subject_type: 64, subject_id: 128, created_by: 100 });
+export const TUPLE_COLUMN_WIDTHS = Object.freeze({ namespace: 64, object_id: 128, relation: 64, subject_key: 320, subject_type: 64, subject_id: 128, created_by: 100, caveat: 64, caveat_context: CAVEAT_CONTEXT_MAX });
 
 // Keeps an IN list within the bind-parameter limits of every driver.
 const IN_CHUNK = 500;
@@ -46,9 +47,15 @@ export class TupleRecord extends ModelBase<TupleRecord> {
 
   @DateTimeColumn()
   public created_at!: DateTime;
+
+  public caveat!: string | null;
+
+  public caveat_key!: string | null;
+
+  public caveat_context!: string | null;
 }
 
-type TupleRow = Pick<TupleRecord, 'tuple_key' | 'namespace' | 'object_id' | 'relation' | 'subject_key' | 'subject_type' | 'subject_id' | 'subject_relation' | 'created_by' | 'created_at'>;
+type TupleRow = Pick<TupleRecord, 'tuple_key' | 'namespace' | 'object_id' | 'relation' | 'subject_key' | 'subject_type' | 'subject_id' | 'subject_relation' | 'created_by' | 'created_at' | 'caveat' | 'caveat_key' | 'caveat_context'>;
 
 const hashOf = (t: Tuple): string => createHash('sha256').update(tupleKey(t)).digest('hex');
 
@@ -66,13 +73,20 @@ function rowOf(t: Tuple, actor: PrincipalRef, now: Date): TupleRow {
     subject_relation: set ? s.relation : '',
     created_by: principalKey(actor),
     created_at: DateTime.fromJSDate(now),
+    caveat: t.caveat?.name ?? null,
+    caveat_key: t.caveat ? caveatKey(t.caveat) : null,
+    caveat_context: t.caveat?.context ? stableStringify(t.caveat.context) : null,
   };
 }
 
-function tupleOf(r: Pick<TupleRecord, 'namespace' | 'object_id' | 'relation' | 'subject_type' | 'subject_id' | 'subject_relation'>): Tuple {
+/** The tuple an `authz_rebac_tuple` row holds. */
+export function tupleOf(r: Pick<TupleRecord, 'namespace' | 'object_id' | 'relation' | 'subject_type' | 'subject_id' | 'subject_relation' | 'caveat' | 'caveat_context'>): Tuple {
   const object = { type: r.namespace, id: r.object_id };
-  if (!r.subject_relation) return { object, relation: r.relation, subject: { type: r.subject_type, id: r.subject_id } };
-  return { object, relation: r.relation, subject: { object: { type: r.subject_type, id: r.subject_id }, relation: r.subject_relation } };
+  const subject: TupleSubject = r.subject_relation ? { object: { type: r.subject_type, id: r.subject_id }, relation: r.subject_relation } : { type: r.subject_type, id: r.subject_id };
+  const bare: Tuple = { object, relation: r.relation, subject };
+  if (r.caveat === null || r.caveat === undefined) return bare;
+  // Through readTuple: the stored JSON is checked like a written one.
+  return readTuple({ ...bare, caveat: { name: r.caveat, ...(r.caveat_context ? { context: JSON.parse(r.caveat_context) as unknown } : {}) } }, AUTHZ_REBAC_TUPLE_TABLE);
 }
 
 /** A checked copy that fits the columns; the problem otherwise, as an AuthzConfigError naming the column. */
@@ -106,21 +120,88 @@ function chunks<T>(list: readonly T[]): T[][] {
   return out;
 }
 
-/** The keys among `keys` that authz_rebac_tuple holds. */
-async function storedKeys(keys: readonly string[]): Promise<Set<string>> {
-  const stored = new Set<string>();
+/** The rows among `keys` that authz_rebac_tuple holds, by tuple_key. */
+async function storedRows(keys: readonly string[]): Promise<Map<string, TupleRecord>> {
+  const stored = new Map<string, TupleRecord>();
   // spinajs-orm-ignore ORM102: deliberate batching, one query per IN_CHUNK tuple keys
   for (const part of chunks([...new Set(keys)])) {
     const rows = await TupleRecord.query().whereIn('tuple_key', part);
-    for (const r of rows) stored.add(r.tuple_key);
+    for (const r of rows) stored.set(r.tuple_key, r);
   }
   return stored;
+}
+
+/** Deletes the stored tuples among `removes`; returns them as stored, caveat included. */
+async function removeRows(removes: readonly Tuple[], removed: (t: Tuple, key: string) => void): Promise<Tuple[]> {
+  const stored = await storedRows(removes.map(hashOf));
+  const out: Tuple[] = [];
+  for (const t of removes) {
+    const key = hashOf(t);
+    const had = stored.get(key);
+    if (had === undefined) continue;
+    await TupleRecord.destroy().where('tuple_key', key);
+    stored.delete(key);
+    const tuple = tupleOf(had);
+    out.push(tuple);
+    removed(tuple, key);
+  }
+  return out;
+}
+
+/** Inserts the tuples among `adds` not stored yet. @throws TupleCaveatConflict for a tuple stored with another caveat */
+async function insertRows(driver: OrmDriver, adds: readonly Tuple[], actor: PrincipalRef, now: Date, added: (t: Tuple, key: string) => void): Promise<Tuple[]> {
+  const held = new Map<string, Tuple>();
+  for (const [key, r] of await storedRows(adds.map(hashOf))) held.set(key, tupleOf(r));
+  const out: Tuple[] = [];
+  const raced: Tuple[] = [];
+  for (const t of adds) {
+    const row = rowOf(t, actor, now);
+    const has = held.get(row.tuple_key);
+    if (has !== undefined) {
+      if (!sameCaveat(has.caveat, t.caveat)) throw new TupleCaveatConflict(has, t);
+      continue;
+    }
+    held.set(row.tuple_key, t);
+    if (!(await insertOnce(driver, row))) {
+      raced.push(t);
+      continue;
+    }
+    out.push(t);
+    added(t, row.tuple_key);
+  }
+  await refuseRacedConflicts(raced);
+  return out;
+}
+
+/** False when another transaction stored the row meanwhile. */
+async function insertOnce(driver: OrmDriver, row: TupleRow): Promise<boolean> {
+  try {
+    // A savepoint: on Postgres the unique violation would otherwise abort the whole transaction.
+    await driver.transaction(async () => {
+      await TupleRecord.insert(row);
+    });
+    return true;
+  } catch (err) {
+    if (err instanceof UniqueViolation) return false;
+    throw err;
+  }
+}
+
+/** Tuples another transaction stored meanwhile: with the same caveat that is what was asked, with another a conflict. */
+async function refuseRacedConflicts(raced: readonly Tuple[]): Promise<void> {
+  if (raced.length === 0) return;
+  const stored = await storedRows(raced.map(hashOf));
+  for (const t of raced) {
+    const r = stored.get(hashOf(t));
+    const held = r === undefined ? undefined : tupleOf(r);
+    if (held !== undefined && !sameCaveat(held.caveat, t.caveat)) throw new TupleCaveatConflict(held, t);
+  }
 }
 
 /**
  * `TupleStore` over `authz_rebac_tuple` on the ORM connection alias `authz`. `write` runs in its own
  * transaction; `writeIn` joins the transaction of an `AuthzAdmin` command. Built with `new`, not by DI, so it cannot inject
- * the Orm: the app resolves the Orm before the first read.
+ * the Orm: RebacModel resolves it when its store is a DbTupleStore; any other user resolves it before the first read.
  */
 export class DbTupleStore extends TupleStore {
   readonly name: string = 'db';
@@ -178,38 +259,49 @@ export class DbTupleStore extends TupleStore {
     return tuple;
   }
 
-  async writeIn(tx: AuthzTx, add: readonly Tuple[], remove: readonly Tuple[], actor: PrincipalRef, now: Date = new Date()): Promise<{ readonly added: number; readonly removed: number }> {
+  /**
+   * `write` inside the caller's transaction. Returns the tuples it changed: on `removed` as they were stored, caveat
+   * included, whatever caveat the request carried. @throws TupleCaveatConflict for a stored tuple with another caveat
+   */
+  async writeIn(tx: AuthzTx, add: readonly Tuple[], remove: readonly Tuple[], actor: PrincipalRef, now: Date = new Date()): Promise<{ readonly added: readonly Tuple[]; readonly removed: readonly Tuple[] }> {
     const adds = add.map((t, i) => checked(t, `add[${i}]`, actor));
     const removes = remove.map((t, i) => checked(t, `remove[${i}]`, actor));
     if (principalKey(actor).length > TUPLE_COLUMN_WIDTHS.created_by) throw new AuthzConfigError(`DbTupleStore: the actor key is longer than the created_by column (${TUPLE_COLUMN_WIDTHS.created_by})`);
-    requireTupleTransaction(tx, 'DbTupleStore.writeIn');
+    const driver = requireTupleTransaction(tx, 'DbTupleStore.writeIn');
     const changes: ChangeEntry[] = [];
-    const change = (op: 'add' | 'remove', tuple: Tuple, key: string) => changes.push({ kind: 'tuple', op, key, payload: tuple, actor: principalKey(actor), at: now });
-    const toRemove = await storedKeys(removes.map(hashOf));
-    for (const t of removes) {
-      const key = hashOf(t);
-      if (!toRemove.has(key)) continue;
-      await TupleRecord.destroy().where('tuple_key', key);
-      toRemove.delete(key);
-      change('remove', t, key);
-    }
-    const removed = changes.length;
+    const change = (op: 'add' | 'remove') => (tuple: Tuple, key: string) => changes.push({ kind: 'tuple', op, key, payload: tuple, actor: principalKey(actor), at: now });
+    const removed = await removeRows(removes, change('remove'));
     // Read after the removals, so a tuple removed and re-added in one call is inserted again.
-    const stored = await storedKeys(adds.map(hashOf));
-    for (const t of adds) {
-      const row = rowOf(t, actor, now);
-      if (stored.has(row.tuple_key)) continue;
-      try {
-        await TupleRecord.insert(row);
-        change('add', t, row.tuple_key);
-      } catch (err) {
-        // Another transaction stored the same tuple meanwhile: it is there, which is what was asked.
-        if (!(err instanceof UniqueViolation)) throw err;
-      }
-      stored.add(row.tuple_key);
-    }
+    const added = await insertRows(driver, adds, actor, now, change('add'));
     await changeLog().append(changes);
-    return { added: changes.length - removed, removed };
+    return { added, removed };
+  }
+
+  get caveats(): boolean {
+    return true;
+  }
+
+  async reverseTuples(subjects: readonly TupleSubject[], relation: string, objectType: ResourceType): Promise<readonly Tuple[]> {
+    const out: Tuple[] = [];
+    // spinajs-orm-ignore ORM102: deliberate batching, one query per IN_CHUNK subject keys
+    for (const part of chunks([...new Set(subjects.map(subjectKey))])) {
+      const rows = await TupleRecord.query().where({ namespace: objectType, relation }).whereIn('subject_key', part);
+      out.push(...rows.map(tupleOf));
+    }
+    return out;
+  }
+
+  async caveatsOn(objectType: ResourceType, relation: string, subjects: readonly TupleSubject[]): Promise<readonly TupleCaveat[]> {
+    const out = new Map<string, TupleCaveat>();
+    // spinajs-orm-ignore ORM102: deliberate batching, one query per IN_CHUNK subject keys
+    for (const part of chunks([...new Set(subjects.map(subjectKey))])) {
+      const rows = await TupleRecord.query().where({ namespace: objectType, relation }).whereNotNull('caveat_key').whereIn('subject_key', part);
+      for (const r of rows) {
+        const { caveat } = tupleOf(r);
+        if (caveat && r.caveat_key) out.set(r.caveat_key, caveat);
+      }
+    }
+    return [...out.values()];
   }
 
   async find(query: TupleQuery, page?: TuplePage): Promise<{ readonly items: readonly Tuple[]; readonly total: number }> {

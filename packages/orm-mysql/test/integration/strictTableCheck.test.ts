@@ -7,7 +7,7 @@
  */
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
-import { Connection, extractModelDescriptor, Migration, Model, ModelBase, Orm, OrmDriver, OrmException, OrmMigration, Primary, QueryContext } from '@spinajs/orm';
+import { Connection, extractModelDescriptor, Migration, Model, ModelBase, Orm, OrmDriver, OrmException, OrmMigration, PendingMigrationsException, Primary, QueryContext, resolveMigrationTool } from '@spinajs/orm';
 import { expect } from 'chai';
 import _ from 'lodash';
 import 'mocha';
@@ -40,7 +40,7 @@ class StrictMySqlConf extends FrameworkConfiguration {
         logger: { targets: [{ name: 'Empty', type: 'BlackHoleTarget' }], rules: [{ name: '*', level: 'error', target: 'Empty' }] },
         db: {
           ...(strictSetting === undefined ? {} : { StrictTableCheck: strictSetting }),
-          Connections: [{ Driver: 'orm-driver-mysql', Name: CONNECTION, ...SERVER, Database: database, Migration: { Table: 'orm_migrations', OnStartup: true } }],
+          Connections: [{ Driver: 'orm-driver-mysql', Name: CONNECTION, ...SERVER, Database: database, Migration: { Table: 'orm_migrations' } }],
         },
       },
       (target: unknown, source: unknown) => (Array.isArray(target) ? target.concat(source) : undefined),
@@ -154,17 +154,35 @@ describe('MySQL integration - strict table check', function () {
     await admin((d) => d.executeOnDb(`DROP DATABASE IF EXISTS \`${database}\``, [], QueryContext.Schema));
   });
 
-  it('fails the Orm resolve after its migrations, naming the model, its table and its connection', async () => {
-    Missing = defineMissing();
+  /** A migrate-up run in a container of its own; the afterEach closes its connection with the others. */
+  async function migrateUp(): Promise<void> {
+    await (await resolveMigrationTool(DI.child())).migrate();
+  }
 
-    const err = await rejection(Promise.resolve(DI.resolve(Orm)));
+  it('fails the Orm resolve after migrate-up, naming the model, its table and its connection', async () => {
+    Missing = defineMissing();
+    await migrateUp();
+
+    const err = await rejection(Promise.resolve(DI.child().resolve(Orm)));
 
     expect(err).to.be.instanceOf(OrmException);
+    expect(err).to.not.be.instanceOf(PendingMigrationsException);
     expect((err as Error).message).to.equal('Missing tables (db.StrictTableCheck): model StrictMySqlMissing: table strict_mysql_missing on connection mysql-strict. Create them (run their migrations) or set db.StrictTableCheck to false');
   });
 
-  it('boots when the migration pass created every table', async () => {
-    await (await DI.resolve(Orm)).Migrator.ready();
+  it('names the pending migration, not the missing tables, on a database migrate-up never ran on', async () => {
+    Missing = defineMissing();
+
+    const err = await rejection(Promise.resolve(DI.child().resolve(Orm)));
+
+    expect(err).to.be.instanceOf(PendingMigrationsException);
+    expect((err as PendingMigrationsException).pending.map((m) => m.name)).to.deep.equal([schema.migration.name]);
+  });
+
+  it('boots when migrate-up created every table', async () => {
+    await migrateUp();
+
+    await DI.child().resolve(Orm);
 
     expect(extractModelDescriptor(schema.Present)!.Columns.map((c) => c.Name)).to.include('Name');
   });
@@ -172,9 +190,9 @@ describe('MySQL integration - strict table check', function () {
   it('boots with db.StrictTableCheck false and binds the model whose table is missing', async () => {
     Missing = defineMissing();
     strictSetting = false;
+    await migrateUp();
 
-    const orm = await DI.resolve(Orm);
-    await orm.Migrator.ready();
+    const orm = await DI.child().resolve(Orm);
 
     expect(extractModelDescriptor(Missing)!.Driver).to.equal(orm.Connections.get(CONNECTION));
   });

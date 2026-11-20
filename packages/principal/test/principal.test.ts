@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 
 import * as authnContracts from '@spinajs/authn/contracts';
 import * as principal from '@spinajs/principal';
-import { SYSTEM, UNATTENDED, ceilingHash, principalKey, sameRef } from '../src/index.js';
+import { SYSTEM, UNATTENDED, ceilingHash, parsePrincipalKey, principalKey, sameRef } from '../src/index.js';
 import type { Ceiling, IAuthnPrincipalStorage, PrincipalRef } from '../src/index.js';
 
 const expect = chai.expect;
@@ -130,5 +130,21 @@ describe('@spinajs/principal', () => {
     it('authn re-exports the same runtime values', () => {
       for (const name of RUNTIME_EXPORTS) expect(authnContracts[name], name).to.eq(principal[name]);
     });
+  });
+});
+
+describe('parsePrincipalKey', () => {
+  it('reads back what principalKey wrote, also for types with ":" or "%" and ids with ":"', () => {
+    for (const ref of [
+      { type: 'user', id: 'u1' },
+      { type: 'svc:a', id: 'x:y' },
+      { type: '100%', id: '%3A' },
+    ]) {
+      expect(parsePrincipalKey(principalKey(ref))).to.deep.equal(ref);
+    }
+  });
+
+  it('refuses an empty type or id and strings principalKey cannot have produced', () => {
+    for (const key of ['', 'user', ':u1', 'user:', 'us%2er:u1']) expect(parsePrincipalKey(key)).to.equal(undefined);
   });
 });
