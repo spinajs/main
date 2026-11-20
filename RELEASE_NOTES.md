@@ -1,3 +1,430 @@
+# Release notes — configuration: a broken config file fails the boot, refused values are named
+
+## Breaking changes
+
+- `@spinajs/configuration`: a config file that failed to import or parse was logged and skipped, so the application
+  started without it (default ports, no controllers, shared defaults instead of the environment file). The
+  configuration resolve now rejects with `InvalidConfiguration` naming the file, and the original error is its
+  `cause`. Fix or remove a broken config file. There is no option to skip it.
+
+## New
+
+- `@spinajs/configuration`: code that has to know the environment before `Configuration` resolves had to copy the
+  `--env` / `APP_ENV` / `NODE_ENV` / `development` order. `chooseEnvironment()` now returns the environment the
+  configuration would load and where it came from (`'--env'`, `'APP_ENV'`, `'NODE_ENV'` or `'default'`).
+
+## Fix
+
+- `@spinajs/configuration`: a module schema with `propertyNames` no longer fails the boot on `<module>.__file__`. The
+  JS and JSON file sources stopped adding the debug-only `__file__` array to every top-level object they load, so a
+  loaded module holds only the keys of its files. Code that read `__file__` gets `undefined`; the loaded file is still
+  logged at trace level.
+- `@spinajs/configuration`, `@spinajs/internal-logger`: a refused configuration boot now prints its violations. Each
+  violation was logged through `InternalLogger`, which held it until `Configuration` resolved, and a refused boot
+  never resolves it. The line only appeared in the exit dump, which `process.exit()` skips. The boot now calls the new
+  `InternalLogger.flush()` before it rejects, so the buffered startup lines and one line per violation go to the
+  console before the app's `catch` runs. `@spinajs/internal-logger` gains `InternalLogger.flush()` and the protected
+  `dumpBuffer()` hook; a subclass that saved leftovers from its own `beforeExit` listener should override
+  `dumpBuffer()` instead.
+- `@spinajs/configuration`: a config value that coerces to a non-finite number is refused. A string such as
+  `'Infinity'`, `'-Infinity'` or `'1e999'` (often an environment variable) under a schema `number` or `integer` used
+  to pass and skip `minimum` / `maximum`. Now every non-finite number in a validated module is a violation at its path
+  (`must be a finite number`): the boot fails with `InvalidConfiguration`, and `set()` / `merge()` refuse the change.
+  This also refuses a literal `Infinity` or `NaN` a JS config file sets under a key its schema does not type.
+  `findNonFinite()` is now exported by `@spinajs/configuration`.
+- `@spinajs/configuration`: an unknown service in a list read by `@AutoinjectNamedServices` or `resolveNamedServices`
+  now names the registered services in its `ServiceNotFound` message, `(registered: "A", "B")` or `(registered:
+  none)`, as `@AutoinjectNamedService` already did. Before, the message named only the missing service.
+- `@spinajs/configuration`: the new `FrameworkConfiguration.violationsAdded(path, value, over?)` reports what a change
+  would break without applying it.
+
+## Documentation
+
+- `@spinajs/configuration` (docs): a schema default inside a nested object is not filled while that object is missing
+  from the config, so `get()` returns `undefined`. The schema validation guide now says to give each such nested
+  object `default: {}` on every level. It also explains that a `required` key inside such an object becomes mandatory,
+  and that `default` at the schema root fails the boot.
+
+# Release notes — configuration-db-source: the Default and Watch columns belong to the database, the watch poll survives a bad row
+
+## Breaking changes
+
+- `@spinajs/configuration-db-source`: `Default` and `Watch` of an exposed option changed in the database used to be
+  reset from code at every start. The start-up sync now writes them only when it inserts the row, so an
+  administrator's change lasts. A `defaultValue` or `watch` flag changed in code in a later release no longer reaches
+  existing rows; update them in a migration.
+- `@spinajs/configuration-db-source`: the watch poll ignored the `Watch` column and polled only the options the code
+  declared with `watch: true`, so switching watching off or on for a row had no effect. The poll now reads the exposed
+  rows whose `Watch` column is set, and the watch timer runs as soon as the configuration table is ready. A watched
+  row whose value cannot be read as its type is skipped and logged once instead of failing the poll.
+  `exposeOptions.watch` only seeds the column when the row is inserted; set the column in a migration where it should
+  differ.
+
+## New
+
+- `@spinajs/configuration-db-source`: reacting to a watched option changed in the database needed a subclass of the
+  bootstrapper that diffed values after every poll. The watch poll now emits `configuration.db.changed` `(slug,
+  previous, next)` on the root DI container for each value it changed. A listener that throws is logged and does not
+  stop the poll.
+- `@spinajs/configuration-db-source`: the watch timer could not be stopped by the application, outlived the ORM during
+  container dispose, and a sweep after a failed one started a second timer. The timer now runs in the new
+  `DbConfigWatcher` service, which `Container.dispose()` ends before the ORM. `await
+  DI.resolve(DbConfigWatcher).dispose()` stops the watch by hand. Calling `bootstrap()` on the db-source bootstrapper
+  starts it again, at once when the ORM is already resolved. An application that resolves the ORM before its
+  bootstrappers run now gets its exposed options written and the watch started from `bootstrap()`; before, both were
+  silently skipped. A watcher runs at most one timer, and a replacing timer waits for the poll in flight.
+
+## Fix
+
+- `@spinajs/configuration-db-source`: one watched row whose value a configuration schema refuses no longer stops the
+  watch poll. Before, the valid changes to other watched options in the same poll were never applied and the error
+  repeated on every tick. Now the refused option keeps its previous value, the rest of the poll applies, the refusal
+  is logged once, and the row is not tried again until its value changes.
+- `@spinajs/configuration-db-source`: a value in the `configuration` table that the configuration schemas refuse no
+  longer stops the application from starting. Before, the next start failed with `InvalidConfiguration`, and the
+  message did not say the value came from the database. Now the row is skipped, the start uses the file value or the
+  schema default, and `configuration row <Slug> refused: <violation>` is logged. Rows are checked in `Id` order. Of
+  two rows that are only valid together, the first one can be skipped.
+- `@spinajs/configuration-db-source`: in an app that guards the configuration table, queries made before
+  `AuthzService` resolved each added a `di.resolved.AuthzService` listener and a timer. Ten or more exposed options
+  printed `Possible EventEmitter memory leak detected` to stderr at start. A wait ended by the 15-second fallback also
+  left its listener behind. All waiting queries now share one wait, and the sweep of exposed options waits for authz
+  once before its first insert, so the warning is gone and an app no longer needs to hold the sweep back.
+- `@spinajs/configuration-db-source`: after `migrateTestDatabase()` or an app's own `OrmMigrator.migrate()`, the
+  exposed options were never written to the `configuration` table and no watch timer ran, unless the `Orm` was
+  resolved again. The bootstrapper now sweeps on `orm.migrated` too. The new `whenSwept()` lets a test await the
+  sweep.
+- `@spinajs/configuration-db-source`: a guarded process without an http server whose own boot of the root
+  `AuthzService` is refused (for example before `migrate-up` created the authz tables) no longer logs the 15 s warning
+  and an error on every poll. The warning is logged once and the refusal once per cause; each poll still retries, so
+  values arrive again once the boot succeeds.
+
+## Documentation
+
+- `@spinajs/configuration-db-source` (docs): the docs resolved `DbConfigSourceBotstrapper` to trigger a poll, which
+  after replacing it with a subclass returns a separate instance that is not bound. They now resolve the subclass, and
+  the recipes register it `.as(DbConfigSourceBotstrapper)` so code that resolves the base class reaches the bound
+  instance.
+
+# Release notes — configuration-http: values are stored as validated, one error body, a permission for Default and Watch
+
+## New
+
+- `@spinajs/configuration-http`: `PATCH /configuration/:slug` now needs the new permission `configuration:manage` on
+  the entry to change `Default` or `Watch`. Before, `configuration:update` alone was enough. Without the new
+  permission, a body with either field answers 403 and nothing is written. Bodies with only `Value` work as before.
+  `admin.configuration` (and so `admin`) grants the new permission. A custom role that should keep changing `Default`
+  or `Watch` needs `'configuration:manage'` added to its grants.
+
+## Fix
+
+- `@spinajs/configuration-http`: `PATCH /configuration/:slug` validated a type-converted copy of `Value` and `Default`
+  and then stored the value as sent. On a number entry, `"0x15"`, `"1e1"`, `true` or `null` answered 200 and left a
+  row that the database configuration source could not read. Values are now validated without type conversion,
+  whatever `validation.coerceTypes` is set to: a JSON number for `number`, `float` and `range`, a JSON boolean for
+  `boolean`, a string for the string types, and inside `json` values the types the slug schema asks for. Any other
+  value answers 400, for example `Value must be integer`. Clients that sent numeric or boolean strings (including
+  values copied from a `GET`, which returns the stored string form) must send the typed JSON value.
+- `@spinajs/validation`: `DataValidator.tryValidate(schema, data, { coerceTypes: false })` validates one call without
+  type coercion, as for a strict schema id.
+- `@spinajs/configuration-http`: `PATCH /configuration/:slug` answered a body without `Value` (or with a `Watch` that
+  is no boolean) with the framework's `{ parameter, details, message: 'validation error' }`, but a refused value with
+  `{ error: { message } }`, and with the default `validation.messages: false` that message only said `Value is
+  invalid`. Both now answer `{ code, message }` (`configuration.invalid_body` or `configuration.invalid_value`), and
+  the message names the broken constraint whatever `validation.messages` says: `Value is required`, `Watch must be
+  boolean`, `Value must be <= 25`, `Value must be equal to one of the allowed values`. Clients of this route branch on
+  `code` and read `message`, instead of `details`, `message: 'validation error'` or `error.message`. The
+  `validation.messages` default of the framework is unchanged.
+
+# Release notes — http: client errors are no longer 500s, one error hook, listen address, static entries that can be switched off
+
+## New
+
+- `@spinajs/http`: `ErrorObserver` is one hook that sees every error the server answers. That covers errors thrown in
+  a route (a policy, an argument, an action, including those an `@OnError` handler or `ErrorHandlerService` answered)
+  and errors raised before routing (a body parser, a server middleware, an unmatched path). Before, logging every 5xx
+  took an `ErrorHandlerService` for route errors plus a server middleware error handler for the rest, because a route
+  answers its own errors and a server middleware never sees them. Register a subclass with
+  `@Injectable(ErrorObserver)`. It is called once the answer is complete. It receives the error, the request, the
+  status the server answered with, whether the answer reached the client and, for route errors, the route, controller
+  and stage. It cannot change the answer.
+- `@spinajs/http`: new `http.host` selects the address the server listens on (`127.0.0.1` for loopback only, or a LAN
+  address). Not set, the server listens on every interface, as before. The configuration schema now checks
+  `http.port`: an integer from 0 to 65535, digits as text (converted, as from an environment variable), or a named
+  pipe or Unix socket path holding `/` or `\`. A pipe or socket path still works as before, and cannot be combined
+  with `http.host`. Other text in `http.port`, such as `eighty`, used to make Node listen on a pipe or socket of that
+  name; it is now refused at the configuration check. So are number forms other than plain digits (`'1e3'`,
+  `'0x1F90'`, `'+8080'`, `'8080.0'`). The type `IHttpServerConfiguration.port` is now `number | string`: narrow it
+  before arithmetic or building a URL.
+- `@spinajs/http`: an `http.Static` entry can be switched off with `Enabled: false`. The value must be `true`, `false`
+  or absent; any other value stops the start, so `'false'` from an environment variable cannot open a folder. It is
+  read once at start, so a `ConfigVar` there follows the merged configuration. Before, an entry added by any config
+  file could not be removed or turned off by another.
+- `@spinajs/http`: `@MountWhen((container, config) => boolean | Promise<boolean>)` mounts a controller only when the
+  condition returns `true`. An unmounted controller is not created, has no routes and is not in the OpenAPI spec.
+
+## Fix
+
+- `@spinajs/http`: in production (`configuration.isProduction: true`), a 500 answered by `ServerError` (an unmapped
+  error, or one mapped to `ServerError`) no longer carries the exception's message or its properties. The body is `{
+  message: 'Internal server error' }`. The error, with its stack, is still logged at `error`. Outside production, and
+  for errors mapped to other statuses, bodies are unchanged.
+- `@spinajs/http`: a path with malformed percent-encoding (`/files/%ZZ`) answered 500 and logged an ERROR line for
+  every request. It now answers `400 { message: 'request path is not valid percent-encoding' }`.
+- `@spinajs/http`: body-parser refusals that answered 500 now answer 413 (body over the parser's `limit`) or 415
+  (unsupported charset or encoding), or 400 for any other client error.
+- `@spinajs/http`: all of these refusals are now framework exceptions (`BadRequest`, `EntityTooLargeException`,
+  `UnsupportedMediaTypeException`), so an app that remaps them in the error map controls these answers too.
+- `@spinajs/http`: a client that accepts only `text/plain` now gets JSON bodies labelled `application/json`. The body
+  itself is unchanged.
+- `@spinajs/http`: the error handler logs by status. 401 and 404 answers are logged at `debug`, other 4xx at `warn`,
+  everything else at `error`, and each entry has a `status` field. A coded exception with a 5xx status is now logged
+  at `error` (it was `warn`). Monitoring that counted `warn` entries for 401 or 404 must watch `debug` entries.
+  `Response` has a new getter `statusCode`.
+- `@spinajs/http`: a server middleware that does not set `Order` now sorts as `0` (after CORS, before the request-id
+  and timing middlewares). Before, its `Order` was `undefined`, the sort compared `NaN` and its position in the
+  pipeline was undefined.
+- `@spinajs/http`: two controllers declared in one file no longer share one controller cache entry. The second one
+  used to get the first one's route parameter names (its arguments bound to the wrong names) and its JSDoc in the
+  OpenAPI document. Cache keys now end with a hash of the class name (`<version>_<hash>_<class name hash>`); old
+  entries are cleaned up as before.
+- `@spinajs/http`: a request accepting HTML no longer hangs when a response template is missing, for example when the
+  package was built without the root `copy-static` step. When neither the page's template nor `serverError.pug` can be
+  rendered, it answers 500 with `http.FatalTemplate` and a ticket (plain text for a non-HTML client), and logs one
+  error line with that ticket. Before, the request was never answered and the process logged an unhandled rejection.
+- `@spinajs/http`: `HTTP_STATUS_CODE` has every standard 2xx, 3xx, 4xx and 5xx code, among them 207, 402, 410, 412,
+  422 (`UNPROCESSABLE_CONTENT`), 428, 502 and 504. `new Json(body, { StatusCode: 422 })` used to fail to compile and
+  needed a cast; it now compiles and answers 422. No existing member changes.
+
+# Release notes — http-swagger: public routes are declared public, non-JSON responses, disabled means no docs, schema fixes
+
+## New
+
+- `@spinajs/http-swagger`: a route can declare a non-JSON response with the repeatable JSDoc tag `@produces
+  <media-type>` (`@produces text/csv`, `@produces text/plain; version=0.0.4`). It applies to the 2xx responses. JSON
+  and XML types keep the documented schema, other text is a string, and anything else is binary; `204` and `205` get
+  no content. On a `FileResponse` route it names the real type instead of `application/octet-stream`. An invalid value
+  fails the document build. Routes without the tag are documented as before.
+- `@spinajs/http`: the controller cache parses `@produces` into `IMethodDoc.produces`.
+
+## Fix
+
+- `@spinajs/http-swagger`: the swagger routes (`/docs/`, `/docs/swagger.json`) no longer count as unguarded routes.
+  Before, `authz.http.unguardedRoutes: 'throw'` stopped the server because of them, and `'warn'` warned about them at
+  every start. `SwaggerController` now carries its own marker that `@spinajs/authz-http` reads as a class-level
+  `@AllowAnonymous`; http-swagger still does not import authz-http. The routes stay public. Turn them off with
+  `http.swagger.enabled: false`.
+- `@spinajs/http-swagger`: `@Schema` DTOs document correctly in three cases that came out wrong:
+  - an ajv `$data` value (`minimum: { $data: '1/from' }`) is no longer copied into the OpenAPI document, where it is
+    invalid;
+  - a `$ref` to another schema's `$id` (`items: { $ref: 'app.LogEntry' }`) now points to that schema's component
+    instead of becoming `{}`;
+  - `default` is kept in component schemas, as query parameters already kept it.
+- `@spinajs/http-swagger`: `http.swagger.enabled: false` now means no docs at all. `SwaggerController` is not mounted,
+  and `/docs/ui` and `/docs/static` serve no files, so every `/docs` path answers the app's normal 404. Before, the
+  routes stayed mounted (answering their own 404) and both static folders kept serving files. The static folders
+  follow the configuration key, not an override of `SwaggerService.IsEnabled`.
+- `@spinajs/http-swagger`: a missing `swagger-ui-dist` now gives one warning at start that says what it disables (the
+  Swagger UI page cannot load its files from `/docs/ui`) and how to fix it (install `swagger-ui-dist`, or point the
+  `http.swagger.ui.*Url` keys at the CDN). It replaces http's generic "static file path … not exists" line. There is
+  no warning when the docs are disabled or the UI already loads from a CDN.
+
+## Documentation
+
+- `@spinajs/http-swagger` (docs): the named-schemas page now says that `oneOf`, `anyOf` and `allOf` are walked for
+  named types, as `items` and `properties` are; only `additionalProperties` is not. The downloads table lists
+  `SseResponse` (`text/event-stream`, string schema).
+
+# Release notes — authz-http, authz-rbac: a failed authz boot is visible, @AllowAnonymous on a route, stores that refuse to boot without tables
+
+## Fix
+
+- `@spinajs/authz-http`: a root authz domain that fails to boot, or an unguarded route under
+  `authz.http.unguardedRoutes: 'throw'`, still stops the HTTP server, and now also sets `process.exitCode = 1` and
+  emits `authz.boot.failed` on the root container with the error. Before, the process kept running without HTTP and
+  looked healthy. Add `DI.on('authz.boot.failed', () => process.exit(1))` to end it.
+- `@spinajs/authz-http`: `@AllowAnonymous()` on a route now opens it under a class-level `@Policy(IsAuthenticated)`.
+  The route answered 401 before, even though the decorator was there, and public routes such as `/health` had to live
+  in a controller of their own. Only `IsAuthenticated` is lifted: the other policies of its group, an
+  `IsAuthenticated` on the route itself and a class-level `@AllowAnonymous()` behave as before. Other class groups are
+  alternatives to it, so a separate class `@Policy(X)` or a class `@Access` no longer refuses such a route; put a
+  check that must hold there into the `IsAuthenticated` group or onto the route.
+- `@spinajs/authz-http`: the package config no longer lists `<root>/../node_modules/@spinajs/authz-http/...` for
+  controllers when that directory does not exist. Apps no longer log `Directory ... not exists` on every boot. Apps
+  that run from a build folder one level below `node_modules` still load the controllers from there.
+- `@spinajs/authz-rbac`: a domain whose RBAC database stores have no connection behind `db.Aliases.authz`, or no
+  tables, no longer boots and then denies every check with `model_error`. The boot now fails with an
+  `AuthzConfigError` that names each store, its `authz.rbac.stores.*` key and the missing connection or table, and
+  points to the in-memory stores. Apps with roles in config only and no database set `authz.rbac.stores.assignments:
+  ['MemoryAdminAssignmentStore']` and `links: ['MemoryLinkStore']` (or `[]`) and register both classes in DI; the
+  recipe is in `docs/authz-rbac/02-database-storage.md`.
+- `@spinajs/authz-rbac`: an `authz.rbac.serviceRoles` key without the principal type, such as `{ lan: ['operator'] }`,
+  used to be accepted and grant nothing, silently. The key must now be `<type>:<id>` of one principal (`{
+  'service:lan': ['operator'] }`); any other key, including a wildcard such as `'service:*'` (which also granted
+  nothing), fails the boot with a configuration error naming the key and the expected form.
+
+# Release notes — telemetry: probes without internal detail, a scrape token that reads telemetry only, switches per endpoint
+
+## New
+
+- `@spinajs/telemetry`: the request metrics and each telemetry endpoint can be turned off in configuration. Before, an
+  app had to `DI.unregister(TelemetryMiddleware)` and write its own 404 policy. `telemetry.http.enabled: false` stops
+  the request metrics (no `http_*` series, empty request statistics); `telemetry.endpoints.<endpoint>.enabled: false`
+  makes that endpoint answer 404 to every caller, before any credential check. Both default to `true`.
+
+## Fix
+
+- `@spinajs/telemetry`: a request that no route matched was labelled with its raw path, so every invented URL created
+  new `http_requests_total` and `http_request_duration_ms` series. All such requests now share `route="<unmatched>"`
+  (`UNMATCHED_ROUTE`). Update any query that selected an unmatched path by its raw value.
+- `@spinajs/telemetry`: the anonymous probes no longer show internal detail. A check that throws reads `the check
+  threw` in `/telemetry/ready` and its error goes to the log; each check's `data.error` and the process fields of
+  `/telemetry/health` (`startedAt`, `uptimeMs`, `pid`, `node`, `version`) are shown only to a caller admitted by the
+  new slot `telemetry.auth.policies.probeDetail` (default: `telemetry:read`). Everyone else gets `{ "status": "up" }`
+  from `/telemetry/health`. Set `probeDetail` to `'PublicPolicy'` to keep the old answer.
+- `@spinajs/telemetry`, `@spinajs/authz-http`: the scrape token `telemetry.auth.token` no longer passes
+  `IsAuthenticated` routes of the host app; it reads the telemetry endpoints only. An `authz.http.services` entry
+  takes `authenticated: false` to make such a scoped service principal; the bridged telemetry entries use it. An
+  explicit `telemetry` entry should set `authenticated: false` too.
+
+# Release notes — scheduler, scheduler-http: runNow with wait cannot hang, step results, markHandled
+
+## New
+
+- `@spinajs/scheduler`, `@spinajs/scheduler-http`: run details return each step's stored value as `steps[].result`,
+  with `steps[].resultStored`, which is false when no value was kept (step not succeeded, or value dropped). They
+  appear in `SchedulerService.getRun`, `scheduler:run:show --json` and `GET /scheduler/runs/:id` (under
+  `scheduler:read`). **Step values stored before this upgrade become readable to `scheduler:read` callers.** Values
+  over `scheduler.maxStepResultBytes` (64 KiB) are not stored. Use `ctx.step(name, fn, { persistResult: false })` for
+  a value that must not be readable. The fields are additive for readers.
+- `@spinajs/scheduler`: new `scheduler.markHandled(name)` for applications that run their jobs once at start-up. Call
+  it after the pass and before `scheduler.start()`. It moves the schedule past the occurrences that fell into the
+  downtime, without a run, so the loop does not run them a second time. It returns `false` when nothing was due or a
+  loop (for example an older replica during a rolling deploy) took the occurrence first. `misfire: 'skip'` alone
+  covers only downtimes longer than `misfireThreshold`.
+
+## Fix
+
+- `@spinajs/scheduler`: `runNow(name, { wait: true })` no longer hangs in a process whose scheduler loop is not
+  started (`autoStart: false`, a CLI or API-only process). It refuses at once with `SchedulerNotRunning` (409 / exit
+  3) and writes no run.
+  - Wait with `wait: { timeoutMs }` when a loop on another replica runs the schedules, or run it in the process with
+    `runNow` + `scheduler.runLocally(runId)` + `scheduler.idle()`.
+  - **Tests that drive an unstarted `Scheduler` with `tickOnce()` while awaiting `runNow({ wait: true })` now get
+    `SchedulerNotRunning`:** pass `wait: { timeoutMs }`, or start the run with `runNow` and drive it with `runLocally`
+    / `tickOnce()`.
+- `@spinajs/scheduler-http`: `POST /scheduler/schedules/:name/runs` with `"wait": true` waits at most
+  `scheduler.http.runWaitTimeout` ms (default 30 s), also on a server that runs no scheduler loop itself.
+  - It answers 200 with the run when it ended in time.
+  - Otherwise it answers 202 `{ runId, run }` with the run not finished yet (`queued`, `running`, `retrying` or
+    `emitted`).
+  - **On a server whose own loop runs, a run longer than `scheduler.http.runWaitTimeout` (default 30 s) now answers
+    202 with the unfinished run, where the request used to stay open until the run ended. Raise the key to wait
+    longer.**
+- `@spinajs/scheduler`: a schedule that keeps failing no longer writes a warning per run. The first failed run of each
+  cause (its error group) warns, and later failures with a cause that already warned log at `debug` until the schedule
+  succeeds again. The first success then logs one line, `schedule <name> succeeded again after <n> failure(s)`.
+  Attempts that will be retried log at `debug`; the run's final `dead` is the line that warns. Tracked per process.
+
+# Release notes — di: two classes with one name are refused, dispose keeps the module mode, ResolvesAsync
+
+## Breaking changes
+
+- `@spinajs/di`: two different classes with the same name can no longer both be registered. The second registration
+  throws `BindException` naming the key and where the two classes differ, instead of being dropped without a word,
+  which handed the first class to whoever asked for the second. Rename one; to replace a registered class write
+  `DI.register(NewSystemClock).as(SystemClock)`. Two classes with one name and identical source text are still taken
+  for one class loaded twice and merged silently, so a package loaded twice (a linked checkout, an install in two
+  places) still boots. `npm run check:di-names` checks that no two SpinaJS packages register classes with the same
+  name.
+
+## Fix
+
+- `@spinajs/di`: `DI.dispose()`, `DI.clearCache()` and `DI.clear()` no longer switch an ESM process back to CommonJS.
+  Before, a second boot in the same process loaded every configuration file with `require` and failed. The flag set by
+  `DI.setESMModuleSupport()` now stays until `DI.uncache('__esmMode__')`. A full second boot in one process is still
+  not supported (configuration modules stay cached, `@Config` registrations happen at import).
+- `@spinajs/di`: a class whose resolve can give a promise without it being an `AsyncService`, e.g. one that injects
+  with `@AutoinjectNamedService`, can declare `declare readonly [ResolvesAsync]: true;`. `DI.resolve()` and
+  `container.resolve()` are then typed `T | Promise<T>` (lists `T[] | Promise<T[]>`), so `DI.resolve(Mailer).send()`
+  no longer compiles and `await` gives the instance. Before, such a resolve was typed as the instance and failed at
+  run time. Classes without the marker are typed as before; generic code that writes out `T extends AsyncService ?
+  Promise<T> : T` as a resolve's return type must use `ResolveResult<T>` instead.
+- `@spinajs/di`: when a module is loaded by path without `require` and without ESM mode, the error now tells a Node
+  ESM application first to call `DI.setESMModuleSupport()` at the top of its entry file, before the configuration
+  resolves. The module loader for bundled and browser builds is named second. Before, the message led with the bundle
+  case.
+
+# Release notes — queue-templates-pdf: PDF renders work again in an ESM application
+
+## Fix
+
+- `@spinajs/queue-templates-pdf`: in an ESM application every `RenderPdfJob` render failed with `Cannot load
+  configuration file … CommonJS require is not available`, because ESM mode does not cross into the forked render
+  worker. The ESM build of the worker now turns on ESM mode itself. The CommonJS build is unchanged.
+
+# Release notes — orm, orm-cli, orm-http, cli: clearer boot and migration messages, in / exists filters under an or group
+
+## New
+
+- `@spinajs/orm`: `OrmMigrator.migrate()` emits `orm.migrated` `(container, orm, applied)` on the `Orm`'s container
+  once a run is done, so code that waited for `di.resolved.Orm` can check the tables again after a migration in the
+  same process.
+
+## Fix
+
+- `@spinajs/orm`: calling a static method (`where`, `all`, `get`, ...) on a model the `Orm` never bound, because its
+  module was imported after the `Orm` resolved or the `Orm` has not resolved yet, throws `OrmException: Model <Name>
+  is not bound to the Orm ...` instead of a bare `Error: Not implemented`. The message says to import the model's
+  module before the `Orm` resolves. The READMEs of `scheduler-http`, `configuration-http` and `telemetry` now say that
+  installing them turns their config on and what the app has to import first.
+- `@spinajs/orm-cli`: `MigrateUpCommand.execute()` reported "migrations applied, but a model has no table"
+  (`db.StrictTableCheck`) only through `process.exitCode`, so a script that ran it in-process could not see it without
+  comparing exit codes. It now resolves with `{ applied, tableCheckError }`, where `tableCheckError` names each model
+  without its table. `npx spinajs migrate-up` still logs the same error and exits `1`.
+- `@spinajs/cli`: `CliCommand.execute()` returns `Promise<unknown>`, so a command can resolve with a result for
+  in-process callers. The bin ignores it.
+- `@spinajs/orm-cli`: a subclass that overrides `MigrateUpCommand.execute()` or `checkModelTables()` has to return the
+  inherited result (`return super.execute(options)`), or in-process callers get nothing back.
+- `@spinajs/orm`: a planned disconnect (`Orm.dispose()`, `DI.dispose()`, a migration tool closing its `Orm`) is logged
+  at `debug` instead of `warn`. `connection <name> is disconnected (was connected)` no longer shows up as a warning on
+  every start. A connection lost after the last reconnect attempt is still logged at `warn`. A driver subclass that
+  overrides the protected `setState()` should forward its new second argument.
+- `@spinajs/orm`: the `Orm` of a migration tool (`resolveMigrationTool()`, `npx spinajs migrate-up`) logs one warning
+  listing every model table that does not exist yet, instead of one warning per model. An application boot still warns
+  per model, or fails under `db.StrictTableCheck`, as before.
+- `@spinajs/orm`: the error for a connection whose driver is not registered reads `ORM connection driver <Driver> not
+  registered`; it was misspelt `registerd`. The CLI docs now say that the `spinajs` bin imports only config files and
+  command files, so the ORM driver and packages with migrations must be imported from a config file.
+- `@spinajs/orm-http`: the filter operators `in`, `nin`, `exists`, `n-exists`, `in-set` and `nin-set` work inside an
+  `or` group, at the top level and nested. Before, any such filter answered 500 with `Cannot read properties of
+  undefined (reading 'whereIn')`.
+- `@spinajs/cli`: the `spinajs` bin ran bootstrappers only before the configuration boots, so a bootstrapper
+  registered by a module that a config file imports never ran under the CLI. The bin now runs the bootstrappers
+  registered while the configuration booted, once each, after it. The first pass is unchanged, so the configuration
+  schemas bootstrappers register still fail the boot on a refused value. Application entry points that run
+  bootstrappers themselves should do the same; see "Who runs bootstrappers" in the `@spinajs/di` docs.
+
+# Release notes — log, log-common, reflection: an error passed after the message is written, JSON target by level, quieter directory scan
+
+## New
+
+- `@spinajs/log`: `JsonTarget` accepts `stream: 'by-level'`, which sends `warn`, `error`, `fatal` and `security` to
+  stderr and the other levels to stdout, as `ConsoleTarget` does. The default stays `'stdout'`.
+
+## Fix
+
+- `@spinajs/log-common`: `log.warn('read failed', err)` printed `read failed {}` and dropped the error. An `Error`
+  passed after the message and its format arguments now becomes the entry's `error`, like `log.warn(err, 'read
+  failed')`: text layouts print its message through `${error:message}`, JSON targets get its message and stack. Text
+  that was printed before stays (an error's enumerable fields or `toJSON()` output); an `Error` filled into a `%s`
+  specifier is unchanged.
+- `@spinajs/reflection`: `@ListFromFiles` / `@ResolveFromFiles` warned `Directory ... not exists` for every missing
+  entry of a `system.dirs` list. Every `spinajs` run therefore warned once per installed package that ships commands,
+  and an application boot did the same for its scanned directories, because each package lists two possible install
+  locations. A missing directory inside `node_modules` is now logged at `debug`; one outside it, which the application
+  configured, still warns.
+
 # Release notes — authz-orm: access marks in a populate callback that would not filter throw
 
 ## Security fix
