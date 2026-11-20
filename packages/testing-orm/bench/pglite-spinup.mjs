@@ -4,7 +4,7 @@
  *
  *   node packages/testing-orm/bench/pglite-spinup.mjs [--runs 10] [--tables 20]
  *
- * Every *BootMs is createTestDatabase() plus a test app boot that runs the pending migrations.
+ * Every *BootMs is createTestDatabase() plus a test app boot and migrate(), which runs the pending migrations.
  * schemaFirstBootMs           the default strategy's first call: it also creates the shared PGlite instance
  * schemaBootMedianMs          the default strategy afterwards: a new schema, migrations run in it
  * schemaDisposeMedianMs       dropping that schema
@@ -15,7 +15,8 @@
 import { performance } from 'node:perf_hooks';
 import { FrameworkConfiguration } from '@spinajs/configuration';
 import '@spinajs/log';
-import { Migration, Orm, OrmMigration } from '@spinajs/orm';
+import { Migration, OrmMigration } from '@spinajs/orm';
+import { migrateTestDatabase } from '@spinajs/orm/testing';
 import { createTestApp } from '@spinajs/testing';
 import { createTestDatabase } from '../lib/index.js';
 
@@ -57,7 +58,8 @@ function configurationFor(connection) {
 async function boot(options) {
   const started = performance.now();
   const db = await createTestDatabase(options);
-  const app = await createTestApp({ configuration: configurationFor(db.config), resolve: [Orm] });
+  const app = await createTestApp({ configuration: configurationFor(db.config) });
+  await db.migrate(app.container);
   const ms = performance.now() - started;
   await app.dispose();
   return { ms, db };
@@ -88,7 +90,8 @@ for (let i = 0; i < RUNS; i++) templateBoots.push((await boot({ strategy: 'templ
 const freshBoots = [];
 for (let i = 0; i < RUNS; i++) {
   const started = performance.now();
-  const app = await createTestApp({ configuration: configurationFor({ Driver: 'orm-driver-pglite', Name: 'default', Migration: { OnStartup: true } }), resolve: [Orm] });
+  const app = await createTestApp({ configuration: configurationFor({ Driver: 'orm-driver-pglite', Name: 'default' }) });
+  await migrateTestDatabase(app.container);
   freshBoots.push(performance.now() - started);
   await app.dispose();
 }

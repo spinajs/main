@@ -6,7 +6,8 @@ import { expect } from 'chai';
 import * as sinon from 'sinon';
 import { QueueService, QueueClient, IQueueMessage, QueueMessage, JobModel, QueueMessageType } from '@spinajs/queue';
 import '@spinajs/orm-sqlite';
-import { MigrationTransactionMode, Orm } from '@spinajs/orm';
+import { MigrationTransactionMode } from '@spinajs/orm';
+import { migrateTestDatabase } from '@spinajs/orm/testing';
 
 import { EmailService, EmailSender, EmailConnectionOptions, IEmail, EmailSend } from '../src/index.js';
 
@@ -90,7 +91,6 @@ class EmailDeferredConf extends FrameworkConfiguration {
             Filename: ':memory:',
             Name: 'queue',
             Migration: {
-              OnStartup: true,
               Table: 'orm_migrations',
               Transaction: {
                 Mode: MigrationTransactionMode.PerMigration,
@@ -154,7 +154,7 @@ describe('email deferred ( hermetic - no SMTP, no broker )', function () {
     DI.register(EmailDeferredConf).as(Configuration);
 
     await DI.resolve(Configuration);
-    await (await DI.resolve(Orm)).Migrator.ready();
+    await migrateTestDatabase();
   });
 
   afterEach(async () => {

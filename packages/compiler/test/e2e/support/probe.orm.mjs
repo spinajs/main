@@ -3,6 +3,7 @@
 const { Bootstrapper, DI } = await import('@spinajs/di');
 const { Configuration } = await import('@spinajs/configuration');
 const { Orm } = await import('@spinajs/orm');
+const { migrateTestDatabase } = await import('@spinajs/orm/testing');
 await import('@spinajs/orm-sqlite');
 await import('@spinajs/log');
 // Built next to the installed copy of this probe, so it does not resolve from here.
@@ -14,7 +15,7 @@ const result = {};
 try {
   for (const b of await DI.resolve(Array.ofType(Bootstrapper))) await b.bootstrap();
   await DI.resolve(Configuration);
-  await (await DI.resolve(Orm)).Migrator.ready();
+  await migrateTestDatabase();
 
   const owner = new Owner({ Name: 'Ada', Active: true, Roles: ['admin', 'dev'] });
   owner.SeenAt = owner.CreatedAt;
