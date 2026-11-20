@@ -10,6 +10,7 @@ export const ORM_CONFIGURATION_SCHEMA = {
   properties: {
     // enum, not type: 'boolean': coerceTypes would read null and 0 as false and switch the check off
     StrictTableCheck: { enum: [true, false], default: true },
+    MigrationCheck: { enum: ['fail', 'warn', 'off'], default: 'fail' },
     Explain: {
       type: 'object',
       properties: {
@@ -23,6 +24,13 @@ export const ORM_CONFIGURATION_SCHEMA = {
       type: 'object',
       properties: {
         Source: { enum: ['database', 'manifest'], default: 'database' },
+      },
+    },
+    WriteCapture: {
+      type: 'object',
+      properties: {
+        // 0: unlimited
+        MaxRows: { type: 'integer', minimum: 0, default: 0 },
       },
     },
   },

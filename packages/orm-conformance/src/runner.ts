@@ -28,7 +28,7 @@ function conformanceConfiguration(target: ConformanceTarget): Class<Configuratio
       this.set('db', {
         DefaultConnection: CONFORMANCE_CONNECTION,
         StrictTableCheck: false,
-        Connections: [{ ...target.connection, Name: CONFORMANCE_CONNECTION, Migration: { OnStartup: false } }],
+        Connections: [{ ...target.connection, Name: CONFORMANCE_CONNECTION }],
       });
     }
   };

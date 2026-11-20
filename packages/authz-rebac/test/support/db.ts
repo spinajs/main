@@ -4,6 +4,7 @@ import { DI } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 import '@spinajs/log';
 import { Orm, QueryContext } from '@spinajs/orm';
+import { migrateTestDatabase } from '@spinajs/orm/testing';
 import type { OrmDriver } from '@spinajs/orm';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 import { PostgresOrmDriver } from '@spinajs/orm-postgres';
@@ -60,7 +61,7 @@ export async function bootDb(suite: string, postgres?: Mocha.Context): Promise<T
   DI.setESMModuleSupport();
   const name = `rebac-${suite}`;
   const database = postgres ? await createPgDatabase(postgres, suite.replace(/[^a-z0-9_]/gi, '_')) : undefined;
-  const connections = [database ? { Name: name, Driver: 'orm-driver-postgres', ...PG_SERVER, Database: database, Migration: { OnStartup: false } } : { Name: name, Driver: 'orm-driver-sqlite', Filename: ':memory:', Migration: { OnStartup: false } }];
+  const connections = [database ? { Name: name, Driver: 'orm-driver-postgres', ...PG_SERVER, Database: database } : { Name: name, Driver: 'orm-driver-sqlite', Filename: ':memory:' }];
 
   class TestDbConfiguration extends FrameworkConfiguration {
     public async resolve(): Promise<void> {
@@ -78,7 +79,7 @@ export async function bootDb(suite: string, postgres?: Mocha.Context): Promise<T
   container.register(PostgresOrmDriver).as('orm-driver-postgres');
 
   await container.resolve(Configuration);
-  const orm = await container.resolve(Orm);
+  const { orm } = await migrateTestDatabase(container);
   const driver = orm.Connections.get('authz')!;
   // By hand: the boot migration pass is not what these suites test.
   await new AuthzRebac_2026_10_21_00_00_00().up(driver);

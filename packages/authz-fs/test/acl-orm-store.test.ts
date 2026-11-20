@@ -45,7 +45,7 @@ async function externalDb(kind: 'postgres' | 'mysql'): Promise<{ connection: Rec
   }
   const quoted = kind === 'postgres' ? `"${name}"` : `\`${name}\``;
   return {
-    connection: { Driver: `orm-driver-${kind}`, Name: kind, ...server, Database: name, Migration: { Table: 'orm_migrations', OnStartup: false } },
+    connection: { Driver: `orm-driver-${kind}`, Name: kind, ...server, Database: name, Migration: { Table: 'orm_migrations' } },
     async drop() {
       const d = await admin();
       try {
@@ -74,8 +74,8 @@ function ormSuite(kind: DbKind): void {
 
     before(async () => {
       undoLog = installQuietLog();
-      // Not on startup: every migration this process imports would run; the suite runs fs_acl's alone.
-      const sqlite = (name: string) => ({ Driver: 'orm-driver-sqlite', Filename: ':memory:', Name: name, Migration: { Table: 'orm_migrations', OnStartup: false } });
+      // By hand, not migrateTestDatabase(): that would run every migration this process imports; the suite runs fs_acl's alone.
+      const sqlite = (name: string) => ({ Driver: 'orm-driver-sqlite', Filename: ':memory:', Name: name, Migration: { Table: 'orm_migrations' } });
       let main: Record<string, unknown> = sqlite('sqlite');
       if (kind !== 'sqlite') {
         const external = await externalDb(kind);
@@ -85,7 +85,8 @@ function ormSuite(kind: DbKind): void {
       DI.register(FakeConfiguration).as(Configuration);
       DI.register(SqliteOrmDriver).as('orm-driver-sqlite');
       config = (await DI.resolve(Configuration)) as Configuration;
-      config.set(['db'], { DefaultConnection: main.Name, Connections: [main, sqlite('other'), sqlite('nocase')] });
+      // MigrationCheck off: the boot would otherwise refuse the pending migrations this suite applies by hand
+      config.set(['db'], { DefaultConnection: main.Name, MigrationCheck: 'off', Connections: [main, sqlite('other'), sqlite('nocase')] });
       orm = (await DI.resolve(Orm)) as Orm;
       db = orm.Connections.get('default')!;
       await new AuthzFsAcl_2026_10_17_00_00_00().up(db);

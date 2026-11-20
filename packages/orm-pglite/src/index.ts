@@ -2,8 +2,8 @@ import { randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { PGlite, type PGliteOptions } from '@electric-sql/pglite';
 import { Injectable, NewInstance } from '@spinajs/di';
-import { ConnectionState, OrmException, QueryContext, SqlDialect, type ISupportedFeature, type OrmDriver } from '@spinajs/orm';
-import { PostgresOrmDriver, pgEscapeIdentifier } from '@spinajs/orm-postgres';
+import { ConnectionState, MigrationLock, OrmException, QueryContext, SqlDialect, type ISupportedFeature, type OrmDriver } from '@spinajs/orm';
+import { PostgresMigrationLock, PostgresOrmDriver, pgEscapeIdentifier } from '@spinajs/orm-postgres';
 import type pg from 'pg';
 
 import { PglitePool, PglitePoolView, pgCompatibleParsers } from './pool-adapter.js';
@@ -66,6 +66,13 @@ export class PgliteOrmDriver extends PostgresOrmDriver {
       // the FETCH error is the one to report: a CLOSE that fails after it must not replace it
       await (failed ? closed.catch(() => undefined) : closed);
     }
+  }
+
+  public resolve(): void {
+    super.resolve();
+    // The postgres session lock holds a second session beside the pool; an in-process PGlite has only one, so the
+    // lock-table row the base driver registers stays the lock.
+    this.Container.unregister(MigrationLock, PostgresMigrationLock);
   }
 
   public async connect(): Promise<OrmDriver> {

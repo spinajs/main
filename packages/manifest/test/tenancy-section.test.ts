@@ -15,7 +15,7 @@ const model = (pkg: string, className: string, tenant?: ModelTenant): ModelEntry
 });
 
 const section = (over: Partial<TenancySection> = {}): TenancySection => ({ models: [], entryPoints: [], escapes: [], ignores: [], ...over });
-const authz = (...entryPoints: AuthzSection['entryPoints']): AuthzSection => ({ resources: [], permissions: [], entryPoints, findings: [], ignores: [] });
+const authz = (...entryPoints: AuthzSection['entryPoints']): AuthzSection => ({ resources: [], permissions: [], entryPoints, findings: [], ignores: [], flow: { entryPoints: 0, unresolvedRoots: 0, opaqueCalls: 0, externalCalls: 0, foreignModelQueries: 0 } });
 const route = (id: string, over: Partial<TenancyEntryPoint> = {}): TenancyEntryPoint => ({ kind: 'route', id, tenancy: 'none', source: src(), ...over });
 
 describe('manifest tenancy section', () => {

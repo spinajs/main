@@ -5,7 +5,7 @@ import { use } from 'typescript-mix';
 import { ColumnMethods, QueryMethod, WhereBoolean, SqlOperator, SortOrder } from '../enums.js';
 import { SelectQueryCompiler, QueryContext, RelationType, BooleanValueConverter } from '../interfaces.js';
 import type { IKeysetPageOptions, IModelDescriptor, IStreamOptions, KeysetPage, RowLockMode, ICompilerOutput, ILimitBuilder, IQueryLimit, ISort, IWhereBuilder, IJoinBuilder, IBuilderMiddleware, IWithRecursiveBuilder, ITypedColumnsBuilder } from '../interfaces.js';
-import { ColumnMethodStatement, WhereStatement, WhereQueryStatement, ColumnRawStatement, ColumnConditionStatement, ColumnStatement } from '../statements.js';
+import { ColumnMethodStatement, WhereStatement, WhereQueryStatement, ColumnRawStatement, ColumnConditionStatement, ColumnStatement, JoinStatement } from '../statements.js';
 import type { IQueryStatement } from '../statements.js';
 import type { Unbox, WhereFunction } from '../types.js';
 import type { AggregateValue, ColumnName, ColumnRef, DeclaredColumn, LiteralColumn, Head, MinMaxValue, OrmStrict, PopulateName, PopulatePath, PopulateTree, Project, Rebox, RelationTarget, Reproject, ScopesOf, WithPopulated } from '../typing.js';
@@ -25,8 +25,8 @@ import { ReplicaRouter, wroteInScope } from '../replica-router.js';
 import { readRouteOf, withReadRoute } from '../read-route.js';
 import { ConnectionState } from '../resilience.js';
 import type { IRelationSort } from './internal.js';
-import { executionCopy, runCloneHooks } from './internal.js';
-import type { BuilderState } from '../extensions.js';
+import { runCloneHooks, runMergeHooks } from './internal.js';
+import type { BuilderExecution, BuilderState } from '../extensions.js';
 import { QueryBuilder } from './base.js';
 import { LimitBuilder } from './limit.js';
 import { OrderByBuilder } from './order-by.js';
@@ -44,6 +44,8 @@ export type StrictSelectAliasNarrowed<B, T, A extends string, R> = OrmStrict ext
 export interface SelectQueryBuilder<T> extends ITypedColumnsBuilder<T>, ILimitBuilder<T>, IWhereBuilder<T>, IJoinBuilder, IWithRecursiveBuilder { }
 
 const DEFAULT_STREAM_BATCH = 500;
+
+const isAggregate = (s: IQueryStatement): boolean => 'IsAggregate' in s && s.IsAggregate === true;
 
 /** Reads the driver's value of a selectCondition() column as a boolean. */
 class BooleanColumnMiddleware implements IBuilderMiddleware<any> {
@@ -72,6 +74,7 @@ class BooleanColumnMiddleware implements IBuilderMiddleware<any> {
   public async afterHydration(): Promise<void> {}
 }
 
+/** @spinajs query select */
 @Injectable(SelectQueryBuilder)
 export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
   /**
@@ -202,10 +205,13 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
    * time to evaluate a deferred `Lazy` callback in isolation, so every query carrying a
    * `Lazy` where-statement hit it on every compile.
    */
-  constructor(container: IContainer, driver: OrmDriver, model?: Constructor<any>, owner?: IOrmRelation, applyMiddlewares = true) {
+  constructor(container: IContainer, driver: OrmDriver, model?: Constructor<any>, owner?: IOrmRelation, applyMiddlewares = true, execution?: BuilderExecution) {
     super(container, driver, model);
 
     this._owner = owner;
+    if (execution !== undefined) {
+      this._execution = Object.freeze(execution);
+    }
     this._distinct = false;
     this._method = QueryMethod.SELECT;
 
@@ -324,14 +330,14 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
     return read === undefined ? super._materialize(result) : withReadRoute(this._driver, read, () => super._materialize(result));
   }
 
-  public clone(): this {
-    return this._cloneOwnedBy(this._owner);
-  }
-
-  // relations.ts clones a relation's query for a copy of the relation, which then owns the clone
-  protected _cloneOwnedBy(owner: IOrmRelation | undefined): this {
+  /**
+   * `owner` is passed by a relation that is copied together with its query: the copy of the relation owns the clone.
+   * @spinajs copy
+   */
+  public clone(owner: IOrmRelation | undefined = this._owner): this {
     // Middlewares are deliberately NOT run for the clone — see the constructor's note.
-    const builder = new SelectQueryBuilder<T>(this._container, this._driver, this._model, owner, false);
+    // Through the container, like every other select builder: a subclass registered for SelectQueryBuilder survives a clone.
+    const builder = this._container.resolve<SelectQueryBuilder<T>>('SelectQueryBuilder', [this._driver, this._model, owner, false, this._execution]);
 
     // Table, alias and correlation are restored BEFORE the statements are cloned. Statements
     // rebind to `builder` and several of them read these during their own clone.
@@ -351,8 +357,15 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
       return c;
     };
 
-    builder._columns = this._columns.map(copy);
     builder._joinStatements = this._joinStatements.map(copy);
+    const joined = this._joinedColumnCopies(builder._joinStatements);
+    builder._columns = this._columns.map((s) => {
+      const c = joined.get(s);
+      if (c && this._merged.has(s)) {
+        builder._merged.add(c);
+      }
+      return c ?? copy(s);
+    });
     builder._statements = this._statements.map(copy);
     builder._groupStatements = this._groupStatements.map(copy);
 
@@ -379,6 +392,21 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
     runCloneHooks(this, builder);
 
     return builder as any;
+  }
+
+  /**
+   * A join shares the columns its builder selected with this query, and its build() stamps the join alias on them.
+   * The clone takes them from the copy of that builder, so they follow the copy of the join, not the source's.
+   */
+  private _joinedColumnCopies(copies: IQueryStatement[]): Map<IQueryStatement, IQueryStatement> {
+    const joined = new Map<IQueryStatement, IQueryStatement>();
+    this._joinStatements.forEach((s, i) => {
+      const copy = copies[i];
+      if (s instanceof JoinStatement && copy instanceof JoinStatement) {
+        s.columnCopiesIn(copy).forEach((to, from) => joined.set(from, to));
+      }
+    });
+    return joined;
   }
 
   protected _getRelationInstance(relation: string) {
@@ -490,6 +518,8 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
   }
 
   public mergeBuilder(builder: SelectQueryBuilder, includeStatements = true) {
+    // First, so that a hook which refuses the merge leaves this builder as it was.
+    runMergeHooks(builder, this);
     this._markMerged(builder._columns);
     this._columns = this._columns.concat(builder._columns);
     this._cteStatement = builder._cteStatement;
@@ -537,7 +567,6 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
    * into HAVING, which a WHERE group would drop, so they stay flat.
    */
   public mergeStatementsAsGroup(builder: SelectQueryBuilder, filter: (statement: IQueryStatement) => boolean) {
-    const isAggregate = (s: IQueryStatement) => 'IsAggregate' in s && s.IsAggregate === true;
     this.mergeStatements(builder, (s) => filter(s) && isAggregate(s));
 
     const grouped = builder._statements.filter((s) => filter(s) && !isAggregate(s));
@@ -549,6 +578,27 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
     const statement = this._container.resolve<WhereQueryStatement>(WhereQueryStatement, [group, false]);
     this._markMerged([statement]);
     this._statements.push(statement);
+  }
+
+  /**
+   * Wraps the WHERE statements this query has so far into one AND group, so that an OR among them cannot widen a
+   * condition added afterwards. HAVING statements stay where they are: a WHERE group would drop them.
+   */
+  public groupWhere(): this {
+    const conditions = this._statements.filter((s) => !isAggregate(s));
+    if (conditions.length === 0) {
+      return this;
+    }
+
+    const aggregates = this._statements.filter(isAggregate);
+    this._statements = [];
+    // adopted, not rebound: a recursive CTE clones this query again, and a moved Lazy must keep its own context
+    this.where(function () {
+      (this as WhereBuilder<unknown>).adopt(conditions);
+    });
+    this._statements.push(...aggregates);
+
+    return this;
   }
 
   private _markMerged(statements: IQueryStatement[]) {
@@ -798,10 +848,10 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
     return (await this._materialize(rows as unknown as T)) as unknown as unknown[];
   }
 
-  /** Each page is an execution copy of this query, run the normal way, past the last row of the page before. */
+  /** Each page is a clone of this query, run the normal way, past the last row of the page before. */
   protected async *_streamByKeyset(batchSize: number, driver: OrmDriver = this._driver): AsyncGenerator<unknown> {
     const descriptor = extractModelDescriptor(this._model);
-    // compiles the relations, which merges a populated relation's order into this one, and fills every copy's middlewares
+    // compiles the relations, which merges a populated relation's order into this one, and fills every page's middlewares
     this.toDB();
     const sorts = this.getSorts();
     this._assertKeysetPageable(sorts, descriptor);
@@ -811,7 +861,7 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
 
     let last: unknown[] | undefined;
     for (;;) {
-      const page = executionCopy(this);
+      const page = this.clone();
       page._pinnedDriver = driver;
       for (const tieBreaker of columns.slice(sorts.length)) {
         page.order(tieBreaker.column, SortOrder.ASC);
