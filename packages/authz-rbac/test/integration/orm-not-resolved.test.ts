@@ -33,6 +33,8 @@ async function freshProcess(body: string, migrate = true, authz?: Record<string,
     "import { AssignCommand, DbAssignmentStore, DbAuthzAdminBackend, ExplainCommand, VersionRecord, recordDriver } from '@spinajs/authz-rbac';",
     ...(setup.imports ?? []),
     'class Config extends FrameworkConfiguration {',
+    // The test is written against no package config; the file sources would load every installed @spinajs package's.
+    '  loadSources() { this.Sources = []; }',
     '  async resolve() {',
     '    await super.resolve();',
     "    this.Config.db = { DefaultConnection: 'cli', Connections: [{ Name: 'cli', Driver: 'orm-driver-sqlite', Filename: process.env.AUTHZ_CLI_DB }], Aliases: { authz: 'default', 'authz-audit': 'default' } };",
