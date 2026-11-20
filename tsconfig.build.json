@@ -381,6 +381,9 @@
     },
     {
       "path": "packages/audit-http/tsconfig.build.json"
+    },
+    {
+      "path": "packages/audit-authn/tsconfig.build.json"
     }
   ]
 }
