@@ -2,7 +2,7 @@ import 'mocha';
 import { expect } from 'chai';
 import type { ChangeRecord, Condition, DecisionRecord, Principal } from '@spinajs/authz';
 
-import { MemoryChangeLog, canonicalize, policyHash, replayDecision } from '../../src/index.js';
+import { MemoryChangeLog, StoreUnreadable, canonicalize, policyHash, replayContext, replayDecision } from '../../src/index.js';
 import type { KeyState, PolicyIR, ReplayDeps, Rewrite, StoredEdge, StoredPlaceholder, StoredPolicySplicer } from '../../src/index.js';
 import { Switches, TupleStore } from '../fixtures/history-store.js';
 import { tapped } from '../fixtures/tap.js';
@@ -164,8 +164,8 @@ describe('replayDecision', function () {
 
   describe('stored switches', () => {
     const u9 = { principal: 'user:u9', facts: { principal: { type: 'user', id: 'u9' } } };
-    async function switched(): Promise<World & { switches: Switches }> {
-      const ir = irOf({ union: [{ computed: 'editor' }, { opaque: 'stored:abac:a' }] });
+    async function switched(edit: Rewrite = { union: [{ computed: 'editor' }, { opaque: 'stored:abac:a' }] }): Promise<World & { switches: Switches }> {
+      const ir = irOf(edit);
       ir.types.doc.permissions.other = { opaque: 'stored:abac:c' };
       ir.permissions['doc:other'] = { type: 'doc', relation: 'other', list: false, source: { origin: 'test' } };
       const w = await world(ir);
@@ -191,14 +191,14 @@ describe('replayDecision', function () {
       expect(report.reads).to.deep.include({ kind: 'policy', key: 'ra', origin: 'history', seq: 3 });
     });
 
-    it('a change of the kind that names no store makes the store a gap, not a shorter set', async () => {
-      const w = await switched();
+    it('a change of the kind that names no store makes every store of the kind a gap, not a shorter set', async () => {
+      const w = await switched({ union: [{ computed: 'editor' }, { opaque: 'stored:abac:a' }, { opaque: 'stored:abac:b' }] });
       await w.switches.set('ra', { store: 'a', open: true }, ms(-HOUR));
       w.switches.rows.delete('ra');
       await w.log.append([{ kind: 'policy', op: 'remove', key: 'ra', payload: null, at: ms(HOUR / 2) }]);
       const report = await replayDecision(w.record(u9), w.deps);
       expect(report.replay).to.equal('unreplayable');
-      expect(report.missing.map((m) => `${m.input}:${m.key}`)).to.include('policy:policy:a');
+      expect(report.missing.map((m) => `${m.input}:${m.key}`)).to.include.members(['policy:policy:a', 'policy:policy:b']);
     });
 
     it('splices only the placeholders the decision can reach', async () => {
@@ -223,6 +223,24 @@ describe('replayDecision', function () {
     expect(unspliced.missing).to.deep.include({ input: 'opaque', key: 'stored:rbac:db', reason: 'the IR cannot see it' });
   });
 
+  it('an unreadable store is a gap that keeps its placeholder; any other failure of its read fails the replay', async () => {
+    const w = await world(irOf({ exclusion: { base: { computed: 'editor' }, subtract: { opaque: 'stored:rbac:db' } } }));
+    const unreadable = new StoreUnreadable('authz_rule: a row does not parse');
+    expect(unreadable.name).to.equal('StoreUnreadable');
+    w.rules.current = () => Promise.reject(unreadable);
+    const report = await replayDecision(w.record(), w.deps);
+    expect(report.replay).to.equal('unreplayable');
+    expect(report.reads).to.deep.include({ kind: 'rule', key: 'rule:db', origin: 'gap', reason: 'authz_rule: a row does not parse' });
+    expect(report.missing).to.deep.include({ input: 'opaque', key: 'stored:rbac:db', reason: 'the IR cannot see it' });
+
+    w.rules.current = () => Promise.reject(new Error('connection lost'));
+    const failed = await replayDecision(w.record(), w.deps).then(
+      () => undefined,
+      (e: unknown) => e,
+    );
+    expect(failed).to.have.property('message', 'connection lost');
+  });
+
   it('maps the history budget and the timeout to unreplayable, and rethrows a cancel', async () => {
     const w = await world();
     await w.tuples.remove(editor('u1'), ms(HOUR / 2));
@@ -233,6 +251,10 @@ describe('replayDecision', function () {
     w.log.beforeRead = (m) => (m === 'latest' ? new Promise((resolve) => setTimeout(resolve, 50)) : undefined);
     const late = await replayDecision(w.record(), { ...w.deps, limits: { ...w.deps.limits, timeoutMs: 10 } });
     expect(late.missing).to.deep.equal([{ input: 'timeout', reason: 'the replay ran past timeoutMs 10' }]);
+    const fault = new Error('a contributor failed');
+    w.log.beforeRead = (m) => (m === 'latest' ? new Promise((_resolve, reject) => setTimeout(() => reject(fault), 50)) : undefined);
+    const rejected = await replayDecision(w.record(), { ...w.deps, limits: { ...w.deps.limits, timeoutMs: 10 } }).catch((e: unknown) => e);
+    expect(rejected, 'a fault after the deadline is no timeout').to.equal(fault);
     const cancelled = new AbortController();
     cancelled.abort(new Error('client went away'));
     const error = await replayDecision(w.record(), w.deps, { signal: cancelled.signal }).catch((e: unknown) => e);
@@ -249,6 +271,17 @@ describe('replayDecision', function () {
     expect(report.inputsHash).to.deep.equal({ recorded: record.inputsHash, replayed: record.inputsHash });
     const tampered = { ...record, inputs: { ...record.inputs!, env: { ...record.inputs!.env, n: 1 } } };
     expect((await replayDecision(tampered, w.deps)).divergence.map((d) => d.part)).to.deep.equal(['inputs-hash']);
+  });
+
+  it('holds principal attributes only when every principal of the delegation chain has its state decoded', async () => {
+    const w = await world();
+    const facts = { principal: { type: 'user', id: 'u1', onBehalfOf: { type: 'user', id: 'u2' } } };
+    const inputs = { env: {}, attributes: [], relations: [], modelVersions: {}, actorState: null };
+    const state = (onBehalfOf: unknown) => JSON.stringify({ type: 'user', id: 'u1', attributes: { dept: 'sales' }, onBehalfOf });
+    const whole = replayContext(w.record({ facts, inputs: { ...inputs, principalState: state({ type: 'user', id: 'u2', attributes: {} }) } }));
+    expect(whole.unheld('principal.attributes.dept')).to.equal(undefined);
+    const partial = replayContext(w.record({ facts, inputs: { ...inputs, principalState: state('not a state') } }));
+    expect(partial.unheld('principal.attributes.dept')).to.be.a('string');
   });
 
   it('a captured value the tags cannot restore is unknown, and principal attributes come from the principal state', async () => {

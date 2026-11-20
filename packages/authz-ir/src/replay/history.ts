@@ -4,7 +4,7 @@ export type KeyState =
   | { readonly known: true; readonly value: unknown; readonly origin: 'current' | 'history'; readonly seq?: number }
   | { readonly known: false; readonly reason: string };
 
-/** Changes inside `[T - beforeMs, T + afterMs]` may be on either side of the decision (section 3.2 of the L3 plan). */
+/** Changes inside `[T - beforeMs, T + afterMs]` may be on either side of the decision. */
 export interface ReplayWindow {
   readonly beforeMs: number;
   readonly afterMs: number;

@@ -10,7 +10,7 @@ const base: VerdictInput = { recorded: allowed, blocked: [], truth: 'allow', unk
 const v = (over: Partial<VerdictInput>) => replayVerdict({ ...base, ...over });
 const policyMissing = { input: 'policy_version', key: 'h1', reason: 'no stored policy version' };
 
-describe('replayVerdict (section 3.6)', () => {
+describe('replayVerdict', () => {
   it('rule 1/2: anything blocked is unreplayable, named', () => {
     expect(v({ blocked: [{ input: 'resource', reason: 'type-level' }] })).to.deep.equal({ replay: 'unreplayable', missing: [{ input: 'resource', reason: 'type-level' }], divergence: [] });
     expect(v({ blocked: [policyMissing] }).missing).to.deep.equal([policyMissing]);

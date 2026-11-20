@@ -2,7 +2,7 @@ import 'mocha';
 import { expect } from 'chai';
 
 import { CaveatEvaluator, IREvaluator, MemoryTupleSource } from '../../src/index.js';
-import type { CaveatContext, PolicyIR, Truth } from '../../src/index.js';
+import type { CaveatContext, ExplainNode, PolicyIR, Truth } from '../../src/index.js';
 import { docsIR } from '../fixtures/docs.js';
 
 const at = new Date('2026-11-04T10:00:00Z');
@@ -65,6 +65,18 @@ describe('caveats', () => {
     expect(await check(u5, 'doc:update', { env: { hour: 10 } })).to.equal('allow');
     expect(await check(u5, 'doc:update', { env: { hour: 23 } })).to.equal('deny');
     expect(await check(u5, 'doc:update')).to.equal('unknown');
+  });
+
+  it('names on the caveat node the paths a conditional tuple supplied, and nothing for a caveated rewrite', async () => {
+    const source = new MemoryTupleSource().add(d1, 'editor', { type: 'user', id: 'u5', caveat: { name: 'office_hours', context: { 'env.hour': 11, '__proto__.x': 1 } } }).add(d1, 'editor', u);
+    const ev = new IREvaluator(docsIR(), source);
+    const caveatNodes = (n: ExplainNode): ExplainNode[] => [...(n.source?.startsWith('caveats.') === true ? [n] : []), ...n.children.flatMap(caveatNodes)];
+    const tuple = await ev.check({ principal: { type: 'user', id: 'u5' }, permission: 'doc:update', resource: d1, at });
+    expect(tuple.truth).to.equal('allow');
+    expect(caveatNodes(tuple.tree).map((n) => n.tupleContext)).to.deep.equal([['env.hour']]);
+    const rewrite = await ev.check({ principal: u, permission: 'doc:publish', resource: d1, context: { resource: { status: 'draft' } }, at });
+    expect(caveatNodes(rewrite.tree)).to.not.be.empty;
+    expect(caveatNodes(rewrite.tree).every((n) => n.tupleContext === undefined)).to.equal(true);
   });
 
   it('ignores a tuple whose caveat the relation does not admit', async () => {

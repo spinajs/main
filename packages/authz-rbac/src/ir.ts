@@ -28,6 +28,9 @@ const GLOBAL_TYPE = GLOBAL.type;
 /** The per-type relation a permission's plain grants reach (`can_invoice_read`). */
 export const canRelation = (permission: Permission): string => `can_${permission.replace(/[^A-Za-z0-9_]/g, '_')}`;
 
+/** The relation that holds a permission's deny terms on its resource type, the stored rules' placeholder among them. */
+export const rbacDenyRelation = (permission: Permission): string => `rbac_deny_${canRelation(permission).slice(4)}`;
+
 const union = (items: Rewrite[]): Rewrite => (items.length === 0 ? { priority: [] } : items.length === 1 ? items[0] : { union: items });
 const reach = (name: string): Rewrite => ({ tupleToUserset: { tupleset: 'parent', computed: name } });
 
@@ -114,7 +117,7 @@ class Compiler {
     if (this.grants.granted(p)) out.permit = this.permitRelation(p, resourceType, can, local);
     const deny = this.denyTerms(p);
     if (deny.length > 0) {
-      const name = `rbac_deny_${can.slice(4)}`;
+      const name = rbacDenyRelation(p);
       this.type(resourceType).permissions[name] = union(deny);
       out.deny = name;
     }

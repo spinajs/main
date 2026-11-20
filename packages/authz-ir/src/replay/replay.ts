@@ -59,8 +59,8 @@ interface Run {
 const blocked = (missing: readonly ReplayMissing[]): Outcome => ({ blocked: missing, truth: null, unknowns: [], tree: null, reads: [] });
 
 /**
- * Re-evaluates a logged decision with the IR reference evaluator against the state and the policy at its instant
- * (sections 3.4 to 3.6 of the L3 plan). Rejects only when `options.signal` aborts; every other limit is a verdict.
+ * Re-evaluates a logged decision with the IR reference evaluator against the state and the policy at its instant.
+ * Rejects only when `options.signal` aborts; every other limit is a verdict.
  */
 export async function replayDecision(record: DecisionRecord, deps: ReplayDeps, options: ReplayDecisionOptions = {}): Promise<ReplayReport> {
   const started = Date.now();
@@ -82,7 +82,8 @@ export async function replayDecision(record: DecisionRecord, deps: ReplayDeps, o
 /** A limit the replay ran into; anything else is a fault and rethrown. */
 function stopped(e: unknown, timeout: AbortSignal, timeoutMs: number): ReplayMissing {
   if (e instanceof ReplayBudgetExceeded) return { input: 'history-budget', key: e.limit, reason: `the replay read ${e.count} ${e.limit === 'maxChanges' ? 'changes' : 'keys'}, past its ${e.limit}` };
-  if (timeout.aborted) return { input: 'timeout', reason: `the replay ran past timeoutMs ${timeoutMs}` };
+  // Only the timeout's own abort: a fault that happens to come after the deadline is still a fault.
+  if (timeout.aborted && e === timeout.reason) return { input: 'timeout', reason: `the replay ran past timeoutMs ${timeoutMs}` };
   throw e;
 }
 

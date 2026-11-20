@@ -3,7 +3,8 @@ import 'mocha';
 import { createHash, randomUUID } from 'node:crypto';
 
 import { changeLog } from '@spinajs/authz';
-import { HistoricalTupleSource, HistoryContributors, ReplayHistory } from '@spinajs/authz-ir';
+import type { ChangeRecord } from '@spinajs/authz';
+import { HistoricalTupleSource, HistoryContributors, ReplayHistory, StoreUnreadable } from '@spinajs/authz-ir';
 import type { ObjectRef, PolicyIR, TupleSubjectRef } from '@spinajs/authz-ir';
 import { recordCoverage } from '@spinajs/authz-orm/changelog';
 import { DI } from '@spinajs/di';
@@ -56,6 +57,14 @@ describe('TupleHistoryContributor', function () {
     expect(DI.getRegisteredTypes(HistoryContributors)).to.include(TupleHistoryContributor);
     expect(new TupleHistoryContributor().serves(source)).to.equal(true);
     expect(new TupleHistoryContributor().serves({ kind: 'tuples', store: 'authz_assignment' })).to.equal(false);
+  });
+
+  it('reads a change or an image it cannot decode as unreadable, never as an absent tuple', () => {
+    const c = new TupleHistoryContributor();
+    const image = { object: { type: 'doc', id: 'd1' }, relation: 'viewer' };
+    const change: ChangeRecord = { seq: 7, at: new Date(), kind: 'tuple', op: 'remove', key: 'k1', payload: image, before: null, actor: null, traceId: null };
+    expect(() => c.edges(change)).to.throw(StoreUnreadable, /tuple change seq 7/);
+    expect(() => c.subjectAt(image)).to.throw(StoreUnreadable);
   });
 
   for (const dialect of DIALECTS) {

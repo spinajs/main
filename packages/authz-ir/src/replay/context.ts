@@ -24,7 +24,7 @@ const entriesOf = (v: Record<string, unknown>, f: (k: string, x: unknown) => [st
 /** T, the instant the state is rebuilt at: when the tap logged the decision. `at` may be the caller's `env.now`. */
 export const instantOf = (record: DecisionRecord): Date => new Date(record.loggedAt ?? record.at);
 
-/** Section 3.2: the decision's reads happened up to `durationMs` before T, and commit lag only hides changes before T. */
+/** The window: the decision's reads happened up to `durationMs` before T, and commit lag only hides changes before T. */
 export const replayWindow = (record: DecisionRecord, limits: { clockSkewMs: number; commitLagMs: number }): ReplayWindow => ({
   beforeMs: (record.durationMs ?? 0) + limits.clockSkewMs + limits.commitLagMs,
   afterMs: limits.clockSkewMs,
@@ -32,7 +32,7 @@ export const replayWindow = (record: DecisionRecord, limits: { clockSkewMs: numb
 
 const missing = (input: string, reason: string, key?: string): ReplayMissing => (key === undefined ? { input, reason } : { input, reason, key });
 
-/** Rule 1 of section 3.6 where it needs no policy: a record the replay cannot rebuild a check from. */
+/** Rule 1 of `replayVerdict` where it needs no policy: a record the replay cannot rebuild a check from. */
 export function recordProblems(record: DecisionRecord, truncated: readonly string[]): ReplayMissing[] {
   const malformed = malformedField(record);
   if (malformed !== undefined) return [missing('record', `the record is malformed: ${malformed}`)];
@@ -127,7 +127,7 @@ export function replayContext(record: DecisionRecord): ReplayContext {
   const unheld = (path: string): string | undefined => {
     if ([...unknowable].some((u) => path === u || path.startsWith(`${u}.`) || u.startsWith(`${path}.`))) return 'the capture cannot reproduce the value (a bigint, a function, a cycle, or an instant held as a Date or a string)';
     const [root, head] = path.split('.');
-    if (root === 'principal' || root === 'actor') return head === 'type' || head === 'id' || (head === 'attributes' && principal.attributes !== undefined) ? undefined : 'only the type, id and captured attributes of the principal are replayed';
+    if (root === 'principal' || root === 'actor') return head === 'type' || head === 'id' || (head === 'attributes' && attributesHeld(principal)) ? undefined : 'only the type, id and captured attributes of the principal are replayed';
     if (path === 'env.now') return undefined;
     return captured(root, head);
   };
@@ -140,6 +140,9 @@ export function replayContext(record: DecisionRecord): ReplayContext {
   };
   return { principal, context, at, unheld };
 }
+
+/** Under delegation a caveat may run with any principal of the chain: each must have its captured attributes. */
+const attributesHeld = (p: PrincipalFacts): boolean => p.attributes !== undefined && (p.onBehalfOf === undefined || attributesHeld(p.onBehalfOf));
 
 function bare(key: string, state: DecodedState | undefined): PrincipalFacts {
   const ref = parseResourceKey(key);

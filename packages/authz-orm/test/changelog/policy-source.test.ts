@@ -155,6 +155,21 @@ describe('IRPolicyHashSource (sqlite)', function () {
     expect(booted.policyHash('root')).to.match(/^[0-9a-f]{64}$/);
   });
 
+  it('a missing module during the compile is warned about with the error, which names the module', async () => {
+    const warn = sinon.stub(DI.resolve<Log>(Log, ['authz-orm']), 'warn');
+    testHost.registerInRoot(DecisionLog, testHost.instance(sink));
+    const bad = new StaticModel({ name: 'bad', votes: {} }) as StaticModel & { toIR(): never };
+    bad.toIR = () => {
+      throw Object.assign(new Error("Cannot find package 'acme-rules'"), { code: 'ERR_MODULE_NOT_FOUND' });
+    };
+    testHost.activate(DI.RootContainer, 'root', bad);
+    await (await testHost.domains()).service('root');
+    expect((await source()).policyHash('root')).to.equal(undefined);
+    const call = warn.getCalls().find((c) => String(c.args[1]).includes('needs is not installed'));
+    expect(String(call?.args[1])).to.not.include('@spinajs/authz-ir');
+    expect((call?.args[0] as { missing?: string } | undefined)?.missing).to.include('acme-rules');
+  });
+
   it('a toIR that throws leaves the domain without a hash, and the boot succeeds', async () => {
     testHost.registerInRoot(DecisionLog, testHost.instance(sink));
     const bad = new StaticModel({ name: 'bad', votes: {} }) as StaticModel & { toIR(): never };

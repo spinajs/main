@@ -309,7 +309,8 @@ export declare abstract class ChangeLog {
     /**
      * A write of `kind` escaped the log just now: coverage restarts now. `column` without a type: of every type. A store
      * awaits it inside the write that escaped, so the signal commits or rolls back with the write; it may reject, and
-     * then the write fails: a write whose loss cannot be recorded is not made.
+     * then the write fails: a write whose loss cannot be recorded is not made. A caller that catches that rejection and
+     * commits anyway commits the escaped write with no record of the loss.
      */
     abstract lost(kind: ChangeKind, resourceType?: ResourceType, reason?: string): Promise<void>;
 }
@@ -402,6 +403,11 @@ export interface PrincipalFactsRecord {
     /** principalKey() of each companion. */
     companions?: string[];
 }
+/**
+ * The read set in the tagged form `inputsHash` hashed, so a stored copy re-hashes to it: `undefined` is `"<undefined>"`,
+ * a non-finite number `"<number:NaN>"`, a bigint `"<bigint>"` (its value is not kept), a Date its ISO string, a cycle
+ * `"<cycle>"`. A string equal to a tag reads the same as the value it stands for.
+ */
 export interface CapturedInputs extends DecisionReadSet {
     /** The exact strings `inputsHash` hashed for the principal and the actor. */
     principalState: string | null;
@@ -429,7 +435,10 @@ export interface DecisionRecord {
     modelVersions: Record<string, string>;
     /** SHA-256 (hex) of the canonical inputs the decision read. */
     inputsHash: string;
-    /** Authorization facts of the principal and actor, without attributes and authn; on every record. */
+    /**
+     * Authorization facts of the principal and actor, without attributes and authn. Absent on records logged before they
+     * existed, and when a principal's facts exceed 4 KB, form a delegation cycle or hold a malformed field.
+     */
     facts?: {
         principal: PrincipalFactsRecord;
         actor?: PrincipalFactsRecord;
@@ -974,6 +983,7 @@ export type { PrincipalType, PrincipalRef, Principal, AuthnFacts, Ceiling, Resou
 ```ts
 import type { ChangeKind } from "./changelog.js";
 import type { DecisionRecord } from "./decision-log.js";
+import { AuthzConfigError } from "./errors.js";
 /** `faithful`: replayed as logged; `divergent`: provably not; `unreplayable`: the history or the record cannot tell. */
 export type ReplayVerdict = "faithful" | "divergent" | "unreplayable";
 /** An input the replay could not establish. */
@@ -1039,7 +1049,15 @@ export declare class ReplayBusy extends Error {
     readonly concurrency: number;
     constructor(concurrency: number);
 }
-/** Re-evaluates a logged decision against the state and policy at its instant (G14, G20). */
+/** A replay was refused: it ran inside a transaction open on the authz connection, whose snapshot would hide the stores' current rows from the changelog it reads. */
+export declare class ReplayInTransaction extends AuthzConfigError {
+    constructor();
+}
+/**
+ * Re-evaluates a logged decision against the state and policy at its instant (G14, G20). Call it outside any
+ * transaction: a replay pairs the changelog with the stores' current rows, which a transaction's snapshot would keep
+ * apart, so `DbDecisionReplay` refuses to run inside one open on the authz connection with `ReplayInTransaction`.
+ */
 export declare abstract class DecisionReplay {
     /** undefined when no record has that id. @throws ReplayBusy when the process runs as many replays as it allows */
     abstract replay(decisionId: string, options?: ReplayOptions): Promise<ReplayReport | undefined>;
@@ -1118,6 +1136,12 @@ export declare abstract class AuthzService extends AsyncService {
     irContext?(model: AuthorizationModel): IRCompileContext;
     /** This domain's AuthzAdmin; (await AuthzDomains.service(name)).admin() reaches a per-domain variant (§6.6.1). */
     abstract admin(): AuthzAdmin;
+    /**
+     * Writes an entry to the DecisionAudit this domain picked at boot (`authz.audit.service`, `authz.domains.<name>.audit.service`,
+     * else the last registered), for a host that audits an access of its own. A kind the domain turns off (`audit.denials`, `runAs`, `unscoped`)
+     * is dropped, as the engine drops its own. Never throws: a failing audit, or a service not resolved or disposed, is logged. Optional: test doubles may leave it out.
+     */
+    audit?(entry: Parameters<DecisionAudit["record"]>[0]): void;
 }
 export type CheckInput = Omit<DecisionRequest, "resource"> & {
     readonly resource?: ResourceRef | object;

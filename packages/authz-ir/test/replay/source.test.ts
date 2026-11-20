@@ -3,7 +3,7 @@ import { expect } from 'chai';
 import { AuthzConfigError } from '@spinajs/authz';
 import type { ChangeRecord } from '@spinajs/authz';
 
-import { HistoricalTupleSource, IREvaluator, MemoryChangeLog, ReplayBudgetExceeded, ReplayHistory, TupleSourceGap } from '../../src/index.js';
+import { HistoricalTupleSource, IREvaluator, MemoryChangeLog, ReplayBudgetExceeded, ReplayHistory, StoreUnreadable, TupleSourceGap } from '../../src/index.js';
 import type { ChangeLogRead, CurrentItem, HistoryContributor, HistoryEdge, ObjectRef, RelationDef, TupleSubjectRef } from '../../src/index.js';
 import { docsIR } from '../fixtures/docs.js';
 
@@ -59,7 +59,7 @@ class Tuples implements HistoryContributor {
     return t === null ? [] : [{ key: c.key, ...t }];
   }
 
-  subjectAt(image: unknown): TupleSubjectRef {
+  subjectAt(image: unknown, _at?: Date): TupleSubjectRef | undefined {
     return (image as Tuple).subject;
   }
 
@@ -71,6 +71,38 @@ class Tuples implements HistoryContributor {
   async remove(t: Tuple, at: Date, logged = true): Promise<void> {
     this.rows.delete(tupleKey(t));
     if (logged) await this.log.append([{ kind: 'tuple', op: 'remove', key: tupleKey(t), payload: t, at }]);
+  }
+}
+
+/** A tuple store with one row, and one logged change, it cannot decode. */
+class Garbled extends Tuples {
+  override current(object: ObjectRef, relation: string): Promise<CurrentItem<TupleSubjectRef>[]> {
+    return super.current(object, relation).then((rows) => (object.id === 'd2' ? [...rows, { key: 'garbled', image: 'garbled', subject: user('?') }] : rows));
+  }
+
+  override edges(c: ChangeRecord): HistoryEdge[] {
+    if (c.payload === 'garbled') throw new StoreUnreadable('not a tuple');
+    return super.edges(c);
+  }
+
+  override subjectAt(image: unknown): TupleSubjectRef | undefined {
+    if (image === 'garbled') throw new StoreUnreadable('not a tuple');
+    return super.subjectAt(image);
+  }
+}
+
+/** Tuples that expire: the image carries `until`, an ISO instant from a store column `precisionMs` coarse. */
+class Expiring extends Tuples {
+  constructor(
+    log: MemoryChangeLog,
+    readonly precisionMs?: number,
+  ) {
+    super(log);
+  }
+
+  override subjectAt(image: unknown, at?: Date): TupleSubjectRef | undefined {
+    const until = (image as { until?: string }).until;
+    return until !== undefined && at !== undefined && Date.parse(until) <= at.getTime() ? undefined : super.subjectAt(image);
   }
 }
 
@@ -204,6 +236,63 @@ describe('HistoricalTupleSource', () => {
     expect((await gapOf(subjects(s, doc('d2'), 'editor'))).gaps[0]).to.deep.include({ kind: 'tuple', key: 'doc:d2#editor' });
   });
 
+  it('names a kind no boot covered without reading its store, which may have no table', async () => {
+    const log = new MemoryChangeLog();
+    const tuples = new Tuples(log);
+    tuples.onCurrent = () => {
+      throw new Error('no such table: authz_rebac_tuple');
+    };
+    const s = await source(log, [tuples]);
+    const gap = await gapOf(subjects(s, doc('d1'), 'editor'));
+    expect(gap.gaps).to.deep.equal([{ kind: 'tuple', key: 'doc:d1#editor', origin: 'gap', reason: 'the tuple history starts nowhere (not covered)' }]);
+  });
+
+  it('is a gap for every read of the kind when a scanned change cannot be decoded: it may hide any key', async () => {
+    const { log } = await setup();
+    const tuples = new Garbled(log);
+    await tuples.add(editor('u1'), ms(-30 * MIN));
+    await log.append([{ kind: 'tuple', op: 'remove', key: 'garbled', payload: 'garbled', at: ms(30 * MIN) }]);
+    const s = await source(log, [tuples]);
+    const gap = await gapOf(subjects(s, doc('d1'), 'editor'));
+    expect(gap.gaps).to.have.length(1);
+    expect(gap.gaps[0]).to.deep.include({ kind: 'tuple', key: 'doc:d1#editor', origin: 'gap' });
+    expect(gap.gaps[0].reason).to.match(/^tuple change seq \d+ cannot be decoded: not a tuple$/);
+  });
+
+  it('is a gap for a key whose image cannot be decoded, never an absent one', async () => {
+    const { log } = await setup();
+    const tuples = new Garbled(log);
+    await tuples.add(editor('u1', 'd2'), ms(-30 * MIN));
+    const s = await source(log, [tuples]);
+    const gap = await gapOf(subjects(s, doc('d2'), 'editor'));
+    expect(gap.known.map((x) => x.id)).to.deep.equal(['u1']);
+    expect(gap.gaps).to.deep.equal([{ kind: 'tuple', key: 'garbled', origin: 'gap', reason: 'tuple garbled cannot be decoded: not a tuple' }]);
+    expect(s.reads).to.deep.include(gap.gaps[0]);
+  });
+
+  it("judges liveness at liveAt, the decision's env.now, while it rebuilds the state at T", async () => {
+    const log = new MemoryChangeLog().cover('tuple', ms(-60 * MIN));
+    const tuples = new Expiring(log);
+    await tuples.add({ ...editor('u1'), until: ms(-5_000).toISOString() } as Tuple, ms(-30 * MIN));
+    const history = await ReplayHistory.load(log, T, ['tuple'], limits);
+    expect(await subjects(new HistoricalTupleSource(docsIR(), T, [tuples], history, ms(-10_000)), doc('d1'), 'editor')).to.deep.equal(['user:u1']);
+    expect(await subjects(new HistoricalTupleSource(docsIR(), T, [tuples], history), doc('d1'), 'editor')).to.deep.equal([]);
+  });
+
+  it("compares a contributor's images at its own precision, not the history's", async () => {
+    const run = async (precisionMs?: number) => {
+      const log = new MemoryChangeLog().cover('tuple', ms(-60 * MIN));
+      const tuples = new Expiring(log, precisionMs);
+      const logged = { ...editor('u1'), until: ms(MIN).toISOString() } as Tuple;
+      await tuples.add(logged, ms(-30 * MIN));
+      // The store column keeps whole seconds less exactly than the logged payload.
+      tuples.rows.set(tupleKey(logged), { ...logged, until: ms(MIN + 400).toISOString() } as Tuple);
+      return subjects(await source(log, [tuples]), doc('d1'), 'editor');
+    };
+    expect(await run(1_000)).to.deep.equal(['user:u1']);
+    expect((await gapOf(run())).message).to.match(/differs from its last logged change/);
+  });
+
   it('names a relation no contributor serves', async () => {
     const { log, tuples } = await setup();
     const s = await source(log, [tuples]);
@@ -289,7 +378,7 @@ describe('HistoricalTupleSource', () => {
     expect((await gapOf((async () => { for await (const _ of s.reverse(user('u1'), 'editor', 'doc')) void _; })())).gaps).to.have.length(1);
   });
 
-  describe('reads beside writes (3.2)', () => {
+  describe('reads beside writes', () => {
     it('sees a removal logged after the scan', async () => {
       const { log, tuples } = await setup();
       const s = await source(log, [tuples]);
@@ -357,8 +446,9 @@ describe('HistoricalTupleSource', () => {
         if (m === 'latest') log.prune(ms(-1_000));
       };
       expect((await gapOf(subjects(s, doc('d1'), 'editor'))).message).to.match(/history starts at/);
+      // The first read only spares the store of an uncovered kind; the last decides.
       expect(order.at(-1)).to.equal('coveredSince');
-      expect(order.indexOf('coveredSince')).to.equal(order.length - 1);
+      expect(order.slice(1, -1)).to.not.include('coveredSince');
     });
   });
 

@@ -23,7 +23,7 @@ const NOT_RECORDED: Promise<undefined> = Promise.resolve(undefined);
 
 const moduleNotFound = (e: unknown): boolean => e instanceof Error && 'code' in e && e.code === 'ERR_MODULE_NOT_FOUND';
 
-/** The hash of the config policy IR each domain booted with (G9, G14), stored in authz_policy_version by every node. */
+/** The hash of the config policy IR each domain booted with, stored in authz_policy_version by every node. */
 @Singleton()
 @Injectable(PolicyHashSource)
 export class IRPolicyHashSource extends PolicyHashSource {
@@ -44,7 +44,7 @@ export class IRPolicyHashSource extends PolicyHashSource {
   }
 
   async prepare(domain: string, service: AuthzService): Promise<void> {
-    // A re-boot in mode 'off' or a failing compile must not leave the previous boot's snapshot behind (D9).
+    // A re-boot in mode 'off' or a failing compile must not leave the previous boot's snapshot behind.
     this.snapshots.delete(domain);
     const mode = policyVersionMode();
     if (mode === 'off') return;
@@ -54,7 +54,8 @@ export class IRPolicyHashSource extends PolicyHashSource {
       compiled = await compileDomainPolicy(domain, service);
     } catch (e) {
       if (!moduleNotFound(e)) throw e;
-      this.warnOnce('authz-ir', { domain }, "authz-orm: @spinajs/authz-ir is not installed; decision records of domain ${domain} carry policyHash 'unknown'");
+      const error = thrownError(e);
+      this.warnOnce('authz-ir', { domain, error, missing: error.message }, "authz-orm: a module the policy compile of domain ${domain} needs is not installed (${missing}); its decision records carry policyHash 'unknown'");
       return;
     }
     const { hash, ir, canonical, conflicts } = compiled;
@@ -99,8 +100,9 @@ export class IRPolicyHashSource extends PolicyHashSource {
     try {
       return await this.write(hash, canonical);
     } catch (e) {
-      if (n < this.retryDelaysMs.length) {
-        await new Promise((resolve) => setTimeout(resolve, this.retryDelaysMs[n]).unref());
+      const delay = this.retryDelaysMs.at(n);
+      if (delay !== undefined) {
+        await new Promise((resolve) => setTimeout(resolve, delay).unref());
         return this.attempt(hash, canonical, n + 1);
       }
       // A later domain boot tries again.

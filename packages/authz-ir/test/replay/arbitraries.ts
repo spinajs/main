@@ -154,7 +154,7 @@ export function completedSource(w: World, g: { reads: Set<string>; hidden: Set<n
   const extra = CANDIDATES.filter((t, i) => fill.has(i) && g.reads.has(readOf(t)));
   return memory(w.ir, [...known, ...extra]);
 }
-// ---- P1, R1 rule: histories with writes that escaped the log ----
+// ---- P1: histories with writes that escaped the log ----
 
 export interface EscapedHistory {
   input: KeyInput;
@@ -165,7 +165,7 @@ export interface EscapedHistory {
 /**
  * One key whose writes may escape the log. An escape is either noticed (a `lost` marker moves coverage to it) or comes
  * after a retained logged change of the key, which the links between changes expose. Escapes that restore the state
- * the log last recorded (A→B→A) are invisible to any link (R1), so only those are always noticed. Coverage starts at the
+ * the log last recorded (A→B→A) are invisible to any link, so only those are always noticed. Coverage starts at the
  * latest of a drawn instant, the markers and a retention cutoff, which also drops the changes at or before it. T and
  * the window are drawn so that changes land on and around both window edges.
  */

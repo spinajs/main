@@ -40,6 +40,9 @@ export interface RuleForgetResult {
   readonly subjects: readonly RuleSubjectRef[];
 }
 
+/** `DbRuleStore.name`, which the stored rules' placeholder names; the only rule store that logs its changes. */
+export const DB_RULE_STORE_NAME = 'DbRuleStore';
+
 /** The most rules one `list` call returns, with or without a page. */
 export const RULE_LIST_MAX_LIMIT = 1000;
 
@@ -57,7 +60,7 @@ export class DbRuleStore extends withDbRbacStore(AdminRuleStore) {
   @Autoinject(Orm)
   protected Orm: Orm;
 
-  readonly name: string = 'DbRuleStore';
+  readonly name: string = DB_RULE_STORE_NAME;
 
   protected readonly maxListLimit: number = RULE_LIST_MAX_LIMIT;
 
@@ -254,7 +257,7 @@ export class DbRuleStore extends withDbRbacStore(AdminRuleStore) {
  * and `subjects.refs` keep only the entries that still have a subject row, so what `forgetScope`
  * removed is gone.
  */
-function rowToRule(row: Pick<RuleFields, 'id' | 'kind' | 'scope_type' | 'scope_id' | 'definition' | 'expires_at'>, subjectRows: readonly RuleSubjectFields[]): RuleDef {
+export function rowToRule(row: Pick<RuleFields, 'id' | 'kind' | 'scope_type' | 'scope_id' | 'definition' | 'expires_at'>, subjectRows: readonly RuleSubjectFields[]): RuleDef {
   const def = row.definition as Partial<RuleDef>;
   const held = new Set(subjectRows.map((s) => subjectKey(s.list, s)));
   const keep = <T extends AssignmentSubject>(list: RuleSubjectList, xs: readonly T[]) => xs.filter((s) => held.has(subjectKey(list, subjectToColumns(s))));

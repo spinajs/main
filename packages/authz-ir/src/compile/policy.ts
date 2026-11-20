@@ -24,7 +24,7 @@ export interface CompilePolicyOptions {
   readonly combine?: CombineConfigLike;
   /** Fragments no model contributes, such as `ormToIR()`. */
   readonly extra?: readonly IRFragment[];
-  /** Default 'opaque': the policy hash covers config-declared policy only (G9). */
+  /** Default 'opaque': the policy hash covers config-declared policy only. */
   readonly stored?: 'include' | 'opaque';
   readonly principal?: PrincipalOptions;
 }

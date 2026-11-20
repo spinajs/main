@@ -1,5 +1,5 @@
 import type { ChangeRecord } from '@spinajs/authz';
-import { HistoryContributors } from '@spinajs/authz-ir';
+import { HistoryContributors, StoreUnreadable } from '@spinajs/authz-ir';
 import type { CurrentItem, HistoryEdge, ObjectRef, RelationDef, RelationName, TupleSubjectRef, TypeName } from '@spinajs/authz-ir';
 import { Injectable, Singleton } from '@spinajs/di';
 
@@ -22,6 +22,12 @@ function tupleIn(image: unknown): ReturnType<typeof readTuple> | undefined {
   } catch {
     return undefined;
   }
+}
+
+function requireTuple(image: unknown, what: string): ReturnType<typeof readTuple> {
+  const t = tupleIn(image);
+  if (t === undefined) throw new StoreUnreadable(`${what} holds no tuple`);
+  return t;
 }
 
 /** A conditional tuple's caveat, carried as the image holds it: the replay treats the context it supplies as held. */
@@ -63,13 +69,12 @@ export class TupleHistoryContributor extends HistoryContributors {
   }
 
   edges(change: ChangeRecord): HistoryEdge[] {
-    const t = tupleIn(change.payload) ?? tupleIn(change.before);
-    return t === undefined ? [] : [{ key: change.key, object: { type: t.object.type, id: t.object.id ?? '' }, relation: t.relation, subject: subjectRef(t.subject) }];
+    const t = tupleIn(change.payload) ?? requireTuple(change.before, `tuple change seq ${change.seq}`);
+    return [{ key: change.key, object: { type: t.object.type, id: t.object.id ?? '' }, relation: t.relation, subject: subjectRef(t.subject) }];
   }
 
   subjectAt(image: unknown): TupleSubjectRef | undefined {
-    const t = tupleIn(image);
-    if (t === undefined) return undefined;
+    const t = requireTuple(image, 'the image');
     const caveat = caveatIn(image);
     return caveat === undefined ? subjectRef(t.subject) : { ...subjectRef(t.subject), caveat };
   }

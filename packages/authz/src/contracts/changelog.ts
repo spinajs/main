@@ -73,7 +73,8 @@ export abstract class ChangeLog {
   /**
    * A write of `kind` escaped the log just now: coverage restarts now. `column` without a type: of every type. A store
    * awaits it inside the write that escaped, so the signal commits or rolls back with the write; it may reject, and
-   * then the write fails: a write whose loss cannot be recorded is not made.
+   * then the write fails: a write whose loss cannot be recorded is not made. A caller that catches that rejection and
+   * commits anyway commits the escaped write with no record of the loss.
    */
   abstract lost(kind: ChangeKind, resourceType?: ResourceType, reason?: string): Promise<void>;
 }

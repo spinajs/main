@@ -20,6 +20,8 @@ interface CompileOptions {
 
 type AuthzIr = typeof import('@spinajs/authz-ir');
 
+const notFound = (e: unknown): boolean => e instanceof Error && 'code' in e && e.code === 'ENOENT';
+
 @Command('authz:compile', 'Compiles the authorization models of the app into the canonical policy IR (authz.ir.json) and prints its policy hash')
 @Option('-o, --out <path>', false, 'file the policy IR is written to', 'authz.ir.json')
 @Option('--domain <name>', false, 'authz domain whose models are compiled; default authz.orm.domain')
@@ -31,6 +33,7 @@ export class CompileCommand extends AuthzOrmCliCommand {
     await this.command(
       () => {
         if (options.live === true && options.record === true) throw new Error('authz:compile: --record stores policy versions, which never include stored policy; drop --live');
+        if (options.check === true && options.record === true) throw new Error('authz:compile: --check writes no file and stores no policy version; drop --record or --check');
         return { out: resolve(options.out ?? 'authz.ir.json'), domain: options.domain ?? ormDomain(), stored: options.live === true ? ('include' as const) : ('opaque' as const) };
       },
       async ({ out, domain, stored }) => {
@@ -60,8 +63,12 @@ export class CompileCommand extends AuthzOrmCliCommand {
 
   /** Why `file` does not hold the compiled policy, or undefined when it does. */
   private async staleReason(file: string, hash: string, ir: AuthzIr): Promise<string | undefined> {
-    const text = await readFile(file, 'utf8').catch(() => undefined);
-    if (text === undefined) return 'missing';
+    let text: string;
+    try {
+      text = await readFile(file, 'utf8');
+    } catch (e) {
+      return notFound(e) ? 'missing' : `not readable: ${e instanceof Error ? e.message : String(e)}`;
+    }
     let parsed: unknown;
     try {
       parsed = JSON.parse(text);

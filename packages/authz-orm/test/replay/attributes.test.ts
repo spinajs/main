@@ -193,7 +193,16 @@ describe('DbDecisionReplay: captured scope attributes', function () {
         expect(attributeReads(report).map((r) => r.origin)).to.deep.equal(['history']);
       });
 
-      it('an app without attribute coverage or table replays without reading the store', async () => {
+      it('a covered attribute kind whose table is gone fails the replay rather than answer without it', async () => {
+        const ir = irOf(ORG, 'level', 2);
+        await world(ir);
+        await write(ORG, { level: 2 });
+        const id = await decide(ir, ORG);
+        await db.raw(`DROP TABLE ${table()}`, [], dialect);
+        expect(await new DbDecisionReplay().replay(id).then(() => 'answered', () => 'rejected')).to.equal('rejected');
+      });
+
+      it('an app whose attributes no boot covered replays without reading the store, which may have no table', async () => {
         const ir = irOf(ORG, 'level', 2);
         await world(ir, { covered: false });
         await write(ORG, { level: 2 });
