@@ -115,6 +115,18 @@ for (const connection of ['pglite', 'sqlite'] as const) {
       expect(kinds(await diff(driver, v2))).to.deep.equal([]);
     });
 
+    it('diffs a table with an expression index next to an index the model declares', async () => {
+      await driver.schema().createTable('rt11_members', (table) => {
+        table.int('Id').primaryKey().autoIncrement();
+        table.text('Email');
+        table.text('Name');
+      });
+      await driver.schema().raw('CREATE UNIQUE INDEX rt11_members_lower ON rt11_members (lower("Email"))');
+      const models = [model('Member', 'rt11_members', [id(), col('Email', { family: 'text', inferred: true }), col('Name', { family: 'text', inferred: true })], { indexes: [{ columns: ['Name'], unique: true }] })];
+
+      expect(kinds(await diff(driver, models))).to.deep.equal(['addIndex rt11_members']);
+    });
+
     it('lists the columns no model declares (MIG002, MIG004) and never drops them', async () => {
       await driver.schema().createTable('rt3_accounts', (table) => {
         table.int('Id').primaryKey().autoIncrement();

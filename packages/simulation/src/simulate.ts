@@ -2,6 +2,7 @@ import { createEnv, type SimEnv } from './env.js';
 import type { FaultHit, FaultRule } from './faults.js';
 import { Harness } from './harness.js';
 import type { SimInvariant } from './invariants.js';
+import { Profiler, type SimProfile } from './profile.js';
 import type { SimRandom } from './random.js';
 
 export interface SimActor {
@@ -37,6 +38,8 @@ export interface SimulationOptions {
   quiesceRounds?: number;
   /** Real milliseconds a tick may take before the run fails as stuck. */
   tickTimeoutMs?: number;
+  /** Wall-clock time per phase in `SimReport.profile`; off by default. */
+  profile?: boolean;
 }
 
 export type ResolvedSimulationOptions = Required<SimulationOptions>;
@@ -65,6 +68,7 @@ export interface SimReport {
   failure?: SimFailure;
   /** The database file kept for inspection after a failure. */
   databaseFile?: string;
+  profile?: SimProfile;
 }
 
 export function resolveOptions(o: SimulationOptions): ResolvedSimulationOptions {
@@ -79,6 +83,7 @@ export function resolveOptions(o: SimulationOptions): ResolvedSimulationOptions 
     maxPauseMs: 120_000,
     quiesceRounds: 40,
     tickTimeoutMs: 15_000,
+    profile: false,
     ...given,
   };
   positiveInteger('maxPauseMs', resolved.maxPauseMs);
@@ -92,22 +97,25 @@ function positiveInteger(name: string, value: number): void {
 
 export async function simulate(build: (env: SimEnv) => Promise<SimSystem>, options: SimulationOptions): Promise<SimReport> {
   const o = resolveOptions(options);
-  const env = createEnv(o);
+  const profiler = new Profiler(o.profile);
+  const env = createEnv(o, profiler);
   const report: SimReport = { seed: o.seed, steps: 0, faults: env.faults.hits, trace: [] };
-  const harness = new Harness(env, o, report);
+  const harness = new Harness(env, o, report, profiler);
   const release = harness.trapRejections();
   let system: SimSystem | undefined;
   try {
-    system = await build(env);
+    system = await profiler.time('buildMs', () => build(env));
     await harness.run(system);
   } catch (error) {
     report.failure = harness.failureOf(error);
   } finally {
     try {
-      await harness.shutdown(system);
+      await profiler.time('shutdownMs', () => harness.shutdown(system));
     } finally {
       release();
     }
   }
+  const profile = profiler.result();
+  if (profile) report.profile = profile;
   return report;
 }

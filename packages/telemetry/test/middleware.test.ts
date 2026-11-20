@@ -94,7 +94,7 @@ describe('TelemetryMiddleware — onBefore / onFinish', () => {
     expect(spies.inc.firstCall.args[0]).to.deep.include({ route: '/users/:id' });
   });
 
-  it('falls back to the express route, then req.path, when the request matched no route', () => {
+  it('falls back to the express route, then labels a request with no matched route <unmatched>, never with its raw path', () => {
     const { mw, spies } = makeMiddleware();
 
     const routed = context(fakeReq({ route: { path: '/users/:id' } }), fakeRes());
@@ -106,7 +106,7 @@ describe('TelemetryMiddleware — onBefore / onFinish', () => {
     mw.onFinish(finished(raw));
 
     expect(spies.inc.firstCall.args[0]).to.deep.include({ route: '/users/:id' });
-    expect(spies.inc.secondCall.args[0]).to.deep.include({ route: '/raw', status: '404' });
+    expect(spies.inc.secondCall.args[0]).to.deep.include({ route: '<unmatched>', status: '404' });
   });
 
   it('ignores req.storage.route', () => {
@@ -116,7 +116,7 @@ describe('TelemetryMiddleware — onBefore / onFinish', () => {
     mw.onBefore(ctx);
     mw.onFinish(finished(ctx));
 
-    expect(spies.inc.firstCall.args[0]).to.deep.include({ route: '/raw' });
+    expect(spies.inc.firstCall.args[0]).to.deep.include({ route: '<unmatched>' });
   });
 
   it('reads the status at finish, not the one the request started with', () => {

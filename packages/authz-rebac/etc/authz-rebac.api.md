@@ -61,6 +61,7 @@ declare module "@spinajs/authz" {
 
 ```ts
 import type { Permission, PrincipalRef, ResourceRef, ResourceType } from "@spinajs/authz";
+import type { CaveatDef } from "@spinajs/authz-ir";
 export type { TupleWriteCommand, TupleDeleteCommand, TuplesAdminQuery } from "./admin/commands.js";
 /** Everyone who holds `relation` on `object`: a Zanzibar userset, a Keto subject set. */
 export interface SubjectSet {
@@ -69,11 +70,27 @@ export interface SubjectSet {
 }
 /** A principal, an object named as a subject (`doc:d1#parent@folder:f1`), or a subject set. */
 export type TupleSubject = PrincipalRef | SubjectSet;
+/** A conditional tuple's caveat: a name from `authz.<model>.caveats` and values for its parameters, keyed by parameter path. */
+export interface TupleCaveat {
+    readonly name: string;
+    readonly context?: Readonly<Record<string, CaveatValue>>;
+}
+export type CaveatValue = string | number | boolean | readonly string[] | readonly number[];
+/** Caveat name -> definition; parameters are attribute paths under `env.` or `principal.`. */
+export type CaveatConfig = Readonly<Record<string, CaveatDef>>;
 /** `object#relation@subject`; `object.type` is the namespace and `object.id` is required. */
 export interface Tuple {
     readonly object: ResourceRef;
     readonly relation: string;
     readonly subject: TupleSubject;
+    /** Absent: unconditional. Not part of the tuple's identity: one object#relation@subject holds at most one caveat. */
+    readonly caveat?: TupleCaveat;
+}
+/** A write would give a stored tuple another caveat; changing it is a remove and an add. */
+export declare class TupleCaveatConflict extends Error {
+    readonly stored: Tuple;
+    readonly requested: Tuple;
+    constructor(stored: Tuple, requested: Tuple);
 }
 /** Every key given narrows; `object` without an id selects its whole namespace. */
 export interface TupleQuery {
@@ -89,7 +106,7 @@ export declare abstract class TupleStore {
     abstract readonly name: string;
     /** The tuples of `object#relation`. */
     abstract read(object: ResourceRef, relation: string): Promise<readonly Tuple[]>;
-    /** The objects of `objectType` holding a tuple `#relation@subject`, the subject matched exactly. */
+    /** The objects of `objectType` holding a tuple `#relation@subject`, conditional or not, the subject matched exactly. */
     abstract reverse(subject: TupleSubject, relation: string, objectType: ResourceType): Promise<readonly ResourceRef[]>;
     /** Removes, then adds; writing a stored tuple or removing a missing one changes nothing. Returns a new opaque version. */
     abstract write(add: readonly Tuple[], remove: readonly Tuple[], actor: PrincipalRef): Promise<string>;
@@ -100,6 +117,12 @@ export declare abstract class TupleStore {
     }>;
     /** `reverse` for several subjects at once, without duplicates. */
     reverseMany(subjects: readonly TupleSubject[], relation: string, objectType: ResourceType): Promise<readonly ResourceRef[]>;
+    /** Whether the store keeps `Tuple.caveat`. RebacModel refuses conditional subject types over a store that does not. */
+    get caveats(): boolean;
+    /** The tuples `#relation@s` on objects of `objectType` for every subject given, caveats included. */
+    reverseTuples(subjects: readonly TupleSubject[], relation: string, objectType: ResourceType): Promise<readonly Tuple[]>;
+    /** The distinct caveats of the tuples `<objectType>:*#relation@s` for the subjects given; one `find` per subject. */
+    caveatsOn(objectType: ResourceType, relation: string, subjects: readonly TupleSubject[]): Promise<readonly TupleCaveat[]>;
 }
 /**
  * A permission's rewrite, Keto's OPL as JSON. A string is a computed userset (`'viewer'`: the relation or
@@ -139,4 +162,42 @@ export interface RebacLimits {
     /** Node evaluations per check (default 10000). */
     readonly maxCalls?: number;
 }
+```
+
+## src/keys.ts
+
+```ts
+import type { ResourceRef } from "@spinajs/authz";
+import type { SubjectSet, Tuple, TupleCaveat, TupleSubject } from "./contracts.js";
+/** Namespace, relation and permission names; keeps ':' and '#' out of keys. */
+export declare const NAME_PATTERN: RegExp;
+export declare const isSubjectSet: (s: TupleSubject) => s is SubjectSet;
+/** `type:id`, escaped so that it never collides with a subject-set key. */
+export declare const objectKey: (ref: {
+    readonly type: string;
+    readonly id?: string;
+}) => string;
+/** `type:id` for a principal or an object, `type:id#relation` for a subject set. */
+export declare const subjectKey: (s: TupleSubject) => string;
+/** One string per tuple, equal for equal tuples. */
+export declare const tupleKey: (t: Tuple) => string;
+/** The order `TupleStore.find` promises. */
+export declare const sortKey: (t: Tuple) => string;
+export declare const sameRef: (a: ResourceRef, b: ResourceRef) => boolean;
+/** The longest canonical JSON a tuple's caveat context may have. */
+export declare const CAVEAT_CONTEXT_MAX = 4096;
+/** sha256 of the caveat name and its canonical context: equal for equal caveats. */
+export declare const caveatKey: (c: TupleCaveat) => string;
+export declare const sameCaveat: (a: TupleCaveat | undefined, b: TupleCaveat | undefined) => boolean;
+/** A plain copy of a well-formed tuple, its caveat included; throws TypeError naming the problem otherwise. */
+export declare function readTuple(v: unknown, where?: string): Tuple;
+
+// values
+const NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_.-]*$/;
+const CAVEAT_CONTEXT_MAX = 4096;
+const UNSAFE = new Set([
+    "__proto__",
+    "constructor",
+    "prototype"
+]);
 ```

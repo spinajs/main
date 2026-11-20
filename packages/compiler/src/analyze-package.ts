@@ -1,9 +1,10 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join, relative, resolve, sep } from 'node:path';
-import { MANIFEST_VERSION, type Diagnostic, type ManifestFragment, type SourceRef } from '@spinajs/manifest';
+import type ts from 'typescript';
+import { MANIFEST_VERSION, type AuthzSection, type Diagnostic, type ManifestFragment, type ModelEntry, type SourceRef } from '@spinajs/manifest';
 import { compareCodeUnits } from './sort.js';
 import { createProgramFromTsconfig } from './program.js';
-import { createContext, type Extractor } from './context.js';
+import { createContext, type Extractor, type ExtractorContext } from './context.js';
 import { extractClassProperties } from './extractors/injections.js';
 import { extractServices, mergeById } from './extractors/services.js';
 import { extractValues } from './extractors/values.js';
@@ -19,7 +20,10 @@ import { extractSchedules } from './extractors/schedules.js';
 import { extractCommands } from './extractors/commands.js';
 import { extractQueueMessages } from './extractors/queue.js';
 import { accessResources } from './extractors/access-resources.js';
-import { authzSectionOf } from './extractors/authz.js';
+import { authzSectionOf, type AuthzInputs } from './extractors/authz.js';
+import { authzFlowOf } from './extractors/authz-flow.js';
+import { tenantModelsOf, withTenants } from './extractors/tenant-models.js';
+import { tenancyOf } from './extractors/tenancy.js';
 import { extractWorkflows } from './extractors/workflows.js';
 import { extractSqlQueries } from './extractors/sql.js';
 import { extractSqlDialects } from './extractors/sql-dialects.js';
@@ -84,6 +88,15 @@ export function configFilesOf(packageRoot: string): string[] {
   return out.sort(compareCodeUnits);
 }
 
+/** The extractors' authz facts, with the findings and coverage of the flow pass. */
+function authzOf(ctx: ExtractorContext, files: readonly ts.SourceFile[], inputs: AuthzInputs, handlers: Pick<AuthzInputs, 'controllers' | 'socketControllers'>, models: readonly ModelEntry[]): AuthzSection | undefined {
+  const facts = authzSectionOf(ctx, files, inputs);
+  if (facts === undefined) return undefined;
+  const flow = authzFlowOf(ctx, files, facts, handlers, new Set(models.map((m) => m.className)));
+  // Key order as the fragments on disk have it: findings before ignores.
+  return { resources: facts.resources, permissions: facts.permissions, entryPoints: facts.entryPoints, findings: flow.findings, ignores: facts.ignores, flow: flow.flow };
+}
+
 export function analyzePackage(options: AnalyzeOptions): Promise<ManifestFragment> {
   const root = resolve(options.packageRoot);
   const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')) as { name: string; version: string; main?: string };
@@ -124,8 +137,13 @@ export function analyzePackage(options: AnalyzeOptions): Promise<ManifestFragmen
   const workflows = run(extractWorkflows);
   discovered?.requireDirs(controllers.length + socketControllers.length + migrations.length + schedules.length + commands.length);
   const marked = <T extends ScannedEntry>(section: DirSection, entries: T[]): T[] => (discovered ? discovered.filter(section, entries) : entries);
-  const { models, resources } = accessResources(ctx, files, run(extractModels));
-  const authz = authzSectionOf(ctx, files, { controllers, socketControllers, schedules, commands, resources });
+  const extracted = run(extractModels);
+  const tenantModels = tenantModelsOf(ctx, files, extracted);
+  const { models: typedModels, resources } = accessResources(ctx, files, extracted);
+  const models = withTenants(typedModels, tenantModels);
+  // The written socket entries drop each event's `handler` (`withoutRetypingHints`); the flow pass starts there.
+  const socketHandlers = effectiveSockets.slice(0, ownSockets.length).filter((c) => isListed('socketControllers', c));
+  const authz = authzOf(ctx, files, { controllers, socketControllers, schedules, commands, resources }, { controllers, socketControllers: socketHandlers }, models);
 
   const sqlQueries = run(extractSqlQueries);
   const sqlDialects = run(extractSqlDialects);
@@ -159,6 +177,7 @@ export function analyzePackage(options: AnalyzeOptions): Promise<ManifestFragmen
     ...(sqlQueries.length ? { sqlQueries } : {}),
     ...(sqlDialects.length ? { sqlDialects } : {}),
     ...(authz ? { authz } : {}),
+    ...tenancyOf(ctx, files, { controllers, schedules, authz, models: tenantModels }),
     schemas: Object.fromEntries([...Object.entries(ctx.schemas), ...ctx.schemaRegistry].sort(([a], [b]) => compareCodeUnits(a, b))),
     diagnostics: sortDiagnostics(ctx.diagnostics),
   };

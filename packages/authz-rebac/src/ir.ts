@@ -22,7 +22,11 @@ export function rebacToIR(schema: NamespaceSchema, options: RebacIROptions = {})
   const types: Record<string, TypeDef> = {};
   for (const [name, ns] of schema.namespaces) {
     const def: TypeDef = { relations: {}, permissions: {} };
-    for (const [r, rel] of ns.relations) def.relations[r] = { allowed: [...rel.direct, ...rel.sets.map((s) => `${s.type}#${s.relation}`)], source };
+    for (const [r, rel] of ns.relations) {
+      // An IR without the conditional grants would give a wrong policy hash and wrong verifier verdicts.
+      if (rel.conditional.length > 0) throw new Error(`rebacToIR: ${name}#${r}: conditional subject types are not compiled yet`);
+      def.relations[r] = { allowed: [...rel.direct, ...rel.sets.map((s) => `${s.type}#${s.relation}`)], source };
+    }
     for (const [p, rw] of ns.permissions) def.permissions[p] = toRewrite(rw);
     types[name] = def;
   }
@@ -54,7 +58,8 @@ const subjectRef = (s: TupleSubject): TupleSubjectRef => (isSubjectSet(s) ? { ty
 export function rebacTupleSource(store: TupleStore): TupleSource {
   return {
     async *read(object: ObjectRef, relation: string): AsyncIterable<TupleSubjectRef> {
-      for (const t of await store.read(object, relation)) yield subjectRef(t.subject);
+      // Fails closed until caveats reach the IR: a conditional tuple is not held.
+      for (const t of await store.read(object, relation)) if (!t.caveat) yield subjectRef(t.subject);
     },
     async *reverse(subject: TupleSubjectRef, relation: string, objectType: string): AsyncIterable<ObjectRef> {
       const s: TupleSubject = subject.relation === undefined ? { type: subject.type, id: subject.id } : { object: { type: subject.type, id: subject.id }, relation: subject.relation };

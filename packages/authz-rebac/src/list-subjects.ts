@@ -43,6 +43,7 @@ async function ofRelation(walk: RebacWalk, object: ResourceRef, name: string, su
   const rel = walk.schema.relation(object.type, name);
   if (!rel) return out;
   for (const t of await walk.read(object, name)) {
+    if (t.caveat) continue;
     const s = t.subject;
     if (!isSubjectSet(s)) {
       if (s.type === subjectType && rel.direct.includes(s.type)) out.add(s.id);
