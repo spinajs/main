@@ -378,6 +378,9 @@
     },
     {
       "path": "packages/audit-orm/tsconfig.build.json"
+    },
+    {
+      "path": "packages/audit-http/tsconfig.build.json"
     }
   ]
 }
