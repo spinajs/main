@@ -65,17 +65,10 @@ export function tupleChanged(ctx: AdminContext, tuple: Tuple, op: 'write' | 'del
   return { type: 'TupleChanged', domain: ctx.domain, actor: actorRef(ctx), at: ctx.now, data: { object: tuple.object, relation: tuple.relation, subject: tuple.subject, op } };
 }
 
-/** Adds and removes in the store inside `tx`; memory writes register their undo. Returns what changed. */
+/** Adds and removes in the store inside `tx`; memory writes register their undo. Returns what changed, `removed` as stored. */
 export async function writeTuples(store: WritableTupleStore, tx: AuthzTx, add: readonly Tuple[], remove: readonly Tuple[], ctx: AdminContext): Promise<{ readonly added: readonly Tuple[]; readonly removed: readonly Tuple[] }> {
   const actor = actorRef(ctx);
-  if (store instanceof DbTupleStore) {
-    // writeIn reports counts; a single tuple per side tells which one changed.
-    const added: Tuple[] = [];
-    const removed: Tuple[] = [];
-    for (const t of remove) if ((await store.writeIn(tx, [], [t], actor, ctx.now)).removed > 0) removed.push(t);
-    for (const t of add) if ((await store.writeIn(tx, [t], [], actor, ctx.now)).added > 0) added.push(t);
-    return { added, removed };
-  }
+  if (store instanceof DbTupleStore) return store.writeIn(tx, add, remove, actor, ctx.now);
   const undo = memoryTx(tx);
   const out = store.writeNow(add, remove, actor);
   undo.onRollback(() => store.writeNow(out.removed, out.added, actor));

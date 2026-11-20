@@ -8,7 +8,10 @@ import { docsIR } from '../fixtures/docs.js';
 
 const fixture = (name: string): URL => new URL(`../fixtures/${name}`, import.meta.url);
 
-/** `UPDATE_GOLDEN=1 npm test` rewrites the golden files; review the diff before committing. */
+/**
+ * `UPDATE_GOLDEN=1 npm test` rewrites the golden files; review the diff before committing. The impact-3-3 files are
+ * what the compilers emit for the §3.3 config of the impact summary, not that section's text.
+ */
 function golden(name: string, actual: string): void {
   if (process.env.UPDATE_GOLDEN === '1') writeFileSync(fixture(name), actual);
   expect(actual).to.equal(readFileSync(fixture(name), 'utf8'));

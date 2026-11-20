@@ -3,7 +3,7 @@ import { InvalidArgument } from '@spinajs/exceptions';
 import type { QueryBuilder } from './builders/base.js';
 import { DeleteQueryBuilder } from './builders/delete.js';
 import { InsertQueryBuilder } from './builders/insert.js';
-import { setCloneHooks } from './builders/internal.js';
+import { setCloneHooks, setMergeHooks } from './builders/internal.js';
 import { SelectQueryBuilder } from './builders/select.js';
 import { UpdateQueryBuilder } from './builders/update.js';
 import { ExtensionMethodCollision } from './exceptions.js';
@@ -72,6 +72,7 @@ export function installQueryExtensions(extensions: readonly QueryExtension[]): v
   for (const { prototype, method } of installed) Reflect.deleteProperty(prototype, method);
   installed = [];
   setCloneHooks([]);
+  setMergeHooks([]);
 
   const active = extensions.filter((e) => !replacedBySubclass(e, extensions));
   const additions = additionsOf(active);
@@ -80,4 +81,5 @@ export function installQueryExtensions(extensions: readonly QueryExtension[]): v
   }
   installed = additions;
   setCloneHooks(active.map((e) => (source: QueryBuilder, clone: QueryBuilder) => e.onClone?.(source, clone)));
+  setMergeHooks(active.map((e) => (source: QueryBuilder, target: QueryBuilder) => e.onMerge?.(source, target)));
 }

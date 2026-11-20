@@ -79,7 +79,7 @@ describe('durable timers and markers', () => {
     await r1.tick();
     expect(pick(await instance(id), 'Status', 'WakeAt', 'ClaimedBy')).to.deep.equal({ Status: 'sleeping', WakeAt: T0 + 3 * DAY, ClaimedBy: null });
     const [row] = await stepsOf(id);
-    expect(pick(row, 'Key', 'Kind', 'Status', 'Meta')).to.deep.equal({ Key: 'sleep:nap#1', Kind: 'sleep', Status: 'pending', Meta: { wakeAt: T0 + 3 * DAY, after: 0 } });
+    expect(pick(row, 'Key', 'Kind', 'Status', 'Meta')).to.deep.equal({ Key: 'sleep:nap#1', Kind: 'sleep', Status: 'pending', Meta: { wakeAt: T0 + 3 * DAY, after: 0, call: 1 } });
     clock.set(T0 + 3 * DAY - 1);
     await r1.tick();
     expect((await instance(id)).Status).to.equal('sleeping');
@@ -94,7 +94,7 @@ describe('durable timers and markers', () => {
     const { id } = await service.start('tm-nap', null);
     expect(await rejects((await engine('r1')).tick())).to.be.instanceOf(TestCrash);
     expect(pick(await instance(id), 'Status', 'ClaimedBy')).to.deep.equal({ Status: 'running', ClaimedBy: 'r1' });
-    expect((await stepsOf(id))[0].Meta).to.deep.equal({ wakeAt: T0 + 3 * DAY, after: 0 });
+    expect((await stepsOf(id))[0].Meta).to.deep.equal({ wakeAt: T0 + 3 * DAY, after: 0, call: 1 });
     clock.set(T0 + 60_001);
     await (await engine('r2')).tick();
     expect(pick(await instance(id), 'Status', 'WakeAt')).to.deep.equal({ Status: 'sleeping', WakeAt: T0 + 3 * DAY });
@@ -138,7 +138,7 @@ describe('durable timers and markers', () => {
     const { id } = await service.start('tm-until', null);
     await (await engine()).tick();
     expect(pick(await instance(id), 'Status', 'Result')).to.deep.equal({ Status: 'completed', Result: 'done' });
-    expect(pick((await stepsOf(id))[0], 'Key', 'Status', 'Meta')).to.deep.equal({ Key: 'sleep:past#1', Status: 'succeeded', Meta: { wakeAt: T0 - 1000, after: 0, order: 1 } });
+    expect(pick((await stepsOf(id))[0], 'Key', 'Status', 'Meta')).to.deep.equal({ Key: 'sleep:past#1', Status: 'succeeded', Meta: { wakeAt: T0 - 1000, after: 0, call: 1, order: 1 } });
   });
 
   it('now() replays the value of its first run', async () => {

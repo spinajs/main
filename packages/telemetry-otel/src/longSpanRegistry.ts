@@ -2,6 +2,7 @@ import { Injectable, Singleton, AsyncService, Autoinject } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
 import { Log, Logger } from '@spinajs/log';
 import { Span, SpanStatusCode, Attributes, trace, context, ROOT_CONTEXT } from '@opentelemetry/api';
+import { markSpanErrorType } from '@spinajs/tracing';
 import { OtelTracing } from './tracing.js';
 
 interface IOpenSpan {
@@ -101,7 +102,7 @@ export class LongSpanRegistry extends AsyncService {
   /**
    * Run `fn` inside a short span, parented into the open long span for `key`
    * when there is one (giving kiosk round-trips a place in the transaction
-   * waterfall), standalone otherwise. Errors are recorded and re-thrown.
+   * waterfall), standalone otherwise. Errors are recorded by class, without their message, and re-thrown.
    */
   public async childSpan<T>(key: string | undefined, name: string, attrs: Attributes, fn: () => Promise<T>): Promise<T> {
     let span: Span | undefined;
@@ -117,8 +118,9 @@ export class LongSpanRegistry extends AsyncService {
       span?.setStatus({ code: SpanStatusCode.OK });
       return result;
     } catch (err) {
-      span?.recordException(err as Error);
-      span?.setStatus({ code: SpanStatusCode.ERROR, message: (err as Error).message });
+      if (span) {
+        markSpanErrorType(span, err);
+      }
       throw err;
     } finally {
       span?.end();

@@ -2,8 +2,11 @@ import { GLOBAL_OBJECT, GLOBAL_TYPE, IREvaluator, MemoryTupleSource } from '@spi
 import type { CaveatContext, ObjectRef, PolicyIR, PrincipalFacts, RelationName, Truth, TupleSubjectRef, TypeName } from '@spinajs/authz-ir';
 import type { Permission } from '@spinajs/authz';
 
-import { ACCEPT } from './graph.js';
+import { ACCEPT, ANYONE } from './graph.js';
 import type { Edge } from './graph.js';
+
+/** The type of a principal no tuple names: the witness of a path that accepts anyone. */
+export const ANY_PRINCIPAL_TYPE: TypeName = 'user';
 
 /** `object#relation@subject`; for a column relation, the column of `object`'s row pointing at `subject`. */
 export interface WitnessTuple {
@@ -38,8 +41,9 @@ export class Objects {
 /**
  * The minimal data that walks `edges` from a fresh resource: one tuple per letter, each to a fresh object. Two
  * paths share `objects` and `resource` to be laid side by side on one resource.
+ * @param anyone - the principal of a path ending in `ANYONE`; default a fresh `user`
  */
-export function instantiate(resourceType: TypeName, edges: readonly Edge[], objects = new Objects(), resource = objects.fresh(resourceType)): Scenario {
+export function instantiate(resourceType: TypeName, edges: readonly Edge[], objects = new Objects(), resource = objects.fresh(resourceType), anyone?: PrincipalFacts): Scenario {
   const tuples: WitnessTuple[] = [];
   let current = resource;
   let principal: PrincipalFacts | undefined;
@@ -47,6 +51,10 @@ export function instantiate(resourceType: TypeName, edges: readonly Edge[], obje
     const l = e.letter;
     if (l === undefined) {
       if (e.to === ACCEPT) principal = { type: current.type, id: current.id };
+      if (e.to === ANYONE) {
+        const p = anyone ?? objects.fresh(ANY_PRINCIPAL_TYPE);
+        principal = { type: p.type, id: p.id };
+      }
       continue;
     }
     const caveat = l.caveat === undefined ? {} : { caveat: { name: l.caveat } };

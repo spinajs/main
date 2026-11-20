@@ -50,6 +50,20 @@ export const AUTHZ_REBAC_CONFIGURATION_SCHEMA = {
       },
     },
     permissions: { type: 'object', default: {}, additionalProperties: { type: 'string', pattern: '^[A-Za-z_][A-Za-z0-9_.-]*#[A-Za-z_][A-Za-z0-9_.-]*$' } },
+    caveats: {
+      type: 'object',
+      default: {},
+      propertyNames: name,
+      additionalProperties: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['params', 'expr'],
+        properties: {
+          params: { type: 'object', additionalProperties: { enum: ['string', 'int', 'double', 'bool', 'timestamp', 'ipaddress', 'list<string>'] } },
+          expr: { type: 'object' },
+        },
+      },
+    },
   },
 };
 

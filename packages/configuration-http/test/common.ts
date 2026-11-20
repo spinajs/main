@@ -141,7 +141,6 @@ export function testConfig(): Record<string, unknown> {
           Name: 'default',
           Migration: {
             Table: 'orm_migrations',
-            OnStartup: true,
           },
         },
       ],

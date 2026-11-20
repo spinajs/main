@@ -1,8 +1,10 @@
 import { createHash } from 'node:crypto';
 import { AuthzConfigError } from '@spinajs/authz';
 import type { Permission, ResourceType } from '@spinajs/authz';
+import { validateCaveats } from '@spinajs/authz-ir';
+import type { CaveatDef, CaveatParamType } from '@spinajs/authz-ir';
 
-import type { NamespaceConfig, PermissionMap, Tuple } from '../contracts.js';
+import type { CaveatConfig, CaveatValue, NamespaceConfig, PermissionMap, Tuple, TupleCaveat } from '../contracts.js';
 import { NAME_PATTERN, isSubjectSet } from '../keys.js';
 
 export type CompiledRewrite =
@@ -18,6 +20,14 @@ export interface CompiledRelation {
   readonly direct: readonly ResourceType[];
   /** Subject sets a tuple may name (`group#member`). */
   readonly sets: readonly { readonly type: ResourceType; readonly relation: string }[];
+  /** `user with c`, `group#member with c`: admitted only with that caveat. */
+  readonly conditional: readonly ConditionalSubject[];
+}
+
+export interface ConditionalSubject {
+  readonly type: ResourceType;
+  readonly relation?: string;
+  readonly caveat: string;
 }
 
 export interface CompiledNamespace {
@@ -28,7 +38,7 @@ export interface CompiledNamespace {
 
 /** Why a tuple does not fit the namespaces: the AuthzAdminFailure code and a message. */
 export interface TupleProblem {
-  readonly code: 'unknown_relation' | 'subject_not_allowed';
+  readonly code: 'unknown_relation' | 'subject_not_allowed' | 'invalid_caveat_context';
   readonly message: string;
 }
 
@@ -75,17 +85,81 @@ function parseExclusion(e: unknown, where: string): CompiledRewrite {
   return { kind: 'exclusion', base: parseRewrite(e.base, where), subtract: parseRewrite(e.subtract, where) };
 }
 
+const WITH = /\s+with\s+/;
+const CAVEAT_ROOTS = ['env.', 'principal.'];
+
 function parseRelation(type: string, relation: string, subjects: unknown): CompiledRelation {
   const where = `${type}#${relation}`;
   if (!Array.isArray(subjects) || subjects.some((s) => typeof s !== 'string' || s === '')) return fail(`${where}: allowed subject types must be a list of type names`);
   const direct: string[] = [];
   const sets: { type: string; relation: string }[] = [];
-  for (const s of subjects as string[]) {
-    const at = s.indexOf('#');
-    if (at < 0) direct.push(name(s.trim(), `${where}: subject type`));
-    else sets.push({ type: name(s.slice(0, at).trim(), `${where}: subject type`), relation: name(s.slice(at + 1).trim(), `${where}: subject type`) });
+  const conditional: ConditionalSubject[] = [];
+  for (const entry of subjects as string[]) {
+    const [shape, caveat, extra] = entry.trim().split(WITH);
+    if (extra !== undefined) fail(`${where}: subject type ${q(entry)} has more than one "with"`);
+    const at = shape.indexOf('#');
+    const t = name((at < 0 ? shape : shape.slice(0, at)).trim(), `${where}: subject type`);
+    const r = at < 0 ? undefined : name(shape.slice(at + 1).trim(), `${where}: subject type`);
+    if (caveat !== undefined) conditional.push({ type: t, ...(r === undefined ? {} : { relation: r }), caveat: name(caveat.trim(), `${where}: caveat`) });
+    else if (r === undefined) direct.push(t);
+    else sets.push({ type: t, relation: r });
   }
-  return { name: relation, direct: [...new Set(direct)], sets };
+  return { name: relation, direct: [...new Set(direct)], sets, conditional };
+}
+
+/** The object types a tupleset may name: its direct types and its conditional types without a relation. */
+export const objectTypesOf = (rel: CompiledRelation): ResourceType[] => [...new Set([...rel.direct, ...rel.conditional.filter((c) => c.relation === undefined).map((c) => c.type)])];
+
+/** Whether the relation admits the tuple's subject shape with its caveat (or without one); the IR's `admits()`. */
+export function admitsTuple(rel: CompiledRelation, t: Pick<Tuple, 'subject' | 'caveat'>): boolean {
+  const s = t.subject;
+  const type = isSubjectSet(s) ? s.object.type : s.type;
+  const relation = isSubjectSet(s) ? s.relation : undefined;
+  if (t.caveat === undefined) return relation === undefined ? rel.direct.includes(type) : rel.sets.some((x) => x.type === type && x.relation === relation);
+  const caveat = t.caveat.name;
+  return rel.conditional.some((c) => c.type === type && c.relation === relation && c.caveat === caveat);
+}
+
+const FITS: Readonly<Record<CaveatParamType, (v: CaveatValue) => boolean>> = {
+  string: (v) => typeof v === 'string',
+  ipaddress: (v) => typeof v === 'string',
+  int: (v) => typeof v === 'number' && Number.isInteger(v),
+  double: (v) => typeof v === 'number',
+  bool: (v) => typeof v === 'boolean',
+  timestamp: (v) => typeof v === 'string' && !Number.isNaN(Date.parse(v)),
+  'list<string>': (v) => Array.isArray(v) && v.every((x) => typeof x === 'string'),
+};
+
+const isParamType = (v: unknown): v is CaveatParamType => typeof v === 'string' && Object.hasOwn(FITS, v);
+
+function compileCaveats(caveats: CaveatConfig): Map<string, CaveatDef> {
+  if (!isRecord(caveats)) return fail('caveats must be an object');
+  const out = new Map<string, CaveatDef>();
+  for (const [n, def] of Object.entries(caveats)) {
+    name(n, 'caveat');
+    const raw: unknown = def;
+    if (!isRecord(raw) || !isRecord(raw.params) || raw.expr === undefined) return fail(`caveats.${n} must be { params, expr }`);
+    for (const [p, type] of Object.entries(raw.params)) {
+      if (!CAVEAT_ROOTS.some((r) => p.startsWith(r))) fail(`caveats.${n}: parameter ${q(p)}: ReBAC caveats read env.* and principal.* only`);
+      if (!isParamType(type)) fail(`caveats.${n}: parameter ${q(p)} has no parameter type (${Object.keys(FITS).join(', ')})`);
+    }
+    out.set(n, structuredClone(def));
+  }
+  const problems = validateCaveats(Object.fromEntries(out));
+  if (problems.length > 0) fail(problems.map((d) => `${d.code} ${d.path}: ${d.message}`).join('; '));
+  return out;
+}
+
+/** Why a tuple's context does not fit its caveat's parameters, or undefined. */
+function contextProblem(def: CaveatDef, caveat: TupleCaveat): TupleProblem | undefined {
+  for (const [path, value] of Object.entries(caveat.context ?? {})) {
+    let why: string | undefined;
+    if (path === 'env.now') why = 'env.now comes from the evaluation instant and cannot be fixed by a tuple';
+    else if (!Object.hasOwn(def.params, path)) why = `${path} is not a parameter`;
+    else if (!FITS[def.params[path]](value)) why = `${path} must be a ${def.params[path]}`;
+    if (why) return { code: 'invalid_caveat_context', message: `${caveat.name}: ${why}` };
+  }
+  return undefined;
 }
 
 function parseNamespace(type: string, def: unknown): CompiledNamespace {
@@ -121,23 +195,27 @@ export class NamespaceSchema {
   private constructor(
     readonly namespaces: ReadonlyMap<ResourceType, CompiledNamespace>,
     targets: Map<Permission, { readonly type: ResourceType; readonly name: string }>,
+    /** Caveat name -> definition, from `authz.<model>.caveats`. */
+    readonly caveats: ReadonlyMap<string, CaveatDef>,
   ) {
     this.targets = targets;
-    this.digest = createHash('sha256').update(JSON.stringify(canonical(namespaces, targets))).digest('hex').slice(0, 16);
+    this.digest = createHash('sha256').update(JSON.stringify(canonical(namespaces, targets, caveats))).digest('hex').slice(0, 16);
   }
 
   /** @throws AuthzConfigError naming the first problem */
-  static compile(namespaces: NamespaceConfig, permissions: PermissionMap = {}): NamespaceSchema {
+  static compile(namespaces: NamespaceConfig, permissions: PermissionMap = {}, caveats: CaveatConfig = {}): NamespaceSchema {
     if (!isRecord(namespaces)) return fail('namespaces must be an object');
     if (!isRecord(permissions)) return fail('permissions must be an object');
+    const definitions = compileCaveats(caveats);
     const compiled = new Map<ResourceType, CompiledNamespace>();
     for (const [type, def] of Object.entries(namespaces)) compiled.set(name(type, 'namespace'), parseNamespace(type, def));
     for (const ns of compiled.values()) {
       checkSubjectSets(ns, compiled);
+      checkCaveatsDeclared(ns, definitions);
       for (const [p, rewrite] of ns.permissions) checkRewrite(ns, p, rewrite, compiled);
       refuseCycles(ns);
     }
-    return new NamespaceSchema(compiled, compileTargets(permissions, compiled));
+    return new NamespaceSchema(compiled, compileTargets(permissions, compiled), definitions);
   }
 
   relation(type: ResourceType, name: string): CompiledRelation | undefined {
@@ -160,15 +238,15 @@ export class NamespaceSchema {
     if (!ns) return { code: 'unknown_relation', message: `no namespace ${q(object.type)}` };
     const rel = ns.relations.get(relation);
     if (!rel) return { code: 'unknown_relation', message: ns.permissions.has(relation) ? `${object.type}#${relation} is a permission, which holds no tuples` : `${object.type} has no relation ${q(relation)}` };
-    if (isSubjectSet(subject)) {
-      if (rel.sets.some((s) => s.type === subject.object.type && s.relation === subject.relation)) return undefined;
-      return { code: 'subject_not_allowed', message: `${object.type}#${relation} does not admit the subject set ${subject.object.type}#${subject.relation}` };
+    if (!admitsTuple(rel, tuple)) {
+      const shape = isSubjectSet(subject) ? `the subject set ${subject.object.type}#${subject.relation}` : `a subject of type ${q(subject.type)}`;
+      return { code: 'subject_not_allowed', message: `${object.type}#${relation} does not admit ${shape}${tuple.caveat ? ` with caveat ${tuple.caveat.name}` : ''}` };
     }
-    if (rel.direct.includes(subject.type)) return undefined;
-    return { code: 'subject_not_allowed', message: `${object.type}#${relation} does not admit a subject of type ${q(subject.type)}` };
+    const def = tuple.caveat && this.caveats.get(tuple.caveat.name);
+    return tuple.caveat && def ? contextProblem(def, tuple.caveat) : undefined;
   }
 
-  /** Changes with any namespace or permission-map change. */
+  /** Changes with any namespace, permission-map or caveat change. */
   hash(): string {
     return this.digest;
   }
@@ -180,12 +258,16 @@ const holds = (compiled: Namespaces, type: string, n: string): boolean => compil
 
 function checkSubjectSets(ns: CompiledNamespace, compiled: Namespaces): void {
   for (const rel of ns.relations.values()) {
-    for (const s of rel.sets) {
+    for (const s of [...rel.sets, ...rel.conditional.flatMap((c) => (c.relation === undefined ? [] : [{ type: c.type, relation: c.relation }]))]) {
       const where = `${ns.name}#${rel.name}: subject type ${q(`${s.type}#${s.relation}`)}`;
       if (!compiled.has(s.type)) fail(`${where} names no namespace ${s.type}`);
       if (!holds(compiled, s.type, s.relation)) fail(`${where} names no relation or permission of ${s.type}`);
     }
   }
+}
+
+function checkCaveatsDeclared(ns: CompiledNamespace, caveats: ReadonlyMap<string, CaveatDef>): void {
+  for (const rel of ns.relations.values()) for (const c of rel.conditional) if (!caveats.has(c.caveat)) fail(`${ns.name}#${rel.name}: caveat ${q(c.caveat)} is not declared in caveats`);
 }
 
 function checkRewrite(ns: CompiledNamespace, p: string, rewrite: CompiledRewrite, compiled: Namespaces): void {
@@ -195,7 +277,7 @@ function checkRewrite(ns: CompiledNamespace, p: string, rewrite: CompiledRewrite
       continue;
     }
     const tupleset = ns.relations.get(node.tupleset) ?? fail(`${ns.name}#${p}: tupleset ${q(node.tupleset)} is not a relation of ${ns.name}`);
-    const objects = tupleset.direct.filter((t) => compiled.has(t));
+    const objects = objectTypesOf(tupleset).filter((t) => compiled.has(t));
     if (objects.length === 0) fail(`${ns.name}#${p}: tupleset ${q(node.tupleset)} admits no object type`);
     for (const t of objects) if (!holds(compiled, t, node.computed)) fail(`${ns.name}#${p}: ${t} has no relation or permission ${q(node.computed)}`);
   }
@@ -225,10 +307,13 @@ function refuseCycles(ns: CompiledNamespace): void {
   for (const p of ns.permissions.keys()) visit(p, []);
 }
 
-function canonical(namespaces: ReadonlyMap<string, CompiledNamespace>, targets: ReadonlyMap<string, { type: string; name: string }>): unknown {
+// Without caveats and conditional subject types the result, and so the hash, is the one schemas had before caveats.
+function canonical(namespaces: ReadonlyMap<string, CompiledNamespace>, targets: ReadonlyMap<string, { type: string; name: string }>, caveats: ReadonlyMap<string, CaveatDef>): unknown {
   const sorted = <V>(m: ReadonlyMap<string, V>): [string, V][] => [...m].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+  const relation = ({ conditional, ...rest }: CompiledRelation) => (conditional.length > 0 ? { ...rest, conditional } : rest);
   return {
-    namespaces: sorted(namespaces).map(([type, ns]) => [type, sorted(ns.relations), sorted(ns.permissions)]),
+    namespaces: sorted(namespaces).map(([type, ns]) => [type, sorted(ns.relations).map(([n, r]) => [n, relation(r)]), sorted(ns.permissions)]),
     targets: sorted(targets),
+    ...(caveats.size > 0 ? { caveats: sorted(caveats) } : {}),
   };
 }

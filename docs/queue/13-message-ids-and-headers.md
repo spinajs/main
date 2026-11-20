@@ -26,12 +26,13 @@ Every message `QueueService.emit()` sends carries a `MessageId`, and any message
 | `RetryCount` | `x-retry-count` | The transport, on a retry and on a dead letter |
 | `Error` | `x-error` | The transport, on a dead letter |
 | `OriginalDestination` | `x-original-destination` | STOMP only for now, on a dead letter |
-| `TraceParent` | `traceparent` | Reserved for tracing (W3C trace context) |
+| `TraceParent` | `traceparent` | `emit()`, from the `publish` span (W3C trace context, see [Trace headers](#trace-headers)) |
+| `TraceState` | `tracestate` | `emit()`, from the `publish` span, when the trace has a state |
 
 `RetryCount`, `Error` and `OriginalDestination` belong to the transport: on publish, AMQP and STOMP drop them from `Headers`, so a received message emitted again does not carry a stale retry count. `readQueueHeaders(raw)` picks the standard headers out of a broker's raw headers as strings, and `withoutTransportHeaders(headers)` drops the transport's own; a custom transport calls them on receipt and on publish.
 
 ```ts sample
-import { QueueEvent, Event, QueueHeaders } from '@spinajs/queue';
+import { QueueEvent, Event } from '@spinajs/queue';
 
 @Event()
 export class OrderPlaced extends QueueEvent {
@@ -39,10 +40,27 @@ export class OrderPlaced extends QueueEvent {
 }
 
 // a deterministic id: both emits of one order carry the same MessageId in logs and broker tools
-export async function placeOrder(orderId: number, traceparent: string) {
-  await OrderPlaced.emit({ OrderId: orderId, MessageId: `order-placed:${orderId}`, Headers: { [QueueHeaders.TraceParent]: traceparent } });
+export async function placeOrder(orderId: number, tenant: string) {
+  await OrderPlaced.emit({ OrderId: orderId, MessageId: `order-placed:${orderId}`, Headers: { 'x-tenant': tenant } });
 }
 ```
+
+## Trace headers
+
+`traceparent` and `tracestate` are standard headers, so every transport carries them: AMQP and STOMP as broker headers, the others in the JSON body with the rest of `Headers`.
+
+- `QueueService.emit()` publishes under a PRODUCER span `publish <MessageName>`, a child of the span active when you call it, and writes that span's `traceparent` (and `tracestate`, when the trace has one) into `Headers`. A message received and emitted again carries the trace it came from; `emit()` drops those trace headers (and `baggage`) and writes the new ones, and keeps every other header. With tracing not started the span has no ids and the headers you set stay as they are.
+- `consume()` handles each delivery under a CONSUMER span `process <MessageName>`. For an ordinary message it is a child of the `publish` span, so one request and the work it queued share one trace.
+- A delayed, repeating or cron message (`ScheduleCron` set, or `ScheduleDelay`, `SchedulePeriod` or `ScheduleRepeat` above 0, see `isScheduledDelivery()`) is delivered long after the request that scheduled it, or again and again. Each of its deliveries is the root of a new trace, with a link to the `publish` span, so the scheduling trace neither stays open nor grows without end. The rule reads the message, not the broker: on a transport that ignores the schedule (AMQP today, SQS until it sends a delay) the delivery arrives at once and is still a linked root.
+- A missing or malformed `traceparent` never fails a delivery: the `process` span starts a new trace.
+- A redelivery of a failed job is an ordinary delivery: a child of the original `publish` span.
+
+| Span | Kind | `messaging.operation.type` | `messaging.operation.name` |
+| --- | --- | --- | --- |
+| `publish <MessageName>` | PRODUCER | `send` | `publish` |
+| `process <MessageName>` | CONSUMER | `process` | `process` |
+
+Both spans carry `messaging.system: 'spinajs'` (one emit may reach several transports), `messaging.destination.name` (the message name, since one emit may go to several connections and channels) and `messaging.message.id`. A failed publish or handler sets `error.type` and an ERROR status to the error's class name, never its message: a handler's error may embed the payload or a statement's parameters. The message is in the log line that carries the same trace id.
 
 ## Testing with the memory transport
 
@@ -80,4 +98,4 @@ describeQueueTransportConformance('MyTransport', async () => ({
 }));
 ```
 
-The suite reads its channels from the client's `defaultQueueChannel` and `defaultTopicChannel`. It covers an ack on success and a `MessageId` and `Headers` round trip. Retry and dead-letter cases are not in the suite yet.
+The suite reads its channels from the client's `defaultQueueChannel` and `defaultTopicChannel`. It covers an ack on success, a `MessageId` and `Headers` round trip, and a `traceparent` and `tracestate` round trip. Retry and dead-letter cases are not in the suite yet.
