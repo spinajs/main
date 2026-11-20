@@ -20,7 +20,6 @@ const CAPTURED = Object.fromEntries(UPLOAD_EVENT_NAMES.map((name) => [name, { co
 /** Tiny limits keep parts a few bytes long: a 10-byte file is parts of 4, 4 and 2 bytes. */
 export const TEST_CONFIG = {
   logger: CAPTURE_LOGGER,
-  // Migration.OnStartup stays off: env.ts runs the upload migration by hand, as teams/test/support/db.ts:48-56 does.
   db: { DefaultConnection: 'sqlite', Connections: [{ Driver: 'orm-driver-sqlite', Filename: ':memory:', Name: 'sqlite' }], Aliases: { upload: 'default' }, StrictTableCheck: false },
   fs: {
     defaultProvider: 'upload-temp',

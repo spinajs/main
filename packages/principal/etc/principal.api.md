@@ -74,6 +74,7 @@ export interface Ceiling {
     /** Deny code when the ceiling fails; default 'ceiling'. */
     readonly reason?: string;
 }
+/** @spinajs system-principal */
 export declare const SYSTEM: Principal;
 export declare const UNATTENDED: Principal;
 export declare const principalKey: (p: PrincipalRef) => string;
