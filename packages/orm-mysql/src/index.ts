@@ -1,5 +1,5 @@
 /* eslint-disable promise/no-promise-in-callback */
-import { MySqlSqlExpressions } from './expressions.js';
+import { MySqlSessionSqlExpressions, MySqlSqlExpressions } from './expressions.js';
 import { Injectable, NewInstance } from '@spinajs/di';
 // No LogLevel import: master moved per-query timing out of every driver and into a single
 // `Perf.measure('orm.query', ...)` around SqlDriver.execute, so duplicating it here would
@@ -11,10 +11,16 @@ import { MYSQL_SQL_DIALECT } from './sql-dialect.js';
 export { MYSQL_SQL_DIALECT } from './sql-dialect.js';
 import { BacktickIdentifierQuoter, SqlAlterColumnQueryCompiler, SqlAlterTableQueryCompiler, SqlDefaultValueBuilder, SqlDropEventQueryCompiler, SqlEventQueryCompiler, SqlLimitQueryCompiler, SqlOnDuplicateQueryCompiler, SqlTableCloneQueryCompiler, SqlTruncateTableQueryCompiler, SqlWithRecursiveCompiler, escapeIdentifier, SqlDriver, RowQueue } from '@spinajs/orm-sql';
 import * as mysql from 'mysql2';
-import { OkPacket, PoolConnection, PoolOptions } from 'mysql2';
+import { ConnectionOptions, OkPacket, PoolConnection, PoolOptions } from 'mysql2';
+import type { Connection as PromiseConnection } from 'mysql2/promise';
+import { MySqlMigrationLock } from './migration-lock.js';
 import { MySqlColumnQueryCompiler, MySqlCreateViewCompiler, MySqlInsertQueryCompiler, MySqlTableExistsCompiler } from './compilers.js';
-import { MySqlInSetStatement, MySqlLiteralQuoter, MySqlNowExpression, MySqlTextWrapper } from './statements.js';
+import { MySqlInSetStatement, MySqlLiteralQuoter, MySqlNowExpression, MySqlSessionNowExpression, MySqlTextWrapper } from './statements.js';
+import { MySqlDatetimeValueConverter } from './converters.js';
+import { IMySqlSessionZone, mySqlSessionZone } from './time-zone.js';
 import { mapMySqlError } from './errors.js';
+import { normalizeMysqlPlan } from './explain.js';
+import type { QueryPlan } from '@spinajs/orm';
 
 export * from './errors.js';
 import { IIndexInfo, ITableColumnInfo, ITableTypeInfo } from './types.js';
@@ -24,8 +30,12 @@ import { Duplex, PassThrough } from 'stream';
 
 export * from './compilers.js';
 export * from './statements.js';
+export * from './converters.js';
+export * from './time-zone.js';
 
 export * from './expressions.js';
+export * from './explain.js';
+export * from './migration-lock.js';
 
 export interface IMySqlTransactionContext extends ITransactionContext {
   connection: PoolConnection;
@@ -91,6 +101,8 @@ export class MySqlOrmDriver extends SqlDriver {
 
   /** The `SET time_zone` outcome of each pooled connection, keyed by the connection. */
   private readonly sessionZones = new WeakMap<object, Promise<Error | null>>();
+
+  private _sessionZone?: IMySqlSessionZone;
   // `_executionId` went with the per-driver query timing master centralised.
   // `TransactionStorage` is no longer declared here either — it moved up to OrmDriver so
   // ambient-connection propagation is part of the contract rather than a MySQL detail.
@@ -126,6 +138,10 @@ export class MySqlOrmDriver extends SqlDriver {
     // where the statement provably never reached the server.
     const bound = this.toDriverParams(params);
     return this.withSessionSettings(() => this.withReconnect(() => this._executeOnDbOnce(stmt, bound, context)));
+  }
+
+  public async explain(sql: string, bindings: unknown[], rawSql = true): Promise<QueryPlan> {
+    return normalizeMysqlPlan(await this.runExplain('EXPLAIN FORMAT=JSON', sql, bindings, rawSql));
   }
 
   /**
@@ -298,8 +314,17 @@ export class MySqlOrmDriver extends SqlDriver {
     return { events: true, insertReturning: false, insertIdIsFirstOfBatch: true, nativeJson: true, concurrentTransactions: true, streaming: true };
   }
 
+  /** The zone of this connection's datetimes, from its `TimeZone` option. */
+  public get SessionZone(): IMySqlSessionZone {
+    this._sessionZone ??= mySqlSessionZone(this.Options.TimeZone, this.Options.Name);
+    return this._sessionZone;
+  }
+
   public resolve() {
     super.resolve();
+
+    const zone = this.SessionZone;
+    this.Container.register(() => new MySqlDatetimeValueConverter(zone.Wall)).as(DatetimeValueConverter);
 
     this.Container.register(MySqlTableExistsCompiler).as(TableExistsCompiler);
     this.Container.register(MysqlServerResponseMapper).as(ServerResponseMapper);
@@ -319,7 +344,7 @@ export class MySqlOrmDriver extends SqlDriver {
      * `CURRENT_DATE()`; MySQL is the database that understands all of it.
      */
     this.Container.register(BacktickIdentifierQuoter).as(IdentifierQuoter);
-    this.Container.register(MySqlSqlExpressions).as(SqlExpressions);
+    this.Container.register(zone.Wall === 'utc' ? MySqlSqlExpressions : MySqlSessionSqlExpressions).as(SqlExpressions);
     this.Container.register(SqlOnDuplicateQueryCompiler).as(OnDuplicateQueryCompiler);
     this.Container.register(MySqlColumnQueryCompiler).as(ColumnQueryCompiler);
     this.Container.register(SqlAlterColumnQueryCompiler).as(AlterColumnQueryCompiler);
@@ -329,13 +354,15 @@ export class MySqlOrmDriver extends SqlDriver {
     this.Container.register(SqlTruncateTableQueryCompiler).as(TruncateTableQueryCompiler);
     this.Container.register(SqlWithRecursiveCompiler).as(RecursiveQueryCompiler);
     this.Container.register(SqlDefaultValueBuilder).as(DefaultValueBuilder);
-    this.Container.register(MySqlNowExpression).as(NowExpression);
+    this.Container.register(zone.Wall === 'utc' ? MySqlNowExpression : MySqlSessionNowExpression).as(NowExpression);
     this.Container.register(SqlDropEventQueryCompiler).as(DropEventQueryCompiler);
     this.Container.register(SqlEventQueryCompiler).as(EventQueryCompiler);
 
     this.Container.register(MySqlCreateViewCompiler).as(CreateViewCompiler);
     this.Container.register(MySqlInsertQueryCompiler).as(InsertQueryCompiler);
     this.Container.register(MySqlLiteralQuoter).as(LiteralQuoter);
+
+    this.Container.register(MySqlMigrationLock).as(MigrationLock);
   }
 
   /**
@@ -369,8 +396,8 @@ export class MySqlOrmDriver extends SqlDriver {
 
   /**
    * The mysql2 pool settings of this connection. `Options` is handed to mysql2 as is ( `ssl`, ... ); the keys
-   * that have their own setting ( Host, Pool.*, Encoding ) win over it, and so does `timezone: 'Z'`, which makes
-   * mysql2 write and read DATETIME and TIMESTAMP as UTC.
+   * that have their own setting ( Host, Pool.*, Encoding ) win over it, and so does `timezone`, the zone mysql2
+   * writes and reads DATETIME and TIMESTAMP in, taken from `TimeZone`.
    */
   protected poolConfig(): PoolOptions {
     const pool = this.resolvedPoolOptions();
@@ -393,7 +420,7 @@ export class MySqlOrmDriver extends SqlDriver {
       maxIdle: pool.Min > 0 ? pool.Min : pool.Max,
       idleTimeout: pool.IdleTimeout,
       queueLimit: 0,
-      timezone: 'Z',
+      timezone: this.SessionZone.Driver,
       // `decimalNumbers` stays OFF (mysql2's default): DECIMAL/NEWDECIMAL comes back as
       // a string, because above 2^53 a float loses exactly the precision DECIMAL is
       // there to keep. Whoever turns it on must also change `ResponseSchemaTypes` at the
@@ -402,19 +429,49 @@ export class MySqlOrmDriver extends SqlDriver {
     };
   }
 
-  /** NOW(), CURRENT_TIMESTAMP and TIMESTAMP columns follow the session zone, so every pooled connection runs in UTC. */
+  /**
+   * A connection of this database outside the pool, so a pool reconnect leaves it alone. The caller ends it.
+   *
+   * @param programName - its `program_name` connection attribute, shown in `performance_schema.session_connect_attrs`
+   */
+  public async openDedicatedConnection(programName?: string): Promise<PromiseConnection> {
+    const options = this.dedicatedConnectionOptions();
+    const connection = mysql.createConnection(programName ? { ...options, connectAttributes: { ...options.connectAttributes, program_name: programName } } : options);
+    // unhandled, a fatal 'error' while the connection is idle kills the process; its holder learns of it on the next query
+    connection.on('error', (err) => {
+      this.Log?.warn({ error: err, connection: this.Options.Name }, 'mysql dedicated connection error for ${connection}');
+    });
+
+    const promised = connection.promise();
+    await promised.connect();
+    return promised;
+  }
+
+  protected dedicatedConnectionOptions(): ConnectionOptions {
+    return this.poolConfig();
+  }
+
+  /**
+   * NOW(), CURRENT_TIMESTAMP and TIMESTAMP columns follow the session zone, so a `TimeZone` other than `SYSTEM`
+   * is set on every new pooled connection. `SYSTEM` sends nothing and keeps the server's zone.
+   */
   protected pinSessionZone(pool: mysql.Pool): void {
+    const zone = this.SessionZone.Session;
+    if (!zone) {
+      return;
+    }
+
     pool.on('connection', (connection) => {
       // Resolves to the error, not rejects: nobody may await it before the SET answers.
       this.sessionZones.set(
         connection,
-        new Promise((resolve) => connection.query("SET time_zone = '+00:00'", (err) => resolve(err ?? null))),
+        new Promise((resolve) => connection.query(`SET time_zone = '${zone}'`, (err) => resolve(err ?? null))),
       );
     });
   }
 
   /**
-   * Takes a pooled connection once its session zone is UTC. A connection whose `SET time_zone` failed is destroyed
+   * Takes a pooled connection once its session zone is set. A connection whose `SET time_zone` failed is destroyed
    * and the acquire fails: a statement on it would read and stamp datetimes in the server's zone.
    */
   protected acquire(done: (err: Error | null, connection?: PoolConnection) => void, pool: mysql.Pool = this.Pool): void {
@@ -434,7 +491,7 @@ export class MySqlOrmDriver extends SqlDriver {
 
         this.sessionZones.delete(connection);
         connection.destroy();
-        done(new Error(`could not set the session time zone of connection ${this.Options.Name} to UTC: ${zoneErr.message}`, { cause: zoneErr }));
+        done(new Error(`could not set the session time zone of connection ${this.Options.Name} to ${this.SessionZone.Session}: ${zoneErr.message}`, { cause: zoneErr }));
       })();
     });
   }
@@ -772,6 +829,10 @@ export class MySqlSSHOrmDriver extends MySqlOrmDriver {
     this.setState(ConnectionState.Connected);
 
     return this;
+  }
+
+  protected dedicatedConnectionOptions(): ConnectionOptions {
+    return { ...super.dedicatedConnectionOptions(), stream: this.forwardedStream(this.SshClient) };
   }
 
   private openSshClient(): Promise<SSHClient> {

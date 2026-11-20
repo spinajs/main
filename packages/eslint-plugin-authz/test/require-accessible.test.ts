@@ -1,5 +1,6 @@
 import { fileURLToPath } from 'node:url';
 import { RuleTester } from '@typescript-eslint/rule-tester';
+import { expect } from 'chai';
 
 import { requireAccessible } from '../src/rules/require-accessible.js';
 
@@ -34,7 +35,6 @@ ruleTester.run('require-accessible', requireAccessible, {
     code("return Task.where('id', id).first();"),
     code("return await Task.where('id', id);"),
     code("return SubTask.where('id', id).firstOrFail();"),
-    { code: code("const user = { type: 'user', id: '7' };\nreturn runAs(user, 'job', async () => Task.where('a', 1).first());"), options: [{ legacyRunAsExemption: true }] },
   ],
   invalid: [
     { code: code("return Task.where('a', 1).first();"), errors: [{ messageId: 'unscopedQuery', data: { model: 'Task', call: '.first()' } }] },
@@ -60,4 +60,13 @@ ruleTester.run('require-accessible', requireAccessible, {
     { code: code("const user = { type: 'user', id: '7' };\nreturn runAs(user, 'job', async () => Task.where('a', 1).first());"), errors: [{ messageId: 'unscopedQuery', data: { model: 'Task', call: '.first()' } }] },
     { code: code("return authz().runAs({ type: 'user', id: '7' }, 'job', async () => Task.count());"), errors: [{ messageId: 'unscopedShortcut', data: { model: 'Task', call: 'count' } }] },
   ],
+});
+
+describe('require-accessible options', () => {
+  it('takes resources and nothing else', () => {
+    expect(requireAccessible.defaultOptions).to.deep.equal([{ resources: [] }]);
+    expect(requireAccessible.meta.schema).to.deep.equal([
+      { type: 'object', properties: { resources: { type: 'array', items: { type: 'string', minLength: 1 }, uniqueItems: true } }, additionalProperties: false },
+    ]);
+  });
 });

@@ -16,6 +16,7 @@ export * from './statements.js';
 export * from './builders.js';
 export * from './converters.js';
 export * from './expressions.js';
+export * from './explain.js';
 
 // Union of all three sides: AlterColumnQueryCompiler is master's, and is registered below;
 // IsolationLevel / ITransactionContext / ITransactionOptions are the transaction contract from
@@ -34,6 +35,8 @@ import { IForeignKeyList, IIndexInfo, IIndexInfoList, ITableInfo } from './types
 import { format } from '@spinajs/configuration';
 import { SqlLiteDefaultValueBuilder } from './builders.js';
 import { SqliteModelToSqlConverter } from './converters.js';
+import type { QueryPlan } from '@spinajs/orm';
+import { normalizeSqlitePlan } from './explain.js';
 
 export class SqliteServerResponseMapper extends ServerResponseMapper {
   public read(data: any, pkNames?: string[]) {
@@ -364,6 +367,10 @@ export class SqliteOrmDriver extends SqlDriver {
     return { events: false, insertReturning: true, insertIdIsFirstOfBatch: false, nativeJson: false, concurrentTransactions: false, streaming: this.ReadPool.length > 0 && this._walJournal };
   }
 
+  public async explain(sql: string, bindings: unknown[], rawSql = true): Promise<QueryPlan> {
+    return normalizeSqlitePlan(await this.runExplain('EXPLAIN QUERY PLAN', sql, bindings, rawSql));
+  }
+
   public async ping(): Promise<boolean> {
     if (!this.Db) {
       return false;
@@ -656,17 +663,9 @@ export class SqliteOrmDriver extends SqlDriver {
   }
 
   public async tableInfo(name: string, _schema?: string): Promise<IColumnDescriptor[]> {
-    // An absent converter map is a normal state here, not a bug to assert away. The map lives in
-    // the container CACHE and is put there by `Orm.registerDefaultConverters()`, which runs AFTER
-    // the boot migration pass - and the migration service calls `tableInfo` from `ensureStorage()`
-    // to find out which tracking columns an EXISTING table is missing. So the first `tableInfo` of
-    // a boot against an already-migrated database arrives before any converter exists, and the `!`
-    // that used to stand here turned that into `Cannot read properties of undefined (reading
-    // 'get')` - a crash on every restart, invisible on the first boot because a table that had to
-    // be created skips the probe entirely.
-    //
-    // Falling back to an empty map degrades exactly as an unrecognised column type already does:
-    // `DefaultValue` keeps the raw `dflt_value` sqlite reported.
+    // The map is cached by `Orm.registerDefaultConverters()`; a driver used without a booted Orm ( a bare
+    // MigrationRunner's `ensureStorage()` probe, a driver resolved on its own ) has none. An empty map degrades as an
+    // unrecognised column type does: `DefaultValue` keeps the raw `dflt_value`.
     const converters = this.Container.get(ORM_DB_VALUE_CONVERTERS) ?? new Map<string, Class<ValueConverter>>();
 
     const tblInfo = (await this.executeOnDb(`PRAGMA table_info(${quoteSqliteIdentifier(name)});`, [] as any, QueryContext.Select)) as ITableInfo[];

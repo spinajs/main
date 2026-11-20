@@ -41,22 +41,23 @@ export const REAL_DB_TARGETS: RealDbTarget[] = [
 
 const TABLES = ['__workflow_event', '__workflow_step', '__workflow', 'workflow_it_migrations'];
 
-function db(target: RealDbTarget, migrate: boolean) {
+function db(target: RealDbTarget) {
   const it = {
     ...target.connection,
     Name: 'it',
-    Migration: { OnStartup: migrate, Table: 'workflow_it_migrations', Transaction: { Mode: MigrationTransactionMode.PerMigration } },
+    Migration: { Table: 'workflow_it_migrations', Transaction: { Mode: MigrationTransactionMode.PerMigration } },
   };
-  // While cleaning up, the models stay on SQLite: MySQL refuses to describe a model whose table is missing.
-  return migrate
-    ? { DefaultConnection: 'it', Connections: [it, sqlite('queue')], Aliases: { workflow: 'it' } }
-    : { DefaultConnection: 'sqlite', Connections: [it, sqlite('sqlite'), sqlite('queue')], Aliases: { workflow: 'sqlite' } };
+  return { DefaultConnection: 'it', Connections: [it, sqlite('queue')], Aliases: { workflow: 'it' } };
 }
 
-/** Drops the workflow tables, then boots again so the migration recreates them on the real database. */
+/** Drops the workflow tables a previous run may have left, then boots so the migration recreates them on the real database. */
 export async function bootRealDb(target: RealDbTarget, options: TestEnvOptions = {}) {
-  await bootTestEnv({ ...options, extra: { ...options.extra, db: db(target, false) } });
-  const driver = (await DI.resolve(Orm)).Connections.get('it')!;
-  for (const t of TABLES) await driver.schema().dropTable(t).ifExists();
-  return bootTestEnv({ ...options, extra: { ...options.extra, db: db(target, true) } });
+  return bootTestEnv({
+    ...options,
+    extra: { ...options.extra, db: db(target) },
+    beforeMigrate: async () => {
+      const driver = (await DI.resolve(Orm)).Connections.get('it')!;
+      for (const t of TABLES) await driver.schema().dropTable(t).ifExists();
+    },
+  });
 }

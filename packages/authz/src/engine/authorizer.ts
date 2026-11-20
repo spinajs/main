@@ -90,19 +90,17 @@ export class Authorizer {
     };
   }
 
-  async check(input: CheckInput, scope?: RequestScope): Promise<Decision> {
-    return withSpan(CHECK_SPAN, { attributes: { [SpinaAttr.AuthzDomain]: this.domain } }, (span) =>
-      Perf.measure(
-        'authz.check',
-        async () => {
-          const hit = { cached: false };
-          const decision = (await runAsync(this.pipeline(input, { ...this.newRun(false, scope), hit }))).decision;
-          if (span.isRecording()) span.setAttributes(decisionAttributes(decision, hit.cached));
-          return decision;
-        },
-        { labels: { domain: this.domain } },
-      ),
-    );
+  /** `narrow` (AuthzService's authz.check hook) runs inside the span, so the span records the decision the caller gets. */
+  async check(input: CheckInput, scope?: RequestScope, narrow?: (decision: Decision) => Promise<Decision>): Promise<Decision> {
+    return withSpan(CHECK_SPAN, { attributes: { [SpinaAttr.AuthzDomain]: this.domain } }, async (span) => {
+      const hit = { cached: false };
+      const engine = await Perf.measure('authz.check', async () => (await runAsync(this.pipeline(input, { ...this.newRun(false, scope), hit }))).decision, {
+        labels: { domain: this.domain },
+      });
+      const decision = narrow ? await narrow(engine) : engine;
+      if (span.isRecording()) span.setAttributes(decisionAttributes(decision, hit.cached));
+      return decision;
+    });
   }
 
   /** Introspection, not an access attempt: unaudited, no decision cache read or stored, models read fresh. */

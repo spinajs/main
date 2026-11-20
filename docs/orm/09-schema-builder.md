@@ -89,7 +89,7 @@ Several columns marked `primaryKey()` form a composite key: the SQL compiler emi
 
 How each type maps to SQL is dialect business: see [`@spinajs/orm-sql` compilers](../orm-sql/02-query-compilers.md#ddl) and the [SQLite type mapping](../orm-sqlite/04-schema-and-ddl.md#type-mapping).
 
-`dateTime()` and `timestamp()` create the dialect's instant type and hold UTC: `TIMESTAMPTZ(3)` on PostgreSQL, `DATETIME(3)` and `TIMESTAMP(3)` on MySQL (the driver runs its sessions in UTC; `TIMESTAMP` ends in 2038), `DATETIMEOFFSET(3)` on MSSQL, and ISO-8601 UTC text in a `TEXT` column on SQLite. `default().dateTime()` is the database clock: `CURRENT_TIMESTAMP`, `CURRENT_TIMESTAMP(3)`, `SYSDATETIMEOFFSET()`, `strftime('%Y-%m-%dT%H:%M:%fZ', 'now')`.
+`dateTime()` and `timestamp()` create the dialect's instant type and hold UTC: `TIMESTAMPTZ(3)` on PostgreSQL, `DATETIME(3)` and `TIMESTAMP(3)` on MySQL (in the session zone, `TimeZone`, see [MySQL driver](../orm-mysql/01-mysql-driver.md); `TIMESTAMP` ends in 2038), `DATETIMEOFFSET(3)` on MSSQL, and ISO-8601 UTC text in a `TEXT` column on SQLite. `default().dateTime()` is the database clock: `CURRENT_TIMESTAMP`, `CURRENT_TIMESTAMP(3)`, `SYSDATETIMEOFFSET()`, `strftime('%Y-%m-%dT%H:%M:%fZ', 'now')`.
 
 ### `ColumnQueryBuilder`
 

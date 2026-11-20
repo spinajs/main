@@ -64,7 +64,7 @@ The column text comes from one protected method, `write(dt)`, which receives a v
 
 | Method | Stored | Rendered by `SqlColumnQueryCompiler` |
 | --- | --- | --- |
-| `date()` | `Query = RawQuery('(CURRENT_DATE())')` | `DEFAULT (CURRENT_DATE())`, the UTC date in the UTC session the MySQL driver opens |
+| `date()` | `Query = RawQuery('(CURRENT_DATE())')` | `DEFAULT (CURRENT_DATE())`, the date in the session zone of the MySQL connection (`TimeZone`, see [MySQL driver](../orm-mysql/01-mysql-driver.md)) |
 | `dateTime()` | `Query = RawQuery('CURRENT_TIMESTAMP(3)')` | `DEFAULT CURRENT_TIMESTAMP(3)` (MySQL needs the precision of the `DATETIME(3)` column) |
 | `value('x')`, `value(5)` | `Value` | `DEFAULT 'x'` (escaped, trimmed), `DEFAULT 5` |
 | `raw(query)` | `Query` | `DEFAULT <query>` |
@@ -75,7 +75,7 @@ Each method returns the column builder, so the chain continues.
 
 - `SqlDriver` registers the converters for every SQL connection; a dialect that stores datetimes differently (PostgreSQL, SQLite, MSSQL: `IsoDatetimeValueConverter`) registers its own after `super.resolve()`.
 - `SqlBooleanValueConverter` and the datetime converters decide by argument count, not by value: a caller that passes a fifth argument gets a boolean, or an ISO 8601 datetime unless it asks for another `dateTimeFormat`.
-- Datetimes are written in UTC on every dialect; the drivers run their sessions in UTC (see each driver's connection page), so SQL-side `NOW()` agrees with stored values.
+- Datetimes are written as instants on every dialect. On MySQL the text is the wall clock of the session zone (`TimeZone`, see [MySQL driver](../orm-mysql/01-mysql-driver.md)), the zone SQL-side `NOW()` also reads, so the two agree; the other drivers run their sessions in UTC (see each driver's connection page).
 - `SqlLiteralQuoter.quoteDate()` uses the connection's `DatetimeValueConverter`, so a replaced converter also changes dates inlined into view and event bodies.
 - Raw bindings use it too: `SqlDriver.toDriverParams()` converts a `Date` or `DateTime` passed to `RawQuery.create()` or straight to `executeOnDb()`, so raw SQL compares with model-written values.
 - `SqlDriver` does not register `DefaultValueBuilder`; every driver registers its own (MSSQL: `MsSqlDefaultValueBuilder`, `SYSDATETIMEOFFSET()`).

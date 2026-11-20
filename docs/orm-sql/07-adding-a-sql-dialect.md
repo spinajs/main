@@ -43,7 +43,7 @@ sequenceDiagram
 | Member | Contract | Reference |
 | --- | --- | --- |
 | `executeOnDb(stmt, params, context)` | Send one statement; return by `QueryContext`. | `PostgresOrmDriver._executeOnDbOnce()`: placeholders, pool or transaction connection, `mapPostgresError()` |
-| `connect()`, `disconnect()` | Open, test, set state; stop health check, close. Run the session in UTC: SQL-side `now()` and datetime text follow the session zone. | `PostgresOrmDriver.poolConfig()` (`TimeZone=UTC`), `MySqlOrmDriver.pinSessionZone()` (`SET time_zone = '+00:00'`) |
+| `connect()`, `disconnect()` | Open, test, set state; stop health check, close. Run the session in UTC: SQL-side `now()` and datetime text follow the session zone. | `PostgresOrmDriver.poolConfig()` (`TimeZone=UTC`), `MySqlOrmDriver.pinSessionZone()` (`SET time_zone` from the `TimeZone` option) |
 | `ping()` | `true` when a trivial query succeeds. Bypass `withReconnect()`. | `MySqlOrmDriver.ping()`: `SELECT 1` through `_executeOnDbOnce()` |
 | `supportedFeatures()` | `{ events, insertReturning, insertIdIsFirstOfBatch?, concurrentTransactions?, nativeJson? }`; see [Feature flags](#feature-flags) | all four drivers |
 | Error mapping | `executeOnDb()` rejects with `UniqueViolation` (extends `ResourceDuplicated`) for a unique or primary-key violation only, `ConstraintViolation` with its `kind` (`not_null`, `check`, `foreign_key`, `other`) for another constraint, `OrmException` for the rest. Fill `table`, `constraint` and `columns` where the client reports them. | `mapPostgresError()` (`code` `23505`, the rest of class `23`), `mapMySqlError()` (`errno` `1062`), `mapMsSqlError()` (`number` `2627` / `2601`), `mapSqliteError()` (`UNIQUE constraint failed`) |

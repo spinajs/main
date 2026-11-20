@@ -15,7 +15,7 @@
 | `AlterTableQueryCompiler` | `SqlAlterTableQueryCompiler` | one `ALTER TABLE` per dropped column (`` DROP COLUMN `c` ``), rename and changed column |
 | `IndexQueryCompiler` | `SqlIndexQueryCompiler` (from `SqlDriver`) | `` CREATE [UNIQUE] INDEX `i` ON `t` (...) ``, or `` DROP INDEX `i` ON `t` `` after `drop()` |
 | `AlterColumnQueryCompiler` | `SqlAlterColumnQueryCompiler` | `ADD <column> [AFTER x]`, `MODIFY <column>`, `RENAME COLUMN a TO b` |
-| `DefaultValueBuilder` | `SqlDefaultValueBuilder` | `date()`: `(CURRENT_DATE())`; `dateTime()`: `CURRENT_TIMESTAMP(3)`, the precision of a `DATETIME(3)` column; `value(v)`; `raw(q)`. Both read the session clock, which the driver pins to UTC. |
+| `DefaultValueBuilder` | `SqlDefaultValueBuilder` | `date()`: `(CURRENT_DATE())`; `dateTime()`: `CURRENT_TIMESTAMP(3)`, the precision of a `DATETIME(3)` column; `value(v)`; `raw(q)`. Both read the session clock, in the session zone (`TimeZone`, see [MySQL driver](01-mysql-driver.md)). |
 | `TruncateTableQueryCompiler` | `SqlTruncateTableQueryCompiler` | `TRUNCATE TABLE <table>` |
 | `TableCloneQueryCompiler` | `SqlTableCloneQueryCompiler` | `CREATE [TEMPORARY] TABLE t LIKE src`, then for a deep clone `INSERT INTO t SELECT ...` |
 | `CreateViewCompiler` | `MySqlCreateViewCompiler` | `CREATE [OR REPLACE] [ALGORITHM=...] [SQL SECURITY ...] VIEW ... AS ... [WITH [CASCADED\|LOCAL] CHECK OPTION]` |
@@ -96,7 +96,7 @@ MySQL commits implicitly before and after `CREATE`, `ALTER`, `DROP`, `TRUNCATE` 
 
 | Key | Type | Default | Allowed values | Meaning |
 | --- | --- | --- | --- | --- |
-| `db.Connections[].Migration.OnStartup` | `boolean` | unset (off) | | Run pending migrations of this connection when the `Orm` resolves. See [Migrations](../orm/10-migrations.md#configuration). |
+| `db.MigrationCheck` | `string` | `fail` | `fail`, `warn`, `off` | What `Orm.resolve()` does with pending or failed migrations; `Migration.Check` overrides it per connection. See [Migrations](../orm/10-migrations.md#configuration). |
 | `db.Connections[].Migration.Table` | `string` | `spinajs_migration` | | Tracking table. |
 | `db.Connections[].Migration.Transaction.Mode` | `MigrationTransactionMode` | `None` | `None`, `PerMigration`, `PerRun` | Wraps migrations in a transaction; DDL still commits implicitly. |
 

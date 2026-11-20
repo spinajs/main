@@ -1,6 +1,7 @@
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
-import { MigrationTransactionMode, Orm } from '@spinajs/orm';
+import { MigrationTransactionMode } from '@spinajs/orm';
+import { migrateTestDatabase } from '@spinajs/orm/testing';
 import '@spinajs/orm-sqlite';
 import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
@@ -26,7 +27,6 @@ class JobModelConnectionConf extends FrameworkConfiguration {
             Filename: ':memory:',
             Name: 'queue',
             Migration: {
-              OnStartup: true,
               Table: 'orm_migrations',
               Transaction: { Mode: MigrationTransactionMode.PerMigration },
             },
@@ -45,7 +45,7 @@ describe('JobModel progress columns', function () {
     DI.register(JobModelConnectionConf).as(Configuration);
     await DI.resolve(Configuration);
     // runs the queue migrations (incl. the Phase/Message column migration)
-    await (await DI.resolve(Orm)).Migrator.ready();
+    await migrateTestDatabase();
   });
 
   it('persists and reads back Phase and Message', async () => {

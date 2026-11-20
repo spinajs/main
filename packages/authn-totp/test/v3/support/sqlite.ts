@@ -6,6 +6,7 @@ import '@spinajs/log';
 import { Orm, QueryContext, OrmMigrator } from '@spinajs/orm';
 import type { OrmDriver } from '@spinajs/orm';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
+import { migrateTestDatabase } from '@spinajs/orm/testing';
 import '@spinajs/authn-orm';
 
 export interface SqliteDb {
@@ -21,7 +22,7 @@ export function rawQuery(driver: OrmDriver, sql: string, bindings: unknown[] = [
 
 export async function bootSqlite(name: string): Promise<SqliteDb> {
   DI.setESMModuleSupport();
-  const connection = { Name: `n5-${name}`, Driver: 'orm-driver-sqlite', Filename: ':memory:', Migration: { OnStartup: true } };
+  const connection = { Name: `n5-${name}`, Driver: 'orm-driver-sqlite', Filename: ':memory:' };
 
   class SqliteConfiguration extends FrameworkConfiguration {
     public async resolve(): Promise<void> {
@@ -39,8 +40,7 @@ export async function bootSqlite(name: string): Promise<SqliteDb> {
   container.register(Orm).asSelf();
   container.register(OrmMigrator).asSelf();
   await container.resolve(Configuration);
-  const orm = await container.resolve(Orm);
-  await (await container.resolve(Orm)).Migrator.ready();
+  const { orm } = await migrateTestDatabase(container);
   return { container, driver: orm.Connections.get('default')!, dispose: () => orm.dispose() };
 }
 

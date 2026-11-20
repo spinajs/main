@@ -2,7 +2,7 @@
 import 'mocha';
 import { expect } from 'chai';
 import { DI } from '@spinajs/di';
-import { ConstraintViolation, OrmException, QueryContext, UniqueViolation } from '@spinajs/orm';
+import { ConstraintViolation, DataException, OrmException, QueryContext, UniqueViolation } from '@spinajs/orm';
 import { MsSqlOrmDriver } from '../src/index.js';
 import { mapMsSqlError } from '../src/errors.js';
 
@@ -51,6 +51,22 @@ describe('mapMsSqlError', () => {
 
     expect(err).to.be.instanceOf(OrmException);
     expect(err).to.not.be.instanceOf(ConstraintViolation);
+    expect(err).to.not.be.instanceOf(DataException);
+  });
+
+  it('maps conversion, overflow and truncation errors to DataException', () => {
+    for (const number of [220, 232, 241, 242, 244, 245, 248, 2628, 8114, 8115, 8152]) {
+      expect(mapMsSqlError(requestError(number, `error ${number}`), at, 'SELECT', []), String(number)).to.be.instanceOf(DataException);
+    }
+  });
+
+  it('keeps the refused value out of the DataException message', () => {
+    const native = requestError(245, "Conversion failed when converting the nvarchar value 'abc' to data type int.");
+    const err = mapMsSqlError(native, { Name: 'mssql', Host: 'db', User: 'app' }, 'SELECT', ['abc']);
+
+    expect(err.message).to.contain('245');
+    expect(err.message).to.not.contain('abc');
+    expect(err.cause).to.eq(native);
   });
 });
 
