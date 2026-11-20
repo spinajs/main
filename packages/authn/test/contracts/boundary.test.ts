@@ -13,8 +13,9 @@ const expect = chai.expect;
 const PKG_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const SRC_DIR = join(PKG_ROOT, 'src', 'contracts');
 const LIB_DIR = join(PKG_ROOT, 'lib', 'contracts');
-const ALLOWED_PACKAGES = ['@spinajs/di', '@spinajs/principal', '@spinajs/util'];
-const RUNTIME_EXPORTS = ['SYSTEM', 'UNATTENDED', 'principalKey', 'ceilingHash', 'AuthenticationStrategy', 'AuthnService', 'PrincipalFactory', 'IdentityStore', 'PasswordCredentialStore', 'IdentityLinkStore', 'SessionIssuer', 'MfaStep', 'MfaPolicy', 'SecretStore', 'AuthnThrottle', 'AuthnEventListener', 'AuthnEventSink', 'ImpersonationGuard', 'PasswordService', 'TokenService', 'KeyRegistry', 'JwsVerifier', 'JwsSigner', 'CredentialExtractor', 'AuthnResponseExtension', 'RoleSource', 'Session', 'SessionKeys', 'sessionKey', 'resolveSession', 'sameRef', 'identityThrottleKeys', 'backoffDelayMs', 'CLI_ACTOR', 'cliContext', 'AUTHN_FAILURE_BODY', 'PASSWORD_HARD_CAP', 'NonceStore', 'PasskeyService'];
+// @spinajs/exceptions has no dependencies and di and util load it anyway; contracts throw its CodedHttpException.
+const ALLOWED_PACKAGES = ['@spinajs/di', '@spinajs/exceptions', '@spinajs/principal', '@spinajs/util'];
+const RUNTIME_EXPORTS = ['SYSTEM', 'UNATTENDED', 'principalKey', 'ceilingHash', 'AuthenticationStrategy', 'AuthnService', 'PrincipalFactory', 'IdentityStore', 'PasswordCredentialStore', 'IdentityLinkStore', 'SessionIssuer', 'MfaStep', 'MfaPolicy', 'SecretStore', 'AuthnThrottle', 'AuthnEventListener', 'AuthnListenerFailed', 'AuthnEventSink', 'ImpersonationGuard', 'PasswordService', 'TokenService', 'KeyRegistry', 'JwsVerifier', 'JwsSigner', 'CredentialExtractor', 'AuthnResponseExtension', 'RoleSource', 'Session', 'SessionKeys', 'sessionKey', 'resolveSession', 'sameRef', 'identityThrottleKeys', 'backoffDelayMs', 'CLI_ACTOR', 'cliContext', 'AUTHN_FAILURE_BODY', 'PASSWORD_HARD_CAP', 'NonceStore', 'PasskeyService'];
 
 // Plain JS so the same code runs in this process and in the child processes.
 const EXERCISE = `(c) => ({
@@ -139,13 +140,13 @@ describe('@spinajs/authn/contracts boundary', function () {
   });
 
   describe('imports', () => {
-    it('src/contracts imports nothing outside src/contracts except @spinajs/di, @spinajs/principal and @spinajs/util', () => {
+    it('src/contracts imports nothing outside src/contracts except @spinajs/di, @spinajs/exceptions, @spinajs/principal and @spinajs/util', () => {
       const { found, bad } = violations(SRC_DIR, /\.ts$/);
       expect(found, 'scanner found no import in src/contracts').to.include('./principal.js');
       expect(bad).to.deep.eq([]);
     });
 
-    it('lib/contracts imports nothing outside itself except @spinajs/di, @spinajs/principal and @spinajs/util', () => {
+    it('lib/contracts imports nothing outside itself except @spinajs/di, @spinajs/exceptions, @spinajs/principal and @spinajs/util', () => {
       const { found, bad } = violations(LIB_DIR, /\.js$/);
       expect(found, 'scanner found no import in lib/contracts').to.include('./principal.js');
       expect(bad).to.deep.eq([]);

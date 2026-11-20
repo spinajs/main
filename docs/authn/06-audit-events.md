@@ -7,7 +7,7 @@ Every authentication fact (a login, a failed code, a throttle refusal, an impers
 1. A core service (`DefaultAuthnService`, `AuthnImpersonationService`, `AccountLinkService`) or another authn package (`authn-local`, `authn-token`, `authn-keys`, `authn-totp`) injects `AuthnAudit` and calls `publish(event)`, or `publishIn(ctx, body)`, which stamps `at`, `ip` and `userAgent` from the `AuthnContext`. Every emitter goes through `AuthnAudit`; `@spinajs/authn/audit` exports it without registering anything.
 2. `AuthnAudit` makes one deep-frozen copy of the event (`frozenCopy`).
 3. It delivers the copy to every sink concurrently, each call bounded by `authn.audit.listenerTimeoutMs`.
-4. A sink that throws or times out is logged on the `authn-audit` log by its class name and the event type, never with the error message or event values. `publish` never rejects because of a sink.
+4. A sink that throws or times out is logged on the `authn-audit` log by its class name and the event type, never with the error message or event values. `publish` never rejects because of a sink, unless the sink is a [blocking listener](#blocking-listeners).
 5. `publish` resolves when every sink has settled or timed out. A login waits for the slowest sink, not for the sum.
 
 ### Delivery modes
@@ -24,6 +24,43 @@ A detached delivery runs the same way: every sink gets the same frozen copy, eac
 The sinks are every `AuthnEventSink` registered in the container and its ancestors (`Array.chainOf`), resolved when `AuthnAudit` boots. With no sink, boot logs a warning.
 
 A sink failure after a state change (a stored token, a confirmed TOTP enrolment) never fails the request. `AuthnAudit.over(listeners, { listenerTimeoutMs, log })` gives the same delivery over explicit listeners, for services built with `new` in tests: the `sinks` deps of `authn-local` and `authn-totp`, the `audit` dep of `DefaultKeyRegistry`, the constructor argument of `DbTokenService`.
+
+## Blocking listeners
+
+A listener whose `blocking` getter answers `true` is one an operation must not go on without, such as a recorder whose trail must hold every login. `AuthnAudit` asks the getter on every event and applies these rules; no listener can change them:
+
+1. Only an event with `outcome: 'success'` that is published with `publish` or `publishIn` can be stopped. It goes to the blocking listeners first, concurrently among themselves. When one of them throws or runs out of `authn.audit.listenerTimeoutMs`, the publish rejects with `AuthnListenerFailed` and no listener that is not blocking gets the event: no webhook and no queue event goes out for a login that did not stand. The other blocking listeners got it at the same time, so one of them may have recorded a success that was then refused. A `blocking` getter that throws counts as a blocking listener that failed.
+2. When every blocking listener took the event, the other listeners get it as before: concurrently, each bounded by the timeout, failures logged.
+3. An event with `outcome: 'failure'` is never stopped. A blocking listener still gets it, bounded and logged like any other, so a wrong password answers its 401 also while the listener's store is down.
+4. A detached event (`publishDetached`) is never stopped: the operation that raised it has returned. A blocking listener gets it like any other.
+5. The timeout is the one of every listener, and running out of it counts as a failure: a blocking listener that does not answer has not taken the event.
+
+```ts
+@Injectable(AuthnEventListener)
+export class LedgerListener extends AuthnEventListener {
+  public override get blocking(): boolean {
+    return true;
+  }
+
+  public async on(e: AuthnEvent): Promise<void> {
+    await ledger.append(e);
+  }
+}
+```
+
+`AuthnListenerFailed` is a `CodedHttpException` with status 503 and the code `authn_listener_failed`; `@spinajs/http` answers it as a problem document with that status. Its message, the document's `detail`, names neither the listener nor the event: `listener` and `eventType` are fields of the exception for the log, and what the listener threw stays in `inner`. The response carries none of them.
+
+Where `DefaultAuthnService` announces a session it has just issued or elevated, a stopped announcement revokes that session before the failure goes on: the login (`login`, `session.issue`), the MFA challenge (the pending session), the MFA completion (`mfa.verify`, `login`) and the step-up (`mfa.verify`, `session.rotate`). No session cookie is set, because the login route sets it only from a result `authenticate` returned. A stopped step-up leaves the user with no session at all, since the reissue already moved the old one. When the revocation itself fails, it is logged on `authn-audit` and the 503 stands; no client holds that session, which lives until it expires.
+
+An announcement of two events is published one event after the other, so the second can be stopped after every listener took the first as a success. Then each event up to the stopped one is published again with `outcome: 'failure'` and `reason: 'listener_failed'`: a listener that took `login` as a success learns that it did not stand, and the refusal is recorded.
+
+`AuthnImpersonationService` revokes the session it issued when its `impersonation.start` or `impersonation.end` event is stopped, publishes that event again as a failure with `reason: 'listener_failed'`, and rejects with `AuthnListenerFailed` (503). The session it swapped out was revoked before the event, so a stopped start leaves the administrator logged out, and a stopped end leaves the impersonator with no session.
+
+What can be stopped: every success event an emitter awaits through `publishIn` or `publish`. What cannot: the success `token.use` and `key.use` of a request authenticated by a token or a key, which `DefaultAuthnService` publishes detached, so such a request is never refused or delayed for its record. An emitter that must be stoppable uses `publishIn`.
+
+Operations that do not issue a session are not undone. A password change, a token creation or a logout whose success event is stopped rejects with 503 after its effect is committed: the state has changed, and the record is missing, which is what the 503 reports. A stopped `token.create`, `mfa.enrol` or `key.register` also loses the one-time secret the client would have received: the token is stored and nobody holds it, the recovery codes are never shown. A stopped password change in `@spinajs/authn-local` has already rotated the session, so the rotated session stays alive, nobody holds it, and the user is logged out.
+
+Latency: a login publishes two success events one after the other, so each blocking listener is awaited twice. A listener that does not answer costs `authn.audit.listenerTimeoutMs` on the stopped event, and as much again on each event that is then published again as a failure, one after the other: a login stopped on `login` takes up to twice the timeout (4 s by default), one stopped on `session.issue` up to three times (6 s).
 
 ## The event
 
@@ -115,7 +152,7 @@ Import the module before the app boots: `AuthnAudit` lists the sinks when it res
 - A sink may see a detached `token.use` success after the response to its request has gone out.
 - Sinks run concurrently. No sink may rely on another sink having run first.
 - All sinks get the same deep-frozen copy, so a sink cannot change what another sees or what the caller holds.
-- A sink failure never fails a login.
+- A sink failure never fails a login, unless the sink is a [blocking listener](#blocking-listeners).
 - A child container that registers its own sink keeps its ancestors' sinks.
 
 ## Best practices

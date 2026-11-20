@@ -153,15 +153,20 @@ describe('audit and impersonation guard contracts', () => {
   });
 
   describe('source shape (member names, modifiers, parameter names)', () => {
-    it('audit.ts holds AuthnEventListener with on, ready and flush, and the AuthnEventSink bridge', () => {
+    it('audit.ts holds AuthnEventListener with on, blocking, ready and flush, AuthnListenerFailed and the AuthnEventSink bridge', () => {
       expect(shape(classMembers('audit.ts'))).to.deep.eq({
         AuthnEventListener: {
           base: null,
           members: [
             { name: 'on', modifiers: ['abstract'], optional: false, params: ['e'] },
+            { name: 'blocking', modifiers: ['public'], optional: false, params: null },
             { name: 'ready', modifiers: [], optional: true, params: [] },
             { name: 'flush', modifiers: [], optional: true, params: [] },
           ],
+        },
+        AuthnListenerFailed: {
+          base: 'CodedHttpException',
+          members: [{ name: '', modifiers: [], optional: false, params: null }],
         },
         AuthnEventSink: {
           base: 'AuthnEventListener',
@@ -194,7 +199,9 @@ describe('audit and impersonation guard contracts', () => {
       const listener = classMembers('audit.ts').AuthnEventListener;
       expect(listener.doc).to.contain('every registered listener gets every event (A21)');
       expect(listener.doc).to.contain('authn.audit.listenerTimeoutMs');
-      expect(listener.doc).to.contain('never fails the publish');
+      expect(listener.doc).to.contain('does not fail the publish, unless it is blocking');
+      expect(listener.members.find((m) => m.name === 'blocking')?.doc).to.contain('Failure events and detached events are never stopped');
+      expect(classMembers('audit.ts').AuthnListenerFailed.doc).to.contain('503');
       expect(listener.members.find((m) => m.name === 'ready')?.doc).to.contain('a throw fails the boot');
       expect(listener.members.find((m) => m.name === 'flush')?.doc).to.contain('AuthnAudit.settled()');
       expect(classMembers('audit.ts').AuthnEventSink.doc).to.contain('@deprecated');
