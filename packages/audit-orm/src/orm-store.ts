@@ -11,7 +11,9 @@ export const quoted = (v: string): string => JSON.stringify(v);
 const isDriver = (v: unknown): v is OrmDriver => v instanceof OrmDriver;
 
 // Per caller transaction: the last joined insert. OrmDriver.transaction() expects the savepoints of one transaction to
-// run one after another, and parallel confirmed writes of one caller would interleave them.
+// run one after another, and parallel confirmed writes of one caller would interleave them. A confirmed audit write
+// raised from inside a joined insert (a query middleware on the trail table) would wait for its own turn forever, as
+// joined writes have no deadline: whatever audits builder writes must leave trail tables out.
 const joinedTails = new WeakMap<object, Promise<void>>();
 
 /** The driver a write goes to: the handed one for a transactional write (`store` names the store in its errors), else the connection the write names, else the trail's. */

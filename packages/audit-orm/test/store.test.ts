@@ -226,6 +226,29 @@ describe('TableAuditStore', function () {
           });
           expect((await db.rows(dialect, tableOf(dialect))).map((r) => r.action)).to.deep.eq(['kept']);
         });
+
+        it('tells a savepoint that could not be set from one that could not be released', async () => {
+          const driver = db.driver(dialect);
+          const innerOf = async (): Promise<string> => {
+            const error: unknown = await audit()
+              .record(input, { trail })
+              .catch((e: unknown) => e);
+            return error instanceof AuditWriteFailed && error.inner instanceof Error ? error.inner.message : '';
+          };
+          const failed = `audit: recording 1 event(s) of trail "${trail}" on connection "${driver.Options.Name}" failed at its savepoint in the caller's transaction`;
+          const refused = driver.transaction(async () => {
+            for (const step of ['_savepoint', '_releaseSavepoint']) {
+              Reflect.set(driver, step, () => Promise.reject(new Error(`${step} refused`)));
+              try {
+                expect(await innerOf()).to.eq(step === '_savepoint' ? failed : `${failed}; that transaction may be unusable`);
+              } finally {
+                Reflect.deleteProperty(driver, step);
+              }
+            }
+            throw new Error('caller failed');
+          });
+          await expect(refused).to.be.rejectedWith('caller failed');
+        });
       } else {
         it("keeps a confirmed event when the caller's transaction rolls back", async () => {
           const driver = db.driver(dialect);

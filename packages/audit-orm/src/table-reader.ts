@@ -35,6 +35,7 @@ export class TableAuditReader extends AuditReader {
     return auditConnection(source ?? trail.connection);
   }
 
+  /** Compared with `trail.table` as an exact string, as audit-orm compares table names everywhere: another spelling of the same table counts as another table. */
   protected table(trail: TrailConfig): string {
     return trail.table;
   }

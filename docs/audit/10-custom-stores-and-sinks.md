@@ -44,7 +44,7 @@ Keep the request timeout under `audit.ship.deliverTimeoutMs`: past it the shippe
 
 ## A write-only `AuditStore`
 
-`append(write)` stores `write.events` for `write.trail`; a throw fails the write, and the service applies the trail's retries and `onFailure` around it. `reader()` returning `undefined` makes every read, `forget` and `verify` of the trail throw `AuditNotSupported`.
+`append(write)` stores `write.events` for `write.trail`; a throw fails the write. A detached confirmed or a deferred write is retried as the trail's `retry` says and then handled by its `onFailure`; a transactional or a joined write is tried once, and a failed transactional write always throws into the caller. `reader()` returning `undefined` makes every read, `forget` and `verify` of the trail throw `AuditNotSupported`.
 
 ```ts sample
 import { appendFile } from 'node:fs/promises';
@@ -69,7 +69,7 @@ export class JsonLinesAuditStore extends AuditStore {
 Two optional members change how the service treats a store:
 
 - `joinsTransaction = true`: the store writes into `write.transaction` and commits and rolls back with it. Without it a `transactional` write to the trail is refused.
-- `joinsCaller(trail, connection)`: asked before a confirmed write; `true` appends in the caller's async context, once, without retries and without `audit.confirmTimeoutMs`, so the event commits or rolls back with a transaction the caller holds open. A store that answers `true` must leave that transaction usable when its append fails.
+- `joinsCaller(trail, connection)`: asked before a confirmed write; `true` appends in the caller's async context, once, without retries and without `audit.confirmTimeoutMs`, so the event commits or rolls back with a transaction the caller holds open. A store that answers `true` must leave that transaction usable when its append fails, must bound the append itself (the service puts no deadline on it), and must answer `true` only while the caller holds a transaction the append will use.
 
 `write.connection` is the connection a confirmed or deferred write named; a store that keeps no connections ignores it.
 
@@ -133,5 +133,5 @@ export class LegacyAuditReader extends TableAuditReader {
 
 - A sink that does not deduplicate on `id` stores duplicates: delivery is at least once.
 - A store without `joinsTransaction` cannot take transactional writes, and one without a reader cannot be read, erased, pruned or verified from the application.
-- A `TableAuditReader` subclass whose `table(trail)` or `driver(trail, undefined)` is not the trail's table on the trail's connection is erased there only, not on every connection that holds the trail table. Retention still finds connections by `trail.table` and calls `prune(trail, before, source)` once for each that holds it; override `prune` if your table lives elsewhere.
+- A `TableAuditReader` subclass whose `table(trail)` or `driver(trail, undefined)` is not the trail's table on the trail's connection is erased there only, not on every connection that holds the trail table. Table names are compared as exact strings: the trail table under another spelling (`public.audit_event`, another case) counts as another table, so keep `table(trail)` returning `trail.table` as written when you mean it. Retention still finds connections by `trail.table` and calls `prune(trail, before, source)` once for each that holds it; override `prune` if your table lives elsewhere.
 - A custom reader's `redact` must keep `data_hash` and every sealed field, or the seals of a sealed trail fail after an erasure, and must leave erasure records (`kind: 'custom'`, `action: 'erasure'`) alone.

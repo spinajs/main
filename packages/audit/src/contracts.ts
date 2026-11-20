@@ -102,11 +102,15 @@ export abstract class AuditStore {
    * Asked synchronously in the caller's async context before a confirmed write; true appends there instead of detached,
    * once, without retries and without `audit.confirmTimeoutMs`. The cost of joining: the record then commits or rolls back
    * with the caller's open transaction. A store answering true must leave that transaction usable when its append fails
-   * (a savepoint where the driver aborts a transaction on error, as Postgres does), or answer false there. Throwing an
-   * `AuditConfigError` fails the write; any other throw reads as false.
+   * (a savepoint where the driver aborts a transaction on error, as Postgres does), or answer false there. The service
+   * puts no deadline on a joined append, so the store must bound it itself, and answer true only while the caller holds
+   * a transaction that append will use. Throwing an `AuditConfigError` fails the write; any other throw reads as false.
    */
   joinsCaller?(trail: TrailConfig, connection: string | undefined): boolean;
-  /** Throwing fails the write; the service applies retry and onFailure around it. */
+  /**
+   * Throwing fails the write. A detached confirmed or a deferred write is retried and then handled by onFailure; a
+   * transactional or a joined write is tried once, and a transactional one always fails the caller.
+   */
   abstract append(write: AuditAppend): Promise<void>;
   /** Undefined: the trail cannot be read from this application. */
   abstract reader(trail: TrailConfig): Promise<AuditReader | undefined>;

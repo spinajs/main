@@ -78,7 +78,7 @@ export class AuditBilling_2026_11_17_00_00_00 extends AuditTrailTableMigration {
 }
 ```
 
-**One table per trail, on every connection.** A trail table has no trail column, and transactional events sit on the connection of each audited write, so two table trails that name the same table would read, erase and prune each other's events whatever their connections. The later of the two (built-in trails first, then configuration order) is refused with `AuditConfigError` on write, read and retention; the first keeps working. A configured table trail without its own `table` gets `audit_event` and therefore collides with `default`. The tables `audit_outbox` and `audit_seal` are reserved: a trail that names one is refused.
+**One table per trail, on every connection.** A trail table has no trail column, and transactional events sit on the connection of each audited write, so two table trails that name the same table would read, erase and prune each other's events whatever their connections. The later of the two (built-in trails first, then configuration order) is refused with `AuditConfigError` on write, read and retention; the first keeps working. A configured table trail without its own `table` gets `audit_event` and therefore collides with `default`. The tables `audit_outbox` and `audit_seal` are reserved: a trail that names one is refused. The check reads the trails of the root container's configuration and the store classes registered there: trails a child container configures on its own, and a store registered through a factory, are not checked.
 
 ## Write modes
 
@@ -103,7 +103,7 @@ Whether a confirmed event survives the rollback of a transaction open on the con
 - **Pooled drivers (Postgres, MySQL, MSSQL).** The event is written on a connection of its own and is kept when the caller's transaction rolls back. That needs a pool of at least two connections; with one, the write waits for the caller's transaction and fails at `audit.confirmTimeoutMs`.
 - **sqlite and PGlite** (one transaction at a time). When the caller holds a transaction open on that connection, the write **joins** it: attempted once, inside a savepoint, without retries and without a deadline, and it **rolls back with the caller**. Record the audit of a refused or failed action after the transaction that is rolled back, not inside it. Connections that share one PGlite instance (`Options.Shared`) are not detected as one: a confirmed write to one while another holds a transaction waits and fails at the deadline.
 
-Joined writes of one transaction run one after another. A failed one leaves the caller's transaction usable: a `reject` trail throws `AuditWriteFailed`, a `continue` trail logs the loss. Await every `record` before the transaction ends; a joined write left running may land after it ended. So never `Promise.all` over `record()` inside a transaction: when one rejects, `Promise.all` returns while the others still run. Use `Promise.allSettled`:
+Joined writes of one transaction run one after another. A failed one leaves the caller's transaction usable: a `reject` trail throws `AuditWriteFailed`, a `continue` trail logs the loss. Await every `record` before the transaction ends; a joined write left running may land after it ended. So never `Promise.all` over `record()` inside a transaction: when one rejects, `Promise.all` returns while the others still run. Use `Promise.allSettled`, as below. Do not run a nested `driver.transaction()` in parallel with a `record` in the same transaction either: their savepoints interleave.
 
 ```ts sample
 import { audit } from '@spinajs/audit';
@@ -125,7 +125,7 @@ The transactional mode of the same write is one call: `audit().record(events, { 
 
 ## Masking
 
-`omit`, `mask` and `hash` take paths: `data.<path>` with `*` for any key or array element and a number for one element, or one of the top-level fields `actor`, `onBehalfOf`, `origin`, `dataSubject` (`actor` cannot be omitted). The trail's lists are united with the call's, then applied in order: omit removes, mask writes `***`, hash writes an HMAC-SHA256 (base64url) of the value.
+`omit`, `mask` and `hash` take paths: `data.<path>` with `*` for any key or array element and a number for one element (counted in the list as earlier `omit` paths left it: omitting `data.tags.0` moves the next element to 0), or one of the top-level fields `actor`, `onBehalfOf`, `origin`, `dataSubject` (`actor` cannot be omitted). The trail's lists are united with the call's, then applied in order: omit removes, mask writes `***`, hash writes an HMAC-SHA256 (base64url) of the value: a string as it is, a bigint as its decimal text, anything else as its canonical JSON. A number below 1e21 therefore hashes like the same identifier written as a string or a bigint (from 1e21 up JSON writes an exponent, and it no longer matches its bigint); a `Date`, or any value whose JSON is a string, hashes as that JSON string with its quotes, so it does not match the same text stored as a string. A path enters class instances as plain objects; a `Map` or `Set` it runs through is written as an empty object.
 
 The hash key is `audit.hashKey.secret` (at least 32 characters). Without it each process draws a random key, so a hashed value is comparable only within one process: on a trail that is kept, set the secret.
 
