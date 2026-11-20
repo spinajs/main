@@ -1,7 +1,7 @@
 import * as chai from 'chai';
 import 'mocha';
 import sinon from 'sinon';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { policyHash } from '@spinajs/authz-ir';
@@ -69,10 +69,19 @@ describe('authz:compile', function () {
     out.length = 0;
     await run({ check: true });
     expect(process.exitCode).to.equal(undefined);
-    writeFileSync(file(), JSON.stringify({ version: 1, types: {}, permissions: {}, caveats: {}, combine: { default: { algorithm: 'deny-overrides' } }, principal: { ceiling: true, delegation: true, ancestry: 'parent', roles: {} }, opaque: [] }));
+    const stale = JSON.stringify({ version: 1, types: {}, permissions: {}, caveats: {}, combine: { default: { algorithm: 'deny-overrides' } }, principal: { ceiling: true, delegation: true, ancestry: 'parent', roles: {} }, opaque: [] });
+    writeFileSync(file(), stale);
     await run({ check: true });
     expect(process.exitCode).to.equal(1);
     expect(failed('stale (hash')).to.equal(true);
+    expect(readFileSync(file(), 'utf8')).to.equal(stale);
+  });
+
+  it('--check names a file it cannot read as unreadable, not as missing', async () => {
+    mkdirSync(file());
+    await run({ check: true });
+    expect(failed('stale (not readable:')).to.equal(true);
+    expect(failed('missing')).to.equal(false);
   });
 
   it('--check reports why: a missing file, invalid JSON and valid JSON that is not a policy IR', async () => {
@@ -89,12 +98,20 @@ describe('authz:compile', function () {
     expect(process.exitCode).to.equal(1);
   });
 
-  it('--record stores the policy version; --record with --live is refused', async () => {
+  it('--record stores the policy version; --record with --live or --check is refused', async () => {
     await run({ record: true });
-    expect(await readPolicyVersion(hashLine())).to.not.equal(undefined);
+    const hash = hashLine();
+    expect(await readPolicyVersion(hash)).to.not.equal(undefined);
     out.length = 0;
     await run({ record: true, live: true });
     expect(process.exitCode).to.equal(1);
+    await dropChangeLogTables(db, 'sqlite');
+    await createChangeLogTables(db, 'sqlite');
+    process.exitCode = undefined;
+    await run({ record: true, check: true });
+    expect(process.exitCode).to.equal(1);
+    expect(failed('--check')).to.equal(true);
+    expect(await readPolicyVersion(hash)).to.equal(undefined);
   });
 
   it('--live says its hash is not a policy version', async () => {
