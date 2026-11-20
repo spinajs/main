@@ -7,7 +7,7 @@ export class __mutex__ extends ModelBase<__mutex__> {
   @Primary()
   public Name: string;
 
-  public Tenant: string;
+  public Holder: string;
 
   public Locked: boolean;
 

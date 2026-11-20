@@ -255,6 +255,8 @@ export interface ChangeEntry {
     readonly key: string;
     /** JSON-serialisable state after the change (or what was removed). */
     readonly payload?: unknown;
+    /** JSON-serialisable state the change replaced, when the store knows it. */
+    readonly before?: unknown;
     /** `principalKey` of who made the change; the current principal when absent. */
     readonly actor?: string;
     /** The instant of the change; now when absent. */
@@ -268,6 +270,8 @@ export interface ChangeRecord {
     readonly op: ChangeOp;
     readonly key: string;
     readonly payload: unknown;
+    /** null when the store logged none. */
+    readonly before: unknown;
     readonly actor: string | null;
     readonly traceId: string | null;
 }
@@ -293,6 +297,22 @@ export declare abstract class ChangeLog {
     abstract since(seq: number, query?: ChangeQuery): Promise<readonly ChangeRecord[]>;
     /** Changes at or before `at`, in `seq` order. */
     abstract until(at: Date, query?: ChangeQuery): Promise<readonly ChangeRecord[]>;
+    /** Changes whose `at` is after the instant, in `seq` order (`afterInstant`, not `after`: `ChangeQuery.after` is a seq). */
+    abstract afterInstant(at: Date, query?: ChangeQuery): Promise<readonly ChangeRecord[]>;
+    /** For each key, its last change at or before `at`; without `at`, its last change. Keys without one are absent. */
+    abstract latest(kind: ChangeKind, keys: readonly string[], at?: Date): Promise<ReadonlyMap<string, ChangeRecord>>;
+    /**
+     * From when every write of `kind` (of `resourceType`, for `column`) up to now is in the log, as recorded by the app's
+     * boots; undefined when never covered. Independent of the calling process.
+     */
+    abstract coveredSince(kind: ChangeKind, resourceType?: ResourceType): Promise<Date | undefined>;
+    /**
+     * A write of `kind` escaped the log just now: coverage restarts now. `column` without a type: of every type. A store
+     * awaits it inside the write that escaped, so the signal commits or rolls back with the write; it may reject, and
+     * then the write fails: a write whose loss cannot be recorded is not made. A caller that catches that rejection and
+     * commits anyway commits the escaped write with no record of the loss.
+     */
+    abstract lost(kind: ChangeKind, resourceType?: ResourceType, reason?: string): Promise<void>;
 }
 /** The log of an app without a changelog store: records nothing, covers nothing. */
 export declare class NoChangeLog extends ChangeLog {
@@ -301,6 +321,10 @@ export declare class NoChangeLog extends ChangeLog {
     append(_entries: readonly ChangeEntry[]): Promise<void>;
     since(_seq: number, _query?: ChangeQuery): Promise<readonly ChangeRecord[]>;
     until(_at: Date, _query?: ChangeQuery): Promise<readonly ChangeRecord[]>;
+    afterInstant(_at: Date, _query?: ChangeQuery): Promise<readonly ChangeRecord[]>;
+    latest(_kind: ChangeKind, _keys: readonly string[], _at?: Date): Promise<ReadonlyMap<string, ChangeRecord>>;
+    coveredSince(_kind: ChangeKind, _resourceType?: ResourceType): Promise<Date | undefined>;
+    lost(_kind: ChangeKind, _resourceType?: ResourceType, _reason?: string): Promise<void>;
 }
 
 // values
@@ -360,6 +384,35 @@ export interface ScopeAttributesQuery {
 import type { Permission } from "./permission.js";
 import type { ResourceRef } from "./principal.js";
 import type { DecisionReadSet } from "./tap.js";
+import type { AuthzService } from "./service.js";
+/** What a replay needs of a principal to narrow like the engine did; never its attributes or authn. */
+export interface PrincipalFactsRecord {
+    type: string;
+    id: string;
+    ceiling?: {
+        roles?: string[];
+        permissions?: string[];
+        resources?: Array<{
+            type: string;
+            id?: string;
+        }>;
+        expiresAt?: string;
+    };
+    onBehalfOf?: PrincipalFactsRecord;
+    delegation?: "intersect" | "inherit";
+    /** principalKey() of each companion. */
+    companions?: string[];
+}
+/**
+ * The read set in the tagged form `inputsHash` hashed, so a stored copy re-hashes to it: `undefined` is `"<undefined>"`,
+ * a non-finite number `"<number:NaN>"`, a bigint `"<bigint>"` (its value is not kept), a Date its ISO string, a cycle
+ * `"<cycle>"`. A string equal to a tag reads the same as the value it stands for.
+ */
+export interface CapturedInputs extends DecisionReadSet {
+    /** The exact strings `inputsHash` hashed for the principal and the actor. */
+    principalState: string | null;
+    actorState: string | null;
+}
 /** One logged decision (G13); `inputsHash` lets a replay prove it saw the same inputs (G14). */
 export interface DecisionRecord {
     /** UUIDv7, the `Decision.id` of the decision and the `decisionId` of its 403. */
@@ -382,8 +435,20 @@ export interface DecisionRecord {
     modelVersions: Record<string, string>;
     /** SHA-256 (hex) of the canonical inputs the decision read. */
     inputsHash: string;
+    /**
+     * Authorization facts of the principal and actor, without attributes and authn. Absent on records logged before they
+     * existed, and when a principal's facts exceed 4 KB, form a delegation cycle or hold a malformed field.
+     */
+    facts?: {
+        principal: PrincipalFactsRecord;
+        actor?: PrincipalFactsRecord;
+    };
+    /** Wall clock when the tap recorded (ISO); `at` may be the caller's `env.now`. Replay's T. */
+    loggedAt?: string;
+    /** The engine's `meta.durationMs`: how long before `loggedAt` the decision's reads may have happened. */
+    durationMs?: number;
     /** Only with `authz.decisionLog.captureInputs`. */
-    inputs?: DecisionReadSet;
+    inputs?: CapturedInputs;
 }
 /** Where decision records go; writes are batched and a failed write never fails a check. */
 export declare abstract class DecisionLog {
@@ -395,6 +460,8 @@ export declare abstract class DecisionLog {
  */
 export declare abstract class PolicyHashSource {
     abstract policyHash(domain: string): string | undefined;
+    /** Awaited by the host once a domain with a decision log has booted, before its service resolves. */
+    prepare?(domain: string, service: AuthzService): Promise<void>;
 }
 /** The trace a decision is made in; telemetry registers one so records carry trace ids and spans the decision id. */
 export declare abstract class DecisionTraceContext {
@@ -658,6 +725,7 @@ const filterHashTesting = {
 export * from "./principal.js";
 export * from "./link.js";
 export * from "./resource.js";
+export * from "./resource-key.js";
 export * from "./errors.js";
 export * from "./permission.js";
 export { CORE_FILTER_OPS, TRUE, FALSE, and, or, not, simplify, bindRefs } from "./filter.js";
@@ -673,6 +741,7 @@ export * from "./admin.js";
 export * from "./changelog.js";
 export * from "./tap.js";
 export * from "./decision-log.js";
+export * from "./replay.js";
 export * from "./consistency.js";
 ```
 
@@ -765,6 +834,8 @@ export interface IRCompileContext {
     /** Reads `authz.<model name>.<path>`, as `ModelInitContext.config` does. */
     readonly config: <T>(path: string, dflt?: T) => T;
     readonly permissions?: PermissionRegistry;
+    /** How policy held in database stores is compiled: 'include' (default) compiles what the model loaded, 'opaque' puts a `stored:<model>:<store>` term in its place, as the policy hash requires. */
+    readonly stored?: "include" | "opaque";
 }
 export interface ModelSummary {
     readonly model: string;
@@ -907,6 +978,108 @@ export { SYSTEM, UNATTENDED, principalKey, ceilingHash } from "@spinajs/principa
 export type { PrincipalType, PrincipalRef, Principal, AuthnFacts, Ceiling, ResourceType, ResourceRef, IAuthnPrincipalStorage } from "@spinajs/principal";
 ```
 
+## src/contracts/replay.ts
+
+```ts
+import type { ChangeKind } from "./changelog.js";
+import type { DecisionRecord } from "./decision-log.js";
+import { AuthzConfigError } from "./errors.js";
+/** `faithful`: replayed as logged; `divergent`: provably not; `unreplayable`: the history or the record cannot tell. */
+export type ReplayVerdict = "faithful" | "divergent" | "unreplayable";
+/** An input the replay could not establish. */
+export interface ReplayMissing {
+    input: string;
+    reason: string;
+    key?: string;
+}
+export interface ReplayDivergence {
+    part: "outcome" | "inputs-hash" | "policy-hash" | "captured-state";
+    recorded: string;
+    replayed: string;
+    key?: string;
+}
+/** One key a replay read, and where its state at T came from. `kind` is absent when no history contributor serves the relation. */
+export interface ReplayRead {
+    kind?: ChangeKind;
+    key: string;
+    origin: "current" | "history" | "gap";
+    seq?: number;
+    reason?: string;
+}
+export interface ReplayTreeNode {
+    label: string;
+    truth: "allow" | "deny" | "unknown";
+    source: string;
+    children: ReplayTreeNode[];
+    /** On a conditional tuple's caveat: the parameter paths its context supplied, which the replay holds. */
+    tupleContext?: string[];
+}
+export interface ReplayReport {
+    decision: Omit<DecisionRecord, "inputs" | "facts">;
+    /** The record's policy hash is the one its domain runs now (`PolicyHashSource.policyHash(domain)`); false without a source. */
+    currentPolicy: boolean;
+    replay: ReplayVerdict;
+    evidence?: "inputs-hash" | "outcome";
+    outcome: {
+        recorded: "allow" | "deny";
+        replayed: "allow" | "deny" | "unknown" | null;
+    };
+    inputsHash: {
+        recorded: string;
+        replayed: string | null;
+    };
+    missing: ReplayMissing[];
+    divergence: ReplayDivergence[];
+    tree: ReplayTreeNode | null;
+    reads: ReplayRead[];
+    limits: {
+        changes: number;
+        maxChanges: number;
+        keys: number;
+        durationMs: number;
+    };
+}
+export interface ReplayOptions {
+    maxChanges?: number;
+    /** Cancels the replay: it rejects with the signal's reason. */
+    signal?: AbortSignal;
+}
+/** A replay was refused: `authz.replay.concurrency` replays run in this process already. */
+export declare class ReplayBusy extends Error {
+    readonly concurrency: number;
+    constructor(concurrency: number);
+}
+/** A replay was refused: it ran inside a transaction open on the authz connection, whose snapshot would hide the stores' current rows from the changelog it reads. */
+export declare class ReplayInTransaction extends AuthzConfigError {
+    constructor();
+}
+/**
+ * Re-evaluates a logged decision against the state and policy at its instant (G14, G20). Call it outside any
+ * transaction: a replay pairs the changelog with the stores' current rows, which a transaction's snapshot would keep
+ * apart, so `DbDecisionReplay` refuses to run inside one open on the authz connection with `ReplayInTransaction`.
+ */
+export declare abstract class DecisionReplay {
+    /** undefined when no record has that id. @throws ReplayBusy when the process runs as many replays as it allows */
+    abstract replay(decisionId: string, options?: ReplayOptions): Promise<ReplayReport | undefined>;
+}
+```
+
+## src/contracts/resource-key.ts
+
+```ts
+import type { ResourceRef } from "./principal.js";
+/** The inverse of `resourceKey`: the ref a key was made from. */
+export declare function parseResourceKey(key: string): ResourceRef;
+
+// values
+const ESCAPED_TYPE = /^(?:[^%:/]|%(?:25|3A|2F))*$/;
+const UNESCAPE = {
+    "%25": "%",
+    "%3A": ":",
+    "%2F": "/"
+};
+```
+
 ## src/contracts/resource.ts
 
 ```ts
@@ -930,11 +1103,12 @@ import type { Permission } from "./permission.js";
 import type { ResourceFilter } from "./filter.js";
 import type { Decision, DecisionRequest, FieldSet, Trace } from "./decision.js";
 import type { AuthzAdmin } from "./admin.js";
-import type { AuthorizationModel, ModelSummary } from "./model.js";
+import type { AuthorizationModel, IRCompileContext, ModelSummary } from "./model.js";
 import type { AccessPlan } from "./plan.js";
 export declare abstract class AuthzService extends AsyncService {
     abstract readonly domain: string;
     abstract current(): Principal;
+    /** @spinajs run-as */
     abstract runAs<T>(principal: Principal, reason: string, fn: () => Promise<T>): Promise<T>;
     abstract check(req: CheckInput): Promise<Decision>;
     abstract can(principal: Principal, permission: Permission, resource?: ResourceRef | object, subject?: unknown): Promise<boolean>;
@@ -958,8 +1132,16 @@ export declare abstract class AuthzService extends AsyncService {
     abstract preload(principal: Principal): Promise<void>;
     abstract invalidate(tags: readonly string[]): void;
     abstract models(): readonly AuthorizationModel[];
+    /** The context `toIR` of a model of this domain compiles with: its `authz.<model>` config and the domain's permission registry. */
+    irContext?(model: AuthorizationModel): IRCompileContext;
     /** This domain's AuthzAdmin; (await AuthzDomains.service(name)).admin() reaches a per-domain variant (§6.6.1). */
     abstract admin(): AuthzAdmin;
+    /**
+     * Writes an entry to the DecisionAudit this domain picked at boot (`authz.audit.service`, `authz.domains.<name>.audit.service`,
+     * else the last registered), for a host that audits an access of its own. A kind the domain turns off (`audit.denials`, `runAs`, `unscoped`)
+     * is dropped, as the engine drops its own. Never throws: a failing audit, or a service not resolved or disposed, is logged. Optional: test doubles may leave it out.
+     */
+    audit?(entry: Parameters<DecisionAudit["record"]>[0]): void;
 }
 export type CheckInput = Omit<DecisionRequest, "resource"> & {
     readonly resource?: ResourceRef | object;
@@ -1167,6 +1349,7 @@ export interface ResourceRef {
 export type ResourceType = string;
 
 // SYSTEM (@spinajs/principal)
+/** @spinajs system-principal */
 export declare const SYSTEM: Principal;
 // value
 const SYSTEM = Object.freeze({

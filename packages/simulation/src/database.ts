@@ -92,7 +92,7 @@ export class SimDatabase {
           Filename: this.file,
           Name: SIM_CONNECTION,
           Pool: { Max: 1 },
-          Migration: { OnStartup: !this.fromTemplate, Table: 'orm_migrations', Transaction: { Mode: MigrationTransactionMode.PerMigration } },
+          Migration: { Table: 'orm_migrations', Transaction: { Mode: MigrationTransactionMode.PerMigration } },
         },
       ],
     };

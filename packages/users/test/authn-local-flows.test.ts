@@ -2,13 +2,13 @@ import { DI } from '@spinajs/di';
 import { expect } from 'chai';
 import * as sinon from 'sinon';
 import { DefaultQueueService } from '@spinajs/queue';
-import { DEFAULT_THROTTLE, FakeBackoffThrottle, MemorySecretStore, MemorySessionIssuer, RecordingEventSink } from '@spinajs/authn-testing';
+import { DEFAULT_THROTTLE, FakeBackoffThrottle, MemorySecretStore, MemorySessionIssuer, RecordingEventListener } from '@spinajs/authn-testing';
 import type { AuthnContext, IdentityRef } from '@spinajs/authn/contracts';
 import { Argon2PasswordHasher, EXPIRED_PASSWORD_MARKER, LocalPasswordPolicy, LocalPasswordService, LocalPasswordStrategy, PasswordExpirationJob, PasswordMailer } from '@spinajs/authn-local';
 import type { PasswordMail } from '@spinajs/authn-local';
 
 import { Hooks } from '@spinajs/hooks';
-import { QueueAuthnEventSink, UserActivated, UserIdentityStore, UserPasswordAgeSource, UserPasswordChanged, UserPasswordStore } from '../src/index.js';
+import { QueueAuthnEventListener, UserActivated, UserIdentityStore, UserPasswordAgeSource, UserPasswordChanged, UserPasswordStore } from '../src/index.js';
 import { UserPasswordExpired } from '../src/events/UserPasswordExpired.js';
 import { bootUsersDb, registerUsersTestHost, seedUser, storedUser } from './support/users-db.js';
 import { User } from '../src/models/User.js';
@@ -51,11 +51,11 @@ describe('authn-local password flows over the users stores', function () {
     const passwords = new UserPasswordStore();
     const hasher = new Argon2PasswordHasher({});
     await hasher.resolve();
-    const events = new RecordingEventSink();
+    const events = new RecordingEventListener();
     const mailer = new RecordingMailer();
-    const sinks = [await DI.resolve(QueueAuthnEventSink), events];
+    const listeners = [await DI.resolve(QueueAuthnEventListener), events];
     const sessions = new MemorySessionIssuer();
-    const service = new LocalPasswordService({ identities, passwords, sessions, throttle: new FakeBackoffThrottle(DEFAULT_THROTTLE), tokens: null, secrets: new MemorySecretStore(), mailer, sinks, hasher, policy: new LocalPasswordPolicy({}), hooks: await DI.resolve<Hooks>(Hooks) });
+    const service = new LocalPasswordService({ identities, passwords, sessions, throttle: new FakeBackoffThrottle(DEFAULT_THROTTLE), tokens: null, secrets: new MemorySecretStore(), mailer, listeners, hasher, policy: new LocalPasswordPolicy({}), hooks: await DI.resolve<Hooks>(Hooks) });
     const strategy = new LocalPasswordStrategy({ identities, passwords, hasher });
     await strategy.resolve();
 

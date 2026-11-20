@@ -1,9 +1,11 @@
+import { AuthnAudit } from '@spinajs/authn/audit';
+import type { AuthnAuditOverOptions } from '@spinajs/authn/audit';
 import { AuthnService } from '@spinajs/authn/contracts';
 import { DEFAULT_IPV6_PREFIX, throttleIp } from '@spinajs/authn/ip-key';
 import { hookCopy, hookRefusalOf, hookView } from '@spinajs/authn/hooks';
 import type { Hooks } from '@spinajs/hooks';
 import type { AuthnLoginIdentifiedInput } from '@spinajs/authn/hooks';
-import type { AuthenticationResult, AuthenticationStrategy, AuthnContext, AuthnEvent, AuthnEventSink, AuthnFacts, AuthnFailure, AuthnThrottle, Credentials, ExternalSubject, IdentityLinkStore, IdentityRef, IdentityStatus, IdentityStore, MfaPolicy, MfaStep, PrincipalFactory, Principal, SessionHandle, SessionIssuer, StrategyOutcome, ThrottleFlow, ThrottleKey } from '@spinajs/authn/contracts';
+import type { AuthenticationResult, AuthenticationStrategy, AuthnContext, AuthnEvent, AuthnEventListener, AuthnFacts, AuthnFailure, AuthnThrottle, Credentials, ExternalSubject, IdentityLinkStore, IdentityRef, IdentityStatus, IdentityStore, MfaPolicy, MfaStep, PrincipalFactory, Principal, SessionHandle, SessionIssuer, StrategyOutcome, ThrottleFlow, ThrottleKey } from '@spinajs/authn/contracts';
 
 export interface FakeAuthnServiceDeps {
   readonly strategies: readonly AuthenticationStrategy[];
@@ -14,8 +16,8 @@ export interface FakeAuthnServiceDeps {
   readonly policy: MfaPolicy;
   readonly steps: readonly MfaStep[];
   readonly sessions: SessionIssuer;
-  /** Read at publish time, so a sink may be added after the service is built. */
-  readonly sinks: readonly AuthnEventSink[];
+  /** Read at publish time, so a listener may be added after the service is built. */
+  readonly listeners: readonly AuthnEventListener[];
   readonly principals: PrincipalFactory;
   /** `authn.throttle.ipv6Prefix`; 64 when unset. */
   readonly ipv6Prefix?: number;
@@ -23,6 +25,8 @@ export interface FakeAuthnServiceDeps {
   readonly hooks?: Hooks;
   /** `authn.login.requireVerifiedAddress`: an interactive login of an address the store reports unverified answers `unverified_address`. */
   readonly requireVerifiedAddress?: boolean;
+  /** Where a failing listener and a failed revocation are reported, as the core's `authn-audit` log; default none. */
+  readonly log?: AuthnAuditOverOptions['log'];
 }
 
 type Success = Extract<AuthenticationResult, { status: 'success' }>;
@@ -32,6 +36,10 @@ const failure = (reason: AuthnFailure): Failure => ({ status: 'failure', reason 
 const throttled = (retryAfterSeconds: number): Failure => ({ status: 'failure', reason: 'throttled', retryAfterSeconds });
 
 type Verdict = { allowed: true } | { allowed: false; retryAfterSeconds: number };
+
+type Delivery = ReturnType<typeof AuthnAudit.over>;
+
+const KEY_KINDS: ReadonlySet<string> = new Set(['jws-assertion', 'http-signature']);
 
 /** The optional `peek` of @spinajs/authn's PeekableThrottle: whether a delay holds any key, counting nothing. */
 type Peek = (keys: readonly ThrottleKey[], flow: ThrottleFlow, ctx: AuthnContext) => Promise<Verdict>;
@@ -65,11 +73,62 @@ export class FakeAuthnService extends AuthnService {
     return null;
   }
 
+  private current?: { readonly listeners: readonly AuthnEventListener[]; readonly delivery: Delivery };
+  // Deliveries over a listener list that has changed since; they may still hold detached events.
+  private readonly retired = new Set<Delivery>();
+
+  /** Delivered as AuthnAudit delivers: blocking listeners first. */
   protected async audit(ctx: AuthnContext, e: Omit<AuthnEvent, 'at' | 'ip' | 'userAgent'>): Promise<void> {
-    const event: AuthnEvent = { at: ctx.now, ...(ctx.ip ? { ip: ctx.ip } : {}), ...(ctx.userAgent ? { userAgent: ctx.userAgent } : {}), ...e };
-    for (const sink of this.d.sinks) {
-      await sink.publish(event);
+    await this.delivery().publishIn(ctx, e);
+  }
+
+  /** As `AuthnAudit.holdIn`: the blocking listeners take the event; the resolved function tells the others. */
+  protected hold(ctx: AuthnContext, e: Omit<AuthnEvent, 'at' | 'ip' | 'userAgent'>): Promise<() => Promise<void>> {
+    return this.delivery().holdIn(ctx, e);
+  }
+
+  /** As the core publishes a non-interactive success: returns at once, and no listener can stop it. */
+  protected auditDetached(ctx: AuthnContext, e: Omit<AuthnEvent, 'at' | 'ip' | 'userAgent'>): void {
+    this.delivery().publishDetached(ctx, e);
+  }
+
+  /** As `AuthnAudit.settled()`: resolves when every detached event published so far has been delivered and every listener has flushed. */
+  async settled(): Promise<void> {
+    const retired = [...this.retired];
+    this.retired.clear();
+    await Promise.all(retired.map((d) => d.settled()));
+    await this.delivery().settled();
+  }
+
+  // One delivery per listener list, so only settled() flushes, as in the core; `d.listeners` is still read at every publish.
+  private delivery(): Delivery {
+    const listeners = this.d.listeners;
+    const current = this.current;
+    if (current && current.listeners.length === listeners.length && current.listeners.every((l, i) => l === listeners.at(i))) return current.delivery;
+    if (current) this.retired.add(current.delivery);
+    const delivery = AuthnAudit.over(listeners, this.d.log ? { log: this.d.log } : {});
+    this.current = { listeners: [...listeners], delivery };
+    return delivery;
+  }
+
+  /**
+   * As the core: the other listeners hear the events only after the blocking ones took every one. A session whose
+   * announcement a blocking listener stopped is revoked, and the told events go out again as failures.
+   */
+  private async announce(ctx: AuthnContext, session: SessionHandle, ...events: Omit<AuthnEvent, 'at' | 'ip' | 'userAgent'>[]): Promise<void> {
+    let told = 0;
+    const tells: (() => Promise<void>)[] = [];
+    try {
+      for (const e of events) {
+        told++;
+        tells.push(await this.hold(ctx, e));
+      }
+    } catch (err) {
+      await this.d.sessions.revoke(session).catch((revokeErr: unknown) => this.d.log?.warn({ errorClass: revokeErr instanceof Error ? revokeErr.name : typeof revokeErr }, 'authn: a session whose announcement was stopped could not be revoked (${errorClass})'));
+      for (const e of events.slice(0, told)) await this.audit(ctx, { ...e, outcome: 'failure', reason: 'listener_failed' });
+      throw err;
     }
+    for (const tell of tells) await tell();
   }
 
   private keysFor(base: readonly ThrottleKey[], ctx: AuthnContext): ThrottleKey[] {
@@ -186,19 +245,18 @@ export class FakeAuthnService extends AuthnService {
     const facts = { method: r.method, strategy: s.name, assurance: 'aal1' as const, mfa: [] as string[], ...external };
     const extra = { ...(r.ceiling ? { ceiling: r.ceiling } : {}), ...(r.delegation ? { delegation: r.delegation } : {}), ...(attributes && (r.attributes || Object.keys(attributes).length > 0) ? { attributes } : {}) };
     if (!s.interactive) {
-      await this.audit(ctx, { type: 'token.use', outcome: 'success', strategy: s.name, identity: id });
+      this.auditDetached(ctx, { type: s.kinds.some((k) => KEY_KINDS.has(k)) ? 'key.use' : 'token.use', outcome: 'success', strategy: s.name, identity: id });
       return { status: 'success', identity: id, facts, ...extra };
     }
     const steps = await this.d.policy.required(id, facts);
     if (steps.length > 0) {
       const pending = await this.d.sessions.issue(id, { ...facts, authenticatedAt: ctx.now }, { pending: { steps } });
-      await this.audit(ctx, { type: 'mfa.challenge', outcome: 'success', strategy: s.name, identity: id, session: await this.handleOf(pending) });
+      await this.announce(ctx, pending, { type: 'mfa.challenge', outcome: 'success', strategy: s.name, identity: id, session: await this.handleOf(pending) });
       return { status: 'mfa_required', pending, steps };
     }
     const session = await this.d.sessions.issue(id, { ...facts, authenticatedAt: ctx.now });
     const handle = await this.handleOf(session);
-    await this.audit(ctx, { type: 'login', outcome: 'success', strategy: s.name, identity: id, session: handle });
-    await this.audit(ctx, { type: 'session.issue', outcome: 'success', strategy: s.name, identity: id, session: handle });
+    await this.announce(ctx, session, { type: 'login', outcome: 'success', strategy: s.name, identity: id, session: handle }, { type: 'session.issue', outcome: 'success', strategy: s.name, identity: id, session: handle });
     return { status: 'success', identity: id, facts: { ...facts, sessionHandle: handle }, session, ...extra };
   }
 
@@ -240,8 +298,7 @@ export class FakeAuthnService extends AuthnService {
     const session = await this.d.sessions.elevate(pending, { assurance: 'aal2', mfa: [step] });
     const now = await this.d.sessions.restore(session.id);
     const { authenticatedAt: _at, ...facts } = now!.facts;
-    await this.audit(ctx, { type: 'mfa.verify', outcome: 'success', identity: id, session: facts.sessionHandle });
-    await this.audit(ctx, { type: 'login', outcome: 'success', strategy: facts.strategy, identity: id, session: facts.sessionHandle });
+    await this.announce(ctx, session, { type: 'mfa.verify', outcome: 'success', identity: id, session: facts.sessionHandle }, { type: 'login', outcome: 'success', strategy: facts.strategy, identity: id, session: facts.sessionHandle });
     return { status: 'success', identity: id, facts, session };
   }
 
@@ -308,8 +365,7 @@ export class FakeAuthnService extends AuthnService {
     await this.d.throttle.succeed(keys, 'mfa');
     const next = await this.d.sessions.reissue(session, { assurance: 'aal2', mfa: [step] });
     const { authenticatedAt: _at, ...facts } = (await this.d.sessions.restore(next.id))!.facts;
-    await this.audit(ctx, { type: 'mfa.verify', outcome: 'success', identity: id, session: facts.sessionHandle });
-    await this.audit(ctx, { type: 'session.rotate', outcome: 'success', identity: id, session: facts.sessionHandle });
+    await this.announce(ctx, next, { type: 'mfa.verify', outcome: 'success', identity: id, session: facts.sessionHandle }, { type: 'session.rotate', outcome: 'success', reason: 'step_up', identity: id, session: facts.sessionHandle });
     return { status: 'success', identity: id, facts, session: next };
   }
 

@@ -27,6 +27,8 @@ export class Workflow_2026_11_10_00_00_00 extends OrmMigration {
       t.bigint('CreatedAt').notNull();
       t.bigint('UpdatedAt').notNull();
       t.bigint('FinishedAt');
+      // the traceparent of the context start() ran in; every activation links to it
+      t.string('TraceParent', 55);
     });
 
     await connection.schema().createTable('__workflow_step', (t) => {

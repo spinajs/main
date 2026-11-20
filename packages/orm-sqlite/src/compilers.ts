@@ -130,11 +130,6 @@ export class SqliteDropDatabaseQueryCompiler extends DropDatabaseCompiler {
 @Inject(Container)
 export class SqliteTableQueryCompiler extends SqlTableQueryCompiler {
   public compile(): ICompilerOutput[] {
-    // the shared history compiler emits MySQL triggers ( DELIMITER, FIRST / AFTER ) sqlite cannot run
-    if (this.builder.TrackHistory) {
-      throw new NotSupported(`sqlite driver does not support history tables, cannot track history of ${this.builder.Table}`);
-    }
-
     const pkColumns = this.builder.Columns.filter((c) => c.PrimaryKey);
 
     // SQLite has no syntax for two inline PRIMARY KEY column constraints - it rejects

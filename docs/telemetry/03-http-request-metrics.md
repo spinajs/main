@@ -33,8 +33,7 @@
 
 1. the mounted path of the matched route (`/orders/:id`), from `ctx.path` (`http:GET /orders/:id`);
 2. `req.route.path`, the path pattern Express matched, for a route mounted outside the controllers;
-3. `req.path`, the raw path, when nothing matched;
-4. `req.originalUrl`, else `'unknown'`.
+3. `'<unmatched>'` (`UNMATCHED_ROUTE`) when no route matched. The raw path is never a label.
 
 ## Configuration
 
@@ -66,7 +65,7 @@ export default {
 - The label set is read in `onFinish`, not in `onBefore`: a server middleware learns the matched route only once routing ran, and handlers may change the status.
 - Every step is inside `try`/`catch`. A failing metric or store logs a `warn` on the `telemetry` logger and never breaks the request.
 - The gauge is balanced exactly once per request, finished or aborted (`onFinish` runs once).
-- Unmatched requests (404 scans) are labelled with their raw path. Each distinct path is a new Prometheus series; the histogram has no cap. Collapse them with a [custom route label](04-customizing-the-request-middleware.md).
+- Every request no route matched shares the `route="<unmatched>"` series: a 404 scan, a file served by a static middleware, a request a server middleware answered before routing. A caller cannot create series by inventing paths.
 - The unit is milliseconds. A dashboard built for the retired `@spinajs/metrics` package (other series names, seconds) shows nothing, or values 1000 times too large.
 
 ## Best practices
