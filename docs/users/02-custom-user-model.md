@@ -20,7 +20,7 @@ It is a **class** token, not an instance factory: authz query enforcement keys o
 | `UserPrincipalFactory`, `UserInitiatorPrincipalFactory`, `UserResourceAdapter`, `UserMetadataOwnerRelation` | `userModel()`, run as `SYSTEM` | The principal's `identity` is your subclass; a scoped model cannot hide the row from the lookup. |
 | `getUserUnsafe()` | `UserBase` | Reads any row. |
 | `assertUserUnique()`, `create()` | base `User` | Uniqueness is global; `create()` inserts a `new User(...)`. |
-| `UserIdentityStore`, `UserPasswordStore`, `UserPasswordAgeSource`, `UserPasswordStateHook`, `QueueAuthnEventSink`, `UserAccountStatusSource` | base `User` or its driver, run as `SYSTEM` where it matters | Login, reset and admin checks see every row, soft-deleted ones included. |
+| `UserIdentityStore`, `UserPasswordStore`, `UserPasswordAgeSource`, `UserPasswordStateHook`, `QueueAuthnEventListener`, `UserAccountStatusSource` | base `User` or its driver, run as `SYSTEM` where it matters | Login, reset and admin checks see every row, soft-deleted ones included. |
 
 ## Services and extension points
 

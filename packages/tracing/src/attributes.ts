@@ -21,5 +21,13 @@ export const SpinaAttr = {
   Schedule: 'spina.scheduler.schedule',
   Step: 'spina.scheduler.step',
   Resumed: 'spina.scheduler.resumed',
+  Attempt: 'spina.scheduler.attempt',
+  Trigger: 'spina.scheduler.trigger',
+  Replayed: 'spina.scheduler.replayed',
   SocketCommand: 'spina.socket.command',
+  Workflow: 'spina.workflow.name',
+  WorkflowInstance: 'spina.workflow.instance_id',
+  WorkflowVersion: 'spina.workflow.version',
+  WorkflowStep: 'spina.workflow.step',
+  WorkflowStepAttempt: 'spina.workflow.step_attempt',
 } as const;

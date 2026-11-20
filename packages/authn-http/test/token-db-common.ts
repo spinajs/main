@@ -115,7 +115,6 @@ export class DbTestConfiguration extends FrameworkConfiguration {
             Name: 'sqlite',
             Migration: {
               Table: 'orm_migrations',
-              OnStartup: true,
               Transaction: { Mode: MigrationTransactionMode.PerMigration },
             },
           },

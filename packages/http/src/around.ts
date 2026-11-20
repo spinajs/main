@@ -6,7 +6,7 @@ import { RouteAnsweredInPlace, RouteClientGone } from './exceptions.js';
 import { markStage, noteRouteError, routeErrorOf } from './errors/on-error.js';
 import { DeferredCapture, attachResponseCapture, responseCaptureOf } from './response-capture.js';
 import type { CapturedJsonReply } from './response-capture.js';
-import { answeredErrorOf, answeredEarly, enterMiddleware, repliedInPlace, routeContextOf, serverContextOf } from './reply-pipeline.js';
+import { answeredErrorOf, answeredEarly, endedWithoutAction, enterMiddleware, repliedInPlace, routeContextOf, serverContextOf } from './reply-pipeline.js';
 
 const AROUNDS = Symbol('aroundsSettled');
 
@@ -165,11 +165,14 @@ function aroundHandler(middleware: AroundMiddleware, scope: AroundScope, log: Lo
       if (!failure) {
         if (!proceeded && !res.headersSent && !gone) {
           next(new UnexpectedServerError(`${name} ended ${ended} without proceeding or answering it`));
+        } else if (!chainStarted) {
+          endedWithoutAction(res, gone ? new RouteClientGone({ beforeRoute: true }) : undefined);
         }
       } else if (!chainStarted && !res.headersSent && !gone) {
         next(failure.error);
       } else {
         log.error({ error: failure.error, middleware: name, route: server ? 'every request' : scope.path }, 'Around middleware ${middleware} of ${route} failed after the route ran or the client went away');
+        if (!chainStarted) endedWithoutAction(res, failure.error);
       }
       markSettled();
     };

@@ -3,7 +3,7 @@ import 'mocha';
 import { readFileSync } from 'node:fs';
 import { PermissionRegistryImpl } from '@spinajs/authz';
 import type { PermissionInput } from '@spinajs/authz';
-import { GLOBAL_OBJECT, IREvaluator, MemoryTupleSource, canonicalize, mergeFragments, validateIR } from '@spinajs/authz-ir';
+import { GLOBAL_OBJECT, IREvaluator, MemoryTupleSource, canonicalize, mergeFragments, storedPolicyName, validateIR } from '@spinajs/authz-ir';
 import type { IRFragment, PolicyIR, Truth } from '@spinajs/authz-ir';
 
 import { compileGrants, compileRoles, rbacToIR } from '../src/index.js';
@@ -21,7 +21,7 @@ const registry = (defs: readonly PermissionInput[]): PermissionRegistryImpl => {
 type Extra = Partial<Omit<RoleDef, 'name' | 'grants'>>;
 const role = (name: string, grants: readonly (string | GrantDef)[] = [], extra: Extra = {}): RoleDef => ({ name, extends: [], assignable: true, source: 'test', ...extra, grants: grants.map((g) => (typeof g === 'string' ? { permission: g } : g)) });
 
-/** The RBAC part of the impact summary §3.3 config. */
+/** The RBAC part of the impact summary §3.3 config; `fixtures/invoice.ir.json` is what rbacToIR emits for it, not the section's text. */
 const ROLES = [role('invoice.viewer', ['invoice:read'], { assignable: false }), role('accountant', ['invoice:approve'], { extends: ['invoice.viewer'], scopeTypes: ['org'] }), role('clerk', [{ permission: 'invoice:read', relation: 'owner' }])];
 const PERMISSIONS: PermissionInput[] = [{ name: 'invoice:read', list: true }, { name: 'invoice:approve' }, { name: 'project:read' }];
 
@@ -84,6 +84,10 @@ describe('authz-rbac: rbacToIR', () => {
     const source = world(ir).add({ type: 'project', id: 'p1' }, 'frozen', user('ann'));
     expect(await truth(ir, 'ann', 'invoice:read', source)).to.equal('deny');
     expect(await truth(ir, 'ann', 'invoice:approve', source)).to.equal('allow');
+    const narrowed = async (roles: string[]): Promise<Truth> => (await new IREvaluator(ir, source).check({ principal: { ...user('ann'), ceiling: { roles } }, permission: 'invoice:read', resource: i1 })).truth;
+    expect(await narrowed(['accountant'])).to.equal('deny');
+    expect(await narrowed(['accountant', 'frozen'])).to.equal('deny');
+    expect(await narrowed(['frozen'])).to.equal('deny');
   });
 
   it('makes what it cannot express opaque, so the answer is unknown instead of a guess', async () => {
@@ -93,5 +97,14 @@ describe('authz-rbac: rbacToIR', () => {
     expect(await truth(ir, 'dan', 'invoice:approve', source)).to.equal('unknown');
     expect(await truth(ir, 'ann', 'invoice:read', source)).to.equal('unknown');
     expect(await truth(ir, 'bob', 'invoice:read', source)).to.equal('deny');
+  });
+
+  it('names the stored rule store in its opaque deny term', () => {
+    const reg = registry(PERMISSIONS);
+    const graph = compileRoles(ROLES);
+    const grants = compileGrants(graph, reg);
+    const f = rbacToIR(graph, grants, reg, { storedRules: 'rules-db' });
+    expect(f.opaque).to.deep.include({ kind: 'rewrite', name: storedPolicyName('rbac', 'rules-db') });
+    expect(rbacToIR(graph, grants, reg, { storedRules: true }).opaque).to.deep.include({ kind: 'rewrite', name: storedPolicyName('rbac', 'db') });
   });
 });

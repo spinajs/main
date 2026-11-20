@@ -1,15 +1,19 @@
 import type { ResourceRef } from '@spinajs/authz';
 
-import type { RebacLimits, Tuple, TupleStore, TupleSubject } from './contracts.js';
+import type { RebacLimits, Tuple, TupleCaveat, TupleStore, TupleSubject } from './contracts.js';
 import { isSubjectSet, objectKey } from './keys.js';
+import { admitsTuple } from './namespace/compile.js';
 import type { CompiledRewrite, NamespaceSchema } from './namespace/compile.js';
 
 /**
  * Zanzibar's expand: who holds `relation` on `object`, as the tree of its rewrite. A `tuples` leaf lists the stored
  * subjects, subject sets included and not followed (expand them in turn); `truncated` marks a cycle or maxDepth.
+ * Caveats are not evaluated: a leaf lists its conditional subjects apart, and a `caveat` node wraps what an arrow
+ * reaches through a conditional tuple.
  */
 export type UsersetTree =
-  | { readonly kind: 'tuples'; readonly object: ResourceRef; readonly relation: string; readonly subjects: readonly TupleSubject[] }
+  | { readonly kind: 'tuples'; readonly object: ResourceRef; readonly relation: string; readonly subjects: readonly TupleSubject[]; readonly conditional?: readonly { readonly subject: TupleSubject; readonly caveat: TupleCaveat }[] }
+  | { readonly kind: 'caveat'; readonly caveat: TupleCaveat; readonly child: UsersetTree }
   | { readonly kind: 'computed'; readonly object: ResourceRef; readonly relation: string; readonly child: UsersetTree }
   | { readonly kind: 'tupleToUserset'; readonly object: ResourceRef; readonly tupleset: string; readonly computed: string; readonly children: readonly UsersetTree[] }
   | { readonly kind: 'union' | 'intersection'; readonly children: readonly UsersetTree[] }
@@ -50,11 +54,17 @@ export class RebacWalk {
     }
   }
 
-  /** The objects a tuple-to-userset step reaches through `tupleset`. */
-  async targets(object: ResourceRef, tupleset: string): Promise<ResourceRef[]> {
+  /** The objects a tuple-to-userset step reaches through `tupleset`, each with the caveat of its tuple. */
+  async targets(object: ResourceRef, tupleset: string): Promise<{ object: ResourceRef; caveat?: TupleCaveat }[]> {
     const rel = this.schema.relation(object.type, tupleset);
     if (!rel) return [];
-    return (await this.read(object, tupleset)).flatMap((t) => (!isSubjectSet(t.subject) && rel.direct.includes(t.subject.type) && this.schema.namespaces.has(t.subject.type) ? [{ type: t.subject.type, id: t.subject.id }] : []));
+    const out: { object: ResourceRef; caveat?: TupleCaveat }[] = [];
+    for (const t of await this.read(object, tupleset)) {
+      const s = t.subject;
+      if (isSubjectSet(s) || !admitsTuple(rel, t) || !this.schema.namespaces.has(s.type)) continue;
+      out.push({ object: { type: s.type, id: s.id }, ...(t.caveat ? { caveat: t.caveat } : {}) });
+    }
+    return out;
   }
 }
 
@@ -73,8 +83,10 @@ export function expand(walk: RebacWalk, object: ResourceRef, relation: string, d
 
 async function leaf(walk: RebacWalk, object: ResourceRef, relation: string): Promise<UsersetTree> {
   const rel = walk.schema.relation(object.type, relation);
-  const subjects = rel === undefined ? [] : (await walk.read(object, relation)).map((t) => t.subject).filter((s) => (isSubjectSet(s) ? rel.sets.some((x) => x.type === s.object.type && x.relation === s.relation) : rel.direct.includes(s.type)));
-  return { kind: 'tuples', object, relation, subjects };
+  const held = rel === undefined ? [] : (await walk.read(object, relation)).filter((t) => admitsTuple(rel, t));
+  const subjects = held.flatMap((t) => (t.caveat ? [] : [t.subject]));
+  const conditional = held.flatMap((t) => (t.caveat ? [{ subject: t.subject, caveat: t.caveat }] : []));
+  return { kind: 'tuples', object, relation, subjects, ...(conditional.length === 0 ? {} : { conditional }) };
 }
 
 async function expandRewrite(walk: RebacWalk, object: ResourceRef, r: CompiledRewrite, depth: number): Promise<UsersetTree> {
@@ -83,7 +95,10 @@ async function expandRewrite(walk: RebacWalk, object: ResourceRef, r: CompiledRe
       return { kind: 'computed', object, relation: r.name, child: await expand(walk, object, r.name, depth) };
     case 'ttu': {
       const children: UsersetTree[] = [];
-      for (const o of await walk.targets(object, r.tupleset)) children.push(await expand(walk, o, r.computed, depth + 1));
+      for (const { object: o, caveat } of await walk.targets(object, r.tupleset)) {
+        const child = await expand(walk, o, r.computed, depth + 1);
+        children.push(caveat ? { kind: 'caveat', caveat, child } : child);
+      }
       return { kind: 'tupleToUserset', object, tupleset: r.tupleset, computed: r.computed, children };
     }
     case 'union':

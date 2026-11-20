@@ -13,7 +13,7 @@ import { installQuietLog } from './support/log.js';
 
 const expect = chai.expect;
 
-const sqlite = (name: string) => ({ Driver: 'orm-driver-sqlite', Filename: ':memory:', Name: name, Migration: { Table: 'orm_migrations', OnStartup: false } });
+const sqlite = (name: string) => ({ Driver: 'orm-driver-sqlite', Filename: ':memory:', Name: name, Migration: { Table: 'orm_migrations' } });
 
 const rows = (driver: OrmDriver, sql: string): Promise<Record<string, unknown>[]> => (driver as unknown as { executeOnDb(sql: string, bindings: unknown[], context: QueryContext): Promise<Record<string, unknown>[]> }).executeOnDb(sql, [], QueryContext.Select);
 
@@ -40,7 +40,8 @@ describe('fs_acl (fs, path) index', function () {
     DI.register(FakeConfiguration).as(Configuration);
     DI.register(SqliteOrmDriver).as('orm-driver-sqlite');
     config = await DI.resolve(Configuration);
-    config.set(['db'], { DefaultConnection: 'sqlite', Connections: [sqlite('sqlite'), sqlite('other')] });
+    // MigrationCheck off: the boot would otherwise refuse the pending migrations this suite applies by hand
+    config.set(['db'], { DefaultConnection: 'sqlite', MigrationCheck: 'off', Connections: [sqlite('sqlite'), sqlite('other')] });
     orm = await DI.resolve(Orm);
     db = orm.Connections.get('default')!;
     await new AuthzFsAcl_2026_10_17_00_00_00().up(db);
