@@ -61,6 +61,12 @@ describe('postgres index and foreign-key introspection (on PGlite)', function ()
     expect((await driver.tableIndexes('in_codes')).filter((i) => i.primary).map((i) => i.columns)).to.deep.equal([['TenantId', 'Code']]);
   });
 
+  it('marks an index with an expression part inexact and lists only its plain columns', async () => {
+    await driver.schema().raw('CREATE UNIQUE INDEX ux_codes_lower ON shop.in_codes ("TenantId", lower("Code"))');
+
+    expect((await driver.tableIndexes('in_codes')).find((i) => i.name === 'ux_codes_lower')).to.deep.equal({ name: 'ux_codes_lower', columns: ['TenantId'], unique: true, primary: false, inexact: true });
+  });
+
   it('reports foreign keys with their referential actions', async () => {
     const keys = await driver.tableForeignKeys('in_posts');
 

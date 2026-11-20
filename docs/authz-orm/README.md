@@ -14,7 +14,7 @@ npm install @spinajs/authz-orm
 import '@spinajs/authz-orm';
 ```
 
-The import registers `OrmResourceAdapter`, `AuthzOrmContributor`, the query middlewares (`AncestorMiddleware`, `AccessGuardMiddleware`, `AccessListMiddleware`), the `owner` and `self` plan term compilers and the `authz.orm` config schema. Its package config maps `db.Aliases.authz` to `default` and adds the `authz:ancestors-*` commands to `system.dirs.cli`.
+The import registers `OrmResourceAdapter`, `AuthzOrmContributor`, the write observers (`AncestorObserver`, `ColumnChangeObserver`), the query middlewares (`AccessGuardMiddleware`, `AccessListMiddleware`), the `owner` and `self` plan term compilers and the `authz.orm` config schema. Its package config maps `db.Aliases.authz` to `default` and adds the `authz:ancestors-*` commands to `system.dirs.cli`.
 
 | Entry point | Holds |
 | --- | --- |
@@ -32,7 +32,7 @@ The import registers `OrmResourceAdapter`, `AuthzOrmContributor`, the query midd
 | [The `authz` connection and records](03-authz-connection-and-records.md) | The ancestor and scope attribute tables on the alias `db.Aliases.authz`, and `DbScopeAttributeStore`. |
 | [Declaring access resources](04-access-resources.md) | `@AccessResource`, `@Parent`, `@Owner`, `@Self` and `registerAccessResource()`: which models are resources and how they relate. |
 | [Single-object checks](05-single-object-checks.md) | `OrmResourceAdapter`: refs, ancestors, row loads and the `owner` / `self` relations for `assert()` and `@Access`. |
-| [The ancestor table](06-ancestor-table.md) | `AncestorMiddleware`, `reparent()` and the `authz:ancestors-verify` / `authz:ancestors-rebuild` commands keep the closure table right. |
+| [The ancestor table](06-ancestor-table.md) | `AncestorObserver`, `reparent()` and the `authz:ancestors-verify` / `authz:ancestors-rebuild` commands keep the closure table right. |
 | [The runtime guard](07-runtime-guard.md) | `AccessGuardMiddleware` flags a multi-row select of a resource without `.accessible()`, `.unscoped()` or `SYSTEM`. |
 | [Database audit](08-database-audit.md) | `DbDecisionAudit` writes the audit trail to `authz_audit`. |
 | [Policy versions](09-policy-versions.md) | The policy hash decision records cite, its `authz_policy_version` row, `authz.changelog.policyVersion` and `spinajs authz:compile`. |
@@ -65,7 +65,7 @@ sequenceDiagram
 ```
 
 1. `OrmResourceAdapter.refOf()` names the row from `@AccessResource` and the primary key.
-2. `ancestors()` reads the closure table that `AncestorMiddleware` keeps current.
+2. `ancestors()` reads the closure table that `AncestorObserver` keeps current.
 3. The models vote; a grant on `project:3` reaches `task:42` through its ancestors. Detail: [Single-object checks](05-single-object-checks.md).
 
 ### A list query

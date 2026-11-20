@@ -4,7 +4,7 @@ import { DI, Injectable, Singleton } from '@spinajs/di';
 import { Orm, extractModelDescriptor } from '@spinajs/orm';
 
 import { DbChangeLog } from './changelog/db-changelog.js';
-import { nameOf, registeredClasses, registeredTypes } from './registry.js';
+import { entryOf, nameOf, registeredClasses, registeredTypes } from './registry.js';
 
 /**
  * Every list joins authz_assignment (and, with @Parent, authz_resource_ancestor) with the resource table,
@@ -23,8 +23,20 @@ export function checkResourceConnections(orm: Orm): void {
   if (wrong.length > 0) throw new AuthzConfigError(`authz-orm: @AccessResource models must use the authz connection ${JSON.stringify(stores.Options?.Name)} (db.Aliases.${AUTHZ_CONNECTION}), where authz_resource_ancestor and authz_assignment live: ${wrong.join(', ')}`);
 }
 
+/** The ancestor table and the column changelog key a row by one column: the write capture refuses a composite key at every write. */
+export function checkResourceKeys(): void {
+  for (const cls of registeredClasses()) {
+    // Key first: entryOf throws for a registered model without a primary key, which must not fail the boot.
+    const keys = extractModelDescriptor(cls)?.PrimaryKey ?? [];
+    if (keys.length < 2) continue;
+    const entry = entryOf(cls);
+    if (!entry) continue;
+    throw new AuthzConfigError(`authz-orm: @AccessResource model ${nameOf(cls)} (resource '${entry.type}') has a composite primary key (${keys.join(', ')}); the ORM write capture, which keeps authz_resource_ancestor and the column changelog, needs a single-column primary key`);
+  }
+}
+
 /**
- * Runs the check at every domain boot and gives rule 12 the `@AccessResource` types, so a list permission on any other
+ * Runs the checks at every domain boot and gives rule 12 the `@AccessResource` types, so a list permission on any other
  * type is refused. It runs after every model's init, so the DB stores have tracked their kinds by then: the boot
  * records the changelog's coverage here.
  */
@@ -32,7 +44,8 @@ export function checkResourceConnections(orm: Orm): void {
 @Injectable(AuthzContributor)
 export class AuthzOrmContributor extends AuthzContributor {
   async contribute(_domain: string): Promise<AuthzContribution> {
-    // listTypes come from the decorators and need no ORM; only the connection check and the coverage do.
+    // listTypes and the key check come from the decorators and need no ORM; only the connection check and the coverage do.
+    checkResourceKeys();
     if (DI.RootContainer.isResolved(Orm)) {
       checkResourceConnections(DI.get(Orm) as Orm);
       const log = changeLog();

@@ -1083,6 +1083,7 @@ import type { AccessPlan } from "./plan.js";
 export declare abstract class AuthzService extends AsyncService {
     abstract readonly domain: string;
     abstract current(): Principal;
+    /** @spinajs run-as */
     abstract runAs<T>(principal: Principal, reason: string, fn: () => Promise<T>): Promise<T>;
     abstract check(req: CheckInput): Promise<Decision>;
     abstract can(principal: Principal, permission: Permission, resource?: ResourceRef | object, subject?: unknown): Promise<boolean>;
@@ -1317,6 +1318,7 @@ export interface ResourceRef {
 export type ResourceType = string;
 
 // SYSTEM (@spinajs/principal)
+/** @spinajs system-principal */
 export declare const SYSTEM: Principal;
 // value
 const SYSTEM = Object.freeze({

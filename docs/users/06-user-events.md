@@ -1,10 +1,10 @@
 # User events
 
-Queue events (`@spinajs/queue`) that tell other services what happened to an account: created, activated, banned, logged in, password changed, impersonated. The [user actions](03-user-actions.md) emit the lifecycle ones; [`QueueAuthnEventSink`](08-authn-event-sinks.md) re-emits authn's login, password and impersonation outcomes as user events.
+Queue events (`@spinajs/queue`) that tell other services what happened to an account: created, activated, banned, logged in, password changed, impersonated. The [user actions](03-user-actions.md) emit the lifecycle ones; [`QueueAuthnEventListener`](08-authn-event-sinks.md) re-emits authn's login, password and impersonation outcomes as user events.
 
 ## How it works
 
-1. An action, or a sink, builds the event with the `User` row: `new UserBanned(user)`.
+1. An action, or an authn event listener, builds the event with the `User` row: `new UserBanned(user)`.
 2. `UserEvent`'s constructor copies `user.Uuid` into `UserUUID`; subclasses copy more fields.
 3. `ev(event)` resolves `QueueService` and emits it to the connection `queue.routing.<EventName>` names, or to `queue.default` when there is no route.
 4. The connection's transport delivers it to subscribers. The shipped routes point the events at `rbac-user-empty-queue`, a `BlackHoleQueueClient` connection that drops every message.
@@ -72,7 +72,7 @@ export default {
 | --- | --- | --- | --- | --- |
 | Event delivery | `queue.routing.<Event>` config → `QueueClient` of that connection | `BlackHoleQueueClient` for routed events | any queue transport | Route the event to another connection. |
 | Event base class | `UserEvent` (`QueueEvent`) | | your subclass | Extend `UserEvent` for your own user events emitted with `ev()` or `_user_ev()`. |
-| Authn re-emission | `AuthnEventSink` list, `QueueAuthnEventSink` | `QueueAuthnEventSink` | your sink | See [Authn event sinks](08-authn-event-sinks.md). |
+| Authn re-emission | `AuthnEventListener` list, `QueueAuthnEventListener` | `QueueAuthnEventListener` | your listener | See [Authentication event listeners](08-authn-event-sinks.md). |
 
 ### Your own user event
 
@@ -113,7 +113,7 @@ export async function upgradePlan(uuid: string, plan: string): Promise<User> {
 
 - Route only the events a consumer needs; leave the rest on the black hole.
 - Key consumers on `UserUUID`, never on a numeric id.
-- Treat `UserLogged` as a notification, not an audit log; authn's audit sinks are the record.
+- Treat `UserLogged` as a notification, not an audit log; the audit trail of `@spinajs/audit-authn` is the record.
 
 ## Patterns and antipatterns
 
@@ -164,5 +164,5 @@ Route `UserDeleted` to a real connection first (see [Configuration](#configurati
 
 - [Events and jobs](../queue/01-events-and-jobs.md): `ev()`, `consume()` and message classes.
 - [Connections and routing](../queue/02-connections-and-routing.md): `queue.routing` and `queue.default`.
-- [Authn event sinks](08-authn-event-sinks.md): where the login, password and impersonation events come from.
+- [Authentication event listeners](08-authn-event-sinks.md): where the login, password and impersonation events come from.
 - [User actions](03-user-actions.md): where the lifecycle events come from.

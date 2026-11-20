@@ -2,7 +2,7 @@ import { parseCondition } from '@spinajs/authz';
 import type { ConditionOp, ConditionOperand, ParsedCondition } from '@spinajs/authz';
 
 import { parseSubjectTypeRef } from './ir.js';
-import type { CaveatParamType, IRCode, IRDiagnostic, PolicyIR, Rewrite, TypeDef, TypeName } from './ir.js';
+import type { CaveatDef, CaveatName, CaveatParamType, IRCode, IRDiagnostic, PolicyIR, Rewrite, TypeDef, TypeName } from './ir.js';
 
 /**
  * Reference and type checks the JSON Schema cannot express: `IR001` unknown relation, `IR002` subject type
@@ -21,6 +21,13 @@ export function validateIR(ir: PolicyIR): IRDiagnostic[] {
     if (!v.has(b.type, b.relation)) v.report('IR005', `permissions.${name}`, `${name} is bound to ${b.type}#${b.relation}, which does not exist`);
   }
   return v.out;
+}
+
+/** IR004 for caveat definitions on their own, for front ends that check their caveats before building an IR. */
+export function validateCaveats(caveats: Record<CaveatName, CaveatDef>): IRDiagnostic[] {
+  const out: IRDiagnostic[] = [];
+  for (const [name, caveat] of Object.entries(caveats)) checkCaveat(name, caveat.params, caveat.expr, out);
+  return out;
 }
 
 const own = (o: object, k: string): boolean => Object.prototype.hasOwnProperty.call(o, k);

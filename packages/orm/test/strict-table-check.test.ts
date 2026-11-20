@@ -36,7 +36,7 @@ class StrictCheckConf extends FrameworkConfiguration {
       db: {
         ...(strictSetting === undefined ? {} : { StrictTableCheck: strictSetting }),
         Aliases: { [ALIAS]: CONNECTION },
-        Connections: [{ Driver: 'strict-check-driver', Name: CONNECTION, Migration: { OnStartup: false } }],
+        Connections: [{ Driver: 'strict-check-driver', Name: CONNECTION }],
       },
     };
   }
@@ -132,7 +132,6 @@ describe('Orm strict table check (db.StrictTableCheck)', () => {
     ALL_TABLES.forEach((t) => TABLES.add(t));
 
     const orm = await DI.resolve(Orm);
-    await (await DI.resolve(Orm)).Migrator.ready();
 
     expect(orm.StrictTableCheck).to.equal(true);
     expect(extractModelDescriptor(models.StrictPresent)!.Driver).to.equal(orm.Connections.get(CONNECTION));
@@ -149,7 +148,7 @@ describe('Orm strict table check (db.StrictTableCheck)', () => {
     expect(extractModelDescriptor(models.StrictMissing)!.Driver).to.equal(orm.Connections.get(CONNECTION));
   });
 
-  it('the Orm of a migrator resolved with MigrateOnStartup: false boots before the tables exist', async () => {
+  it('the Orm of resolveMigrationTool() boots before the tables exist', async () => {
     await resolveMigrationTool();
     const orm = await DI.resolve(Orm);
 

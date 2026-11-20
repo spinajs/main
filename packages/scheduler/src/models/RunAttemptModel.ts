@@ -22,4 +22,6 @@ export class RunAttemptModel extends ModelBase {
 
   @Json()
   public Error: StructuredError | null;
+
+  public TraceParent: string | null;
 }
