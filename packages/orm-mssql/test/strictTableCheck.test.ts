@@ -126,7 +126,6 @@ describe('mssql strict table check (fake driver)', function () {
     TABLES.add('strict_mssql_missing');
 
     const orm = await DI.resolve(Orm);
-    await orm.Migrator.ready();
 
     expect(orm.Connections.get(CONNECTION)).to.be.instanceOf(StrictMsSqlDriver);
   });

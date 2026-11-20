@@ -1,8 +1,8 @@
 import type { PrincipalRef, ResourceRef, ResourceType } from '@spinajs/authz';
 
-import { TupleStore } from '../contracts.js';
-import type { Tuple, TuplePage, TupleQuery, TupleSubject } from '../contracts.js';
-import { readTuple, sameRef, sortKey, subjectKey, tupleKey } from '../keys.js';
+import { TupleCaveatConflict, TupleStore } from '../contracts.js';
+import type { Tuple, TupleCaveat, TuplePage, TupleQuery, TupleSubject } from '../contracts.js';
+import { caveatKey, readTuple, sameCaveat, sameRef, sortKey, subjectKey, tupleKey } from '../keys.js';
 
 /** What one write changed: the tuples it actually added and removed. */
 export interface TupleWriteResult {
@@ -41,10 +41,21 @@ export class MemoryTupleStore extends TupleStore {
     return this.writeNow(add, remove, actor).version;
   }
 
-  /** `write` without the promise, telling what it changed. */
+  /**
+   * `write` without the promise, telling what it changed; `removed` holds the tuples as stored.
+   * @throws TupleCaveatConflict for a stored tuple with another caveat, before anything changes
+   */
   writeNow(add: readonly Tuple[], remove: readonly Tuple[], _actor: PrincipalRef): TupleWriteResult {
     const adds = add.map((t, i) => readTuple(t, `add[${i}]`));
     const removes = remove.map((t, i) => readTuple(t, `remove[${i}]`));
+    const gone = new Set(removes.map(tupleKey));
+    const pending = new Map<string, Tuple>();
+    for (const t of adds) {
+      const key = tupleKey(t);
+      const held = pending.get(key) ?? (gone.has(key) ? undefined : this.tuples.get(key));
+      if (held && !sameCaveat(held.caveat, t.caveat)) throw new TupleCaveatConflict(held, t);
+      if (!held) pending.set(key, t);
+    }
     const added: Tuple[] = [];
     const removed: Tuple[] = [];
     for (const t of removes) {
@@ -61,6 +72,21 @@ export class MemoryTupleStore extends TupleStore {
     const version = String(++this.revision);
     for (const fn of [...this.listeners]) fn(version);
     return { version, added, removed };
+  }
+
+  get caveats(): boolean {
+    return true;
+  }
+
+  async reverseTuples(subjects: readonly TupleSubject[], relation: string, objectType: ResourceType): Promise<readonly Tuple[]> {
+    const keys = new Set(subjects.map(subjectKey));
+    return [...this.tuples.values()].filter((t) => t.relation === relation && t.object.type === objectType && keys.has(subjectKey(t.subject))).map(copy);
+  }
+
+  async caveatsOn(objectType: ResourceType, relation: string, subjects: readonly TupleSubject[]): Promise<readonly TupleCaveat[]> {
+    const out = new Map<string, TupleCaveat>();
+    for (const t of await this.reverseTuples(subjects, relation, objectType)) if (t.caveat) out.set(caveatKey(t.caveat), t.caveat);
+    return [...out.values()];
   }
 
   has(t: Tuple): boolean {

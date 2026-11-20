@@ -53,7 +53,7 @@ Every hook is optional; a middleware implements only those it needs.
 | `onAfter?(ctx): void \| Promise<void>` | in the reply pipeline, before the reply is sent | `IReplyContext` | read or change the reply: `ctx.response`, its `data`, the headers on `ctx.res`; read `ctx.error` |
 | `onFinish?(ctx): void \| Promise<void>` | once the response finished or the client went away | `IFinishContext` | log, record metrics; a throw is logged on the `http` logger |
 | `onAround?(invocation, proceed): Promise<void>` | wraps the rest of the chain | `IRouteInvocation` and `proceed` | see [Around middlewares](#around-middlewares) |
-| `documentation?(route): IRouteMiddlewareDoc \| undefined` | when an API document is generated, on the instance mounted on the route (`BaseController.MountedMiddlewares(method)`) | the route | describe the answers it gives instead of the route (`responses`), the headers it sets on the route's own success answers (`headers`) and `x-` extensions; see [In API documents](#in-api-documents) |
+| `documentation?(route): IRouteMiddlewareDoc \| undefined` | when an API document is generated, on the instance mounted on the route (`BaseController.MountedMiddlewares(method)`) | the route | describe the answers it gives instead of the route (`responses`), the headers it sets on the route's own success answers (`headers`) and `x-` extensions, and the request headers it reads (`requestHeaders`); see [In API documents](#in-api-documents) |
 
 ### Contexts
 
@@ -348,7 +348,7 @@ On a replay `ctx.response.data` is the stored JSON body, which those outer hooks
 
 | `Stage` | Runs |
 | --- | --- |
-| `'beforePolicy'` | before the [policy gate](13-policies.md): it is entered first, so its `onAfter` and `onFinish` see a policy refusal (401, 403) as an error reply. The shipped [`Audit`](30-audit.md) uses it. The policies always run after the `'beforePolicy'` middlewares: when an `onBefore` answers, the gate still runs, and a refusal replaces that answer; the action never runs. The one exception is an `@Idempotent` replay of an unrestricted principal's completed request, which is answered right after this stage without the policies ([Replays before the policies](26-idempotency.md#replays-before-the-policies)). |
+| `'beforePolicy'` | before the [policy gate](13-policies.md): it is entered first, so its `onAfter` and `onFinish` see a policy refusal (401, 403) as an error reply. The shipped [`Audit`](30-audit.md) uses it. The policies always run after the `'beforePolicy'` middlewares: when an `onBefore` answers, the gate still runs, and a refusal replaces that answer; the action never runs. There are two exceptions. An `@Idempotent` replay of an unrestricted principal's completed request is answered right after this stage without the policies ([Replays before the policies](26-idempotency.md#replays-before-the-policies)). And when a [request deadline](29-request-deadlines.md) answered 504 while a middleware of this stage was still running, that answer is final: the gate evaluates no policy, and nothing after it runs. |
 | `'outer'` | right after the policy gate, before every `'inner'` one |
 | `'inner'` (unset) | after every `'outer'` one |
 
@@ -417,6 +417,7 @@ A middleware that answers instead of the route, or sets headers on its answers, 
 | --- | --- | --- |
 | `responses` | `Record<string, IDocumentedAnswer>` | The answers the middleware gives instead of the route, by status code |
 | `headers` | `Record<string, IDocumentedHeader>` | Headers it sets on the route's own success answers |
+| `requestHeaders` | `Record<string, IDocumentedRequestHeader>` | Request headers it reads, by header name; a generator adds each as a header parameter |
 | `extensions` | ``Record<`x-${string}`, unknown>`` | Vendor extensions for the operation; arrays concatenate across middlewares |
 
 | `IDocumentedAnswer` field | Meaning |
@@ -428,7 +429,13 @@ A middleware that answers instead of the route, or sets headers on its answers, 
 | `component` | A shared `components/responses` name: registered once, then referred to |
 | `contentType` | Default `application/json` |
 
-`@spinajs/http-swagger` copies only the `x-` keys of `extensions` onto the operation, and leaves out a middleware whose `documentation()` throws, with a warning, without failing the document. How it merges the rest (a status from the JSDoc wins, a later middleware wins over an earlier one) is in [Policies and access](../http-swagger/05-policies-and-access.md#route-middlewares). `@RateLimit` documents its `429` this way: [Throttling](18-throttling.md#in-api-documents).
+| `IDocumentedRequestHeader` field | Meaning |
+| --- | --- |
+| `description` | Required |
+| `required` | Whether a request without the header is refused |
+| `schema` | JSON schema of the header value |
+
+`@spinajs/http-swagger` copies only the `x-` keys of `extensions` onto the operation, and leaves out a middleware whose `documentation()` throws, with a warning, without failing the document. How it merges the rest (a status from the JSDoc wins, a later middleware wins over an earlier one) is in [Policies and access](../http-swagger/05-policies-and-access.md#route-middlewares). `@RateLimit` documents its `429` this way: [Throttling](18-throttling.md#in-api-documents). `@Idempotent` documents its header and answers this way: [Idempotency](26-idempotency.md#api-documents).
 
 ```ts sample
 import { BaseController, BasePath, Get, IRouteMiddlewareDoc, Middleware, Ok, RawJsonResponse, Response, RouteMiddleware } from '@spinajs/http';

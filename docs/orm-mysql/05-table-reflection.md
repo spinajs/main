@@ -30,7 +30,7 @@
 | `Comment` | always `''` |
 | `ForeignKeyDescription`, `Converter` | always `null` |
 
-`tableIndexes()` reads `INFORMATION_SCHEMA.STATISTICS` (the primary key is the index named `PRIMARY`; functional parts are left out) and `tableForeignKeys()` reads `KEY_COLUMN_USAGE` with `REFERENTIAL_CONSTRAINTS`. MySQL creates an index for every foreign key column, so it reports indexes the other dialects do not.
+`tableIndexes()` reads `INFORMATION_SCHEMA.STATISTICS` (the primary key is the index named `PRIMARY`; functional parts are left out and, like prefix parts (`SUB_PART`), mark the index `inexact`) and `tableForeignKeys()` reads `KEY_COLUMN_USAGE` with `REFERENTIAL_CONSTRAINTS`. MySQL creates an index for every foreign key column, so it reports indexes the other dialects do not.
 
 ### `parseColumnDefault(raw, dataType)`
 
@@ -171,7 +171,7 @@ export class StrictMigrationsMySqlDriver extends MySqlOrmDriver {
 ## Best practices
 
 - Set `Database` on every MySQL connection; reflection, `tableExists()` and the migration table depend on it.
-- Apply migrations before the app serves (`migrate-up` in the deploy step, or `Migration.OnStartup`, applied when the `Orm` resolves): models then reflect the migrated columns. The `Orm` reads the tables after its startup migrations, and `migrate-up` re-reads the ones its migrations touched.
+- Apply migrations before the app serves ([`npx spinajs migrate-up`](../orm/10-migrations.md#deploying-migrations) in the deploy step): models then reflect the migrated columns. The app refuses to boot while a migration is pending, and `migrate-up` re-reads the tables its migrations touched.
 - Declare `@Bool()`, `@DateTime()` and similar converters on columns whose `DATA_TYPE` does not say their JS type.
 
 ## Patterns and antipatterns

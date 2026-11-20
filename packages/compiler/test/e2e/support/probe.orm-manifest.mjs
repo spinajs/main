@@ -1,7 +1,8 @@
 // Boots orm-manifest-app with db.Models.Source = 'manifest' and reports the columns Account was given and how it behaves.
 const { Bootstrapper, DI } = await import('@spinajs/di');
 const { Configuration } = await import('@spinajs/configuration');
-const { Orm, OrmMigrator, extractModelDescriptor } = await import('@spinajs/orm');
+const { extractModelDescriptor } = await import('@spinajs/orm');
+const { migrateTestDatabase } = await import('@spinajs/orm/testing');
 await import('@spinajs/orm-sqlite');
 await import('@spinajs/log');
 const { Account } = await import(new URL('./lib/models.js', import.meta.url).href);
@@ -11,8 +12,7 @@ const result = {};
 try {
   for (const b of await DI.resolve(Array.ofType(Bootstrapper))) await b.bootstrap();
   await DI.resolve(Configuration);
-  const orm = await DI.resolve(Orm);
-  await DI.resolve(OrmMigrator);
+  const { orm } = await migrateTestDatabase();
   const descriptor = extractModelDescriptor(Account);
   result.columns = descriptor.Columns.map((c) => `${c.Name}:${c.NativeType}`).sort();
   result.drift = orm.ColumnDrift.map((d) => d.message);

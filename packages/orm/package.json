@@ -7,6 +7,17 @@
     ".": {
       "types": "./lib/index.d.ts",
       "import": "./lib/index.js"
+    },
+    "./testing": {
+      "types": "./lib/testing/index.d.ts",
+      "import": "./lib/testing/index.js"
+    }
+  },
+  "typesVersions": {
+    "*": {
+      "testing": [
+        "lib/testing/index.d.ts"
+      ]
     }
   },
   "type": "module",
@@ -67,6 +78,7 @@
     "@spinajs/manifest": "3.0.23",
     "@spinajs/reflection": "3.0.23",
     "@spinajs/telemetry-common": "3.0.23",
+    "@spinajs/util": "3.0.23",
     "@spinajs/validation": "3.0.23",
     "glob": "^8.1.0",
     "glob-to-regexp": "^0.4.1",
