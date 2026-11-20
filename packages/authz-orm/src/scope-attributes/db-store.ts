@@ -1,6 +1,6 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { AuthzConfigError, SCOPE_ATTRIBUTE_LIMITS, WritableScopeAttributeStore, changeLog, principalKey, resourceKey, underPath, unflattenAttributes } from '@spinajs/authz';
-import type { AuthzTx, PrincipalRef, ResourceRef, ScopeAttributeLeaf } from '@spinajs/authz';
+import type { AuthzTx, ChangeEntry, PrincipalRef, ResourceRef, ScopeAttributeLeaf } from '@spinajs/authz';
 import { DateTime } from 'luxon';
 
 // Registers DbChangeLog for apps that import only the scope-attributes entry: writes append to it.
@@ -37,6 +37,40 @@ function leafOf(row: StoredLeaf): ScopeAttributeLeaf {
   }
   if (!isLeaf(v)) throw new AuthzConfigError(`${SCOPE_ATTRIBUTE_TABLE} row ${JSON.stringify(row.path)}: value_json holds ${JSON.stringify(v)}, not a scalar`);
   return v;
+}
+
+/** The leaf as the changelog records it; a value that does not parse is left out rather than failing the write. */
+function loggedLeaf(scope: string, row: StoredLeaf): { scope: string; path: string; value?: ScopeAttributeLeaf } {
+  try {
+    return { scope, path: row.path, value: leafOf(row) };
+  } catch {
+    return { scope, path: row.path };
+  }
+}
+
+/**
+ * The changelog key of one leaf of a node. Hashed: the scope key and the path together can pass the 255 characters
+ * of `authz_change_log.key`.
+ */
+export function attributeChangeKey(ref: ResourceRef, path: string): string {
+  return createHash('sha256').update(`${resourceKey(ref)}\u0000${path}`).digest('hex');
+}
+
+/** One change per leaf a write touched: a removed path (and one a set path drops), a replaced path, a fresh one. */
+function leafChanges(ref: ResourceRef, stored: ReadonlyMap<string, StoredLeaf>, removed: readonly string[], set: readonly (readonly [string, ScopeAttributeLeaf])[], actor: string): ChangeEntry[] {
+  const scope = resourceKey(ref);
+  const entry = (op: ChangeEntry['op'], path: string, payload: unknown, before?: unknown): ChangeEntry => ({ kind: 'attribute', op, key: attributeChangeKey(ref, path), payload, ...(before === undefined ? {} : { before }), actor });
+  const setPaths = new Set(set.map(([path]) => path));
+  const changes: ChangeEntry[] = [];
+  for (const path of removed) {
+    const row = stored.get(path);
+    if (row && !setPaths.has(path)) changes.push(entry('remove', path, loggedLeaf(scope, row)));
+  }
+  for (const [path, value] of set) {
+    const row = stored.get(path);
+    changes.push(row ? entry('put', path, { scope, path, value }, loggedLeaf(scope, row)) : entry('add', path, { scope, path, value }));
+  }
+  return changes;
 }
 
 /**
@@ -83,7 +117,8 @@ export class DbScopeAttributeStore extends WritableScopeAttributeStore {
     if (!remove.every((p) => typeof p === 'string' && p !== '')) throw new AuthzConfigError('DbScopeAttributeStore: remove must list paths');
 
     await this.bump();
-    const existing = (await this.select(key)).map((r) => r.path);
+    const stored = new Map((await this.select(key)).map((r) => [r.path, r]));
+    const existing = [...stored.keys()];
     const setPaths = set.map(([p]) => p);
     // A set path also drops the rows above and below it, so the node always forms one object.
     const removed = existing.filter((p) => remove.some((r) => underPath(p, r)) || setPaths.some((s) => s !== p && (underPath(p, s) || underPath(s, p))));
@@ -93,7 +128,7 @@ export class DbScopeAttributeStore extends WritableScopeAttributeStore {
     const updated_at = DateTime.now();
     const updated_by = principalKey(actor).slice(0, BY_MAX);
     await ScopeAttributeRecord.insert(set.map(([path, v]) => ({ ...key, path, value_json: v, value_text: textOf(v), value_num: typeof v === 'number' && Math.abs(v) < NUM_MAX ? v : null, updated_by, updated_at })));
-    await changeLog().append([{ kind: 'attribute', op: 'put', key: resourceKey(ref), payload: { set: Object.fromEntries(set), remove: removed }, actor: principalKey(actor) }]);
+    await changeLog().append(leafChanges(ref, stored, removed, set, principalKey(actor)));
     return removed.length + set.length;
   }
 
@@ -102,8 +137,10 @@ export class DbScopeAttributeStore extends WritableScopeAttributeStore {
     const key = keyOf(ref);
     if (!fits(key)) return 0;
     await this.bump();
+    const stored = await this.select(key);
     const { RowsAffected } = await ScopeAttributeRecord.destroy().where(key);
-    if (RowsAffected > 0) await changeLog().append([{ kind: 'attribute', op: 'remove', key: resourceKey(ref) }]);
+    const scope = resourceKey(ref);
+    if (RowsAffected > 0) await changeLog().append(stored.map((r) => ({ kind: 'attribute', op: 'remove', key: attributeChangeKey(ref, r.path), payload: loggedLeaf(scope, r) })));
     return RowsAffected;
   }
 

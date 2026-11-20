@@ -97,8 +97,9 @@ export class DbRuleStore extends withDbRbacStore(AdminRuleStore) {
     const { id, expires_at, ...columns } = rows.rule;
     const values = { ...columns, expires_at: toDateTime(expires_at) };
 
-    const existed = (await this.existingRule(id)) !== undefined;
-    if (existed) {
+    const existing = await this.existingRule(id);
+    const before = existing ? (await this.rulesOf([existing]))[0] : undefined;
+    if (existing) {
       await RuleRecord.update(recordValues<RuleRecord>(values)).where('id', id);
       await RuleSubjectRecord.destroy().where('rule_id', id);
     } else {
@@ -112,7 +113,8 @@ export class DbRuleStore extends withDbRbacStore(AdminRuleStore) {
 
     await RuleSubjectRecord.insert(rows.subjects.map((s) => ({ ...s })));
     await bumpVersion(tx, this.domain(), where);
-    await this.logChanges([{ kind: 'rule', op: existed ? 'put' : 'add', key: id, payload: { ...rule, source: 'db' }, actor: principalKey(actor) }]);
+    const payload = rowToRule({ ...rows.rule, expires_at: toDateTime(expires_at) }, rows.subjects);
+    await this.logChanges([{ kind: 'rule', op: existing ? 'put' : 'add', key: id, payload, ...(before ? { before } : {}), actor: principalKey(actor) }]);
   }
 
   /** What the columns cannot hold, refused before the batch transaction ({@link toRuleRows}). */
@@ -167,12 +169,18 @@ export class DbRuleStore extends withDbRbacStore(AdminRuleStore) {
 
     const setAtScope = { subject_type: columns.scope_type, subject_id: columns.scope_id };
     const subjectRows = await RuleSubjectRecord.query().where(setAtScope).where('subject_role', '!=', '');
+    // A rule that lost a subject entry changed: read it before the delete, so its change carries both states.
+    const narrowedRows = subjectRows.length === 0 ? [] : await RuleRecord.query().whereIn('id', [...new Set(subjectRows.map((s) => s.rule_id))]).orderBy('id');
+    const held = await this.subjectsOf(narrowedRows);
     if (subjectRows.length > 0) await RuleSubjectRecord.destroy().where(setAtScope).where('subject_role', '!=', '');
 
     await bumpVersion(tx, this.domain(), where);
-    // A rule that lost a subject entry changed: log it as it reads now.
-    const narrowed = subjectRows.length === 0 ? [] : await this.rulesOf(await RuleRecord.query().whereIn('id', [...new Set(subjectRows.map((s) => s.rule_id))]).orderBy('id'));
-    await this.logChanges([...rules.map((r) => ({ kind: 'rule' as const, op: 'remove' as const, key: r.id, payload: r })), ...narrowed.map((r) => ({ kind: 'rule' as const, op: 'put' as const, key: r.id, payload: r }))]);
+    const dropped = new Set(subjectRows.map(subjectRowKey));
+    const narrowed = narrowedRows.map((r) => {
+      const all = held.get(r.id) ?? [];
+      return { kind: 'rule' as const, op: 'put' as const, key: r.id, payload: rowToRule(r, all.filter((s) => !dropped.has(subjectRowKey(s)))), before: rowToRule(r, all) };
+    });
+    await this.logChanges([...rules.map((r) => ({ kind: 'rule' as const, op: 'remove' as const, key: r.id, payload: r })), ...narrowed]);
     return {
       rules,
       subjects: subjectRows.map((s) => ({ ruleId: s.rule_id, list: s.list as RuleSubjectList, subject: subjectFromColumns(s.subject_type, s.subject_id, s.subject_role) })),
@@ -223,17 +231,21 @@ export class DbRuleStore extends withDbRbacStore(AdminRuleStore) {
 
   /** The rows as rules, with their subject rows read in one query. */
   private async rulesOf(rows: readonly RuleFields[]): Promise<RuleDef[]> {
-    if (rows.length === 0) return [];
+    const subjects = await this.subjectsOf(rows);
+    return rows.map((r) => rowToRule(r, subjects.get(r.id) ?? []));
+  }
 
+  /** The subject rows of these rules by rule id, in one query. */
+  private async subjectsOf(rows: readonly RuleFields[]): Promise<Map<string, RuleSubjectFields[]>> {
     const subjects = new Map<string, RuleSubjectFields[]>();
+    if (rows.length === 0) return subjects;
     for (const s of await RuleSubjectRecord.query().whereIn(
       'rule_id',
       rows.map((r) => r.id),
     )) {
       subjects.set(s.rule_id, [...(subjects.get(s.rule_id) ?? []), s]);
     }
-
-    return rows.map((r) => rowToRule(r, subjects.get(r.id) ?? []));
+    return subjects;
   }
 }
 
@@ -242,7 +254,7 @@ export class DbRuleStore extends withDbRbacStore(AdminRuleStore) {
  * and `subjects.refs` keep only the entries that still have a subject row, so what `forgetScope`
  * removed is gone.
  */
-function rowToRule(row: RuleFields, subjectRows: readonly RuleSubjectFields[]): RuleDef {
+function rowToRule(row: Pick<RuleFields, 'id' | 'kind' | 'scope_type' | 'scope_id' | 'definition' | 'expires_at'>, subjectRows: readonly RuleSubjectFields[]): RuleDef {
   const def = row.definition as Partial<RuleDef>;
   const held = new Set(subjectRows.map((s) => subjectKey(s.list, s)));
   const keep = <T extends AssignmentSubject>(list: RuleSubjectList, xs: readonly T[]) => xs.filter((s) => held.has(subjectKey(list, subjectToColumns(s))));
@@ -262,6 +274,8 @@ function rowToRule(row: RuleFields, subjectRows: readonly RuleSubjectFields[]): 
 function subjectKey(list: string, s: { subject_type: string; subject_id: string; subject_role: string }): string {
   return JSON.stringify([list, s.subject_type, s.subject_id, s.subject_role]);
 }
+
+const subjectRowKey = (s: RuleSubjectFields): string => JSON.stringify([s.rule_id, subjectKey(s.list, s)]);
 
 function uniqueScopes(refs: readonly ResourceRef[]): ScopeRefColumns[] {
   return uniqueBy(refs.map(scopeToColumns), (c) => JSON.stringify([c.scope_type, c.scope_id]));
