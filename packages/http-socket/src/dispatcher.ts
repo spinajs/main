@@ -542,6 +542,8 @@ export class SocketDispatcher extends AsyncService {
     const trace = newTraceContext(traceparent);
 
     return {
+      // first, so a contributor cannot replace a fixed key
+      ...connection.context,
       Principal: connection.principal,
       AuthnPrincipal: connection.authenticated ? connection.principal : null,
       requestId,

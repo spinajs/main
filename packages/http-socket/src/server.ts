@@ -7,8 +7,10 @@ import '@spinajs/authn/register-schema';
 import { Log, Logger } from '@spinajs/log';
 import { ListFromFiles, SCAN_GLOB } from '@spinajs/reflection';
 import { AuthzConfigError, UNATTENDED, Unauthenticated } from '@spinajs/authz';
+import type { Principal } from '@spinajs/authz';
 import { DisconnectNotice, EventFrame, MAX_ID_LENGTH, PROTOCOL_VERSION, SYSTEM_EVENTS, ShutdownNotice, SocketError, SocketException, WIRE_EVENTS, isId } from '@spinajs/http-socket-common';
-import { ISocketAuthState, ISocketClientState, ISocketHandshake, ISocketServerConfig, SocketHttpHost, SocketPrincipalSource } from './interfaces.js';
+import { ISocketAuthState, ISocketClientState, ISocketHandshake, ISocketServerConfig, SocketConnectionContext, SocketHttpHost, SocketPrincipalSource } from './interfaces.js';
+import { storeConnectionContext } from './connection-context.js';
 import { RealIp } from '@spinajs/http';
 import { SocketConnection, toHandshake } from './connection.js';
 import { missedByBoot } from './access.js';
@@ -387,8 +389,10 @@ export class SocketServer extends AsyncService {
       }
 
       const client: ISocketClientState = { clientId: auth.clientId, protocol: PROTOCOL_VERSION };
-      socket.data.auth = await this.identify(handshake);
+      const identity = await this.identify(handshake);
+      socket.data.auth = identity;
       socket.data.client = client;
+      storeConnectionContext(socket, await this.connectionContext(handshake, identity.principal));
       this.handshakes.set(socket, handshake);
     } catch (err) {
       const wire = this.Errors.toWire(err, 'handshake');
@@ -425,6 +429,30 @@ export class SocketServer extends AsyncService {
     }
 
     return { principal: UNATTENDED, source: null, checkedAt: Date.now() };
+  }
+
+  /**
+   * What the registered SocketConnectionContext contributors add to the stores of this connection's calls. Two that set
+   * the same key refuse the handshake: the later one would silently replace a value the earlier one checked (a tenant).
+   */
+  protected async connectionContext(handshake: ISocketHandshake, principal: Principal): Promise<Record<string, unknown>> {
+    if (!this.Container.hasRegistered(SocketConnectionContext)) return {};
+
+    const contributors: SocketConnectionContext[] = (await this.Container.resolve(Array.ofType(SocketConnectionContext))) ?? [];
+    const context = new Map<string, unknown>();
+    const owners = new Map<string, string>();
+    for (const contributor of contributors) {
+      const name = contributor.constructor.name;
+      for (const [key, value] of Object.entries(await contributor.establish(handshake, principal))) {
+        const owner = owners.get(key);
+        if (owner !== undefined) {
+          throw new AuthzConfigError(`socket connection contexts ${owner} and ${name} both set the key ${key}`);
+        }
+        owners.set(key, name);
+        context.set(key, value);
+      }
+    }
+    return Object.fromEntries(context);
   }
 
   protected onConnection(socket: Socket): void {

@@ -189,6 +189,15 @@ export abstract class SocketPrincipalSource {
 }
 
 /**
+ * Adds keys to the store of every call of a connection: commands, events, connect and disconnect hooks. Each
+ * registered one is asked once, in the handshake, after the principal is known; a throw refuses the connection.
+ * The keys are kept in `socket.data`, which connection state recovery restores, so a recovered connection keeps them.
+ */
+export abstract class SocketConnectionContext {
+  public abstract establish(handshake: ISocketHandshake, principal: Principal): Promise<Readonly<Record<string, unknown>>>;
+}
+
+/**
  * What the handshake checked, kept in `socket.data.client`. Connection state recovery restores it and
  * skips the handshake middleware, so a recovered connection reads these, never its new `auth`.
  */
