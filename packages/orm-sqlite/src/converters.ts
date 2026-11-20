@@ -2,7 +2,22 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 /* eslint-disable @typescript-eslint/no-unsafe-member-access */
 /* eslint-disable @typescript-eslint/no-unsafe-assignment */
-import { ModelBase, ModelToSqlConverter, OrmException, RelationType } from '@spinajs/orm';
+import { IColumnDescriptor, ModelBase, ModelToSqlConverter, OrmException, RelationType, normalizeSqlType } from '@spinajs/orm';
+import { IsoDatetimeValueConverter } from '@spinajs/orm-sql';
+
+// The type names SQLite documents for the INTEGER and REAL affinities, plus NUMERIC and DECIMAL. DATETIME, DATE and
+// BOOLEAN have the NUMERIC affinity too and stay out.
+const NUMERIC_TYPES = new Set(['int', 'integer', 'tinyint', 'smallint', 'mediumint', 'bigint', 'big int', 'int2', 'int8', 'real', 'double', 'double precision', 'float', 'numeric', 'decimal']);
+
+/**
+ * {@link IsoDatetimeValueConverter} that knows a numeric column by SQLite's type names. SQLite reports a column type
+ * as declared ( `INTEGER`, `DECIMAL(10,2)` ), which the lower-case type list of the shared converter does not match.
+ */
+export class SqliteDatetimeValueConverter extends IsoDatetimeValueConverter {
+  protected isNumericColumn(column: IColumnDescriptor): boolean {
+    return NUMERIC_TYPES.has(normalizeSqlType(column.Type ?? ''));
+  }
+}
 
 export class SqliteModelToSqlConverter extends ModelToSqlConverter {
   public toSql(model: ModelBase<unknown>): unknown {

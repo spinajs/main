@@ -3,13 +3,13 @@ import { expect } from 'chai';
 import { mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { generateClient, GENERATOR_TARGETS, type GeneratorTarget } from '@spinajs/client';
-import { readManifest } from '@spinajs/manifest';
+import { generateClient, generateClientFiles, GENERATOR_TARGETS, type GeneratorTarget } from '@spinajs/client';
+import { hashManifest, readManifest } from '@spinajs/manifest';
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
 import '@spinajs/log';
 import { Cli } from '../src/index.js';
-import { outputPaths, parseList, toFilesOptions, unavailableFlag, type GenerateClientFlags } from '../src/generateClientFlags.js';
+import { diagnosticErrors, diagnosticLines, outputPaths, parseList, toFilesOptions, unavailableFlag, type GenerateClientFlags } from '../src/generateClientFlags.js';
 
 const manifestPath = resolve(process.cwd(), '../compiler/test/fixtures/app-basic/app.manifest.json');
 
@@ -89,6 +89,19 @@ describe('generate:client', function () {
       expect(await readdir(dir)).to.deep.equal([name]);
     });
   }
+
+  it('writes .mts files that import each other as .mjs when --out ends in .mts', async () => {
+    const out = join(dir, 'client.mts');
+    await run('--out', out, '--zod');
+    expect((await readdir(dir)).sort()).to.deep.equal(['client.mts', 'client.zod.mts']);
+    expect(await readFile(join(dir, 'client.zod.mts'), 'utf8')).to.contain("from './client.mjs'");
+  });
+
+  it('writes extensionless sibling imports with --import-extension none', async () => {
+    const out = join(dir, 'client.ts');
+    await run('--out', out, '--zod', '--import-extension', 'none');
+    expect(await readFile(join(dir, 'client.zod.ts'), 'utf8')).to.contain("from './client'");
+  });
 
   // Every target has landed, so a refusal test marks its target unavailable in the table the command reads.
   async function withUnavailable<T>(target: GeneratorTarget, body: () => Promise<T>): Promise<T> {
@@ -171,6 +184,7 @@ describe('generate:client', function () {
         next: true,
         mocks: true,
         msw: true,
+        importExtension: 'none',
       });
       expect(options).to.deep.equal({
         moduleName: './rt.js',
@@ -184,6 +198,7 @@ describe('generate:client', function () {
         next: true,
         mocks: true,
         msw: true,
+        importExtension: 'none',
       });
     });
 
@@ -286,5 +301,126 @@ describe('generate:client', function () {
       await run('--out', out, '--check');
       expect(process.exitCode).to.equal(undefined);
     });
+  });
+
+  describe('generator diagnostics', () => {
+    const ZOD002 = 'ZOD002 spinajs/app-basic/CreateUserDto#/properties/email/format: ';
+    const SUMMARY = /^\d+ generator diagnostic\(s\) are errors \(--zod-unsupported error\); no file was written or checked$/m;
+    let stderr = '';
+    let realWrite: typeof process.stderr.write;
+
+    beforeEach(() => {
+      stderr = '';
+      realWrite = process.stderr.write.bind(process.stderr);
+      process.stderr.write = ((chunk: string | Uint8Array) => {
+        stderr += String(chunk);
+        return true;
+      });
+      process.exitCode = undefined;
+    });
+
+    afterEach(() => {
+      process.stderr.write = realWrite;
+      process.exitCode = undefined;
+    });
+
+    const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value);
+
+    /** app-basic with a format Ajv does not know on CreateUserDto.email: the zod emitter reports ZOD002 there. */
+    async function manifestWithUnknownFormat(): Promise<string> {
+      const manifest = await readManifest(manifestPath);
+      const schema: unknown = manifest.schemas['spinajs/app-basic/CreateUserDto'];
+      const properties = isRecord(schema) ? schema.properties : undefined;
+      const email = isRecord(properties) ? properties.email : undefined;
+      if (!isRecord(email)) throw new Error('app-basic has no CreateUserDto.email schema');
+      email.format = 'x-unknown';
+      const file = join(dir, 'app.manifest.json');
+      await writeFile(file, JSON.stringify({ ...manifest, hash: hashManifest(manifest) }));
+      return file;
+    }
+
+    it('prints a warning to stderr, writes the files and leaves the exit code alone', async () => {
+      const manifest = await manifestWithUnknownFormat();
+      await run('--manifest', manifest, '--out', join(dir, 'client.ts'), '--zod');
+      expect(stderr).to.include(`client.zod.ts: warning ${ZOD002}`);
+      expect(stderr).to.not.match(SUMMARY);
+      expect(process.exitCode).to.equal(undefined);
+      expect((await readdir(dir)).sort()).to.deep.equal(['app.manifest.json', 'client.ts', 'client.zod.ts']);
+    });
+
+    it('prints the error and a summary line, writes nothing and exits 1 with --zod-unsupported error', async () => {
+      const manifest = await manifestWithUnknownFormat();
+      await run('--manifest', manifest, '--out', join(dir, 'client.ts'), '--zod', '--zod-unsupported', 'error');
+      expect(stderr).to.include(`client.zod.ts: error ${ZOD002}`);
+      expect(stderr).to.match(SUMMARY);
+      expect(process.exitCode).to.equal(1);
+      expect(await readdir(dir)).to.deep.equal(['app.manifest.json']);
+    });
+
+    it('exits 1 the same way under --check, before any file is compared', async () => {
+      const manifest = await manifestWithUnknownFormat();
+      await run('--manifest', manifest, '--out', join(dir, 'client.ts'), '--zod', '--zod-unsupported', 'error', '--check');
+      expect(stderr).to.match(SUMMARY);
+      expect(stderr).to.not.include('out of date');
+      expect(process.exitCode).to.equal(1);
+      expect(await readdir(dir)).to.deep.equal(['app.manifest.json']);
+    });
+
+    it('prints a warning under --check, writes nothing to stdout and leaves the exit code to the comparison', async () => {
+      const manifest = await manifestWithUnknownFormat();
+      const out = join(dir, 'client.ts');
+      const current = await generateClientFiles({ manifest: await readManifest(manifest), zod: true });
+      for (const file of outputPaths(out, current)) await writeFile(file.path, file.contents);
+      let stdout = '';
+      const realStdout = process.stdout.write.bind(process.stdout);
+      process.stdout.write = ((chunk: string | Uint8Array) => {
+        stdout += String(chunk);
+        return true;
+      });
+      try {
+        await run('--manifest', manifest, '--out', out, '--zod', '--check');
+      } finally {
+        process.stdout.write = realStdout;
+      }
+      expect(stderr).to.include(`client.zod.ts: warning ${ZOD002}`);
+      expect(stderr).to.not.match(SUMMARY);
+      expect(stderr).to.not.include('out of date');
+      expect(stdout).to.not.include('ZOD002');
+      expect(process.exitCode).to.equal(undefined);
+    });
+
+    it('prints no diagnostic line and keeps exit code 0 for a manifest that has none', async () => {
+      await run('--out', join(dir, 'client.ts'), '--zod', '--zod-unsupported', 'error');
+      expect(stderr).to.not.include('client.zod.ts: ');
+      expect(process.exitCode).to.equal(undefined);
+      expect((await readdir(dir)).sort()).to.deep.equal(['client.ts', 'client.zod.ts']);
+    });
+  });
+});
+
+describe('generate:client diagnostics', () => {
+  const files = [
+    { path: 'client.ts', environment: 'server-safe' as const, contents: '' },
+    {
+      path: 'client.zod.ts',
+      environment: 'server-safe' as const,
+      contents: '',
+      diagnostics: [
+        { code: 'ZOD002' as const, severity: 'warning' as const, schema: 'app/UserDto', pointer: '/properties/email', message: 'format x-unknown is not known to Ajv; the server accepts every value' },
+        { code: 'ZOD003' as const, severity: 'error' as const, schema: 'app/UserDto', pointer: '/instanceof', message: 'instanceof is dropped' },
+      ],
+    },
+  ];
+
+  it('prints one line per diagnostic with file, severity, code, schema and pointer', () => {
+    expect(diagnosticLines(files)).to.deep.equal([
+      'client.zod.ts: warning ZOD002 app/UserDto#/properties/email: format x-unknown is not known to Ajv; the server accepts every value',
+      'client.zod.ts: error ZOD003 app/UserDto#/instanceof: instanceof is dropped',
+    ]);
+  });
+
+  it('counts the errors only', () => {
+    expect(diagnosticErrors(files)).to.equal(1);
+    expect(diagnosticErrors([files[0]])).to.equal(0);
   });
 });

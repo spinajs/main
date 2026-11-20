@@ -9,11 +9,10 @@
     "--loader=ts-node/esm"
   ],
   "coverageAnalysis": "perTest",
-  "disableBail": true,
+  "ignoreStatic": true,
   "inPlace": true,
   "mutate": [
-    "src/engine/evaluate.ts",
-    "src/engine/combinators.ts"
+    "src/engine/**/*.ts"
   ],
   "reporters": [
     "json",
@@ -23,7 +22,8 @@
   "jsonReporter": {
     "fileName": "reports/mutation/mutation.json"
   },
-  "concurrency": 12,
-  "timeoutMS": 60000,
+  "concurrency": 4,
+  "timeoutMS": 10000,
+  "dryRunTimeoutMinutes": 20,
   "tempDirName": "../../.stryker-tmp/authz"
 }

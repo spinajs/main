@@ -8,6 +8,7 @@ import { withSpan } from '@spinajs/tracing';
 
 import { asciiLower, isNonEmptyString, isPlainObject, uniqueBy } from '@spinajs/util';
 
+import { AuthnListenerFailed } from '../contracts/audit.js';
 import type { AuthnEventType } from '../contracts/audit.js';
 import type { AuthenticationResult, AuthnContext, AuthnFailure, Credentials, ExternalSubject, IdentityRef, StrategyOutcome } from '../contracts/credentials.js';
 import { errorClass, isRef } from '../support/guards.js';
@@ -188,6 +189,9 @@ export class DefaultAuthnService extends AuthnService {
   @Logger('authn-boot')
   protected Log: Log;
 
+  @Logger('authn-audit')
+  protected AuditLog: Log;
+
   @Config('authn.linking')
   protected Linking!: Linking;
 
@@ -298,6 +302,8 @@ export class DefaultAuthnService extends AuthnService {
     try {
       return await this.accept(v.s, v.outcome, keyed.of(v.s), ctx, clean);
     } catch (err) {
+      // A stopped announcement is the one rejection let through: its session is already revoked.
+      if (err instanceof AuthnListenerFailed) throw err;
       // Only a verified credential gets here: a rejection would tell it apart from a wrong one (A02).
       return this.refuse(ctx, v.s, 'store_error', 'invalid_credentials', { data: { error: errorClass(err) } });
     }
@@ -371,8 +377,7 @@ export class DefaultAuthnService extends AuthnService {
     const success: Success = { status: 'success', identity: id, facts, session };
     const ended = await this.startSession('mfa', success, ctx, done);
     if (ended) return ended;
-    await this.Auditor.publishIn(ctx, { type: 'mfa.verify', outcome: 'success', ...done });
-    await this.Auditor.publishIn(ctx, { type: 'login', outcome: 'success', ...done });
+    await this.announce(ctx, session, { type: 'mfa.verify', outcome: 'success', ...done }, { type: 'login', outcome: 'success', ...done });
     return success;
   }
 
@@ -496,8 +501,7 @@ export class DefaultAuthnService extends AuthnService {
       return fail('invalid_credentials');
     }
     const done = { identity: id, strategy: facts.strategy, ...(isNonEmptyString(facts.sessionHandle) ? { session: facts.sessionHandle } : {}) };
-    await this.Auditor.publishIn(ctx, { type: 'mfa.verify', outcome: 'success', ...done });
-    await this.Auditor.publishIn(ctx, { type: 'session.rotate', outcome: 'success', reason: 'step_up', ...done });
+    await this.announce(ctx, next, { type: 'mfa.verify', outcome: 'success', ...done }, { type: 'session.rotate', outcome: 'success', reason: 'step_up', ...done });
     return { status: 'success', identity: id, facts, session: next };
   }
 
@@ -582,7 +586,7 @@ export class DefaultAuthnService extends AuthnService {
 
     const facts = { method: r.method, strategy: s.name, assurance: r.assurance ?? ('aal1' as const), mfa: [] as string[], ...externalFactsOf(r.external) };
     const extra = { ...(r.ceiling !== undefined ? { ceiling: r.ceiling } : {}), ...(r.delegation ? { delegation: r.delegation } : {}), ...(attributes !== undefined ? { attributes } : {}) };
-    // A token or key is used on every request: its success skips a succeed with nothing to do and waits for no sink.
+    // A token or key is used on every request: its success skips a succeed with nothing to do and waits for no listener.
     if (!s.interactive) {
       if (!clean) await this.Throttle.succeed(keys, 'login');
       this.Auditor.publishDetached(ctx, { type: this.eventOf(s), outcome: 'success', strategy: s.name, identity: id });
@@ -602,7 +606,7 @@ export class DefaultAuthnService extends AuthnService {
     const issued: AuthnFacts = { ...facts, authenticatedAt: ctx.now };
     if (steps.length > 0) {
       const pending = await sessions.issue(id, issued, { pending: { steps } });
-      await this.Auditor.publishIn(ctx, { type: 'mfa.challenge', outcome: 'success', strategy: s.name, identity: id, session: await this.handleOf(pending) });
+      await this.announce(ctx, pending, { type: 'mfa.challenge', outcome: 'success', strategy: s.name, identity: id, session: await this.handleOf(pending) });
       return { status: 'mfa_required', pending, steps };
     }
     const session = await sessions.issue(id, issued);
@@ -610,8 +614,7 @@ export class DefaultAuthnService extends AuthnService {
     const success: Success = { status: 'success', identity: id, facts: { ...facts, ...(handle !== undefined ? { sessionHandle: handle } : {}) }, session, ...extra };
     const ended = await this.startSession('login', success, ctx, { identity: id, strategy: s.name, ...(handle !== undefined ? { session: handle } : {}) });
     if (ended) return ended;
-    await this.Auditor.publishIn(ctx, { type: 'login', outcome: 'success', strategy: s.name, identity: id, session: handle });
-    await this.Auditor.publishIn(ctx, { type: 'session.issue', outcome: 'success', strategy: s.name, identity: id, session: handle });
+    await this.announce(ctx, session, { type: 'login', outcome: 'success', strategy: s.name, identity: id, session: handle }, { type: 'session.issue', outcome: 'success', strategy: s.name, identity: id, session: handle });
     return success;
   }
 
@@ -781,6 +784,31 @@ export class DefaultAuthnService extends AuthnService {
   private async refuse(ctx: AuthnContext, s: AuthenticationStrategy, reason: string, answer: AuthnFailure, extra: Partial<AuthnEventBody> = {}): Promise<Failure> {
     await this.Auditor.publishIn(ctx, { type: this.eventOf(s), outcome: 'failure', strategy: s.name, reason, ...extra });
     return fail(answer);
+  }
+
+  /**
+   * Publishes what a session that was just issued or elevated did. Every event goes to the blocking listeners first;
+   * the others hear any of them only when all were taken, so no webhook or queue event announces a login that did not
+   * stand. When a blocking listener stops one, the session is revoked before the failure goes on: no session outlives
+   * a login that could not be announced.
+   */
+  private async announce(ctx: AuthnContext, session: SessionHandle, ...events: AuthnEventBody[]): Promise<void> {
+    let told = 0;
+    const tells: (() => Promise<void>)[] = [];
+    try {
+      for (const e of events) {
+        told++;
+        tells.push(await this.Auditor.holdIn(ctx, e));
+      }
+    } catch (err) {
+      // A failed revocation must not replace the 503: no client holds the session, which lives until it expires.
+      await this.Sessions.revoke(session).catch((revokeErr: unknown) => this.AuditLog.warn({ errorClass: errorClass(revokeErr) }, 'authn: a session whose announcement was stopped could not be revoked (${errorClass})'));
+      // Each event up to the stopped one again, as a failure: a listener that took an earlier one as a success learns
+      // that it did not stand, and the refusal is recorded. A failure event is never stopped.
+      for (const e of events.slice(0, told)) await this.Auditor.publishIn(ctx, { ...e, outcome: 'failure', reason: 'listener_failed' });
+      throw err;
+    }
+    for (const tell of tells) await tell();
   }
 
   /** Interactive strategies log in; the others are uses of a token or a key. */

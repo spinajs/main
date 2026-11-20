@@ -14,7 +14,7 @@ Query builders are DI services too. Register a subclass of `SelectQueryBuilder` 
 
 | Builder | Resolved through DI (your class is used) | Created with `new` (your class is not used) |
 | --- | --- | --- |
-| `SelectQueryBuilder` | `driver.select()`; `createQuery()` behind `Model.query()`, `where()`, `select()`, `get()`, `all()`, ...; relation queries (`populate()`, many-to-many junctions) via the string `'SelectQueryBuilder'`; the sub-builder of a join callback | `clone()`; `CreateViewQueryBuilder.as(callback)`; the deep-clone source of `CloneTableQueryBuilder` |
+| `SelectQueryBuilder` | `driver.select()`; `createQuery()` behind `Model.query()`, `where()`, `select()`, `get()`, `all()`, ...; relation queries (`populate()`, many-to-many junctions) via the string `'SelectQueryBuilder'`; the sub-builder of a join callback; `clone()` | `CreateViewQueryBuilder.as(callback)`; the deep-clone source of `CloneTableQueryBuilder` |
 | `InsertQueryBuilder` | `driver.insert()`; `createQuery()` behind `Model.insert()`, the unit of work, relation objects | the `OnDuplicateQueryBuilder` it creates |
 | `UpdateQueryBuilder`, `DeleteQueryBuilder` | `driver.update()`, `driver.del()`; `createQuery()` behind `Model.update()`, `destroy()`, soft delete, the unit of work | |
 | `TruncateTableQueryBuilder`, `IndexQueryBuilder`, `SchemaQueryBuilder` | `driver.truncate()`, `driver.index()`, `driver.schema()` | every builder `SchemaQueryBuilder` returns (`createTable`, `alterTable`, `createView`, ...) |
@@ -35,24 +35,24 @@ Constructor signatures to keep:
 
 | Class | Constructor |
 | --- | --- |
-| `SelectQueryBuilder` | `(container, driver, model?, owner?, applyMiddlewares = true)` |
+| `SelectQueryBuilder` | `(container, driver, model?, owner?, applyMiddlewares = true, execution?)` |
 | `InsertQueryBuilder`, `UpdateQueryBuilder`, `DeleteQueryBuilder` | `(container, driver, model)` |
 | `IndexQueryBuilder`, `TruncateTableQueryBuilder`, `SchemaQueryBuilder` | `(container, driver)` |
 
 ## Important behaviour
 
-- **`clone()` drops your class.** `SelectQueryBuilder.clone()` builds `new SelectQueryBuilder(...)` and copies only the core fields. Without an override, a clone is a plain builder without your methods or state.
-- `clone()` is called by the ORM itself, not only by your code: `SqlLazyQueryStatement.build()` clones the query on every compile of a `Lazy` where statement; `SqlWithRecursiveStatement`, `SqlExistsQueryStatement` and `SqlInQueryStatement` clone their sub-selects; pagination helpers clone for the count.
+- **`clone()` keeps your class, not your fields.** `SelectQueryBuilder.clone()` resolves the copy from the same container as its source and copies the core fields. A field your subclass adds starts at its default in the clone, unless you override `clone()` to copy it.
+- `clone()` is called by the ORM itself, not only by your code: `SqlLazyQueryStatement.build()` clones the query on every compile of a `Lazy` where statement; `SqlWithRecursiveStatement`, `SqlExistsQueryStatement` and `SqlInQueryStatement` clone their sub-selects; `SqlJoinStatement.clone()` clones the builder of a join that has a callback, whenever a query with such a join is cloned; pagination helpers clone for the count; every relation load and every page of a keyset `stream()` runs on a clone.
 - `clone()` runs no query middleware: the copy keeps exactly the statements of the original.
 - A root registration is global: every connection, every model, every relation query gets your class.
 - Query scope methods are bound onto the instance by `createQuery()` only; your subclass methods are on the prototype and work on every DI-created instance.
 - `SelectQueryBuilderC` is an empty subclass in `@spinajs/orm`; nothing resolves it.
-- `UpdateQueryBuilder` and `DeleteQueryBuilder` have no `clone()`.
+- `UpdateQueryBuilder` and `DeleteQueryBuilder` have no `clone()` of their own. The one they carry comes from the `WhereBuilder` mixin and returns a plain `WhereBuilder` with their conditions, not a copy of the update or delete.
 
 ## Best practices
 
-- Keep the base constructor; add no required constructor parameters.
-- Override `clone()`: call `super.clone()`, restore your prototype, copy your own fields.
+- Keep the base constructor; add no required constructor parameters. A constructor of your own passes every argument to `super`: the ORM hands relation and join builders their `execution` as the last argument, and a subclass that drops it makes every merged builder read `{ kind: 'own' }` (see [Scopes and builder extensions](../orm/16-scopes-and-builder-extensions.md)).
+- Override `clone()` when your subclass has fields of its own: take the `owner` argument, pass it to `super.clone(owner)` and copy your fields. The ORM passes an owner when it copies a populated relation together with its query; an override that drops the argument gives that relation a query owned by the relation it was copied from.
 - Declare your methods on `ISelectQueryBuilder<T>` with module augmentation so model statics expose them with types.
 - Register the subclass once, at startup, before `Orm` resolves, in the same module that declares it.
 - Prefer a prototype extension when the method keeps no state, and `QueryMiddleware` when callers must not be able to skip it. See [Scopes and builder extensions](../orm/16-scopes-and-builder-extensions.md).
@@ -60,15 +60,13 @@ Constructor signatures to keep:
 ## Patterns and antipatterns
 
 ```ts
-// Don't: the clone is a plain SelectQueryBuilder; .page() is gone on the count query
-const query = Invoice.where('Status', 'unpaid') as PagedSelectQueryBuilder;
-const count = query.clone();
-count.page(2); // TypeError: count.page is not a function
+// Don't: the clone has your class, but PageSize is back at its default
+const query = (Invoice.where('Status', 'unpaid') as PagedSelectQueryBuilder).pageSize(50);
+query.clone().page(2); // skips 50 rows, not 100
 
-// Do: override clone() so copies keep the class and its state
-public clone(): this {
-  const copy = super.clone();
-  Object.setPrototypeOf(copy, Object.getPrototypeOf(this));
+// Do: override clone() to copy the fields your subclass adds
+public clone(owner?: IOrmRelation): this {
+  const copy = super.clone(owner);
   copy.PageSize = this.PageSize;
   return copy;
 }
@@ -78,9 +76,9 @@ public clone(): this {
 // Don't: a required extra parameter shifts every argument DI passes
 constructor(container: IContainer, tenant: string, driver: OrmDriver) { ... }
 
-// Do: keep the base signature; read extra context from DI or from the driver
-constructor(container: IContainer, driver: OrmDriver, model?: Constructor<any>, owner?: IOrmRelation, applyMiddlewares = true) {
-  super(container, driver, model, owner, applyMiddlewares);
+// Do: take what the base takes and pass all of it on; read extra context from DI or from the driver
+constructor(...args: ConstructorParameters<typeof SelectQueryBuilder>) {
+  super(...args);
 }
 ```
 
@@ -91,6 +89,7 @@ constructor(container: IContainer, driver: OrmDriver, model?: Constructor<any>, 
 ```ts sample
 import { DI, NewInstance } from '@spinajs/di';
 import { Connection, Model, ModelBase, Primary, SelectQueryBuilder } from '@spinajs/orm';
+import type { IOrmRelation } from '@spinajs/orm';
 
 declare module '@spinajs/orm' {
   interface ISelectQueryBuilder<T> {
@@ -115,11 +114,8 @@ export class PagedSelectQueryBuilder<T = any> extends SelectQueryBuilder<T> {
     return this.skip(index * this.PageSize).take(this.PageSize);
   }
 
-  public clone(): this {
-    const copy = super.clone();
-
-    // SelectQueryBuilder.clone() always builds the base class
-    Object.setPrototypeOf(copy, Object.getPrototypeOf(this));
+  public clone(owner?: IOrmRelation): this {
+    const copy = super.clone(owner);
     copy.PageSize = this.PageSize;
     return copy;
   }
@@ -149,6 +145,7 @@ export async function unpaidInvoicesPage(index: number): Promise<Invoice[]> {
 ```ts sample
 import { Injectable, NewInstance } from '@spinajs/di';
 import { SelectQueryBuilder } from '@spinajs/orm';
+import type { IOrmRelation } from '@spinajs/orm';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 
 @NewInstance()
@@ -160,9 +157,8 @@ export class AuditedSelectQueryBuilder<T = any> extends SelectQueryBuilder<T> {
     return this;
   }
 
-  public clone(): this {
-    const copy = super.clone();
-    Object.setPrototypeOf(copy, Object.getPrototypeOf(this));
+  public clone(owner?: IOrmRelation): this {
+    const copy = super.clone(owner);
     copy.Purpose = this.Purpose;
     return copy;
   }

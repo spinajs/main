@@ -5,7 +5,7 @@ import sinon from 'sinon';
 import { AccessDenied, AuthzConfigError, DecisionAudit, runWithPrincipal } from '@spinajs/authz';
 import type { AccessPlan, AuthzService, Principal } from '@spinajs/authz';
 import { RecordingAudit, testHost } from '@spinajs/authz-testing';
-import { BelongsTo, HasMany, Relation, SingleRelation } from '@spinajs/orm';
+import { BelongsTo, HasMany, RawQuery, Relation, SingleRelation } from '@spinajs/orm';
 import type { ModelBase } from '@spinajs/orm';
 
 import { AccessResource, PlanTermCompiler } from '../../src/index.js';
@@ -104,6 +104,45 @@ describe('.accessible() and .unscoped()', function () {
       it("keeps the caller's where in one group: an orWhere cannot widen the plan", async () => {
         const rows = await as(() => Task.where('title', 'a').orWhere('title', 'b').accessible('task:read'));
         expect(ids(rows)).to.deep.equal(['t1']);
+      });
+
+      it('a raw condition with an OR in a belongsTo populate callback cannot widen the plan', async () => {
+        type RawConditions = { where(raw: RawQuery): RawConditions };
+        const Carrier = await db.define(
+          {
+            name: 'Carrier',
+            columns: { name: 'TEXT' },
+            rows: [
+              { id: 'c1', name: 'dhl' },
+              { id: 'c2', name: 'ups' },
+            ],
+          },
+          dialect,
+        );
+        const Shipment = (await db.define(
+          {
+            name: 'Shipment',
+            columns: { flag: 'TEXT', title: 'TEXT', carrier_id: 'TEXT' },
+            rows: [
+              { id: 's1', flag: 'green', title: 'a', carrier_id: 'c1' },
+              { id: 's2', flag: 'red', title: 'b', carrier_id: 'c2' },
+            ],
+            decorate: (c, proto) => {
+              AccessResource('task')(c);
+              Reflect.defineMetadata('design:type', SingleRelation, proto, 'carrier');
+              (BelongsTo(Carrier, 'carrier_id', 'id') as PropertyDecorator)(proto, 'carrier');
+            },
+          },
+          dialect,
+        )) as M;
+        // compiled after restrict() ran: flat, `( plan ) AND 1 = 0 OR 1 = 1` would return the red s2
+        const withRawOr = (query: object) =>
+          (query as { populate(r: string, cb: (this: RawConditions) => void): Q }).populate('carrier', function () {
+            this.where(RawQuery.create('1 = 0 OR 1 = 1'));
+          });
+
+        expect(ids(await as(() => withRawOr(Shipment.query().accessible('task:read'))))).to.deep.equal(['s1']);
+        expect(ids(await as(() => withRawOr(Shipment.where('title', 'b').accessible('task:read'))))).to.deep.equal([]);
       });
 
       it('an orWhere in a belongsTo populate callback cannot widen the plan', async () => {

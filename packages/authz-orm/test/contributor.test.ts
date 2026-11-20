@@ -5,11 +5,12 @@ import sinon from 'sinon';
 import { AuthzConfigError, AuthzContributor } from '@spinajs/authz';
 import { testHost } from '@spinajs/authz-testing';
 import { DI } from '@spinajs/di';
-import { Orm } from '@spinajs/orm';
+import { ModelBase, Orm, Primary } from '@spinajs/orm';
 import type { OrmDriver } from '@spinajs/orm';
 
 import { AuthzOrmContributor, checkResourceConnections } from '../src/contributor.js';
 import { AccessResource, Parent } from '../src/index.js';
+import { unregisterResource } from '../src/registry.js';
 import { TestDb } from './support/db.js';
 
 const expect = chai.expect;
@@ -50,6 +51,21 @@ describe('authz-orm resource connection check', function () {
     expect(out.listTypes).to.include('task');
     await (await testHost.domains()).service('root');
     await testHost.resetRoot();
+  });
+
+  it('refuses at domain boot a composite-key resource, with relation columns or without, opted out of the changelog or not', async () => {
+    // Every delete of an access resource reaches the ancestor table through the write capture.
+    class Pair extends ModelBase {
+      @Primary() public a: number;
+      @Primary() public b: number;
+    }
+    AccessResource('pair', { changelog: false })(Pair);
+    try {
+      const error = await new AuthzOrmContributor().contribute('root').then(() => undefined, (e: unknown) => e);
+      expect(error).to.be.instanceOf(AuthzConfigError).with.property('message', "authz-orm: @AccessResource model Pair (resource 'pair') has a composite primary key (a, b); the ORM write capture, which keeps authz_resource_ancestor and the column changelog, needs a single-column primary key");
+    } finally {
+      unregisterResource(Pair);
+    }
   });
 
   it('gives listTypes even when the ORM is not resolved at domain boot, skipping only the connection check', async () => {

@@ -33,7 +33,7 @@ class StreamMsSqlConf extends FrameworkConfiguration {
       this.Config,
       {
         logger: { targets: [{ name: 'Empty', type: 'BlackHoleTarget' }], rules: [{ name: '*', level: 'error', target: 'Empty' }] },
-        db: { StrictTableCheck: false, Connections: [{ Driver: 'orm-driver-mssql', Name: 'mssql-stream', ...SERVER, Options: { ...SERVER.Options, Schema: 'dbo' }, Migration: { OnStartup: false } }] },
+        db: { StrictTableCheck: false, Connections: [{ Driver: 'orm-driver-mssql', Name: 'mssql-stream', ...SERVER, Options: { ...SERVER.Options, Schema: 'dbo' } }] },
       },
       (target: unknown, source: unknown) => (Array.isArray(target) ? target.concat(source) : undefined),
     );

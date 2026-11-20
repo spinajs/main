@@ -1,9 +1,9 @@
-name: queue migrations (mysql)
+name: mysql (queue migrations, orm-mysql integration)
 
-# First CI in this repo. Purpose: actually execute the queue migrations' MySQL-specific
-# branches ( esp. Queue_2026_07_02 / Queue_2026_07_17 restating the Status default across
-# MySQL's destructive MODIFY COLUMN, and the ENUM widening ) against a real mysql:8.0 -
-# these paths never run on the sqlite test suites and were previously verified by inspection only.
+# Runs, against real mysql 8.0 and 5.7 servers, what the sqlite suites cannot reach:
+# - the queue migrations' MySQL-specific branches ( esp. Queue_2026_07_02 / Queue_2026_07_17 restating
+#   the Status default across MySQL's destructive MODIFY COLUMN, and the ENUM widening );
+# - orm-mysql's integration suites, the migration lock among them.
 
 on:
   push:
@@ -27,6 +27,7 @@ jobs:
   # useful even for changes that don't touch MySQL behaviour.
   sqlite:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 
@@ -57,6 +58,7 @@ jobs:
 
   mysql:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
 
     strategy:
       fail-fast: false
@@ -95,6 +97,7 @@ jobs:
       # ( which pulls in @spinajs/orm-sql ). Passing both build projects to `tsc -b` builds the
       # union of their reference graphs - everything the test needs, and nothing more.
       - name: build queue + orm-mysql + deps
+        id: build
         run: node node_modules/typescript-7/lib/tsc.js -b packages/queue/tsconfig.build.json packages/orm-mysql/tsconfig.build.json
 
       - name: run mysql migration suite

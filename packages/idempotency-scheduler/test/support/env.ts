@@ -1,7 +1,8 @@
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
 import '@spinajs/log';
-import { MigrationTransactionMode, Orm } from '@spinajs/orm';
+import { MigrationTransactionMode } from '@spinajs/orm';
+import { migrateTestDatabase } from '@spinajs/orm/testing';
 import '@spinajs/orm-sqlite';
 import { Clock, DbTimeSource, FakeClock } from '@spinajs/scheduler';
 
@@ -18,7 +19,7 @@ const sqlite = (name: string) => ({
   Driver: 'orm-driver-sqlite',
   Filename: ':memory:',
   Name: name,
-  Migration: { OnStartup: true, Table: 'orm_migrations', Transaction: { Mode: MigrationTransactionMode.PerMigration } },
+  Migration: { Table: 'orm_migrations', Transaction: { Mode: MigrationTransactionMode.PerMigration } },
 });
 
 // A FrameworkConfiguration also loads the config the installed packages ship, which the scheduler and the queue need;
@@ -51,6 +52,6 @@ export async function bootSweepEnv(options: SweepEnvOptions = {}): Promise<FakeC
   DI.register(() => clock.dbSource).as(DbTimeSource);
   DI.register(SweepTestConfiguration).as(Configuration);
   await DI.resolve(Configuration);
-  await (await DI.resolve(Orm)).Migrator.ready();
+  await migrateTestDatabase();
   return clock;
 }

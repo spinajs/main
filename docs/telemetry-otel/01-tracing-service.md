@@ -20,7 +20,7 @@ Recording a span with `withSpan(name, attrs, fn)`:
 1. `tracer('spinajs').startSpan(name, { attributes: attrs })` starts the span. Its parent is the active span, eg. the HTTP server span of the request.
 2. `fn(span)` runs and is awaited.
 3. On success the span gets status `OK` and the result is returned.
-4. On a throw the span gets `recordException(err)` and status `ERROR` with the error message, and the error is re-thrown.
+4. On a throw the span gets `error.type` and status `ERROR`, both set to the error's class name (`markSpanErrorType` from `@spinajs/tracing`), and the error is re-thrown. The error's message and an `exception` event stay off the span: an error's text can hold query parameters and payloads.
 5. `span.end()` runs in both cases. The batch processor exports the ended span later, in the background.
 
 Stopping:

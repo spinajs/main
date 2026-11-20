@@ -209,6 +209,9 @@
       "path": "packages/workflow/tsconfig.build.json"
     },
     {
+      "path": "packages/workflow-http/tsconfig.build.json"
+    },
+    {
       "path": "packages/threading/tsconfig.build.json"
     },
     {
@@ -285,6 +288,9 @@
     },
     {
       "path": "packages/authz-queue/tsconfig.build.json"
+    },
+    {
+      "path": "packages/authz-workflow/tsconfig.build.json"
     },
     {
       "path": "packages/authz-fs/tsconfig.build.json"
@@ -366,6 +372,18 @@
     },
     {
       "path": "packages/simulation/tsconfig.build.json"
+    },
+    {
+      "path": "packages/audit/tsconfig.build.json"
+    },
+    {
+      "path": "packages/audit-orm/tsconfig.build.json"
+    },
+    {
+      "path": "packages/audit-http/tsconfig.build.json"
+    },
+    {
+      "path": "packages/audit-authn/tsconfig.build.json"
     }
   ]
 }

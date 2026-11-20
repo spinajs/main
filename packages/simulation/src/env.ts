@@ -2,7 +2,7 @@ import '@spinajs/log';
 import '@spinajs/orm-sqlite';
 import type { Class, IContainer } from '@spinajs/di';
 import { Clock, DbTimeSource, FaultInjector } from '@spinajs/durable';
-import { Orm, OrmMigrator } from '@spinajs/orm';
+import { migrateTestDatabase } from '@spinajs/orm/testing';
 import { createTestApp, type TestApp } from '@spinajs/testing';
 import { SimClock, SimDbTimeSource } from './clock.js';
 import { currentContext, type SimContext } from './context.js';
@@ -115,9 +115,10 @@ export function createEnv(o: ResolvedSimulationOptions, profiler: Profiler = new
             container.register(() => faults).as(FaultInjector);
             options.register?.(container);
           },
-          resolve: [OrmMigrator, ...(options.resolve ?? [])],
         });
-        const orm = await app.resolve(Orm);
+        // From a template nothing is pending, so this applies and seeds nothing.
+        const { orm } = await migrateTestDatabase(app.container);
+        for (const type of options.resolve ?? []) await app.resolve(type);
         const driver = orm.Connections.get(SIM_CONNECTION);
         if (!driver) throw new Error(`SimEnv.boot: the ${SIM_CONNECTION} connection did not open`);
         database.attach(driver);
