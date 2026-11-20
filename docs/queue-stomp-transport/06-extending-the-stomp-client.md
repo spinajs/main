@@ -67,7 +67,9 @@ Protected hooks, in the order they run:
 | `resolve()` (public) | once, at boot | builds the client, installs handlers, connects | log, add metrics, adjust `this.Client` after `super.resolve()` |
 | `createClient(config)` | once, in `resolve()` | `new Client(config)` from `@stomp/stompjs` | return a fake for tests, or a client with extra handlers |
 | `createWebSocket()` | before every connect attempt | `new WebSocket(host, protocols)` from `ws` | TLS client certificates, proxies, handshake headers |
-| `applySubscription(desc)` | on `subscribe()` while connected, and for every subscription on each connect | `client-individual` ack, prefetch `1`, ActiveMQ durable name | change subscription headers; it also wires parsing, ack and failure handling, so prefer the hooks below |
+| `subscriptionKey(channel, subscriptionId?)` | on `subscribe()` | `<channel>#<subscriptionId>` for a named topic subscription, else the channel | share or split broker subscriptions differently |
+| `frameIdOf(desc)` | on `applySubscription()` and on `unsubscribe(…, true)` | `<subscriptionId>@<channel>`, or none without a `subscriptionId` | keep it unique per connection: `stompjs` routes MESSAGE frames by it |
+| `applySubscription(desc)` | on `subscribe()` while connected, and for every subscription on each connect | `client-individual` ack, prefetch `1`, STOMP id from `frameIdOf()`, ActiveMQ durable name | change subscription headers; it also wires parsing, ack and failure handling, so prefer the hooks below |
 | `publishMessage(message)` | on `emit()` and when flushing buffered emits | routing, header mapping, one pipeline run per channel | change the message or headers before `super` |
 | `publishWithReceipt(channel, body, headers, message)` | per channel and attempt | receipt watch with `ReceiptTimeout` | stamp headers on every frame; see [Publishing](02-publishing-messages.md#message-to-frame-custom-headers) |
 | `ReceiptTimeout` (getter) | per attempt | `receiptTimeout ?? options.receiptTimeout ?? 5000` | compute it per connection |
@@ -85,7 +87,7 @@ Protected state a subclass can read:
 | --- | --- | --- |
 | `Options` | `QueueClient` (public) | The connection entry, custom keys included |
 | `Client` | `StompQueueClient` | The `stompjs` client, set in `resolve()` |
-| `Subscriptions` | `StompQueueClient` | Tracked subscriptions by channel, each with the handlers of every message class on it, replayed on connect |
+| `Subscriptions` | `StompQueueClient` | Tracked subscriptions by `subscriptionKey()`, each with the handlers of every message class on it, replayed on connect, cleared by `dispose()` |
 | `PendingEmits` | `StompQueueClient` | Emits buffered while disconnected |
 | `ReadyWaiters` | `StompQueueClient` | Pending `whenReady()` settlers: called with no argument on connect, with an error on `dispose()` |
 | `Disposing` | `StompQueueClient` | `true` once `dispose()` has started |

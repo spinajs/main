@@ -16,7 +16,7 @@ At module load:
 At boot:
 
 1. `AccessContributor` (an `AuthzContributor`) lists, for each domain that boots, the permissions every registered controller names in an `@Access` of that domain, with the resource type when one is known.
-2. The domain's boot fails when a permission is not registered in `authz.permissions` or is checked on a type outside its types. For the root domain the boot runs when the HTTP server starts listening, and a failed boot stops the server ([Principal resolution](03-principal-resolution.md#how-it-works)).
+2. The domain's boot fails when a permission is not registered in `authz.permissions` or is checked on a type outside its types. For the root domain the boot runs when the HTTP server starts listening, and a failed boot stops the server, sets exit code 1 and emits `authz.boot.failed` ([Principal resolution](03-principal-resolution.md#how-it-works)).
 
 Per request:
 
@@ -141,7 +141,7 @@ export default {
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
-| `AccessPolicy` | not registered; `@Access` puts `{ Type: AccessPolicy, Options: ['route' \| 'class'] }` in the policy group and http builds it per route; `@NewInstance` | `AccessPolicy` | `TelemetryAccessPolicy` (`@spinajs/telemetry`) builds one with `new AccessPolicy('route')` for a rule read from configuration | Add checks next to it with `also`. To decide a rule that is not on a controller, call `execute(req, { ...route, Method: key }, holder)` with a holder carrying an `IAccessDescriptor` under `ACCESS_DESCRIPTOR`. Protected hooks: `decide()`, `refOf()`, `load()`, `trace()`, `inStore()`. <!-- TODO(docs-hook): verify that DI.register(Sub).as(AccessPolicy) replaces the policy http resolves for @Access --> |
+| `AccessPolicy` | not registered; `@Access` puts `{ Type: AccessPolicy, Options: ['route' \| 'class'] }` in the policy group and http builds it per route; `@NewInstance` | `AccessPolicy` | `SlotAccessPolicy` ([Slot access policies](12-slot-access-policy.md)), inherited by `TelemetryAccessPolicy` and `StudioAccessPolicy`, builds one with `new AccessPolicy('route')` for a rule read from configuration | Add checks next to it with `also`. To decide a rule that is not on a controller, call `execute(req, { ...route, Method: key }, holder)` with a holder carrying an `IAccessDescriptor` under `ACCESS_DESCRIPTOR`. Protected hooks: `decide()`, `refOf()`, `load()`, `trace()`, `inStore()`. <!-- TODO(docs-hook): verify that DI.register(Sub).as(AccessPolicy) replaces the policy http resolves for @Access --> |
 | `AccessContributor` | `AuthzContributor` list, `@Injectable(AuthzContributor)`, resolved at each domain boot | `AccessContributor` | `TelemetryAccessContributor` (`@spinajs/telemetry`) | Register another `AuthzContributor` for permissions you check outside `@Access`, so the boot validates them too. |
 | `UnscopedMiddleware` | route middleware added by `@Unscoped` through `@Middleware(UnscopedMiddleware, reason)`; `@NewInstance` | `UnscopedMiddleware` | | Not meant to be replaced. |
 | `HasPrincipal`, `IsAuthenticated` | plain `BasePolicy` classes, used with `@Policy` | | | Use as they are, or in `also`. |

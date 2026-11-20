@@ -17,7 +17,7 @@ export default {
     Models: { Source: 'manifest' },
     StrictTableCheck: process.env.ORM_E2E_STRICT !== '0',
     DefaultConnection: 'default',
-    Connections: [{ Driver: 'orm-driver-sqlite', Filename: ':memory:', Name: 'default', Migration: { OnStartup: true, Table: 'orm_migrations' } }],
+    Connections: [{ Driver: 'orm-driver-sqlite', Filename: ':memory:', Name: 'default', Migration: { Table: 'orm_migrations' } }],
   },
 };
 `;

@@ -1,8 +1,10 @@
 import 'mocha';
 import { expect } from 'chai';
 import { DI } from '@spinajs/di';
+import { skipsAuthInDevelopment } from '@spinajs/authz-http';
 
-import { StudioAccessContributor, StudioAccessPolicy, studioSkipsAuth } from '../src/index.js';
+import type { StudioCapabilities } from '../src/contracts/index.js';
+import { StudioAccessContributor, StudioAccessPolicy } from '../src/index.js';
 import { startApp, stopApp } from './support/app.js';
 import type { TestApp } from './support/app.js';
 import { registerHeaderSource } from './support/principals.js';
@@ -52,11 +54,55 @@ describe('StudioAccessPolicy', function () {
   });
 });
 
-describe('studioSkipsAuth', () => {
+for (const appEnv of ['development', 'production']) {
+  describe(`studio.auth.skipInDevelopment with APP_ENV=${appEnv}`, function () {
+    this.timeout(30000);
+
+    let app: TestApp;
+    let unregister: () => void;
+    const savedEnv = process.env.APP_ENV;
+
+    const get = (user?: string) => {
+      const r = app.request().get('/_studio/api/capabilities').set('Accept', 'application/json');
+      return user ? r.set('x-user', user) : r;
+    };
+
+    before(async () => {
+      process.env.APP_ENV = appEnv;
+      unregister = registerHeaderSource();
+      app = await startApp({ config: { 'studio.auth.skipInDevelopment': true } });
+    });
+
+    after(async () => {
+      await stopApp();
+      unregister();
+      if (savedEnv === undefined) delete process.env.APP_ENV;
+      else process.env.APP_ENV = savedEnv;
+    });
+
+    if (appEnv === 'development') {
+      it('lets an anonymous request through and reports every Studio permission as held', async () => {
+        const res = await get();
+        expect(res.status).to.eq(200);
+        expect((res.body as StudioCapabilities).permissions.sort()).to.deep.eq(['studio:explain', 'studio:read']);
+      });
+    } else {
+      it('still checks every request', async () => {
+        expect((await get()).status).to.eq(401);
+        expect((await get('alice')).status).to.eq(403);
+        const res = await get('bob');
+        expect(res.status).to.eq(200);
+        expect((res.body as StudioCapabilities).permissions.sort()).to.deep.eq(['studio:explain', 'studio:read']);
+      });
+    }
+  });
+}
+
+describe('skipsAuthInDevelopment', () => {
   it('skips only for the exact flag, a development env and no production flag', () => {
-    expect(studioSkipsAuth({ skipInDevelopment: true, isProduction: false }, { APP_ENV: 'development' })).to.eq(true);
-    expect(studioSkipsAuth({ skipInDevelopment: 'true', isProduction: false }, { APP_ENV: 'development' })).to.eq(false);
-    expect(studioSkipsAuth({ skipInDevelopment: true, isProduction: true }, { APP_ENV: 'development' })).to.eq(false);
-    expect(studioSkipsAuth({ skipInDevelopment: true, isProduction: false }, {})).to.eq(false);
+    expect(skipsAuthInDevelopment({ skipInDevelopment: true, isProduction: false }, { APP_ENV: 'development' })).to.eq(true);
+    expect(skipsAuthInDevelopment({ skipInDevelopment: 'true', isProduction: false }, { APP_ENV: 'development' })).to.eq(false);
+    expect(skipsAuthInDevelopment({ skipInDevelopment: true, isProduction: true }, { APP_ENV: 'development' })).to.eq(false);
+    expect(skipsAuthInDevelopment({ skipInDevelopment: true, isProduction: false }, {})).to.eq(false);
   });
 });

@@ -22,7 +22,8 @@ import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { BaseController, Controllers, HttpServer, ServerMiddleware } from '@spinajs/http';
 import { FILE_PROVIDER_INSTANCES, fsService } from '@spinajs/fs';
 import type { fs } from '@spinajs/fs';
-import { Orm, OrmDriver, QueryContext, modelDriver, OrmMigrator } from '@spinajs/orm';
+import { Orm, OrmDriver, QueryContext, modelDriver, OrmMigrationGuard, OrmMigrator } from '@spinajs/orm';
+import { migrateTestDatabase } from '@spinajs/orm/testing';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 import { PostgresOrmDriver } from '@spinajs/orm-postgres';
 import { AuthenticationStrategy, AuthnService, IdentityLinkStore, NonceStore, SessionIssuer } from '@spinajs/authn/contracts';
@@ -32,7 +33,7 @@ import type { AuthnLoginIdentifiedInput } from '@spinajs/authn';
 import { ActionHook, DefaultHooks, Hooks } from '@spinajs/hooks';
 import type { ActionPattern, BeforeContext } from '@spinajs/hooks';
 import { AuthnNonce, DbIdentityLinkStore, DbNonceStore } from '@spinajs/authn-orm';
-import { EnrolledMfaPolicy, FakeAuthnService, FakeBackoffThrottle, FakeIdentityStore, MemorySessionIssuer, RecordingEventSink, RecordingPrincipalFactory, throttleParams } from '@spinajs/authn-testing';
+import { EnrolledMfaPolicy, FakeAuthnService, FakeBackoffThrottle, FakeIdentityStore, MemorySessionIssuer, RecordingEventListener, RecordingPrincipalFactory, throttleParams } from '@spinajs/authn-testing';
 
 import { OidcController } from '../src/controllers/OidcController.js';
 import { OidcHttpClient } from '../src/http/client.js';
@@ -145,9 +146,9 @@ for (const kind of ['sqlite', 'postgres'] as DbKind[]) {
         } finally {
           await admin!.disconnect();
         }
-        connection = { Name: 'n10-acceptance', Driver: 'orm-driver-postgres', ...PG_SERVER, Database: database, Migration: { OnStartup: true }, Pool: { AcquireTimeout: 15000 } };
+        connection = { Name: 'n10-acceptance', Driver: 'orm-driver-postgres', ...PG_SERVER, Database: database, Pool: { AcquireTimeout: 15000 } };
       } else {
-        connection = { Name: 'n10-acceptance', Driver: 'orm-driver-sqlite', Filename: ':memory:', Migration: { OnStartup: true } };
+        connection = { Name: 'n10-acceptance', Driver: 'orm-driver-sqlite', Filename: ':memory:' };
       }
 
       register(configurationFor(connection) as unknown as Class<Configuration>, Configuration);
@@ -155,8 +156,7 @@ for (const kind of ['sqlite', 'postgres'] as DbKind[]) {
       dbContainer = DI.child();
       dbContainer.register(SqliteOrmDriver).as('orm-driver-sqlite');
       dbContainer.register(PostgresOrmDriver).as('orm-driver-postgres');
-      orm = await dbContainer.resolve(Orm);
-      await (await dbContainer.resolve(Orm)).Migrator.ready();
+      ({ orm } = await migrateTestDatabase(dbContainer));
 
       idp = await FakeIdp.create(FAKE_ISSUER, ['RS256']);
       identities = new FakeIdentityStore();
@@ -192,7 +192,7 @@ for (const kind of ['sqlite', 'postgres'] as DbKind[]) {
         policy: new EnrolledMfaPolicy([]),
         steps: [],
         sessions,
-        sinks: [new RecordingEventSink()],
+        listeners: [new RecordingEventListener()],
         principals: new RecordingPrincipalFactory(),
         hooks: await DI.resolve(Hooks),
       });
@@ -217,9 +217,9 @@ for (const kind of ['sqlite', 'postgres'] as DbKind[]) {
       await DI.get(HttpServer)?.stop();
       DI.uncache(HttpServer);
       DI.uncache(Controllers);
-      for (const type of DI.getRegisteredTypes(BaseController) ?? []) DI.uncache(type as Class<BaseController>);
+      for (const type of DI.getRegisteredTypes(BaseController) ?? []) DI.uncache(type);
       DI.uncache(BaseController);
-      for (const type of DI.getRegisteredTypes(ServerMiddleware) ?? []) DI.uncache(type as Class<ServerMiddleware>);
+      for (const type of DI.getRegisteredTypes(ServerMiddleware) ?? []) DI.uncache(type);
       DI.uncache(ServerMiddleware);
       for (const impl of registered) DI.unregister(impl as Class<unknown>);
       registered.length = 0;
@@ -234,6 +234,7 @@ for (const kind of ['sqlite', 'postgres'] as DbKind[]) {
       // The app resolved an Orm in the root too; the models write on the latest one, so the next suite needs its own.
       DI.uncache(Orm);
       DI.uncache(OrmMigrator);
+      DI.uncache(OrmMigrationGuard);
       if (database) {
         const admin = await pgAdmin();
         try {
@@ -341,7 +342,7 @@ for (const kind of ['sqlite', 'postgres'] as DbKind[]) {
       const [identity, external] = HookLog.calls[HookLog.calls.length - 1];
       expect(identity).to.deep.eq(alice);
       expect(external).to.deep.include({ provider: 'oidc:corp', subject: 'kc-alice', email: 'alice@example.test' });
-      expect((external.claims as { name?: string; groups?: string[] })).to.deep.include({ name: 'Alice', groups: ['eng'] });
+      expect(external.claims).to.deep.include({ name: 'Alice', groups: ['eng'] });
     });
 
     it('the state is claimed once in authn_nonce: a replayed callback fails', async () => {
@@ -461,7 +462,7 @@ for (const kind of ['sqlite', 'postgres'] as DbKind[]) {
         await DI.get(HttpServer)?.stop();
         DI.uncache(HttpServer);
         DI.uncache(Controllers);
-        for (const type of DI.getRegisteredTypes(BaseController) ?? []) DI.uncache(type as Class<BaseController>);
+        for (const type of DI.getRegisteredTypes(BaseController) ?? []) DI.uncache(type);
         DI.uncache(BaseController);
         await DI.resolve(Controllers);
         const server = (await DI.resolve(HttpServer)) as HttpServer;
