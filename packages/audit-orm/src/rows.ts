@@ -1,4 +1,4 @@
-import { AUDIT_KINDS, AUDIT_OUTCOMES, AuditConfigError, canonicalJson, payloadHash } from '@spinajs/audit';
+import { AUDIT_KINDS, AUDIT_OUTCOMES, AuditConfigError, ERASURE, canonicalJson, payloadHash } from '@spinajs/audit';
 import type { AuditEvent, StoredAuditEvent } from '@spinajs/audit';
 import { DI } from '@spinajs/di';
 import { Orm, instantFromDb } from '@spinajs/orm';
@@ -9,14 +9,6 @@ const INSERT_CHUNK = 50;
 
 /** What a redacted payload is stored as; `data_hash` keeps the hash of the text it replaced. */
 export const REDACTED_DATA = '';
-
-/**
- * The kind and action of the record `forget` writes, reserved for it. Verify, arrival blanking and every erasure take
- * exactly this pair as an erasure record, and an erasure never blanks one: it is the evidence of an earlier erasure.
- */
-export const ERASURE = { kind: 'custom', action: 'erasure' } as const;
-
-export const isErasureRecord = (e: { readonly kind: string; readonly action: string }): boolean => e.kind === ERASURE.kind && e.action === ERASURE.action;
 
 /** A where clause for erasure records. */
 export function erasureRecords(this: IWhereBuilder<unknown>): void {

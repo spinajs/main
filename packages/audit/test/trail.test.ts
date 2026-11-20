@@ -6,7 +6,7 @@ import '@spinajs/log';
 import { DI } from '@spinajs/di';
 import { createTestApp } from '@spinajs/testing';
 import type { TestApp } from '@spinajs/testing';
-import { AuditConfigError, AuditNotSupported, AuditStore, audit } from '../src/index.js';
+import { AuditConfigError, AuditNotSupported, AuditStore, audit, isErasureRecord } from '../src/index.js';
 import type { AuditPinnedHead, AuditReader, AuditRedaction, AuditSubject, AuditVerifyReport, TrailConfig } from '../src/index.js';
 import { MemoryAuditReader, MemoryAuditStore } from '../src/testing.js';
 
@@ -142,10 +142,10 @@ describe('audit().trail', function () {
 
   it('records one erasure per connection the reader erased on, and returns the sum', async () => {
     expect(await audit().trail('spread').forget(patient)).to.eq(1);
-    const erasures = MemoryAuditStore.appends().filter((write) => write.events[0]?.action === 'erasure');
-    expect(erasures.map((write) => [write.connection, write.events[0].data])).to.deep.eq([
-      [undefined, { redacted: 0 }],
-      ['orders', { redacted: 1 }],
+    const erasures = MemoryAuditStore.appends().filter((write) => isErasureRecord(write.events[0]));
+    expect(erasures.map((write) => [write.connection, write.events[0].kind, write.events[0].data])).to.deep.eq([
+      [undefined, 'custom', { redacted: 0 }],
+      ['orders', 'custom', { redacted: 1 }],
     ]);
   });
 
