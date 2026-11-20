@@ -1,18 +1,19 @@
 # Rate limits
 
-The batch check, the access event stream and the explain route carry a [`@RateLimit`](../http/18-throttling.md#the-options-form-configured-limits-answer-headers-key) that is on by default. Each reads `authz.http.rateLimit.<name>` once, when the route is mounted: an object overrides the shipped numbers, `false` takes the limit off the route.
+The batch check, the access event stream, the explain route and the decisions route carry a [`@RateLimit`](../http/18-throttling.md#the-options-form-configured-limits-answer-headers-key) that is on by default. Each reads `authz.http.rateLimit.<name>` once, when the route is mounted: an object overrides the shipped numbers, `false` takes the limit off the route.
 
 | Config key `authz.http.rateLimit.` | Route | Default | Why |
 | --- | --- | --- | --- |
 | `checks` | `POST /user/access/checks` | 120 per 60 s | A batch of up to 100 checks: the cost grows with the batch. |
 | `events` | `GET /user/access/events` | 10 per 60 s | Open streams are capped by `authz.http.events.maxStreamsPerPrincipal`; this caps the reconnects, each of which closes the oldest stream and opens a new one. |
 | `explain` | `GET /authz/explain` | 30 per 60 s | A full decision trace, the most expensive authz read. Mounted only when `authz.http.explainRoute.enabled` and never in production. |
+| `decisions` | `GET /authz/decisions/:id/explain` | 30 per 60 s | A replay of a logged decision. Mounted when `authz.http.decisionsRoute.enabled`, in production too. `authz.replay.concurrency` caps the replays in flight on top of it. |
 
 - Every limit counts the principal (`by: 'principal'`): `req.storage.Principal`. An anonymous caller is counted per client address. While an admin impersonates a user, the principal is that user, so **an impersonator spends the impersonated user's budget**.
 - Over the limit the route answers the default 429 `E_TOO_MANY_REQUESTS` with `Retry-After`. No response carries `X-RateLimit-*` unless `authz.http.rateLimit.<name>.headers: true`.
 - A browser's `EventSource` does not reconnect after a 429, so a multi-page app that opens the stream on every page view loses live updates past the 10th view a minute: raise `events` for such an app.
 - `GET /user/access` has no limit.
-- The limit runs after the policy gate: a request `HasPrincipal`, `IsAuthenticated` or `ExplainPolicy` refuses is not counted.
+- The limit runs after the policy gate: a request `HasPrincipal`, `IsAuthenticated`, `ExplainPolicy` or `DecisionsPolicy` refuses is not counted.
 - With `MemoryThrottleStore` every process counts apart; register a shared `ThrottleStore` for several instances.
 
 ## Configuration

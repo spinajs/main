@@ -5,7 +5,7 @@ import { DateTime } from 'luxon';
 
 import { CHANGE_LOG_TABLE } from './table.js';
 
-/** An `authz_change_log` row; `payload` is JSON text. */
+/** An `authz_change_log` row; `payload` and `before` are JSON text. */
 @Connection(AUTHZ_CONNECTION)
 @Model(CHANGE_LOG_TABLE)
 export class ChangeLogRecord extends ModelBase<ChangeLogRecord> {
@@ -22,6 +22,9 @@ export class ChangeLogRecord extends ModelBase<ChangeLogRecord> {
   public key!: string;
 
   public payload!: string | null;
+
+  /** Added by AuthzChangeLogHorizon_2026_11_06_00_00_00. */
+  public before!: string | null;
 
   public actor!: string | null;
 

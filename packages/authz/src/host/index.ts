@@ -14,3 +14,4 @@ export * from './listed-models.js';
 export * from './authz.js';
 export * from './push.js';
 export * from './decision-log-tap.js';
+export * from './principal-facts.js';

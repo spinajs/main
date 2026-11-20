@@ -112,15 +112,15 @@ describe('HTTP server span', function () {
       const server = await spans.waitFor('GET /tracing-t2/boom');
       expect(server.status.code).to.eq(SpanStatusCode.ERROR);
       expect(server.attributes).to.include({ 'http.response.status_code': 500, 'error.type': '500' });
-      expect(server.events.map((e) => [e.name, e.attributes?.['exception.message']])).to.deep.eq([['exception', 'boom']]);
+      expect(server.events).to.deep.eq([]);
     });
 
-    it('records the exception of a 500 raised outside the action', async () => {
+    it('marks a 500 raised outside the action ERROR without its message', async () => {
       expect((await req().get('tracing-t2/refused')).status).to.eq(500);
 
       const server = await spans.waitFor('GET /tracing-t2/refused');
       expect(server.status.code).to.eq(SpanStatusCode.ERROR);
-      expect(server.events.map((e) => e.attributes?.['exception.message'])).to.deep.eq(['middleware boom']);
+      expect(server.events).to.deep.eq([]);
     });
 
     it('records an uncommon method as _OTHER and names the span HTTP', async () => {

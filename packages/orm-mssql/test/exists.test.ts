@@ -6,7 +6,7 @@ import _ from 'lodash';
 import '@spinajs/log';
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
-import { ICompilerOutput, IColumnDescriptor, Orm, OrmDriver, SelectQueryBuilder } from '@spinajs/orm';
+import { ICompilerOutput, IColumnDescriptor, LikeLiteral, Orm, OrmDriver, SelectQueryBuilder } from '@spinajs/orm';
 
 import { MsSqlOrmDriver } from '../src/index.js';
 import { mergeArrays } from './util.js';
@@ -134,5 +134,12 @@ describe('mssql identifier quoting', function () {
 
     expect(result.expression).to.equal('SELECT [#users#].* FROM [users] as [#users#] LEFT JOIN [test].[adresses] as [adresses] ON [#users#].[id] = [adresses].[addressId] ORDER BY [name] ASC');
     expect(result.expression).to.not.contain('`');
+  });
+
+  it('escapes [ in a LikeLiteral on a relation column, compiled by the populated sub-query', () => {
+    const result = ExistsItem.select().where('Owner.id', 'like', LikeLiteral.contains('[1]_')).toDB() as ICompilerOutput;
+
+    expect(result.expression).to.match(/\[id\] LIKE \? ESCAPE '~'/);
+    expect(result.bindings).to.include('%~[1]~_%');
   });
 });

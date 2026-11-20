@@ -11,4 +11,5 @@ export * from './smt/solve.js';
 export * from './smt/minimize.js';
 export * from './smt/scenario.js';
 export * from './assertions.js';
+export * from './narrowing.js';
 export * from './format.js';

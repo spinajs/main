@@ -1,7 +1,7 @@
 import * as chai from 'chai';
 import 'mocha';
 
-import { DecisionLog } from '@spinajs/authz';
+import { DecisionLog, DecisionLogTap, TRUE, inputsHashOf, resourceKey } from '@spinajs/authz';
 import type { DecisionRecord, HostLog, Principal } from '@spinajs/authz';
 import { StaticModel, testHost } from '@spinajs/authz-testing';
 import { renderTemplate } from '@spinajs/log-common';
@@ -10,7 +10,7 @@ import { MIGRATION_DESCRIPTION_SYMBOL } from '@spinajs/orm';
 import type { OrmDriver } from '@spinajs/orm';
 import type { IContainer } from '@spinajs/di';
 
-import { AUDIT_CONNECTION, AuthzDecisionLog_2026_11_04_00_00_00, DECISION_LOG_TABLE, DbDecisionLog } from '../src/audit/index.js';
+import { AUDIT_CONNECTION, AuthzDecisionLogFacts_2026_11_06_00_00_00, AuthzDecisionLog_2026_11_04_00_00_00, DECISION_LOG_TABLE, DbDecisionLog, readDecisionRecord } from '../src/audit/index.js';
 import { TestDb } from './support/db.js';
 import type { Dialect } from './support/db.js';
 
@@ -54,9 +54,11 @@ describe('authz-orm DbDecisionLog', function () {
     pg = await TestDb.postgresReachable();
   });
 
-  it('the migration is registered for the authz-audit connection', () => {
-    expect(DI.getRegisteredTypes('__migrations__')).to.include(AuthzDecisionLog_2026_11_04_00_00_00);
-    expect((AuthzDecisionLog_2026_11_04_00_00_00 as unknown as Record<symbol, { Connection: string }>)[MIGRATION_DESCRIPTION_SYMBOL].Connection).to.equal(AUDIT_CONNECTION);
+  it('the migrations are registered for the authz-audit connection', () => {
+    for (const m of [AuthzDecisionLog_2026_11_04_00_00_00, AuthzDecisionLogFacts_2026_11_06_00_00_00]) {
+      expect(DI.getRegisteredTypes('__migrations__')).to.include(m);
+      expect((m as unknown as Record<symbol, { Connection: string }>)[MIGRATION_DESCRIPTION_SYMBOL].Connection).to.equal(AUDIT_CONNECTION);
+    }
   });
 
   for (const dialect of ['sqlite', 'postgres'] as const satisfies readonly Dialect[]) {
@@ -64,11 +66,13 @@ describe('authz-orm DbDecisionLog', function () {
       let db: TestDb;
       let driver: OrmDriver;
       const migration = new AuthzDecisionLog_2026_11_04_00_00_00();
+      const facts = new AuthzDecisionLogFacts_2026_11_06_00_00_00();
 
       const rows = async (): Promise<Row[]> => (await db.raw(`SELECT * FROM ${DECISION_LOG_TABLE} ORDER BY id`, [], dialect)) as Row[];
       const reset = async () => {
         await migration.down(driver);
         await migration.up(driver);
+        await facts.up(driver);
         await db.orm.reloadTableInfo();
       };
 
@@ -115,7 +119,7 @@ describe('authz-orm DbDecisionLog', function () {
         await reset();
         const { log, lines } = recordingLog();
         const sink = new DbDecisionLog(log);
-        const inputs = { env: { ip: "1.2.3.4'; --" }, attributes: [], relations: [], modelVersions: {} };
+        const inputs = { env: { ip: "1.2.3.4'; --" }, attributes: [], relations: [], modelVersions: {}, principalState: null, actorState: null };
         await sink.write([
           record(),
           record({ id: '0192f0c4-7a10-7c3e-9b2a-1f2e3d4c5b6b', allowed: true, reason: undefined, cached: true, actor: 'agent:bot', traceId: 't'.repeat(32), spanId: 's'.repeat(16), inputs }),
@@ -155,6 +159,66 @@ describe('authz-orm DbDecisionLog', function () {
           await container.dispose();
           for (const fn of undo.reverse()) fn();
         }
+      });
+
+      it('the facts migration adds nullable facts, logged_at and duration_ms; down drops them', async () => {
+        await migration.down(driver);
+        await migration.up(driver);
+        await facts.up(driver);
+        const columns = async () => Object.fromEntries((await driver.tableInfo(DECISION_LOG_TABLE, driver.Options.Database)).map((c) => [c.Name, c.Nullable]));
+        expect(await columns()).to.include({ facts: true, logged_at: true, duration_ms: true });
+        await facts.down(driver);
+        expect(Object.keys(await columns())).to.not.include.members(['facts', 'logged_at', 'duration_ms']);
+      });
+
+      it('reads a written record back from the primary, with its facts, instant and duration', async () => {
+        await reset();
+        const full = record({
+          id: '0192f0c4-7a10-7c3e-9b2a-1f2e3d4c5b6c',
+          actor: 'agent:bot',
+          traceId: 't'.repeat(32),
+          spanId: 's'.repeat(16),
+          loggedAt: '2026-11-04T10:00:01.000Z',
+          durationMs: 12,
+          facts: { principal: { type: 'user', id: 'alice', ceiling: { permissions: ['doc:read'] } }, actor: { type: 'agent', id: 'bot', onBehalfOf: { type: 'user', id: 'alice' } } },
+          inputs: { env: { ip: '1.2.3.4' }, attributes: [], relations: [], modelVersions: {}, principalState: '{"type":"user"}', actorState: null },
+          resource: { type: 'a:b', id: 'x:y/z' },
+        });
+        await new DbDecisionLog().write([full, record({ id: '0192f0c4-7a10-7c3e-9b2a-1f2e3d4c5b6d', durationMs: 0.4 })]);
+        expect(await readDecisionRecord(full.id)).to.deep.equal({ record: full, truncated: [] });
+        expect((await readDecisionRecord('0192f0c4-7a10-7c3e-9b2a-1f2e3d4c5b6d'))?.record).to.deep.equal(record({ id: '0192f0c4-7a10-7c3e-9b2a-1f2e3d4c5b6d', durationMs: 1 }));
+        expect(await readDecisionRecord('0192f0c4-7a10-7c3e-9b2a-000000000000')).to.equal(undefined);
+      });
+
+      it('a captured record read back re-hashes to its inputsHash, with undefined, NaN and a bigint in env', async () => {
+        await reset();
+        let captured: DecisionRecord | undefined;
+        class Keep extends DecisionLog {
+          write(records: DecisionRecord[]): Promise<void> {
+            captured = records[0];
+            return Promise.resolve();
+          }
+        }
+        const tap = new DecisionLogTap({ domain: 'root', sink: new Keep(), mode: 'all', allowSampleRate: 0, captureInputs: true, batch: { size: 1, flushMs: 60_000 }, log: recordingLog().log });
+        const resource = { type: 'doc', id: 'd1' };
+        const reads = { env: { ip: undefined, score: Number.NaN, big: 10n, at: new Date('2026-11-04T10:00:00.123Z') }, attributes: [{ ref: resource, path: 'a', value: [undefined, Number.POSITIVE_INFINITY] }], relations: [], modelVersions: { m: 'v1' } };
+        const decision = { allowed: true, permission: 'doc:read', resource, principal: alice, residual: TRUE, fields: { read: [], write: [] }, roles: {}, domain: 'root', id: '0192f0c4-7a10-7c3e-9b2a-1f2e3d4c5b6e' };
+        tap.onDecision({ principal: alice, permission: 'doc:read', resource }, decision, reads, { cached: false, durationMs: 1 });
+        await tap.flush();
+        await new DbDecisionLog().write([captured!]);
+        const { record: back } = (await readDecisionRecord(captured!.id))!;
+        const parts = { principal: back.inputs!.principalState, actor: back.inputs!.actorState, permission: back.permission, resource: resourceKey(back.resource), env: back.inputs!.env, attributes: back.inputs!.attributes, relations: back.inputs!.relations, modelVersions: back.modelVersions, policyHash: back.policyHash };
+        expect(back.inputsHash).to.equal(captured!.inputsHash);
+        expect(inputsHashOf(parts)).to.equal(back.inputsHash);
+      });
+
+      it('reports the keys the log truncated', async () => {
+        await reset();
+        const long = record({ resource: { type: 'doc', id: 'x'.repeat(300) }, principal: `user:${'p'.repeat(200)}` });
+        await new DbDecisionLog().write([long]);
+        const read = await readDecisionRecord(long.id);
+        expect(read?.truncated).to.deep.equal(['principal', 'resource']);
+        expect(read?.record.resource).to.deep.equal({ type: 'doc', id: 'x'.repeat(251) });
       });
 
       it('a failing database never rejects: the batch is logged and dropped', async () => {
