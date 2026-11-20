@@ -10,8 +10,8 @@ import { BelongsTo, Connection, HasMany, HasManyToMany, Model, ModelBase, Orm, P
 import type { OrmDriver, SingleRelation, TableQueryBuilder } from '@spinajs/orm';
 
 import { AuditReads, AuditTrailTableMigration, ReadAuditMiddleware, auditReadsOf, auditSubjectType, registerAuditReads } from '../../src/index.js';
-import { DIALECTS, TestDb } from '../../src/testing.js';
-import type { Dialect } from '../../src/testing.js';
+import { DIALECTS, TestDb } from '../support/db.js';
+import type { Dialect } from '../support/db.js';
 import { forgetAuditReads } from '../../src/reads/rules.js';
 import { TestAuditStore, recorded, resetTrail } from '../support/trail.js';
 
