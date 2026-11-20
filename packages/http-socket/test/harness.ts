@@ -60,6 +60,11 @@ DI.register(TestPrincipalSource).as(SocketPrincipalSource);
 let overrides: Record<string, unknown> = {};
 
 export class TestConfiguration extends FrameworkConfiguration {
+  // The tests are written against no package config; the file sources would load every installed @spinajs package's.
+  protected loadSources(): void {
+    this.Sources = [];
+  }
+
   protected onLoad(): unknown {
     return _.merge(
       {
