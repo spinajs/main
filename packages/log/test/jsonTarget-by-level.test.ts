@@ -47,7 +47,7 @@ describe("JsonTarget stream: by-level", () => {
     err.restore();
   });
 
-  const levelsOf = (stub: sinon.SinonStub) => stub.getCalls().map((c) => JSON.parse(c.args[0] as string).level as string);
+  const levelsOf = (stub: sinon.SinonStub) => stub.getCalls().map((c) => (JSON.parse(c.args[0] as string) as { level: string }).level);
 
   it("writes trace, debug, info and success to stdout", async () => {
     const log = DI.resolve(Log, ["json-by-level-out"]);
