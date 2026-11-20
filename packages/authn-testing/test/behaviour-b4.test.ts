@@ -1,10 +1,12 @@
 import assert from 'node:assert/strict';
 import 'mocha';
+import { AuthnEventSink } from '@spinajs/authn/contracts';
+import type { AuthnEvent } from '@spinajs/authn/contracts';
 import { planCases, runAuthnBehaviour, settleCase } from '../src/behaviour/index.js';
 import type { Facet, HarnessContext, HarnessFactory, RuleId } from '../src/behaviour/index.js';
 import { FakeIdentityStore, FakeImpersonationGuard, MemoryLinkStore, MemoryPasswordCredentialStore, fakeSeedPort } from '../src/fakes/index.js';
 import { UnsupportedConfig } from '../src/harness/index.js';
-import type { Harness } from '../src/harness/index.js';
+import type { EventsPort, Harness } from '../src/harness/index.js';
 import { referenceAccountLinks } from './reference/account-links.js';
 import { referenceHarness } from './reference/harness.js';
 import type { ReferenceExtras } from './reference/harness.js';
@@ -39,17 +41,17 @@ const coreFactory =
   (ctx: HarnessContext): Harness =>
     referenceHarness(withoutFreshAuth(ctx), extras(ctx));
 
-const CORE_FACETS: Facet[] = ['A19/core', 'A21/core', 'A23/core'];
+const CORE_FACETS: Facet[] = ['A19/core', 'A21/core', 'A21/log', 'A23/core'];
 
 runAuthnBehaviour(['A19'], linkStoreHarness, { title: 'kit fakes: MemoryLinkStore', facets: ['A19/store'], claim: ['A19/store'] });
 
-runAuthnBehaviour(['A19', 'A21', 'A23'], coreFactory(), { title: 'reference: A19, A21 and A23 core facets', facets: CORE_FACETS, claim: CORE_FACETS });
+runAuthnBehaviour(['A19', 'A21', 'A23'], coreFactory(), { title: 'reference: A19, A21 and A23 core facets, A21/log', facets: CORE_FACETS, claim: CORE_FACETS });
 
 runAuthnBehaviour(['A23'], (ctx) => referenceHttpHarness(ctx), { title: 'reference http app: A23/http', facets: ['A23/http'], claim: ['A23/http'] });
 
-describe('A21 SR-19 mutant', () => {
+describe('A21 SR-19 log mutant', () => {
   const NAME = 'A21 SR-19 failed logins log no login string';
-  const plan = () => planCases(['A21'], { facets: ['A21/core'] }).filter((p) => p.kase.name === NAME);
+  const plan = () => planCases(['A21'], { facets: ['A21/log'] }).filter((p) => p.kase.name === NAME);
 
   it('passes with the keyed-hash log sink', async () => {
     assert.strictEqual(plan().length, 1);
@@ -62,6 +64,41 @@ describe('A21 SR-19 mutant', () => {
     assert.strictEqual(r.status, 'failed');
     assert.ok(String(r.error).includes('holds a login string'), String(r.error));
   });
+});
+
+/** The mutant of the SR-19 events check: a failed login's events carry the login of the attempt in `data`. */
+class LoginEchoSink extends AuthnEventSink implements EventsPort {
+  private readonly seen: AuthnEvent[] = [];
+
+  constructor(private readonly hints: ReferenceLogSink) {
+    super();
+  }
+
+  async publish(e: AuthnEvent): Promise<void> {
+    this.seen.push(e.outcome === 'failure' && this.hints.hint !== null ? { ...e, data: { ...e.data, login: this.hints.hint } } : e);
+  }
+
+  all(): readonly AuthnEvent[] {
+    return [...this.seen];
+  }
+
+  clear(): void {
+    this.seen.length = 0;
+  }
+}
+
+describe('A21 SR-19 events mutant', () => {
+  const NAME = 'A21 SR-19 failed-login events carry no login string';
+  const echoing =
+    (ctx: HarnessContext): ReferenceExtras =>
+    (base, parts) => {
+      const extras = logSinkExtras()(ctx)(base, parts);
+      const events = new LoginEchoSink(extras.logs as ReferenceLogSink);
+      parts.sinks.push(events);
+      return { ...extras, events };
+    };
+
+  it('fails when a failed login publishes its login string', () => assertBites('A21', 'A21/core', NAME, coreFactory(), coreFactory(echoing)));
 });
 
 const named = (rule: RuleId, facet: Facet, name: string) => {

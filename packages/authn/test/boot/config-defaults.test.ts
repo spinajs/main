@@ -114,9 +114,9 @@ describe('authn schema (task 8 edits)', () => {
     expect(check({ audit: { hashKey: { secret: null } } }).ok).to.eq(true);
     expect(check({ audit: { hashKey: { secret: 'h'.repeat(31) } } }).paths).to.include('/audit/hashKey/secret');
     for (const bad of [0, 60001, 1.5]) expect(check({ audit: { listenerTimeoutMs: bad } }).paths, String(bad)).to.include('/audit/listenerTimeoutMs');
-    expect(check({ audit: { disabled: ['LogAuthnAuditSink'] } }).paths).to.include('/audit');
-    expect(check({ audit: {} }).config.audit).to.deep.eq({ hashIdentifiers: true, listenerTimeoutMs: 2000 });
-    expect(check({}).config.audit, 'an unset authn.audit').to.deep.eq({ hashIdentifiers: true, listenerTimeoutMs: 2000 });
+    expect(check({ audit: { disabled: ['AuthnAuditRecorder'] } }).paths).to.include('/audit');
+    expect(check({ audit: {} }).config.audit).to.deep.eq({ listenerTimeoutMs: 2000 });
+    expect(check({}).config.audit, 'an unset authn.audit').to.deep.eq({ listenerTimeoutMs: 2000 });
   });
 
   it('refuses a backoff key missing a field, as the throttle reader does', () => {

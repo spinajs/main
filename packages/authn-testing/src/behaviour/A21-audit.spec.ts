@@ -21,7 +21,7 @@ export const A21: AuthnRule = defineRule('A21', 'every event reaches every sink 
     },
   }),
   defineCase({
-    name: 'A21 SR-11 login and impersonation are audited by default',
+    name: 'A21 SR-11 a login publishes its success and session.issue events',
     facet: 'A21/core',
     needs: ['service', 'seed', 'events'],
     async run(h, k) {
@@ -81,15 +81,33 @@ export const A21: AuthnRule = defineRule('A21', 'every event reaches every sink 
     },
   }),
   defineCase({
-    name: 'A21 SR-19 failed logins log no login string',
+    name: 'A21 SR-19 failed-login events carry no login string',
     facet: 'A21/core',
+    needs: ['service', 'seed', 'events'],
+    async run(h, k) {
+      await seedUser(h, ALICE);
+      for (const login of [ALICE.login, NOBODY]) {
+        h.events.clear();
+        await auth(h, k, pw(login, WRONG));
+        const failures = h.events.all().filter((e) => e.outcome === 'failure');
+        assert.ok(failures.length > 0, `the failed login of ${login} published a failure event`);
+        for (const e of failures) {
+          const json = JSON.stringify(e);
+          assert.ok(!json.includes(ALICE.login) && !json.includes(NOBODY), `a failure event holds a login string: ${json}`);
+        }
+      }
+    },
+  }),
+  defineCase({
+    name: 'A21 SR-19 failed logins log no login string',
+    facet: 'A21/log',
     needs: ['service', 'seed', 'logs'],
     async run(h, k) {
       await seedUser(h, ALICE);
       await auth(h, k, pw(ALICE.login, WRONG));
       await auth(h, k, pw(NOBODY, WRONG));
       const lines = h.logs.lines();
-      assert.ok(lines.length > 0, 'the log sink wrote lines');
+      assert.ok(lines.length > 0, 'the failed logins were logged');
       for (const line of lines) {
         assert.ok(!line.includes(ALICE.login) && !line.includes(NOBODY), `a log line holds a login string: ${line}`);
       }

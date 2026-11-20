@@ -58,7 +58,7 @@ Each port is an optional member of `Harness`. The contract types come from `@spi
 | `throttle` | `ThrottlePort` | The throttle and the `ThrottleParams` it was built with |
 | `events` | `EventsPort` | Read and clear the published events |
 | `sinks` | `readonly EventsPort[]` | At least two sinks registered with `Array.ofType` (A21) |
-| `logs` | `LogsPort` | Lines the log audit sink wrote |
+| `logs` | `LogsPort` | Lines the application's log received (A21/log) |
 | `spy` | `VerifySpyPort` | Count `verify` calls over all strategies |
 | `mfa` | `MfaPort` | The `MfaStep`, enrol an identity, get a valid code, read recovery codes |
 | `mfaStorage` | `MfaStoragePort` | The stored MFA secret and recovery codes as kept at rest |
@@ -163,7 +163,7 @@ return { ...ports, flowHooks: DI.resolve(LaneHook) };
 
 ### Facets, claims and pending cases
 
-Every case has a facet `<rule>/<kind>`, for example `A07/store`, and a list of `needs`. The kinds are `core`, `store`, `http`, `local`, `argon2`, `external`, `step`, `totp`, `token`, `jwt`, `keys`, `jws`, `oidc`, `api`, `identity`, `flow`, `lifecycle`, `boot` and `config`. A facet groups the cases one implementation answers for: `A07/store` checks a session store, `A07/http` the HTTP layer over it.
+Every case has a facet `<rule>/<kind>`, for example `A07/store`, and a list of `needs`. The kinds are `core`, `store`, `http`, `local`, `argon2`, `external`, `step`, `totp`, `token`, `jwt`, `keys`, `jws`, `oidc`, `api`, `identity`, `flow`, `lifecycle`, `boot`, `config` and `log`. A facet groups the cases one implementation answers for: `A07/store` checks a session store, `A07/http` the HTTP layer over it.
 
 - `claim`: the facets, or whole rule ids, your package owns. A claimed case with a missing need or an unsupported config fails and names what is missing.
 - `facets`: register only these facets; the others of the requested rules are not registered at all.

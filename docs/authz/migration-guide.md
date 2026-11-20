@@ -771,8 +771,8 @@ Set these before the first 3.0 start:
   outside development and test;
 - `authn.audit.hashKey.secret` (32 characters or more), so throttle keys in `authn_throttle` are keyed
   hashes. Outside development and test, `DbAuthnThrottle` fails boot without it; in development and
-  test it uses a random key per process and warns once. `LogAuthnAuditSink` without it also uses a
-  random key per process, so the hashes in your logs change on each restart and differ between nodes;
+  test it uses a random key per process and warns once. The hashes of authentication events that
+  `@spinajs/audit-authn` writes to the `security` trail use `audit.hashKey.secret` instead;
 - `authn.throttle.service` only when you register a throttle of your own (section 3.4);
 - `http.trustProxy`: the proxy hops, or their addresses and CIDRs (section 3.4). Without it, every
   client behind the proxy shares one address for throttling and audit, and the CSRF guard sees the
@@ -1128,7 +1128,7 @@ Config, boot checks and old keys are in [section 3.4](#34-keys-that-other-config
 The flow is in the [authentication flow](../authn/01-authentication-flow.md). What an app sees:
 
 - **Class names.** `DefaultAuthnService`, `StrategyRegistry`, `DefaultMfaPolicy`,
-  `MemoryAuthnThrottle`, `AuthnAudit`, `LogAuthnAuditSink`, `AccountLinkService`, `FreshAuthCheck` and
+  `MemoryAuthnThrottle`, `AuthnAudit`, `AccountLinkService`, `FreshAuthCheck` and
   `AuthnImpersonationService`. DI keys classes by name, so the last two avoid the plain names: the
   `FreshAuth` policy and the 2.x `ImpersonationService` of `authn-http` would clash with them.
 - **Service names are class names.** `authn.strategies` entries and `authn.throttle.service`,
@@ -1615,11 +1615,11 @@ upgrades.**
 | SR-08 | A reset revokes API tokens. Minting a token needs fresh auth and an expiry of at most `authn.token.maxTtlDays` (90). |
 | SR-09 | Reset secrets are SHA-256 at rest. TOTP secrets are AES-256-GCM at rest, and recovery codes are SHA-256 only. |
 | SR-10 | `TotpService.adminReset` and `authn:mfa-reset` return no secret. The credential admin routes (`/authn/admin/users/:uuid/*`) need `users:credentials`, a target the caller covers, no protected role on the target, and fresh auth. |
-| SR-11 | An audit trail (log and database) is on by default. `DbAuthnAuditSink` stores raw subject refs, IP and user agent. |
+| SR-11 | Every authentication event reaches every `AuthnEventListener`. Recording them needs `@spinajs/audit-authn`, which writes to the `security` trail by default; without it nothing is recorded. `DbAuthnAuditSink`, when registered, stores raw subject refs, IP and user agent. |
 | SR-12 | The CSRF origin guard checks every cookie request with an unsafe method, and CORS with an empty list allows nothing (step 8). |
 | SR-13 to SR-15 | argon2 defaults pinned and rehash on login. No trimming, one length limit. A TOTP code works once, and an older time step is refused (`TotpMfaStep`, SR-15). |
 | SR-16 | Cookie flags and secret checks follow the app env, not `NODE_ENV=production` alone, and a missing env counts as production. |
-| SR-17 to SR-20 | An opaque error for a missing reset. Session ids hashed. `LogAuthnAuditSink` logs keyed hashes of identifiers (the database sink does not). Re-authentication counts into the throttle. |
+| SR-17 to SR-20 | An opaque error for a missing reset. Session ids hashed. The `security` trail of `@spinajs/audit-authn` logs keyed hashes of identifiers (the database sink does not). Re-authentication counts into the throttle. |
 
 ## 11. Open items in 3.0.0-rc.1
 
