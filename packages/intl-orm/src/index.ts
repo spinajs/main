@@ -1,5 +1,5 @@
 import { Container, DI, Inject, Injectable, NewInstance } from '@spinajs/di';
-import { SelectQueryBuilder as SQB, extractModelDescriptor, IModelDescriptor, ModelBase, RelationType, SelectQueryBuilder, QueryBuilder, QueryMiddleware, IBuilderMiddleware, IOrmRelation, BelongsToRelation, ISelectQueryBuilder, NativeOrmRelation, SelectQueryExtension } from '@spinajs/orm';
+import { SelectQueryBuilder as SQB, extractModelDescriptor, IModelDescriptor, ModelBase, RelationType, SelectQueryBuilder, QueryBuilder, QueryMiddleware, IBuilderMiddleware, IOrmRelation, ISelectQueryBuilder, NativeOrmRelation, SelectQueryExtension } from '@spinajs/orm';
 import type { IModelStatic } from '@spinajs/orm';
 import type { Constructor } from '@spinajs/di';
 import { TranslationSource, guessLanguage, defaultLanguage, IIntlAsyncStorage } from '@spinajs/intl';
@@ -29,6 +29,12 @@ declare module '@spinajs/orm' {
     translate(lang: string): SelectQueryBuilder<T>;
     translated: boolean;
     AllowTranslate: boolean;
+  }
+  interface SelectQueryBuilder<T> {
+    /** Set by translate(): the translations are already part of the query. */
+    translated?: ISelectQueryBuilder<T>['translated'];
+    /** false: IntlQueryMiddleware leaves the query untranslated. */
+    AllowTranslate?: ISelectQueryBuilder<T>['AllowTranslate'];
   }
   interface IColumnDescriptor {
     Translate: boolean;
@@ -108,11 +114,7 @@ export class IntlModelMiddleware implements IBuilderMiddleware {
           });
 
           (relData as IntlResource[]).forEach((rd) => {
-            if (self._owner && self._owner instanceof BelongsToRelation) {
-              val[rd.Column] = rd.Value;
-            } else {
-              (d as any)[rd.Column] = rd.Value;
-            }
+            val[rd.Column] = rd.Value;
           });
 
           val.setLanguage?.(self._lang);
@@ -121,11 +123,13 @@ export class IntlModelMiddleware implements IBuilderMiddleware {
     };
 
     if (pks.length !== 0) {
-      this._relationQuery.whereIn('ResourceId', pks);
-      this._relationQuery.where('Resource', this._description.Name);
-      this._relationQuery.where('Lang', this._lang);
-      this._relationQuery.middleware(hydrateMiddleware);
-      return (await this._relationQuery) as SelectQueryBuilder;
+      // a clone of an executed query shares this middleware, and a builder runs only once
+      const query = this._relationQuery.clone();
+      query.whereIn('ResourceId', pks);
+      query.where('Resource', this._description.Name);
+      query.where('Lang', this._lang);
+      query.middleware(hydrateMiddleware);
+      return (await query) as SelectQueryBuilder;
     }
 
     return [];
@@ -171,6 +175,13 @@ export function translateQuery(this: QueryBuilder, lang: string): QueryBuilder {
 export class IntlQueryExtension extends SelectQueryExtension {
   public readonly name = 'intl-orm';
   public readonly methods: SelectQueryExtension['methods'] = { translate: translateQuery };
+
+  public onClone(source: QueryBuilder, clone: QueryBuilder): void {
+    if (source instanceof SQB && clone instanceof SQB) {
+      clone.translated = source.translated;
+      clone.AllowTranslate = source.AllowTranslate;
+    }
+  }
 }
 
 function noTranslateInAsyncStore(): boolean {

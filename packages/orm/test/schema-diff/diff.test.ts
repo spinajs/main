@@ -147,6 +147,31 @@ describe('diffSchema', () => {
     expect(run(models, [pk, title, live('Slug', 'varchar', { Unique: true })]).changes).to.deep.equal([]);
   });
 
+  describe('an expression or prefix index (MIG007)', () => {
+    const PK_INDEX = { name: 'posts_pkey', columns: ['Id'], unique: true, primary: true };
+    const declared = model('Post', 'posts', [id(), col('Title', { family: 'text', inferred: true })], { indexes: [{ columns: ['Title'], unique: false }] });
+    const note = (name: string): string => `MIG007 index ${name} on posts is an expression or prefix index and cannot be compared; check it by hand`;
+    const withIndexes = (models: ModelEntry[], indexes: LiveTableExtras['indexes'], options: DiffOptions = {}) => run(models, [pk, title], { hasRows: true, indexes: [PK_INDEX, ...(indexes ?? [])] }, options);
+
+    it('is noted and never counts as the declared index; no addIndex is proposed under the name it holds', () => {
+      const prefix = { name: 'ix_posts_Title', columns: ['Title'], unique: false, primary: false, inexact: true };
+      const expression = { name: 'ix_posts_Title', columns: [], unique: false, primary: false, inexact: true };
+      expect(withIndexes([declared], [prefix])).to.deep.equal({ changes: [], diagnostics: [note('ix_posts_Title')] });
+      expect(withIndexes([declared], [expression])).to.deep.equal({ changes: [], diagnostics: [note('ix_posts_Title')] });
+    });
+
+    it('under another name leaves the declared index to be added', () => {
+      const lower = { name: 'posts_lower_title', columns: ['Title'], unique: false, primary: false, inexact: true };
+      expect(withIndexes([declared], [lower])).to.deep.equal({ changes: ['addIndex posts'], diagnostics: [note('posts_lower_title')] });
+    });
+
+    it('is never dropped as an index --base had', () => {
+      const base = target(model('Post', 'posts', [id(), col('Title', { family: 'text', inferred: true })], { indexes: [{ name: 'ix_old', columns: ['Title'], unique: false }] }));
+      const old = { name: 'ix_old', columns: ['Title'], unique: false, primary: false, inexact: true };
+      expect(withIndexes([posts()], [old], { base })).to.deep.equal({ changes: [], diagnostics: [note('ix_old')] });
+    });
+  });
+
   it('notes MIG003 without tableForeignKeys() and MIG005 for a foreign key an existing table lacks', () => {
     const models = [model('User', 'users', [id()]), model('Post', 'posts', [id(), col('OwnerId', { family: 'integer', inferred: true })], { relations: [{ name: 'Owner', kind: 'belongsTo', target: 'User', foreignKey: 'OwnerId' }] })];
     const columns = new Map([['users', [pk]], ['posts', [pk, live('OwnerId', 'int4')]]]);

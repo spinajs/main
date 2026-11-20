@@ -2,6 +2,7 @@ import { SocketException, WIRE_EVENTS, isChunk, isSocketError, isStreamEnd, isSt
 import type { CommandOptions } from './commands.js';
 import type { Connection, ConnectionState } from './connection.js';
 import { assertTimeoutMs } from './timeout.js';
+import { activeTraceparent } from './trace-context.js';
 
 export interface StreamOptions extends CommandOptions {
   /**
@@ -120,6 +121,7 @@ export class ClientStream<T> implements AsyncIterableIterator<T> {
   private granted = 0;
   private consumed = 0;
   private deadlineAt = 0;
+  private traceparent: string | undefined;
   private timer: Timer | undefined;
   private readonly window: number;
   private readonly timeoutMs: number;
@@ -180,7 +182,7 @@ export class ClientStream<T> implements AsyncIterableIterator<T> {
     const remaining = Math.max(1, this.deadlineAt - Date.now());
     // deadline: relative, so client/server clock skew cannot expire it; it bounds the reply only
     const request: CommandRequest = { id: this.requestId, name: this.name, payload: this.payload, credits: this.window, deadline: remaining };
-    if (this.options.traceparent !== undefined) request.traceparent = this.options.traceparent;
+    if (this.traceparent !== undefined) request.traceparent = this.traceparent;
 
     this.arm(remaining, NO_REPLY);
     const sent = this.host.connection.request<CommandReply>(WIRE_EVENTS.command, request, (reply) => this.onReply(reply));
@@ -241,6 +243,8 @@ export class ClientStream<T> implements AsyncIterableIterator<T> {
     if (this.options.signal?.aborted) return this.finish(CANCELLED);
     if (!connection.connected && (this.options.whenOffline ?? 'fail') === 'fail') return this.finish(OFFLINE);
 
+    // in the caller's context: a held stream is transmitted later, from a connection event
+    this.traceparent = this.options.traceparent ?? activeTraceparent();
     this.deadlineAt = Date.now() + this.timeoutMs;
     this.options.signal?.addEventListener('abort', this.onAbort, { once: true });
     if (connection.connected) return this.transmit();

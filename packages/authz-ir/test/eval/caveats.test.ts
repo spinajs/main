@@ -40,6 +40,13 @@ describe('caveats', () => {
     expect(await caveat(docsIR(), 'office_hours', { env: { hour: 11 } }, { 'env.hour': 22 })).to.equal('deny');
   });
 
+  it('a tuple context cannot move the clock', async () => {
+    const ir = docsIR();
+    ir.caveats.before = { params: { 'env.now': 'timestamp', 'env.until': 'timestamp' }, expr: { attr: 'env.now', lt: { ref: 'env.until' } } };
+    expect(await caveat(ir, 'before', {}, { 'env.until': '2026-12-01T00:00:00Z' })).to.equal('allow');
+    expect(await caveat(ir, 'before', {}, { 'env.now': '2020-01-01T00:00:00Z', 'env.until': '2026-11-01T00:00:00Z' })).to.equal('deny');
+  });
+
   it('is unknown for an unknown caveat or an unregistered condition function', async () => {
     const ir = docsIR();
     ir.caveats.custom = { params: {}, expr: { fn: 'acme.check' } };

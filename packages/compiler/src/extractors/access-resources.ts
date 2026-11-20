@@ -118,11 +118,14 @@ function relationsOf(symbol: ts.Symbol, registration: Registration | undefined, 
   });
 }
 
-export const modelIdOf = (symbol: ts.Symbol, ctx: ExtractorContext): string => {
+/** The package that declares `symbol` when it is not the analysed one, whether the program sees its declarations or its sources. */
+export const otherPackageOf = (symbol: ts.Symbol, ctx: ExtractorContext): string | undefined => {
   const declaration = symbol.declarations?.[0];
-  const pkg = declaration?.getSourceFile().isDeclarationFile ? declaringPackage(declaration) : ctx.packageName;
-  return `${pkg}:${symbol.name}`;
+  const pkg = declaration && declaringPackage(declaration);
+  return pkg !== ctx.packageName ? pkg : undefined;
 };
+
+export const modelIdOf = (symbol: ts.Symbol, ctx: ExtractorContext): string => `${otherPackageOf(symbol, ctx) ?? ctx.packageName}:${symbol.name}`;
 
 /**
  * The access resource type of every model, inherited through base classes, and the `authz.resources` of the package:
