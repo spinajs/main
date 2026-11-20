@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { CANDIDATE_FILE, baselineCandidate, countsOf, matrixOf, parseArgs, readBaseline, readTargets, reportsOf, scoreOf, summaryOf, survivorsOf, verdictOf } from '../mutation/gate.mjs';
+import { provenanceRefusal } from '../mutation/update-baseline.mjs';
 
 const ROOT = fileURLToPath(new URL('../..', import.meta.url));
 const GATE = fileURLToPath(new URL('../mutation/gate.mjs', import.meta.url));
@@ -37,12 +38,14 @@ test('the shipped targets: five, a 2-point tolerance, configs that exist, focus 
   assert.deepEqual(targets.find((t) => t.name === 'authz-ir-eval').focus, ['src/eval/check.ts']);
 });
 
-test('the shipped baseline is empty or holds a CI score for every target', () => {
+// A target the baseline does not know yet is allowed here: the gate fails it at run time until a run records it.
+test('the shipped baseline is empty, or holds CI scores of targets only', () => {
   const baseline = readBaseline(fileURLToPath(new URL('../mutation/baseline.json', import.meta.url)));
   if (baseline.measuredOn === null) return assert.deepEqual(baseline.targets, {});
   assert.equal(baseline.measuredOn.ci, 'github-actions');
-  const { targets } = readTargets(fileURLToPath(new URL('../mutation/targets.json', import.meta.url)));
-  assert.deepEqual(Object.keys(baseline.targets).sort(), targets.map((t) => t.name).sort());
+  const names = readTargets(fileURLToPath(new URL('../mutation/targets.json', import.meta.url))).targets.map((t) => t.name);
+  assert.notDeepEqual(Object.keys(baseline.targets), []);
+  for (const key of Object.keys(baseline.targets)) assert.ok(names.includes(key), `baseline.json scores ${key}, which targets.json does not list`);
 });
 
 test('readTargets rejects a malformed or duplicated target and a missing tolerance', () => {
@@ -134,9 +137,10 @@ test('the summary has one row per target, says when nothing is gated, and lists 
 test('the candidate is marked github-actions only on CI and keeps every scored target', () => {
   const v = verdictOf(engine, reportOf({ 'src/a.ts': statuses('Killed', 'Survived') }), undefined, 2);
   const now = new Date('2026-11-06T02:17:00Z');
-  const env = { GITHUB_ACTIONS: 'true', GITHUB_SERVER_URL: 'https://github.com', GITHUB_REPOSITORY: 'spinajs/main', GITHUB_RUN_ID: '9', GITHUB_SHA: 'abc', GITHUB_REF_NAME: 'v4', GITHUB_EVENT_NAME: 'push' };
+  const env = { GITHUB_ACTIONS: 'true', GITHUB_SERVER_URL: 'https://github.com', GITHUB_REPOSITORY: 'spinajs/main', GITHUB_RUN_ID: '9', GITHUB_SHA: 'abc', GITHUB_REF: 'refs/heads/v4', GITHUB_REF_NAME: 'v4', GITHUB_EVENT_NAME: 'push' };
   const ci = baselineCandidate([v, verdictOf({ ...engine, name: 'x' }, undefined, undefined, 2)], env, now);
-  assert.deepEqual(ci, { measuredOn: { ci: 'github-actions', runUrl: 'https://github.com/spinajs/main/actions/runs/9', commit: 'abc', ref: 'v4', event: 'push', date: '2026-11-06T02:17:00.000Z' }, targets: { 'authz-engine': { score: 50, valid: 2 } } });
+  assert.deepEqual(ci, { measuredOn: { ci: 'github-actions', runUrl: 'https://github.com/spinajs/main/actions/runs/9', repository: 'spinajs/main', commit: 'abc', ref: 'refs/heads/v4', event: 'push', date: '2026-11-06T02:17:00.000Z' }, targets: { 'authz-engine': { score: 50, valid: 2 } } });
+  assert.equal(provenanceRefusal(ci.measuredOn, { branch: 'v4', runId: '9' }), undefined);
   assert.equal(baselineCandidate([v], {}, now).measuredOn.ci, 'local');
 });
 
