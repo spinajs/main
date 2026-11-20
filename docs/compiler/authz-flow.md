@@ -130,7 +130,13 @@ Put a comment on the line of the query (or of the `runAs` call), or on the line 
 const rows = await Invoice.where('Status', 'paid');
 ```
 
-The reason after the colon is required. The comment is recorded in `authz.ignores`; the finding stays in the fragment, and the doctor drops it from its report.
+The reason after the colon is required and must be on the same line; the marker, its code and its reason are one `//` comment that starts with the marker. The same text in a string, a template literal or JSX text is no ignore. The comment is recorded in `authz.ignores`; the finding stays in the fragment, and the doctor drops it from its report.
+
+## In `spinajs doctor`
+
+Three doctor rules report the findings, one per code: `AUTHZ001` (`flowUnscopedRead`), `AUTHZ002` (`flowUnscopedWrite`) and `AUTHZ006` (`flowSystemWithoutReason`), all warnings ([doctor](doctor.md#rules)). They read `authz.findings` of the app manifest and report the findings of the app's own package only: a dependency's fragment carries findings for its own entry points, and they are its maintainers' to fix. An ignore comment silences its code at its own line and the line below, nothing else; the silenced finding stays in the manifest.
+
+`spinajs doctor --fail-on warning` makes the findings fail a CI run.
 
 ## In `spinajs doctor`
 
