@@ -20,6 +20,11 @@ import { FilterableOperators, IColumnFilter, IFilterEntry, IFilterRequest, isFil
 import { FilterStatics, installFilterStatics } from './filter-statics.js';
 
 class FilterValueSchemaConfiguration extends FrameworkConfiguration {
+  // The tests are written against no package config; the file sources would load every installed @spinajs package's.
+  protected loadSources(): void {
+    this.Sources = [];
+  }
+
   protected onLoad() {
     return {
       logger: {

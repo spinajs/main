@@ -44,6 +44,11 @@ const DATABASE = process.env.ORM_TEST_MYSQL_DATABASE ?? 'test';
 const POOL_LIMIT = 2;
 
 export class UowIntegrationConf extends FrameworkConfiguration {
+  // The tests are written against no package config; the file sources would load every installed @spinajs package's.
+  protected loadSources(): void {
+    this.Sources = [];
+  }
+
   public async resolve(): Promise<void> {
     await super.resolve();
 

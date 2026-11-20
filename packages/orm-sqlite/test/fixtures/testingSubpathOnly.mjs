@@ -5,6 +5,11 @@ import '@spinajs/log';
 import { SqliteOrmDriver } from '../../lib/mjs/index.js';
 
 class Conf extends FrameworkConfiguration {
+  // The test is written against no package config; the file sources would load every installed @spinajs package's.
+  loadSources() {
+    this.Sources = [];
+  }
+
   async resolve() {
     await super.resolve();
     Object.assign(this.Config, {

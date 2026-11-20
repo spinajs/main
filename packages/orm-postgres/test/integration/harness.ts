@@ -99,6 +99,11 @@ async function ensureDatabase(): Promise<void> {
 let current: { schema: string; options: IPgSuiteOptions };
 
 class PgIntegrationConf extends FrameworkConfiguration {
+  // The tests are written against no package config; the file sources would load every installed @spinajs package's.
+  protected loadSources(): void {
+    this.Sources = [];
+  }
+
   public async resolve(): Promise<void> {
     await super.resolve();
     const { schema, options } = current;

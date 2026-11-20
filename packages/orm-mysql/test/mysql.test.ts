@@ -33,6 +33,11 @@ const BOOT_TIMEOUT_MS = 15000;
 const PORT = Number(process.env.ORM_TEST_MYSQL_PORT ?? 13306);
 
 export class ConnectionConf extends FrameworkConfiguration {
+  // The tests are written against no package config; the file sources would load every installed @spinajs package's.
+  protected loadSources(): void {
+    this.Sources = [];
+  }
+
   protected onLoad() {
     return {
       logger: {

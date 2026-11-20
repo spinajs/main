@@ -17,6 +17,11 @@ const TABLES = TableSetDriver.Tables;
 let strictSetting: boolean | undefined;
 
 class StrictCheckConf extends FrameworkConfiguration {
+  // The tests are written against no package config; the file sources would load every installed @spinajs package's.
+  protected loadSources(): void {
+    this.Sources = [];
+  }
+
   public async resolve(): Promise<void> {
     await super.resolve();
 
@@ -151,7 +156,11 @@ describe('Orm strict table check (db.StrictTableCheck)', () => {
 });
 
 describe('db.StrictTableCheck configuration schema', () => {
-  class SchemaConf extends FrameworkConfiguration {}
+  class SchemaConf extends FrameworkConfiguration {
+    protected loadSources(): void {
+      this.Sources = [];
+    }
+  }
 
   afterEach(() => {
     DI.unregister(SchemaConf);
