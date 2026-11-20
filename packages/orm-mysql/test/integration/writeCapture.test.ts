@@ -89,7 +89,7 @@ class CaptureConf extends FrameworkConfiguration {
   public async resolve(): Promise<void> {
     await super.resolve();
     this.Config.logger = { targets: [{ name: 'Empty', type: 'BlackHoleTarget' }], rules: [{ name: '*', level: 'error', target: 'Empty' }] };
-    this.Config.db = { ...(this.Config.db as object), Migration: { Startup: false }, StrictTableCheck: false, DefaultConnection: 'capture', Connections: [{ Driver: 'orm-driver-mysql', Name: 'capture', ...SERVER, Database: DATABASE, Migration: { OnStartup: false } }] };
+    this.Config.db = { ...(this.Config.db as object), Migration: { Startup: false }, StrictTableCheck: false, DefaultConnection: 'capture', Connections: [{ Driver: 'orm-driver-mysql', Name: 'capture', ...SERVER, Database: DATABASE }] };
   }
 }
 
