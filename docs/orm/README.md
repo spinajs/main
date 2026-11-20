@@ -25,6 +25,7 @@ Pick the driver package for your database.
 | [Keyset pagination](21-keyset-pagination.md) | `query.paginate()`: stable pages with opaque `next`/`previous` cursors, in any mix of directions |
 | [Optimistic locking](22-optimistic-locking.md) | `@Version()`: update, destroy and save match the version the model was read at, `OptimisticLockError` (HTTP 409) otherwise |
 | [Read replicas](24-read-replicas.md) | `Replicas` per connection: model selects on healthy replicas, writes and transactions on the primary, read-your-writes per request |
+| [Write capture](25-write-capture.md) | `WriteObserver`: the rows an insert, update or delete reaches, read once before and once after the statement for every observer that asks, in one transaction; `db.WriteCapture.MaxRows` |
 | [Typed queries](18-typed-queries.md) | Checks column names, values and result shapes at compile time; strict mode is opt-in per package |
 | [Scopes and builder extensions](16-scopes-and-builder-extensions.md) | Adds your own methods to query builders: per-model scopes, prototype extensions, builder subclasses |
 | [SQL helpers](17-sql-helpers.md) | Dialect expressions (`SqlExpressions`), affected rows, duplicate keys, SQL fragments, typed raw SQL (`sql<Row>` and `executeSql`, checked by `spinajs doctor` and the `typed-sql` ESLint rule), composite-key `IN`, chunked writes and purges for stores that use a connection directly |
