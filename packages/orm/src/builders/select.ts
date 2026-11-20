@@ -25,7 +25,7 @@ import { ReplicaRouter, wroteInScope } from '../replica-router.js';
 import { readRouteOf, withReadRoute } from '../read-route.js';
 import { ConnectionState } from '../resilience.js';
 import type { IRelationSort } from './internal.js';
-import { executionCopy, runCloneHooks, runMergeHooks } from './internal.js';
+import { runCloneHooks, runMergeHooks } from './internal.js';
 import type { BuilderExecution, BuilderState } from '../extensions.js';
 import { QueryBuilder } from './base.js';
 import { LimitBuilder } from './limit.js';
@@ -44,6 +44,8 @@ export type StrictSelectAliasNarrowed<B, T, A extends string, R> = OrmStrict ext
 export interface SelectQueryBuilder<T> extends ITypedColumnsBuilder<T>, ILimitBuilder<T>, IWhereBuilder<T>, IJoinBuilder, IWithRecursiveBuilder { }
 
 const DEFAULT_STREAM_BATCH = 500;
+
+const isAggregate = (s: IQueryStatement): boolean => 'IsAggregate' in s && s.IsAggregate === true;
 
 /** Reads the driver's value of a selectCondition() column as a boolean. */
 class BooleanColumnMiddleware implements IBuilderMiddleware<any> {
@@ -565,7 +567,6 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
    * into HAVING, which a WHERE group would drop, so they stay flat.
    */
   public mergeStatementsAsGroup(builder: SelectQueryBuilder, filter: (statement: IQueryStatement) => boolean) {
-    const isAggregate = (s: IQueryStatement) => 'IsAggregate' in s && s.IsAggregate === true;
     this.mergeStatements(builder, (s) => filter(s) && isAggregate(s));
 
     const grouped = builder._statements.filter((s) => filter(s) && !isAggregate(s));
@@ -577,6 +578,27 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
     const statement = this._container.resolve<WhereQueryStatement>(WhereQueryStatement, [group, false]);
     this._markMerged([statement]);
     this._statements.push(statement);
+  }
+
+  /**
+   * Wraps the WHERE statements this query has so far into one AND group, so that an OR among them cannot widen a
+   * condition added afterwards. HAVING statements stay where they are: a WHERE group would drop them.
+   */
+  public groupWhere(): this {
+    const conditions = this._statements.filter((s) => !isAggregate(s));
+    if (conditions.length === 0) {
+      return this;
+    }
+
+    const aggregates = this._statements.filter(isAggregate);
+    this._statements = [];
+    // adopted, not rebound: a recursive CTE clones this query again, and a moved Lazy must keep its own context
+    this.where(function () {
+      (this as WhereBuilder<unknown>).adopt(conditions);
+    });
+    this._statements.push(...aggregates);
+
+    return this;
   }
 
   private _markMerged(statements: IQueryStatement[]) {
@@ -826,10 +848,10 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
     return (await this._materialize(rows as unknown as T)) as unknown as unknown[];
   }
 
-  /** Each page is an execution copy of this query, run the normal way, past the last row of the page before. */
+  /** Each page is a clone of this query, run the normal way, past the last row of the page before. */
   protected async *_streamByKeyset(batchSize: number, driver: OrmDriver = this._driver): AsyncGenerator<unknown> {
     const descriptor = extractModelDescriptor(this._model);
-    // compiles the relations, which merges a populated relation's order into this one, and fills every copy's middlewares
+    // compiles the relations, which merges a populated relation's order into this one, and fills every page's middlewares
     this.toDB();
     const sorts = this.getSorts();
     this._assertKeysetPageable(sorts, descriptor);
@@ -839,7 +861,7 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
 
     let last: unknown[] | undefined;
     for (;;) {
-      const page = executionCopy(this);
+      const page = this.clone();
       page._pinnedDriver = driver;
       for (const tieBreaker of columns.slice(sorts.length)) {
         page.order(tieBreaker.column, SortOrder.ASC);

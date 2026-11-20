@@ -12,6 +12,8 @@ import '@spinajs/log';
 import * as sinon from 'sinon';
 import _ from 'lodash';
 import { renderTemplate } from '@spinajs/log-common';
+import { ColumnStatement, JoinStatement } from '../src/statements.js';
+import { FakeColumnStatement, FakeJoinStatement } from './fakeStatements.js';
 
 /**
  * The message a spied Log call would print, for both the plain `(message)` and the `(fields, template)` form.
@@ -1378,6 +1380,8 @@ export function registerFakes(c: IContainer): void {
   c.register(DbPropertyHydrator).as(ModelHydrator);
   c.register(NonDbPropertyHydrator).as(ModelHydrator);
   c.register(FakeConverter).as(DatetimeValueConverter);
+  c.register(FakeColumnStatement).as(ColumnStatement);
+  c.register(FakeJoinStatement).as(JoinStatement);
 }
 
 /** The relation hydrators on top of `registerFakes`, for suites that populate or save relations. */

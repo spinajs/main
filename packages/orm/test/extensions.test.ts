@@ -12,7 +12,6 @@ import type { QueryTarget } from '../src/extensions.js';
 import { installQueryExtensions } from '../src/extension-install.js';
 import { DeleteQueryBuilder, InsertQueryBuilder, SelectQueryBuilder, UpdateQueryBuilder, createQuery } from '../src/builders.js';
 import type { QueryBuilder } from '../src/builders.js';
-import { executionCopy } from '../src/builders/internal.js';
 import { RawModel } from './mocks/models/RawModel.js';
 import '../src/bootstrap.js';
 import '@spinajs/log';
@@ -144,12 +143,11 @@ describe('Query extensions', () => {
       expect(query.state().execution).to.deep.equal({ kind: 'own' });
     });
 
-    it('a clone and an execution copy keep the execution the builder was constructed with', () => {
+    it('a clone keeps the execution the builder was constructed with', () => {
       const query = mergedIntoJoin();
 
       expect(query.state().execution).to.deep.equal({ kind: 'merged', into: 'join' });
       expect(query.clone().state().execution).to.equal(query.state().execution);
-      expect(executionCopy(query).state().execution).to.equal(query.state().execution);
     });
 
     it('the execution is frozen', () => {

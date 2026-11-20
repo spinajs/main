@@ -42,7 +42,7 @@ Constructor signatures to keep:
 ## Important behaviour
 
 - **`clone()` keeps your class, not your fields.** `SelectQueryBuilder.clone()` resolves the copy from the same container as its source and copies the core fields. A field your subclass adds starts at its default in the clone, unless you override `clone()` to copy it.
-- `clone()` is called by the ORM itself, not only by your code: `SqlLazyQueryStatement.build()` clones the query on every compile of a `Lazy` where statement; `SqlWithRecursiveStatement`, `SqlExistsQueryStatement` and `SqlInQueryStatement` clone their sub-selects; `SqlJoinStatement.clone()` clones the builder of a join that has a callback, whenever a query with such a join is cloned; pagination helpers clone for the count.
+- `clone()` is called by the ORM itself, not only by your code: `SqlLazyQueryStatement.build()` clones the query on every compile of a `Lazy` where statement; `SqlWithRecursiveStatement`, `SqlExistsQueryStatement` and `SqlInQueryStatement` clone their sub-selects; `SqlJoinStatement.clone()` clones the builder of a join that has a callback, whenever a query with such a join is cloned; pagination helpers clone for the count; every relation load and every page of a keyset `stream()` runs on a clone.
 - `clone()` runs no query middleware: the copy keeps exactly the statements of the original.
 - A root registration is global: every connection, every model, every relation query gets your class.
 - Query scope methods are bound onto the instance by `createQuery()` only; your subclass methods are on the prototype and work on every DI-created instance.
