@@ -61,6 +61,14 @@ const votes = (r: DecisionRequest): ScriptedVote => {
 // Readers with an unconditional read list everything; nobody else lists (a row condition is not list-filterable).
 const listPlan = (p: Principal): ModelListPlan => (['admin', 'reader', 'mailEditor', 'both', 'narrow', 'masked'].includes(String(p.id)) ? { kind: 'all' } : { kind: 'deny-all', reason: { code: 'no_access' } });
 
+// A registered model is only available; the root domain activates the ones its `authz.models` names.
+const votesModel = () => testHost.named('config-votes', testHost.instance(new ListStaticModel({ name: 'config-votes', votes, capabilities: { fields: true }, lists: { 'configuration:read': listPlan } })));
+
+function votesConfig(): Record<string, unknown> {
+  const base = testConfig();
+  return { ...base, authz: { ...(base.authz as object), models: ['config-votes'] } };
+}
+
 describe('configuration-http api', function () {
   this.timeout(25000);
 
@@ -74,14 +82,11 @@ describe('configuration-http api', function () {
 
     await startApp({
       controllers: [ConfigurationController],
-      config: testConfig(),
+      config: votesConfig(),
       // the db-source one installs a watch timer that would keep the event loop alive
       skip: ['DbConfigSourceBotstrapper'],
     });
-    unregisterModel = testHost.registerInRoot(
-      AuthorizationModel,
-      testHost.instance(new ListStaticModel({ name: 'config-votes', votes, capabilities: { fields: true }, lists: { 'configuration:read': listPlan } })),
-    );
+    unregisterModel = testHost.registerInRoot(AuthorizationModel, votesModel());
     // the ORM guard asks the booted root service
     await DI.resolve(AuthzService);
   });
@@ -490,11 +495,8 @@ describe('configuration-http ORM guard', function () {
   before(async () => {
     DI.setESMModuleSupport();
     DI.register(SqliteOrmDriver).as('orm-driver-sqlite');
-    await startApp({ controllers: [], config: testConfig(), skip: ['DbConfigSourceBotstrapper'] });
-    unregisterModel = testHost.registerInRoot(
-      AuthorizationModel,
-      testHost.instance(new ListStaticModel({ name: 'config-votes', votes, capabilities: { fields: true }, lists: { 'configuration:read': listPlan } })),
-    );
+    await startApp({ controllers: [], config: votesConfig(), skip: ['DbConfigSourceBotstrapper'] });
+    unregisterModel = testHost.registerInRoot(AuthorizationModel, votesModel());
     await DI.resolve(AuthzService);
     await migrateTestDatabase();
   });
