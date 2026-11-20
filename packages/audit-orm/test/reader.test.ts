@@ -3,7 +3,7 @@ import chaiAsPromised from 'chai-as-promised';
 import 'mocha';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { audit, trailConfig } from '@spinajs/audit';
-import type { AuditEvent, AuditInput } from '@spinajs/audit';
+import type { AuditEvent, AuditInput, TrailConfig } from '@spinajs/audit';
 import { DI } from '@spinajs/di';
 import type { OrmDriver } from '@spinajs/orm';
 import { TableAuditReader, auditEventColumns, insertRows, rowsOf, storedColumns } from '../src/index.js';
@@ -39,6 +39,13 @@ class SourcedReader extends TableAuditReader {
 
   protected override hasSourceColumn(): boolean {
     return true;
+  }
+}
+
+// The reader of docs/audit 10: the trail's table under another name, filled by a sink of its own.
+class LegacyReader extends TableAuditReader {
+  protected override table(trail: TrailConfig): string {
+    return `legacy_${trail.table}`;
   }
 }
 
@@ -179,6 +186,27 @@ describe('TableAuditReader', function () {
     } finally {
       await db.drop('sqlite', table);
       await db.driver('pglite').schema().dropTable(table).ifExists();
+    }
+  });
+
+  it('erases through a subclass over another table on its own connection only', async function () {
+    if (!db.has('pglite')) this.skip();
+    const trail = trailConfig(trailOf('sqlite'));
+    const legacy = `legacy_${tableOf('sqlite')}`;
+    const stored: AuditEvent = { id: 'e1', at: day(1), kind: 'data', action: 'update', subject: patient, outcome: 'ok', actor: 'user:u1', data: { n: 1 } };
+    for (const dialect of ['sqlite', 'pglite'] as const) {
+      await db.migrate(dialect, legacy);
+      await insertRows(db.driver(dialect), legacy, [storedColumns(stored)]);
+    }
+    try {
+      const reader = new LegacyReader();
+      const redactions: unknown[] = [];
+      for await (const redaction of reader.redactEach(trail, patient)) redactions.push(redaction);
+      expect(redactions).to.deep.eq([{ connection: undefined, redacted: 1 }]);
+      expect((await db.rows('pglite', legacy)).map((r) => r.data)).to.deep.eq(['{"n":1}']);
+    } finally {
+      await db.drop('sqlite', legacy);
+      await db.drop('pglite', legacy);
     }
   });
 

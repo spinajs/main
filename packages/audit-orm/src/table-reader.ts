@@ -3,7 +3,7 @@ import type { AuditFilter, AuditPinnedHead, AuditRedaction, AuditSubject, AuditV
 import { Injectable } from '@spinajs/di';
 import type { OrmDriver, SelectQueryBuilder } from '@spinajs/orm';
 
-import { REDACTED_DATA, exceptErasureRecords, auditConnection, rowsOf, toStored } from './rows.js';
+import { REDACTED_DATA, exceptErasureRecords, auditConnection, findConnection, rowsOf, toStored } from './rows.js';
 import { pruneSealed } from './seal/prune.js';
 import { ARCHIVE_CLOCK_SKEW_MS, verifyTable } from './seal/verify.js';
 import { distinctConnections } from './ship/services.js';
@@ -67,10 +67,11 @@ export class TableAuditReader extends AuditReader {
    * Without a `source`, a table without a source column is redacted on every connection that holds it, the trail's own
    * first: transactional events sit on the connection of each audited write. Every connection is looked at before
    * anything is blanked. Another connection gets an erasure record where the subject has a row, so running `forget`
-   * again writes a record whose write failed the first time.
+   * again writes a record whose write failed the first time. A subclass whose `table()` or `driver()` points elsewhere
+   * is redacted where they point only: the erasure records go to the trail's table, not beside the rows it blanks.
    */
   override async *redactEach(trail: TrailConfig, subject: AuditSubject, source?: string): AsyncGenerator<AuditRedaction> {
-    if (source !== undefined || this.hasSourceColumn()) {
+    if (source !== undefined || this.hasSourceColumn() || !this.readsTrailTable(trail)) {
       yield* super.redactEach(trail, subject, source);
       return;
     }
@@ -84,6 +85,10 @@ export class TableAuditReader extends AuditReader {
       const redacted = await this.redactOn(driver, trail, subject);
       if (redacted > 0 || (await this.holds(driver, trail, subject))) yield { connection: driver.Options.Name, redacted };
     }
+  }
+
+  private readsTrailTable(trail: TrailConfig): boolean {
+    return this.table(trail) === trail.table && this.driver(trail, undefined) === findConnection(trail.connection);
   }
 
   private async holdsTable(driver: OrmDriver, trail: TrailConfig): Promise<boolean> {
