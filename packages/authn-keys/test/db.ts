@@ -1,6 +1,7 @@
 import { Bootstrapper, DI } from '@spinajs/di';
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { MigrationTransactionMode, Orm } from '@spinajs/orm';
+import { migrateTestDatabase } from '@spinajs/orm/testing';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 import { AuthnKeys_2026_10_02_00_00_00 } from '../src/migrations/index.js';
 import { AuthnNonce } from '@spinajs/authn-orm';
@@ -21,7 +22,7 @@ export class KeysDbConfiguration extends FrameworkConfiguration {
             Driver: 'orm-driver-sqlite',
             Filename: ':memory:',
             Name: 'sqlite',
-            Migration: { Table: 'orm_migrations', OnStartup: true, Transaction: { Mode: MigrationTransactionMode.PerMigration } },
+            Migration: { Table: 'orm_migrations', Transaction: { Mode: MigrationTransactionMode.PerMigration } },
           },
         ],
       },
@@ -42,8 +43,7 @@ export function bootSqlite(): Promise<Orm> {
       await b.bootstrap();
     }
     await DI.resolve(Configuration);
-    await (await DI.resolve(Orm)).Migrator.ready();
-    return DI.resolve(Orm);
+    return (await migrateTestDatabase()).orm;
   })();
   return booted;
 }

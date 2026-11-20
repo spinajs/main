@@ -93,7 +93,7 @@ export class FilterTestConfiguration extends FrameworkConfiguration {
             Driver: 'orm-driver-sqlite',
             Filename: ':memory:',
             Name: 'sqlite',
-            Migration: { Table: 'orm_migrations', OnStartup: false },
+            Migration: { Table: 'orm_migrations' },
           },
         ],
       },

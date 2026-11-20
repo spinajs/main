@@ -1,7 +1,7 @@
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { Class, DI, IContainer } from '@spinajs/di';
 import '@spinajs/log';
-import { Connection, ConnectionSessionSettings, ConnectionState, DefaultReplicaRouter, HasMany, Migration, Model, ModelBase, Orm, OrmDriver, OrmMigration, Primary, readYourWrites, Relation, ReplicaRouter } from '@spinajs/orm';
+import { Connection, ConnectionSessionSettings, ConnectionState, DefaultReplicaRouter, HasMany, Migration, Model, ModelBase, Orm, OrmDriver, OrmMigration, OrmMigrator, Primary, readYourWrites, Relation, ReplicaRouter, resolveMigrationTool } from '@spinajs/orm';
 import type { IBuilderMiddleware } from '@spinajs/orm';
 import { expect } from 'chai';
 import _ from 'lodash';
@@ -34,7 +34,7 @@ class RoutedConf extends FrameworkConfiguration {
         logger: { targets: [{ name: 'Empty', type: 'BlackHoleTarget' }], rules: [{ name: '*', level: 'error', target: 'Empty' }] },
         db: {
           StrictTableCheck: false,
-          Connections: [{ Driver: 'orm-driver-sqlite', Name: 'routed', Filename: PRIMARY_FILE, Replicas: [{ Filename: REPLICA_FILE }], Migration: { OnStartup: false } }],
+          Connections: [{ Driver: 'orm-driver-sqlite', Name: 'routed', Filename: PRIMARY_FILE, Replicas: [{ Filename: REPLICA_FILE }] }],
         },
       },
       mergeArrays,
@@ -158,6 +158,7 @@ describe('read replicas on sqlite', function () {
   let primary: OrmDriver;
   let replica: OrmDriver;
   let seed: Class<OrmMigration>;
+  let migrator: OrmMigrator;
 
   const setReplicaState = (state: ConnectionState): void => setStateOf(replica, state);
 
@@ -170,7 +171,9 @@ describe('read replicas on sqlite', function () {
     container.register(StatefulSqliteDriver).as('orm-driver-sqlite');
     container.register(RecordingSettings).as(ConnectionSessionSettings);
 
-    orm = await container.resolve(Orm);
+    // the tool's Orm: the seed migration is registered and runs only in its test
+    migrator = await resolveMigrationTool(container);
+    orm = migrator.Orm;
     primary = orm.Connections.get('routed')!;
     replica = orm.Replicas.get('routed')![0];
 
@@ -275,8 +278,8 @@ describe('read replicas on sqlite', function () {
   });
 
   it("reads the primary in a migration's data() and in its down() outside a transaction", async () => {
-    await orm.Migrator.migrate({ name: seed.name });
-    await orm.Migrator.Runner.down(seed.name);
+    await migrator.migrate({ name: seed.name });
+    await migrator.Runner.down(seed.name);
 
     expect(migrationReads).to.deep.equal({ data: 'primary', down: 'primary' });
   });
@@ -719,7 +722,7 @@ class MixedDriverConf extends FrameworkConfiguration {
         logger: { targets: [{ name: 'Empty', type: 'BlackHoleTarget' }], rules: [{ name: '*', level: 'error', target: 'Empty' }] },
         db: {
           StrictTableCheck: false,
-          Connections: [{ Driver: 'orm-driver-sqlite', Name: 'mixed', Filename: ':memory:', Replicas: [{ Driver: 'orm-driver-postgres' }], Migration: { OnStartup: false } }],
+          Connections: [{ Driver: 'orm-driver-sqlite', Name: 'mixed', Filename: ':memory:', Replicas: [{ Driver: 'orm-driver-postgres' }] }],
         },
       },
       mergeArrays,

@@ -38,8 +38,11 @@ const recent = await User.where('Email', 'like', '%@example.com').take(10);
 
 Connections are declared under the `db` key of `@spinajs/configuration`. Resolving `Orm` opens
 them, reflects each table's columns onto its model, and installs the static methods used above.
-It first applies the pending migrations of the connections with `Migration.OnStartup`; their
-`data()` seeds run once it is resolved (`orm.Migrator.ready()` settles after them).
+It never migrates: it checks the migration tracking tables first and fails with
+`PendingMigrationsException` while a migration is pending or failed (`db.MigrationCheck`:
+`'fail'` by default, `'warn'`, `'off'`). Apply migrations and their `data()` seeds with
+`npx spinajs migrate-up` ([`@spinajs/orm-cli`](../orm-cli)) as a deploy step; tests migrate with
+`migrateTestDatabase()` from `@spinajs/orm/testing`.
 
 ## Documentation
 
@@ -57,7 +60,7 @@ Full documentation lives in **[docs/](../../docs/orm/)**.
 | [Unit of work](../../docs/orm/07-unit-of-work.md) | Saves a model graph in dependency order with dirty tracking, an identity map and orphan policies |
 | [Transactions](../../docs/orm/08-transactions.md) | Runs queries and saves atomically, with isolation levels |
 | [Schema builder](../../docs/orm/09-schema-builder.md) | Creates and alters tables, columns, indexes, foreign keys, views, events and databases |
-| [Migrations](../../docs/orm/10-migrations.md) | Discovers, orders, locks and runs migrations, per environment |
+| [Migrations](../../docs/orm/10-migrations.md) | Discovers, orders, locks and runs migrations, per environment, from `migrate-up`; the boot check |
 | [JSON schema](../../docs/orm/11-json-schema.md) | Builds a JSON schema from a model for validation |
 | [Architecture](../../docs/orm/12-architecture.md) | How a query becomes SQL, and the extension points a dialect driver implements |
 | [Observability and resilience](../../docs/orm/13-observability-and-resilience.md) | Pool metrics, connection state and retry with backoff |

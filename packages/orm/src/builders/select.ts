@@ -72,6 +72,7 @@ class BooleanColumnMiddleware implements IBuilderMiddleware<any> {
   public async afterHydration(): Promise<void> {}
 }
 
+/** @spinajs query select */
 @Injectable(SelectQueryBuilder)
 export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
   /**
@@ -327,7 +328,10 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
     return read === undefined ? super._materialize(result) : withReadRoute(this._driver, read, () => super._materialize(result));
   }
 
-  /** `owner` is passed by a relation that is copied together with its query: the copy of the relation owns the clone. */
+  /**
+   * `owner` is passed by a relation that is copied together with its query: the copy of the relation owns the clone.
+   * @spinajs copy
+   */
   public clone(owner: IOrmRelation | undefined = this._owner): this {
     // Middlewares are deliberately NOT run for the clone — see the constructor's note.
     // Through the container, like every other select builder: a subclass registered for SelectQueryBuilder survives a clone.

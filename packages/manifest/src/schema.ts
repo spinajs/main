@@ -2098,6 +2098,33 @@ export const manifestSchema: Record<string, any> = {
             ]
           }
         },
+        "flow": {
+          "type": "object",
+          "properties": {
+            "entryPoints": {
+              "type": "number"
+            },
+            "unresolvedRoots": {
+              "type": "number"
+            },
+            "opaqueCalls": {
+              "type": "number"
+            },
+            "externalCalls": {
+              "type": "number"
+            },
+            "foreignModelQueries": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "entryPoints",
+            "unresolvedRoots",
+            "opaqueCalls",
+            "externalCalls",
+            "foreignModelQueries"
+          ]
+        },
         "ir": {
           "type": "string"
         },
@@ -2110,7 +2137,8 @@ export const manifestSchema: Record<string, any> = {
         "permissions",
         "entryPoints",
         "findings",
-        "ignores"
+        "ignores",
+        "flow"
       ]
     },
     "Diagnostic": {

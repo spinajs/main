@@ -16,7 +16,7 @@ export default {
     // authz-orm and queue models name their own connections
     Aliases: { authz: 'default', 'authz-audit': 'default', queue: 'default' },
     StrictTableCheck: false,
-    Connections: [{ Driver: 'orm-driver-sqlite', Filename: ':memory:', Name: 'default', Migration: { OnStartup: true, Table: 'orm_migrations' } }],
+    Connections: [{ Driver: 'orm-driver-sqlite', Filename: ':memory:', Name: 'default', Migration: { Table: 'orm_migrations' } }],
   },
 };
 `;
