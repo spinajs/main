@@ -223,6 +223,11 @@ export class Builder<T = any> implements IBuilder<T> {
     return this;
   }
 
+  /** The result middlewares registered with `middleware()`, in registration order. */
+  public get Middlewares(): readonly IBuilderMiddleware<T>[] {
+    return this._middlewares;
+  }
+
   /**
    * Builds query that is ready to use in DB
    */

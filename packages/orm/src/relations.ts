@@ -231,7 +231,7 @@ export class BelongsToRelation extends NativeOrmRelation {
     // grouped: compile() runs after every beforeQueryExecution hook, so a flat orWhere would escape what they added
     this._query.mergeStatementsAsGroup(this._relationQuery, (s) => !s.OnJoin);
 
-    this._query.middleware(new BelongsToPopulateDataMiddleware(this._description, this));
+    this._query.middleware(new BelongsToPopulateDataMiddleware(this._description, this._relationQuery));
     if (!this.parentRelation || !(this.parentRelation instanceof BelongsToRelation)) {
       // if we are on top of the belongsTo relation stack
       // add transform middleware
