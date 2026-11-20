@@ -6,7 +6,6 @@ import { extendsFrameworkClass } from '../schema/framework-members.js';
 import { isAbstractClass } from './abstract.js';
 import { accessOptionsOf, classAccessOptionsOf, classesBySource, methodOf, type AccessOptions } from './access-options.js';
 import { classSymbolOf } from './access-resources.js';
-import { ignoreCommentsIn } from './ignore-comments.js';
 
 type EntryPoint = AuthzSection['entryPoints'][number];
 type Resource = AuthzSection['resources'][number];
@@ -206,6 +205,6 @@ export function authzSectionOf(ctx: ExtractorContext, files: readonly ts.SourceF
     ...inputs.schedules.map((s) => systemEntry('schedule', s.name, s.source, system)),
     ...inputs.commands.map((c) => systemEntry('cli', c.name, c.source, system)),
   ];
-  const section: AuthzFacts = { resources: inputs.resources, permissions: modelPermissions(inputs.resources), entryPoints, ignores: ignoreCommentsIn(files, ctx, IGNORE) };
+  const section: AuthzFacts = { resources: inputs.resources, permissions: modelPermissions(inputs.resources), entryPoints, ignores: ignoresIn(files, ctx) };
   return section.resources.length || section.entryPoints.length || section.ignores.length ? section : undefined;
 }
