@@ -149,7 +149,7 @@ export class ConnectionMismatch extends OrmException {
   }
 }
 
-/** Two query extensions, or an extension and the builder itself, define the same method name. */
+/** Two query extensions, or an extension and the builder itself, or a model extension and the model, define the same method name. */
 export class ExtensionMethodCollision extends InvalidOperation {}
 
 /** The driver has no cursor and the query cannot be paged by keyset in its place. */

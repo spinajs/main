@@ -24,6 +24,7 @@ export * from './extensions.js';
 export * from './existsRelationHandlers.js';
 export * from './model.js';
 export * from './audit-port.js';
+export * from './model-extension.js';
 export * from './relations.js';
 export * from './relation-objects.js';
 export * from './middlewares.js';
