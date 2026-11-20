@@ -54,8 +54,8 @@ export class IRPolicyHashSource extends PolicyHashSource {
       compiled = await compileDomainPolicy(domain, service);
     } catch (e) {
       if (!moduleNotFound(e)) throw e;
-      // Any module a model's toIR loads can be the missing one: the error names it.
-      this.warnOnce('authz-ir', { domain, error: thrownError(e) }, "authz-orm: @spinajs/authz-ir is not installed; decision records of domain ${domain} carry policyHash 'unknown'");
+      const error = thrownError(e);
+      this.warnOnce('authz-ir', { domain, error, missing: error.message }, "authz-orm: a module the policy compile of domain ${domain} needs is not installed (${missing}); its decision records carry policyHash 'unknown'");
       return;
     }
     const { hash, ir, canonical, conflicts } = compiled;

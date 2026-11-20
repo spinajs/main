@@ -4,8 +4,10 @@ import type { CaveatDef, ObjectRef, OpaqueRef, PolicyIR, RelationDef, RelationNa
 import type { KeyState } from './history.js';
 
 /**
- * A row a store holds now: its changelog key, its image in the payload shape the store logs, and what it relates. A row
- * whose image `subjectAt` cannot decode may carry any `subject`: the key is a gap, and its subject is never read.
+ * A row a store holds now: its changelog key, its image in the payload shape the store logs, and what it relates. Two
+ * items carry a placeholder `subject` that nothing may read: one whose image `subjectAt` cannot decode (the key is a
+ * gap), and a key named without a row (`image` undefined, such as a column cleared since), whose subject at T comes
+ * from its history.
  */
 export interface CurrentItem<S> {
   key: string;
@@ -96,7 +98,8 @@ export interface AttributeLeafImage {
 }
 
 /**
- * Serves the leaves of scope attribute nodes for the captured-state check of replay: it serves values, not relations, so it is no `HistoryContributor`. Changes of the kind carry `AttributeLeafImage`s.
+ * Serves the leaves of scope attribute nodes for the captured-state check of replay: it serves values, not relations,
+ * so it is no `HistoryContributor`. Changes of the kind carry `AttributeLeafImage`s.
  */
 export interface AttributeHistoryContributor {
   readonly kind: 'attribute';

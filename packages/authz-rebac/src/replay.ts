@@ -73,7 +73,7 @@ export class TupleHistoryContributor extends HistoryContributors {
     return [{ key: change.key, object: { type: t.object.type, id: t.object.id ?? '' }, relation: t.relation, subject: subjectRef(t.subject) }];
   }
 
-  subjectAt(image: unknown): TupleSubjectRef {
+  subjectAt(image: unknown): TupleSubjectRef | undefined {
     const t = requireTuple(image, 'the image');
     const caveat = caveatIn(image);
     return caveat === undefined ? subjectRef(t.subject) : { ...subjectRef(t.subject), caveat };
