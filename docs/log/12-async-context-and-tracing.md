@@ -72,7 +72,7 @@ export async function bootApp(): Promise<void> {
 - On Node, without `LogBotstrapper.bootstrap()`, the provider stays the default `() => ({})`: `LogContext` still works for your own reads, but entries get no ambient fields.
 - Only scalars reach entries. Pass objects as call fields.
 - `Principal` (set by authentication) is rendered as `type:id`; `%` and `:` in `type` are percent-encoded and control characters escaped, so an id cannot forge a log line.
-- `Tenant` (the scope `@spinajs/tenancy` sets) is rendered as the tenant id, or `*` while code runs across all tenants; without that package the field never appears.
+- `Tenant` (the scope `@spinajs/tenancy` sets) is rendered as the tenant id, with control characters escaped, or `*` while code runs across all tenants; without that package the field never appears. A malformed value (no `kind`, an empty id, a cross-tenant scope without a reason) is dropped.
 - `set()` mutates the store object, which inside a request is `req.storage`; other code reading `req.storage` sees the key.
 - `with()` copies the store: keys set inside it are lost when it returns. `set()` inside `with()` changes only the copy.
 - Callbacks registered outside a context (eg. an `EventEmitter` listener added at boot) run without it; wrap them with `LogContext.bind()` when they are registered inside one.
