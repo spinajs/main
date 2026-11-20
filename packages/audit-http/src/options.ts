@@ -16,3 +16,17 @@ export interface IAuditOptions {
 
 export const DEFAULT_AUDIT_REDACT = ['password', 'token', 'secret', 'authorization', 'cookie', 'card'];
 export const DEFAULT_MAX_BODY_BYTES = 16384;
+
+/** One `audit.http.rules` entry: where `Audit` is mounted, routes that match get this action or trail. */
+export interface IAuditRule {
+  /** `<METHOD or *> <path pattern>`, matched against the mounted path; `*` is one path segment, `**` any number. */
+  match: string;
+  /** Used as it is for every route the rule matches. */
+  action?: string;
+  trail?: string;
+}
+
+export interface IAuditHttpConfig extends IAuditOptions {
+  /** The first rule that matches a route wins. */
+  rules?: IAuditRule[];
+}
