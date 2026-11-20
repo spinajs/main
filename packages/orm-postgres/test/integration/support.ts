@@ -86,10 +86,12 @@ export async function bootPostgres(suite: string): Promise<PgTestDb> {
             rules: [{ name: '*', level: 'error', target: 'Empty' }],
           },
           db: {
-            // Every suite creates its own table after the boot, in a database that never has the other suites' tables.
+            // Every suite creates its own table after the boot, in a database that never has the other suites' tables
+            // or the migrations they register.
             StrictTableCheck: false,
+            MigrationCheck: 'off',
             Migration: { Startup: false },
-            Connections: [PGLITE ? { Driver: PGLITE_DRIVER, Name: 'pg', Migration: { OnStartup: false } } : { Driver: 'orm-driver-postgres', Name: 'pg', ...PG_SERVER, Database: name, Migration: { OnStartup: false } }],
+            Connections: [PGLITE ? { Driver: PGLITE_DRIVER, Name: 'pg' } : { Driver: 'orm-driver-postgres', Name: 'pg', ...PG_SERVER, Database: name }],
           },
         },
         (target: unknown, source: unknown) => (Array.isArray(target) ? target.concat(source) : undefined),

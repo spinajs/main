@@ -1,6 +1,8 @@
+import { createHash } from 'node:crypto';
 import type { ResourceRef } from '@spinajs/authz';
+import { stableStringify } from '@spinajs/authz-ir';
 
-import type { SubjectSet, Tuple, TupleSubject } from './contracts.js';
+import type { CaveatValue, SubjectSet, Tuple, TupleCaveat, TupleSubject } from './contracts.js';
 
 /** Namespace, relation and permission names; keeps ':' and '#' out of keys. */
 export const NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_.-]*$/;
@@ -36,8 +38,47 @@ function readRef(v: unknown, fail: () => never): { type: string; id: string } {
   return { type: v.type, id: v.id };
 }
 
-/** A plain copy of a well-formed tuple; throws TypeError naming the problem otherwise. */
+/** The longest canonical JSON a tuple's caveat context may have. */
+export const CAVEAT_CONTEXT_MAX = 4096;
+
+const UNSAFE = new Set(['__proto__', 'constructor', 'prototype']);
+
+const isFiniteNumber = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
+
+const isCaveatValue = (v: unknown): v is CaveatValue => typeof v === 'string' || typeof v === 'boolean' || isFiniteNumber(v) || (Array.isArray(v) && (v.every((x) => typeof x === 'string') || v.every(isFiniteNumber)));
+
+/** sha256 of the caveat name and its canonical context: equal for equal caveats. */
+export const caveatKey = (c: TupleCaveat): string => createHash('sha256').update(stableStringify([c.name, c.context ?? {}])).digest('hex');
+
+export const sameCaveat = (a: TupleCaveat | undefined, b: TupleCaveat | undefined): boolean => (a === undefined || b === undefined ? a === b : caveatKey(a) === caveatKey(b));
+
+function readCaveat(v: unknown, where: string): TupleCaveat {
+  const fail = (what: string): never => {
+    throw new TypeError(`${where}.caveat${what}`);
+  };
+  if (!isRecord(v) || Object.keys(v).some((k) => k !== 'name' && k !== 'context')) return fail(' must be { name, context? }');
+  if (!isName(v.name)) return fail('.name must be a caveat name');
+  if (v.context === undefined) return { name: v.name };
+  if (!isRecord(v.context) || Array.isArray(v.context)) return fail('.context must be an object of parameter values');
+  const context: Record<string, CaveatValue> = {};
+  for (const path of Object.keys(v.context).sort()) {
+    const value = v.context[path];
+    if (path.split('.').some((s) => s === '' || UNSAFE.has(s))) return fail(`.context: ${JSON.stringify(path)} is not a parameter path`);
+    if (!isCaveatValue(value)) return fail(`.context: ${path} must be a string, number, boolean or a list of strings or numbers`);
+    context[path] = Array.isArray(value) ? value.slice() : value;
+  }
+  if (stableStringify(context).length > CAVEAT_CONTEXT_MAX) return fail(`.context is longer than ${CAVEAT_CONTEXT_MAX} characters as JSON`);
+  return Object.keys(context).length === 0 ? { name: v.name } : { name: v.name, context };
+}
+
+/** A plain copy of a well-formed tuple, its caveat included; throws TypeError naming the problem otherwise. */
 export function readTuple(v: unknown, where = 'tuple'): Tuple {
+  const tuple = readBareTuple(v, where);
+  const caveat = isRecord(v) ? v.caveat : undefined;
+  return caveat === undefined ? tuple : { ...tuple, caveat: readCaveat(caveat, where) };
+}
+
+function readBareTuple(v: unknown, where: string): Tuple {
   const fail = (what: string) => (): never => {
     throw new TypeError(`${where}${what}`);
   };

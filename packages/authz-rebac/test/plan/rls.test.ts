@@ -1,3 +1,4 @@
+import { AuthzConfigError } from '@spinajs/authz';
 import type { AuthorizationModel, PermissionDef } from '@spinajs/authz';
 import type { PlanRow, RlsSqlContext } from '@spinajs/authz-orm/plan';
 import { userPrincipal } from '@spinajs/authz-testing';
@@ -6,11 +7,11 @@ import type { IWhereBuilder } from '@spinajs/orm';
 import * as chai from 'chai';
 import 'mocha';
 
-import { DbTupleStore, RebacRlsPlanSource, RebacRlsSubjectKeys, RebacRlsTerm, RebacTuplesTerm, rebacRlsExpr } from '../../src/index.js';
+import { DbTupleStore, RebacRlsPlanSource, RebacRlsSubjectKeys, RebacRlsTerm, RebacTuplesTerm, parseRebacRlsExpr, rebacRlsExpr } from '../../src/index.js';
 import type { RebacRlsExpr } from '../../src/index.js';
 import { bootDb, rawQuery } from '../support/db.js';
 import type { TestDb } from '../support/db.js';
-import { TUPLES, setup, user } from '../support/world.js';
+import { TUPLES, ref, setup, tuple, user } from '../support/world.js';
 import type { Setup } from '../support/world.js';
 
 const expect = chai.expect;
@@ -18,6 +19,7 @@ const expect = chai.expect;
 const DOCS = 'rls_doc';
 const lit = (v: string) => `'${v.replace(/'/g, "''")}'`;
 const def = (name: string) => ({ name }) as PermissionDef;
+const d4 = ref('doc', 'd4');
 
 /**
  * rebac.rls rendered against SQLite: `ctx.subjectKeys` is the only Postgres-specific part of the SQL, so a
@@ -104,7 +106,41 @@ describe('authz-rebac: rebac.rls, the ReBAC list plan for any principal', functi
     expect(() => new RebacRlsPlanSource().plan({ name: 'rebac' } as AuthorizationModel, def('doc:read'), 'doc')).to.throw(/not a RebacModel/);
   });
 
+  it('follows no conditional tuple, neither a relation tuple nor an arrow', async () => {
+    const sql = new RebacRlsTerm().renderSql({ any: [{ tuples: 'viewer' }, { arrow: { tupleset: 'parent', type: 'folder', expr: { tuples: 'viewer' } } }] }, ctxFor(['user:x']));
+    expect(sql.match(/\.caveat_key IS NULL/g)).to.have.length(3);
+    const conditional = [{ ...tuple(d4, 'viewer', user('xavier')), caveat: { name: 'c' } }];
+    const store = new DbTupleStore();
+    await store.write(conditional, [], user('admin'));
+    try {
+      expect(await rlsRows('xavier')).to.deep.equal([]);
+    } finally {
+      await store.write([], conditional, user('admin'));
+    }
+  });
+
   it('refuses the query-builder form: .accessible() plans never hold it', () => {
     expect(() => new RebacRlsTerm().apply()).to.throw(/row level security term/);
+  });
+
+  it('parses the term before rendering it and names the first malformed node', () => {
+    const term = new RebacRlsTerm();
+    const rendering = (args: unknown) => () => term.renderSql(args, ctxFor([]));
+    expect(rendering('viewer')).to.throw(AuthzConfigError, /rebac\.rls: args must be an object/);
+    expect(rendering({ tuples: 'viewer', all: [] })).to.throw(/args must have exactly one of/);
+    expect(rendering({ tuples: '' })).to.throw(/tuples must be a non-empty string/);
+    expect(rendering({ arrow: { tupleset: 'parent' } })).to.throw(/arrow\.type must be a non-empty string/);
+    expect(rendering({ arrow: { tupleset: 'parent', type: 'folder', expr: { tuples: 'viewer' }, sql: '1 = 1' } })).to.throw(/arrow\.sql is not a known key/);
+    expect(rendering({ any: [{ tuples: 'viewer' }, { tuples: 7 }] })).to.throw(/any\[1\]\.tuples must be a non-empty string/);
+    expect(rendering({ none: [] })).to.throw(/none is not a known key/);
+    expect(rendering({ any: new Array<unknown>(1) })).to.throw(/any\[0\] must be an object/);
+    const hole = new Array<unknown>(3);
+    hole[0] = { tuples: 'viewer' };
+    hole[2] = { tuples: 'owner' };
+    expect(rendering({ all: hole })).to.throw(/all\[1\] must be an object/);
+    hole.length = 2;
+    expect(rendering({ all: hole })).to.throw(/all\[1\] must be an object/);
+    const expr = rebacRlsExpr(world.model.schema(), 'doc', 'read', 2);
+    expect(parseRebacRlsExpr(expr)).to.deep.equal(expr);
   });
 });

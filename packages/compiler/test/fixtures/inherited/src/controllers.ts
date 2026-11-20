@@ -1,4 +1,4 @@
-import { BasePath, Get, Ok, Policy } from '@spinajs/http';
+import { BasePath, Get, Idempotent, Ok, Policy } from '@spinajs/http';
 import { Access } from '@spinajs/authz-http';
 import { BaseCrud, PathOnlyBase, TenantPolicy, UploadBase, type ArticleDto, type CreateArticleDto, type CreateTagDto, type TagDto } from './crud.js';
 
@@ -31,3 +31,12 @@ export class PlainChild extends ArticlesController {}
 
 @BasePath('uploads')
 export class UploadsController extends UploadBase<CreateTagDto> {}
+
+@BasePath('notes')
+export class NotesController extends BaseCrud<ArticleDto, CreateArticleDto> {
+  @Idempotent({ required: true })
+  public override create(dto: CreateArticleDto): Promise<Ok<ArticleDto>> { return super.create(dto); }
+
+  protected load(id: number): Promise<ArticleDto> { return Promise.resolve({ id, title: 't' }); }
+  protected save(dto: CreateArticleDto): Promise<ArticleDto> { return Promise.resolve({ id: 1, ...dto }); }
+}
