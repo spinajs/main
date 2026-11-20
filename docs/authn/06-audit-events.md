@@ -25,7 +25,7 @@ A detached delivery runs the same way: every listener gets the same frozen copy,
 
 The listeners are every `AuthnEventListener` registered in the container and its ancestors (`Array.chainOf`), resolved when `AuthnAudit` boots. With no listener, boot logs a warning: authentication events are then neither recorded nor acted on.
 
-A listener failure after a state change (a stored token, a confirmed TOTP enrolment) never fails the request, unless the listener is blocking. `AuthnAudit.over(listeners, { listenerTimeoutMs, log })` gives the same delivery over explicit listeners, for services built with `new` in tests: the `sinks` deps of `authn-local` and `authn-totp`, the `audit` dep of `DefaultKeyRegistry`, the constructor argument of `DbTokenService`.
+A listener failure after a state change (a stored token, a confirmed TOTP enrolment) never fails the request, unless the listener is blocking. `AuthnAudit.over(listeners, { listenerTimeoutMs, log })` gives the same delivery over explicit listeners, for services built with `new` in tests: the `listeners` deps of `authn-local`, `authn-totp` and `authn-webauthn`, the `audit` dep of `DefaultKeyRegistry`, the constructor argument of `DbTokenService`.
 
 ## Blocking listeners
 

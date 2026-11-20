@@ -114,7 +114,7 @@ All keys: [Turning TOTP on](01-setup.md#configuration).
 | Session lookup | `SessionIssuer`, from `@spinajs/authn-session` | `DefaultSessionIssuer` | | Optional `@Autoinject`; `deps.sessions` overrides it. |
 | Re-authentication | `AuthnService` of `@spinajs/authn` | `DefaultAuthnService` | | Optional `@Autoinject`, used only for a stale active session with `reauth`; `deps.authn` overrides it. |
 | Throttle | `AuthnThrottle` of `@spinajs/authn` | the registered throttle | `DbAuthnThrottle` | Optional `@Autoinject`; `deps.throttle` overrides it. |
-| Audit | `AuthnAudit` of `@spinajs/authn/audit`, over every registered `AuthnEventSink` | `AuthnAudit` | | `deps.sinks` replaces it with `AuthnAudit.over(sinks)`. |
+| Audit | `AuthnAudit` of `@spinajs/authn/audit`, over every registered `AuthnEventSink` | `AuthnAudit` | | `deps.listeners` replaces it with `AuthnAudit.over(listeners)`. |
 | Action hooks | `Hooks` of `@spinajs/hooks` | `DefaultHooks` | | `@Autoinject`; `deps.hooks` overrides it. Register an `ActionHook`; see [Action hooks](10-action-hooks.md). |
 
 ## Important behaviour

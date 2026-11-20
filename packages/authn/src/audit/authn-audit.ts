@@ -151,7 +151,7 @@ export class AuthnAudit extends AsyncService {
   private delivery!: ListenerDelivery;
 
   /** The same delivery over explicit listeners, for a service built outside DI with its listeners passed in. */
-  public static over(listeners: readonly AuthnEventListener[], options: AuthnAuditOverOptions = {}): AuthnAuditor {
+  public static over(listeners: readonly AuthnEventListener[], options: AuthnAuditOverOptions = {}): AuthnAuditor & Pick<AuthnAudit, 'publishDetached' | 'settled'> {
     const log = options.log ?? SILENT;
     return new ListenerDelivery(Object.freeze([...listeners]), options.listenerTimeoutMs ?? 2000, () => log);
   }

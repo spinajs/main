@@ -1,5 +1,5 @@
 import { MfaPolicy } from '@spinajs/authn/contracts';
-import type { AuthenticationStrategy, AuthnEventSink, Credentials, AuthnFacts, AuthnService, AuthnThrottle, ExternalSubject, IdentityRef, MfaStep } from '@spinajs/authn/contracts';
+import type { AuthenticationStrategy, AuthnEventListener, Credentials, AuthnFacts, AuthnService, AuthnThrottle, ExternalSubject, IdentityRef, MfaStep } from '@spinajs/authn/contracts';
 import { KIT_ATTRIBUTES, throttleParams } from '../../src/behaviour/index.js';
 import type { HarnessContext } from '../../src/behaviour/index.js';
 import { EnrolledMfaPolicy, FakeIdentityStore, FakeMfaStep, FakeStrategy, MemoryLinkStore, MemoryPasswordCredentialStore, MemorySessionIssuer, RecordingEventSink, RecordingPrincipalFactory, fakeSeedPort } from '../../src/fakes/index.js';
@@ -75,7 +75,7 @@ export interface ReferenceParts {
   readonly throttleParams: ThrottleParams;
   readonly events: RecordingEventSink;
   /** The live list the service publishes to; push a sink to add one. */
-  readonly sinks: AuthnEventSink[];
+  readonly listeners: AuthnEventListener[];
   readonly principals: RecordingPrincipalFactory;
   readonly links: MemoryLinkStore;
   readonly step: FakeMfaStep;
@@ -95,7 +95,7 @@ export interface ReferenceOverrides {
   readonly strategies?: readonly AuthenticationStrategy[];
 }
 
-/** Lets a batch add ports (and sinks through parts.sinks) without editing this file. */
+/** Lets a batch add ports (and listeners through parts.listeners) without editing this file. */
 export type ReferenceExtras = (base: Harness, parts: ReferenceParts) => Partial<Harness>;
 
 export function buildReference(ctx: HarnessContext, over: ReferenceOverrides = {}, supported: readonly string[] = SUPPORTED): ReferenceParts & { readonly harness: Harness } {
@@ -109,7 +109,7 @@ export function buildReference(ctx: HarnessContext, over: ReferenceOverrides = {
   const throttle = over.throttle?.(params) ?? new ReferenceBackoffThrottle(params);
   const events = new RecordingEventSink();
   const second = new RecordingEventSink();
-  const sinks: AuthnEventSink[] = [events, second];
+  const listeners: AuthnEventListener[] = [events, second];
   const principals = new RecordingPrincipalFactory();
   const links = new MemoryLinkStore();
   const step = new FakeMfaStep();
@@ -118,7 +118,7 @@ export function buildReference(ctx: HarnessContext, over: ReferenceOverrides = {
   const fakes = [FakeStrategy.password({ identities, passwords }), FakeStrategy.bearer({ tokens }), FakeStrategy.external({ provider: 'kit-idp', subjects: externalSubjects }), attributedStrategy('kit-attributed-login', 'kit-attributed-login', true), attributedStrategy('kit-attributed-request', 'kit-attributed-request', false)];
   const strategies = over.strategies ?? [over.password?.(fakes[0], identities) ?? fakes[0], ...fakes.slice(1)];
   const policy = config.authn?.mfa?.policy?.force ? new ForcedMfaPolicy(step) : new EnrolledMfaPolicy([step]);
-  const deps: ReferenceDeps = { strategies, throttle, identities, links, linking, policy, steps: [step], sessions, sinks, principals, ...(config.authn?.throttle?.ipv6Prefix !== undefined ? { ipv6Prefix: config.authn.throttle.ipv6Prefix } : {}) };
+  const deps: ReferenceDeps = { strategies, throttle, identities, links, linking, policy, steps: [step], sessions, listeners, principals, ...(config.authn?.throttle?.ipv6Prefix !== undefined ? { ipv6Prefix: config.authn.throttle.ipv6Prefix } : {}) };
   const service = over.service?.(deps) ?? new ReferenceAuthnService(deps);
 
   const harness: Harness = {
@@ -128,7 +128,7 @@ export function buildReference(ctx: HarnessContext, over: ReferenceOverrides = {
     sessionStorage: sessions.storage,
     throttle: { throttle, params },
     events,
-    sinks: [events, second],
+    listeners: [events, second],
     spy: { verifyCalls: () => fakes.reduce((n, s) => n + s.verifyCalls.length, 0) },
     mfa: { step, enrol: async (id) => step.enrol(id), code: async (id) => step.nextCode(id) },
     passwordStore: passwords,
@@ -144,7 +144,7 @@ export function buildReference(ctx: HarnessContext, over: ReferenceOverrides = {
     principals: { calls: () => principals.calls },
     boot: referenceBoot(ctx),
   };
-  return { ctx, identities, passwords, sessions, throttle, throttleParams: params, events, sinks, principals, links, step, tokens, externalSubjects, strategies, service, harness };
+  return { ctx, identities, passwords, sessions, throttle, throttleParams: params, events, listeners, principals, links, step, tokens, externalSubjects, strategies, service, harness };
 }
 
 /** The reference harness of design §10.3: the §22.4 flow over the kit fakes, with ctx.config applied. */

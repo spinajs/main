@@ -33,7 +33,7 @@ describe('WebAuthnPasskeyService', function () {
     credentials = new MemoryWebAuthnCredentialStore();
     challenges = new MemoryWebAuthnChallengeStore();
     events = new RecordingEventSink();
-    service = new WebAuthnPasskeyService({ credentials, challenges, options: webauthnOptions(), identities: null, sinks: [events] });
+    service = new WebAuthnPasskeyService({ credentials, challenges, options: webauthnOptions(), identities: null, listeners: [events] });
     key = authenticator('alice');
   });
 
@@ -42,7 +42,7 @@ describe('WebAuthnPasskeyService', function () {
   });
 
   it('refuses a login challenge once authn.webauthn.challenges.maxRows are stored, and still serves registration', async () => {
-    const capped = new WebAuthnPasskeyService({ credentials, challenges, options: webauthnOptions({ challenges: { maxRows: 2 } }), identities: null, sinks: [events] });
+    const capped = new WebAuthnPasskeyService({ credentials, challenges, options: webauthnOptions({ challenges: { maxRows: 2 } }), identities: null, listeners: [events] });
     await capped.challenge(ctx());
     await capped.challenge(ctx());
     await assert.rejects(capped.challenge(ctx()), PasskeyChallengesFull);

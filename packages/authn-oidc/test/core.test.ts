@@ -4,7 +4,7 @@ import { expect } from 'chai';
 import { DI } from '@spinajs/di';
 import type { Class, IContainer } from '@spinajs/di';
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
-import { AUTHN_CONFIGURATION_SCHEMA, AuthenticationStrategy, AuthnEventSink, AuthnService, AuthnThrottle, DefaultAuthnService, DEFAULT_THROTTLE_PARAMS, IdentityLinkStore, IdentityStore, MemoryAuthnThrottle, MemoryNonceStore, MfaStep, NonceStore, PrincipalFactory, SessionIssuer, StrategyRegistry } from '@spinajs/authn';
+import { AUTHN_CONFIGURATION_SCHEMA, AuthenticationStrategy, AuthnEventListener, AuthnService, AuthnThrottle, DefaultAuthnService, DEFAULT_THROTTLE_PARAMS, IdentityLinkStore, IdentityStore, MemoryAuthnThrottle, MemoryNonceStore, MfaStep, NonceStore, PrincipalFactory, SessionIssuer, StrategyRegistry } from '@spinajs/authn';
 import type { AuthenticationResult, AuthnLoginIdentifiedInput, Credentials, ExternalSubject, IdentityRef } from '@spinajs/authn';
 import { ActionHook, DefaultHooks, Hooks } from '@spinajs/hooks';
 import type { ActionPattern, BeforeContext } from '@spinajs/hooks';
@@ -84,7 +84,7 @@ async function core(linking: { jit: boolean; byVerifiedEmail: boolean }, provide
   bind(child, PrincipalFactory, 'KitPrincipalFactory', new RecordingPrincipalFactory());
   bind(child, MfaStep, 'KitMfaStep', step);
   const events = new RecordingEventSink();
-  bind(child, AuthnEventSink, 'KitEvents', events);
+  bind(child, AuthnEventListener, 'KitEvents', events);
   bind(child, OidcHttpClient, 'KitIdp', idp);
   bind(child, NonceStore, 'KitNonces', new MemoryNonceStore());
   registerOidcStrategies(['corp'], child);

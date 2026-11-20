@@ -111,7 +111,7 @@ export async function jwtHarness(ctx: HarnessContext): Promise<Harness> {
     policy: new EnrolledMfaPolicy([]),
     steps: [],
     sessions: new MemorySessionIssuer(),
-    sinks: [new RecordingEventSink()],
+    listeners: [new RecordingEventSink()],
     principals: new RecordingPrincipalFactory(),
   });
 

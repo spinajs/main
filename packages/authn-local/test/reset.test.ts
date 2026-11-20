@@ -79,7 +79,7 @@ async function setup(over: Partial<LocalPasswordServiceDeps> = {}) {
     tokens,
     secrets,
     mailer,
-    sinks: [events],
+    listeners: [events],
     hasher,
     policy,
     log: recordingLog(warnings),

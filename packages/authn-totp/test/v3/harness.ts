@@ -92,7 +92,7 @@ export async function totpHarness(ctx: HarnessContext, kind: StoreKind = 'memory
     policy: new EnrolledMfaPolicy([step]),
     steps: [step],
     sessions,
-    sinks: [events],
+    listeners: [events],
     principals: new RecordingPrincipalFactory(),
   });
 

@@ -6,7 +6,7 @@ import type { IContainer } from '@spinajs/di';
 import { AuthnAudit } from '@spinajs/authn/audit';
 import { Configuration } from '@spinajs/configuration';
 import { InvalidArgument, InvalidOperation } from '@spinajs/exceptions';
-import { AuthnEventSink, CredentialChangeBus, IdentityStore, RoleSource, TokenService } from '@spinajs/authn/contracts';
+import { AuthnEventListener, CredentialChangeBus, IdentityStore, RoleSource, TokenService } from '@spinajs/authn/contracts';
 import type { AuthnAuditor } from '@spinajs/authn/audit';
 import type { AuthnContext, AuthnEvent, IdentityRef, IdentityStatus, Principal, TokenCreateOptions, TokenCreateResult } from '@spinajs/authn/contracts';
 import { FakeIdentityStore, RecordingEventSink, kitHooks } from '@spinajs/authn-testing';
@@ -46,14 +46,14 @@ class StubProfilePolicy extends TokenProfilePolicy {
 
 class TokenTestIdentityStore extends FakeIdentityStore {}
 
-class ThrowingTokenSink extends AuthnEventSink {
-  public async publish(_event: AuthnEvent): Promise<void> {
+class ThrowingTokenSink extends AuthnEventListener {
+  public async on(_event: AuthnEvent): Promise<void> {
     throw new Error('sink down');
   }
 }
 
-class HangingTokenSink extends AuthnEventSink {
-  public publish(_event: AuthnEvent): Promise<void> {
+class HangingTokenSink extends AuthnEventListener {
+  public on(_event: AuthnEvent): Promise<void> {
     return new Promise(() => undefined);
   }
 }

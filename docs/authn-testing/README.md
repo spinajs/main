@@ -78,7 +78,7 @@ describe('order history', () => {
       policy: new EnrolledMfaPolicy([step]),
       steps: [step],
       sessions: new MemorySessionIssuer(),
-      sinks: [new RecordingEventSink()],
+      listeners: [new RecordingEventSink()],
       principals: new RecordingPrincipalFactory(),
     });
 

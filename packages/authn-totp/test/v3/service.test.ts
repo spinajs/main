@@ -1,6 +1,6 @@
 import 'mocha';
 import assert from 'node:assert/strict';
-import { AuthnEventSink } from '@spinajs/authn/contracts';
+import { AuthnEventListener } from '@spinajs/authn/contracts';
 import type { AuthnContext, AuthnEvent, AuthnFacts, Credentials, IdentityRef, PrincipalRef, SessionHandle } from '@spinajs/authn/contracts';
 import { base32Decode, EnrolledMfaPolicy, FakeAuthnService, FakeBackoffThrottle, FakeClock, FakeIdentityStore, FakeMfaStep, FakeStrategy, fakeSeedPort, MemoryLinkStore, MemoryPasswordCredentialStore, MemorySessionIssuer, parseOtpauth, RecordingEventSink, RecordingPrincipalFactory, throttleParams, totpFromProvisioning } from '@spinajs/authn-testing';
 import { mfaKeyRingFrom } from '../../src/cipher/index.js';
@@ -105,10 +105,10 @@ describe('v3 service: TotpService', () => {
       policy: new EnrolledMfaPolicy([step]),
       steps: [step],
       sessions,
-      sinks: [events],
+      listeners: [events],
       principals: new RecordingPrincipalFactory(),
     });
-    service = new TotpService({ step, sessions, authn, throttle, sinks: [events], maxAgeSeconds: 300, ipv6Prefix: 64 });
+    service = new TotpService({ step, sessions, authn, throttle, listeners: [events], maxAgeSeconds: 300, ipv6Prefix: 64 });
   });
 
   afterEach(() => {
@@ -171,7 +171,7 @@ describe('v3 service: TotpService', () => {
     it('a pending session may not begin or confirm while the identity is enrolled in another step', async () => {
       const other = new FakeMfaStep({ name: 'email' });
       other.enrol(alice);
-      const strict = new TotpService({ step, steps: [other, step], sessions, authn, throttle, sinks: [events], maxAgeSeconds: 300, ipv6Prefix: 64 });
+      const strict = new TotpService({ step, steps: [other, step], sessions, authn, throttle, listeners: [events], maxAgeSeconds: 300, ipv6Prefix: 64 });
       const pending = await session({ pending: true });
       assert.deepStrictEqual(await strict.begin(pending, ctx()), { ok: false, code: 'no_session' });
       assert.strictEqual(await store.get(alice, 'totp'), null, 'no secret written');
@@ -452,14 +452,14 @@ describe('v3 service: TotpService', () => {
   });
 
   describe('a failing audit sink', () => {
-    class FailingSink extends AuthnEventSink {
-      async publish(): Promise<void> {
+    class FailingSink extends AuthnEventListener {
+      async on(): Promise<void> {
         throw new Error('sink down');
       }
     }
 
     it('fails neither a confirm, a disable nor an admin reset that already changed the enrolment', async () => {
-      service = new TotpService({ step, sessions, authn, throttle, sinks: [new FailingSink(), events], maxAgeSeconds: 300, ipv6Prefix: 64 });
+      service = new TotpService({ step, sessions, authn, throttle, listeners: [new FailingSink(), events], maxAgeSeconds: 300, ipv6Prefix: 64 });
       const { provisioning, recoveryCodes } = await enrol();
       assert.strictEqual(recoveryCodes.length, 10);
       clock.tick(30 * SECOND);

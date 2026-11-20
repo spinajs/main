@@ -206,7 +206,7 @@ export class NotifyingTokenService extends DbTokenService {
 }
 ```
 
-The collaborators are `@Autoinject` properties of `DbTokenService`, so the subclass inherits them and needs no constructor. The constructor takes one optional argument, an `AuthnAuditor` (for example `AuthnAudit.over(sinks)`) that receives the events instead of the container's `AuthnAudit`, for tests.
+The collaborators are `@Autoinject` properties of `DbTokenService`, so the subclass inherits them and needs no constructor. The constructor takes one optional argument, an `AuthnAuditor` (for example `AuthnAudit.over(listeners)`) that receives the events instead of the container's `AuthnAudit`, for tests.
 
 ## Important behaviour
 

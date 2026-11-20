@@ -5,7 +5,7 @@
 ## How it works
 
 1. A flow builds the event body and calls `LocalPasswordService.audit(ctx, body)`.
-2. `audit()` calls `AuthnAudit.publishIn(ctx, body)`, which stamps `at` (`ctx.now`), `ip` and `userAgent` from the context. A service built with `deps` publishes through `AuthnAudit.over(deps.sinks)` instead.
+2. `audit()` calls `AuthnAudit.publishIn(ctx, body)`, which stamps `at` (`ctx.now`), `ip` and `userAgent` from the context. A service built with `deps` publishes through `AuthnAudit.over(deps.listeners)` instead.
 3. `AuthnAudit` delivers a frozen copy to every `AuthnEventSink` concurrently, each call bounded by `authn.audit.listenerTimeoutMs`, and waits for all of them. A sink that throws or times out is logged with its class name, the event type and the error class; the flow goes on. See [Audit and events](../authn/06-audit-events.md).
 
 ## Events

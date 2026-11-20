@@ -55,7 +55,7 @@ export async function setup<D extends AuthnMailDispatcher = AuthnMailDispatcher>
     tokens: null,
     secrets,
     mailer,
-    sinks: [events],
+    listeners: [events],
     hasher,
     policy: new LocalPasswordPolicy({}),
     log: recordingLog(warnings),

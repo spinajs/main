@@ -42,7 +42,7 @@ describe('WebAuthnPasskeyService action hooks', function () {
     credentials = new MemoryWebAuthnCredentialStore();
     events = new RecordingEventSink();
     hook = new ScriptedActionHook();
-    service = new WebAuthnPasskeyService({ credentials, challenges: new MemoryWebAuthnChallengeStore(), options: webauthnOptions(), identities: null, sinks: [events], hooks: await kitHooks([hook]) });
+    service = new WebAuthnPasskeyService({ credentials, challenges: new MemoryWebAuthnChallengeStore(), options: webauthnOptions(), identities: null, listeners: [events], hooks: await kitHooks([hook]) });
     key = authenticator('alice');
   });
 

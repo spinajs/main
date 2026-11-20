@@ -5,7 +5,7 @@ import { randomBytes } from 'node:crypto';
 import { DI } from '@spinajs/di';
 import type { Class, IContainer } from '@spinajs/di';
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
-import { AUTHN_CONFIGURATION_SCHEMA, AuthnEventSink, AuthnService, AuthnThrottle, DefaultAuthnService, DEFAULT_THROTTLE_PARAMS, IdentityLinkStore, IdentityStore, MemoryAuthnThrottle, MemoryNonceStore, MfaStep, NonceStore, PrincipalFactory, SessionIssuer } from '@spinajs/authn';
+import { AUTHN_CONFIGURATION_SCHEMA, AuthnEventListener, AuthnService, AuthnThrottle, DefaultAuthnService, DEFAULT_THROTTLE_PARAMS, IdentityLinkStore, IdentityStore, MemoryAuthnThrottle, MemoryNonceStore, MfaStep, NonceStore, PrincipalFactory, SessionIssuer } from '@spinajs/authn';
 import type { IdentityRef, SessionHandle } from '@spinajs/authn';
 import { FakeIdentityStore, FakeMfaStep, MemoryLinkStore, MemorySessionIssuer, RecordingEventSink, RecordingPrincipalFactory } from '@spinajs/authn-testing';
 import { BackchannelForm } from '../src/dto.js';
@@ -91,7 +91,7 @@ async function world(): Promise<World> {
   bind(child, SessionIssuer, 'KitSessionIssuer', sessions);
   bind(child, PrincipalFactory, 'KitPrincipalFactory', new RecordingPrincipalFactory());
   bind(child, MfaStep, 'KitMfaStep', step);
-  bind(child, AuthnEventSink, 'KitEvents', new RecordingEventSink());
+  bind(child, AuthnEventListener, 'KitEvents', new RecordingEventSink());
   bind(child, OidcHttpClient, 'KitIdp', idp);
   bind(child, NonceStore, 'KitNonces', nonces);
   registerOidcStrategies(['corp'], child);

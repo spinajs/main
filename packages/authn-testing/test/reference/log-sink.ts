@@ -1,5 +1,5 @@
 import { createHmac } from 'node:crypto';
-import { AuthnEventSink, AuthnService } from '@spinajs/authn/contracts';
+import { AuthnEventListener, AuthnService } from '@spinajs/authn/contracts';
 import type { AuthenticationResult, AuthenticationStrategy, AuthnContext, AuthnEvent, Credentials, Principal, SessionHandle } from '@spinajs/authn/contracts';
 import type { LogsPort } from '../../src/harness/index.js';
 
@@ -7,7 +7,7 @@ import type { LogsPort } from '../../src/harness/index.js';
  * A log sink that writes login strings as keyed hashes (SR-19).
  * Events carry no login string, so `hint` holds the login of the attempt in flight (see withLoginHints).
  */
-export class ReferenceLogSink extends AuthnEventSink implements LogsPort {
+export class ReferenceLogSink extends AuthnEventListener implements LogsPort {
   private readonly out: string[] = [];
   /** The login of the attempt in flight, if any. */
   hint: string | null = null;
@@ -17,7 +17,7 @@ export class ReferenceLogSink extends AuthnEventSink implements LogsPort {
     super();
   }
 
-  async publish(e: AuthnEvent): Promise<void> {
+  async on(e: AuthnEvent): Promise<void> {
     const login = e.type === 'login' && e.outcome === 'failure' && this.hint !== null ? (this.opts.rawLogins ? this.hint : createHmac('sha256', 'kit-key').update(this.hint).digest('hex')) : undefined;
     this.out.push([e.at.toISOString(), e.type, e.outcome, e.reason && `reason=${e.reason}`, e.identity && `identity=${e.identity.id}`, login && `login=${login}`].filter(Boolean).join(' '));
   }

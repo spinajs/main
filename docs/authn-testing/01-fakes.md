@@ -271,7 +271,7 @@ describe('login form', () => {
       policy: new EnrolledMfaPolicy([]),
       steps: [],
       sessions: new MemorySessionIssuer(),
-      sinks: [new RecordingEventSink()],
+      listeners: [new RecordingEventSink()],
       principals: new RecordingPrincipalFactory(),
     });
     await fakeSeedPort(identities, passwords).user({ login: ALICE.login, password: ALICE.password });
