@@ -1,9 +1,14 @@
 {
   "tolerance": 2,
   "targets": [
-    { "name": "authz-engine", "package": "authz", "config": "stryker.config.json", "concurrency": 3, "focus": ["src/engine/combinators.ts"] },
+    { "name": "authz-engine-decide", "package": "authz", "config": "stryker.decide.config.json", "concurrency": 3, "focus": ["src/engine/combinators.ts"] },
+    { "name": "authz-engine-pipeline", "package": "authz", "config": "stryker.pipeline.config.json", "concurrency": 3, "focus": [] },
+    { "name": "authz-engine-cache", "package": "authz", "config": "stryker.cache.config.json", "concurrency": 3, "focus": [] },
+    { "name": "authz-engine-rest", "package": "authz", "config": "stryker.rest.config.json", "concurrency": 3, "focus": [] },
     { "name": "authz-ir-eval", "package": "authz-ir", "config": "stryker.config.json", "concurrency": 3, "focus": ["src/eval/check.ts"] },
-    { "name": "authz-rbac-model", "package": "authz-rbac", "config": "stryker.config.json", "concurrency": 3, "focus": [] },
+    { "name": "authz-rbac-model-rules", "package": "authz-rbac", "config": "stryker.rules.config.json", "concurrency": 3, "focus": [] },
+    { "name": "authz-rbac-model-ladder", "package": "authz-rbac", "config": "stryker.ladder.config.json", "concurrency": 3, "focus": [] },
+    { "name": "authz-rbac-model-rest", "package": "authz-rbac", "config": "stryker.rest.config.json", "concurrency": 3, "focus": [] },
     { "name": "authz-rebac-model", "package": "authz-rebac", "config": "stryker.config.json", "concurrency": 3, "focus": [] },
     { "name": "authz-abac-model", "package": "authz-abac", "config": "stryker.config.json", "concurrency": 3, "focus": [] }
   ]

@@ -5,7 +5,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { CANDIDATE_FILE, baselineCandidate, countsOf, matrixOf, parseArgs, readBaseline, readTargets, reportsOf, scoreOf, summaryOf, survivorsOf, verdictOf } from '../mutation/gate.mjs';
+import { CANDIDATE_FILE, baselineCandidate, countsOf, matrixOf, parseArgs, readBaseline, readTargets, reportPathOf, reportsOf, scoreOf, summaryOf, survivorsOf, verdictOf } from '../mutation/gate.mjs';
 import { provenanceRefusal } from '../mutation/update-baseline.mjs';
 
 const ROOT = fileURLToPath(new URL('../..', import.meta.url));
@@ -23,18 +23,18 @@ const withDir = (fn) => {
   }
 };
 
-test('the shipped targets: five, a 2-point tolerance, configs that exist, focus on combinators.ts and eval/check.ts', () => {
+test('the shipped targets: the engine in four shards, RBAC in three, a 2-point tolerance, configs that exist, focus on combinators.ts and eval/check.ts', () => {
   const { tolerance, targets } = readTargets(fileURLToPath(new URL('../mutation/targets.json', import.meta.url)));
   assert.equal(tolerance, 2);
   assert.deepEqual(
     targets.map((t) => t.name),
-    ['authz-engine', 'authz-ir-eval', 'authz-rbac-model', 'authz-rebac-model', 'authz-abac-model'],
+    ['authz-engine-decide', 'authz-engine-pipeline', 'authz-engine-cache', 'authz-engine-rest', 'authz-ir-eval', 'authz-rbac-model-rules', 'authz-rbac-model-ladder', 'authz-rbac-model-rest', 'authz-rebac-model', 'authz-abac-model'],
   );
   for (const t of targets) {
     assert.ok(existsSync(join(ROOT, 'packages', t.package, t.config)), `${t.package}/${t.config}`);
     for (const f of t.focus) assert.ok(existsSync(join(ROOT, 'packages', t.package, f)), `${t.package}/${f}`);
   }
-  assert.deepEqual(targets.find((t) => t.name === 'authz-engine').focus, ['src/engine/combinators.ts']);
+  assert.deepEqual(targets.find((t) => t.name === 'authz-engine-decide').focus, ['src/engine/combinators.ts']);
   assert.deepEqual(targets.find((t) => t.name === 'authz-ir-eval').focus, ['src/eval/check.ts']);
 });
 
@@ -145,7 +145,14 @@ test('the candidate is marked github-actions only on CI and keeps every scored t
 });
 
 test('matrix and arguments', () => {
-  assert.deepEqual(matrixOf({ tolerance: 2, targets: [engine] }), [{ name: 'authz-engine', package: 'authz', config: 'stryker.config.json', concurrency: 3 }]);
+  assert.deepEqual(matrixOf({ tolerance: 2, targets: [engine] }), [{ name: 'authz-engine', package: 'authz', config: 'stryker.config.json', concurrency: 3, report: 'reports/mutation/mutation.json' }]);
+  withDir((dir) => {
+    mkdirSync(join(dir, 'packages', 'p'), { recursive: true });
+    writeFileSync(join(dir, 'packages', 'p', 'stryker.a.config.json'), JSON.stringify({ jsonReporter: { fileName: 'reports\\mutation\\a\\mutation.json' } }));
+    writeFileSync(join(dir, 'packages', 'p', 'stryker.none.config.json'), JSON.stringify({}));
+    assert.equal(reportPathOf({ package: 'p', config: 'stryker.a.config.json' }, dir), 'reports/mutation/a/mutation.json');
+    assert.throws(() => reportPathOf({ package: 'p', config: 'stryker.none.config.json' }, dir), /sets no jsonReporter\.fileName/);
+  });
   assert.throws(() => parseArgs([]), /--reports <dir> or --report/);
   assert.throws(() => parseArgs(['--reports', 'a', '--report', 'authz-engine=b.json']), /exclude each other/);
   assert.throws(() => parseArgs(['--report', 'nonsense']), /<target>=<mutation.json>/);

@@ -3,12 +3,13 @@
 // and fails when a score is more than `tolerance` points below its baseline. It never writes the baseline: it writes
 // mutation-baseline.candidate.json, which update-baseline.mjs copies into place in a reviewed commit.
 // Usage: node scripts/mutation/gate.mjs (--reports <dir> | --report <target>=<mutation.json> ...) [--targets f] [--baseline f] [--out-dir d]
-//        node scripts/mutation/gate.mjs --matrix
+//        node scripts/mutation/gate.mjs --matrix   (targets with the report path of each, for mutation.yml)
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
+const ROOT = join(HERE, '..', '..');
 export const CANDIDATE_FILE = 'mutation-baseline.candidate.json';
 const STATUSES = ['Killed', 'Timeout', 'Survived', 'NoCoverage', 'CompileError', 'RuntimeError', 'Ignored', 'Pending'];
 const SURVIVOR_LINES = 200;
@@ -139,7 +140,15 @@ export function baselineCandidate(verdicts, env, now) {
   return { measuredOn: { ci: onCi ? 'github-actions' : 'local', ...run, date: now.toISOString() }, targets };
 }
 
-export const matrixOf = (config) => config.targets.map(({ name, package: pkg, config: file, concurrency }) => ({ name, package: pkg, config: file, concurrency }));
+/** The target's report path inside its package, from its Stryker config: shards of one package write to different files. */
+export function reportPathOf(target, root = ROOT) {
+  const file = join(root, 'packages', target.package, target.config);
+  const fileName = JSON.parse(readFileSync(file, 'utf8')).jsonReporter?.fileName;
+  if (typeof fileName !== 'string' || fileName === '') throw new Error(`${file} sets no jsonReporter.fileName`);
+  return posix(fileName);
+}
+
+export const matrixOf = (config, reportOf = reportPathOf) => config.targets.map((t) => ({ name: t.name, package: t.package, config: t.config, concurrency: t.concurrency, report: reportOf(t) }));
 
 export function parseArgs(argv) {
   const o = { targets: join(HERE, 'targets.json'), baseline: join(HERE, 'baseline.json'), reportsDir: undefined, reportPairs: [], outDir: resolve('.stryker-tmp/gate'), matrix: false };

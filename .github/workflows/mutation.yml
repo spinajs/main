@@ -96,13 +96,14 @@ jobs:
         if: always()
         run: git diff --exit-code --stat -- packages/
 
-      # overwrite: a re-run of a failed job uploads under the same name.
+      # overwrite: a re-run of a failed job uploads under the same name. `report` is the config's jsonReporter.fileName
+      # (gate.mjs --matrix): shards of one package write different files, each named mutation.json.
       - name: upload report
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: mutation-${{ matrix.target.name }}
-          path: packages/${{ matrix.target.package }}/reports/mutation/mutation.json
+          path: packages/${{ matrix.target.package }}/${{ matrix.target.report }}
           if-no-files-found: warn
           overwrite: true
 
