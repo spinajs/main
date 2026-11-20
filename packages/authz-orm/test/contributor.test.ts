@@ -53,7 +53,7 @@ describe('authz-orm resource connection check', function () {
     await testHost.resetRoot();
   });
 
-  it('refuses at domain boot a composite-key resource, with relation columns or without, opted out of the changelog or not', () => {
+  it('refuses at domain boot a composite-key resource, with relation columns or without, opted out of the changelog or not', async () => {
     // Every delete of an access resource reaches the ancestor table through the write capture.
     class Pair extends ModelBase {
       @Primary() public a: number;
@@ -61,7 +61,8 @@ describe('authz-orm resource connection check', function () {
     }
     AccessResource('pair', { changelog: false })(Pair);
     try {
-      expect(() => new AuthzOrmContributor().contribute('root')).to.throw(AuthzConfigError, "authz-orm: @AccessResource model Pair (resource 'pair') has a composite primary key (a, b); the ORM write capture, which keeps authz_resource_ancestor and the column changelog, needs a single-column primary key");
+      const error = await new AuthzOrmContributor().contribute('root').then(() => undefined, (e: unknown) => e);
+      expect(error).to.be.instanceOf(AuthzConfigError).with.property('message', "authz-orm: @AccessResource model Pair (resource 'pair') has a composite primary key (a, b); the ORM write capture, which keeps authz_resource_ancestor and the column changelog, needs a single-column primary key");
     } finally {
       unregisterResource(Pair);
     }

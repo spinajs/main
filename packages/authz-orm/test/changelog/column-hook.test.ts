@@ -11,7 +11,7 @@ import type { ModelBase, OrmDriver, QueryBuilder } from '@spinajs/orm';
 
 import { ColumnChangeObserver } from '../../src/changelog/column-hook.js';
 import { ormLog } from '../../src/host.js';
-import { AccessResource, Owner, Parent, Relation, registerAccessResource } from '../../src/index.js';
+import { AccessResource, Owner, Parent, Relation, recordCoverage, registerAccessResource } from '../../src/index.js';
 import { createAncestorTable, dropAncestorTable } from '../support/ancestors.js';
 import { TestDb } from '../support/db.js';
 import type { Dialect } from '../support/db.js';
@@ -142,6 +142,32 @@ describe('ColumnChangeObserver', function () {
           .catch(() => undefined);
 
         expect(await changeLog().since(seq)).to.deep.equal([]);
+      });
+
+      it('an insert whose ids the driver does not report restarts column coverage of that type once it commits', async () => {
+        const t0 = new Date('2026-01-01T00:00:00.000Z');
+        await recordCoverage([], ['doc', 'folder'], [], t0);
+        const observer = new ColumnChangeObserver();
+        const bulk = () => {
+          const query = driver.Container.resolve<InsertQueryBuilder>(InsertQueryBuilder, [driver, Doc]);
+          query.values([{ folder_id: 'f1' }, { folder_id: 'f2' }]);
+          return { kind: 'insert' as const, query, model: Doc, driver, rows: [], unknownKeys: true };
+        };
+        const since = () => changeLog().coveredSince('column', 'doc');
+
+        await driver.transaction(async () => {
+          await observer.observe(bulk());
+          throw new Error('roll back');
+        }).catch(() => undefined);
+        expect(await since()).to.deep.equal(t0);
+
+        const before = Date.now();
+        await driver.transaction(async () => {
+          await observer.observe(bulk());
+        });
+        expect((await since())!.getTime()).to.be.within(before, Date.now());
+        expect(await changeLog().coveredSince('column', 'folder')).to.deep.equal(t0);
+        expect(await logged()).to.deep.equal([]);
       });
 
       it('a model opted out with changelog: false logs nothing, decorated or registered', async () => {
