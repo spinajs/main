@@ -9,11 +9,11 @@ import { Log, Logger } from '@spinajs/log';
 import { DateTime } from 'luxon';
 
 import { GROUP_TYPE, TEAM_ADMIN_ROLE, TEAM_MEMBER_ROLE, TEAM_OWNER_ROLE, TEAM_PURGED_EVENT, TEAM_TYPE, TeamService } from '../api.js';
-import type { CreateTeamInput, MemberEntry, Page, Paged, PrincipalTeams, PurgeReport, TeamSubject, TeamView, UpdateTeamInput } from '../api.js';
+import type { CreateTeamInput, MemberEntry, Page, Paged, PrincipalTeams, PurgeReport, Teammates, TeamSubject, TeamView, UpdateTeamInput } from '../api.js';
 import { asSystem, assertAllowed, domainContainer, execute, teamsDomain } from '../host.js';
 import { deleteInvitations } from '../invitations/rows.js';
 import { anyTeam, liveGroup, liveTeam, teamLineage } from '../lookup.js';
-import { principalTeams } from '../membership.js';
+import { principalTeammates, principalTeams } from '../membership.js';
 import { Group } from '../models/Group.js';
 import { Team } from '../models/Team.js';
 import { teamRef } from '../refs.js';
@@ -125,6 +125,12 @@ export class DefaultTeamService extends TeamService {
 
   async teamsOf(principal: PrincipalRef): Promise<PrincipalTeams> {
     return principalTeams({ type: principal.type, id: principal.id });
+  }
+
+  async teammatesOf(principal: PrincipalRef, opts: { readonly roles?: readonly string[] } = {}): Promise<readonly Teammates[]> {
+    const roles = opts.roles ?? [TEAM_MEMBER_ROLE];
+    if (!Array.isArray(roles)) throw new InvalidArgument('roles: must be an array of role names', 'roles');
+    return principalTeammates({ type: principal.type, id: principal.id }, [...new Set(roles.map((r) => readRole(r, 'roles')))]);
   }
 
   // ---- Task 6 ----

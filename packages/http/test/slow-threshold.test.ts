@@ -48,7 +48,7 @@ function finished(mw: SlowRequestWarning, tookMs: number, storage: Record<string
     Date.now = () => 1_000;
     mw.onBefore(ctx);
     Date.now = () => 1_000 + tookMs;
-    mw.onFinish({ ...ctx, aborted: false });
+    mw.onFinish({ ...ctx, aborted: false, settled: Promise.resolve({}) });
   } finally {
     Date.now = now;
   }

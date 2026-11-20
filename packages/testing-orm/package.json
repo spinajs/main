@@ -59,6 +59,7 @@
     "@spinajs/testing": "3.0.23"
   },
   "devDependencies": {
+    "@spinajs/orm-sqlite": "3.0.23",
     "chai": "^4.3.7",
     "chai-as-promised": "^7.1.1",
     "sinon": "^15.0.1"

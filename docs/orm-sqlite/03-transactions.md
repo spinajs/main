@@ -26,7 +26,7 @@ The lifecycle (commit on resolve, rollback on throw, savepoints, `afterCommit`) 
   Name: 'main',
   Driver: 'orm-driver-sqlite',
   Filename: './data/app.sqlite',
-  Migration: { OnStartup: true, Transaction: { Mode: MigrationTransactionMode.PerMigration } },
+  Migration: { Transaction: { Mode: MigrationTransactionMode.PerMigration } },
 }
 ```
 

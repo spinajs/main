@@ -141,7 +141,7 @@ DI.register(CanaryStore).as(TelemetryStore);
 ## Best practices
 
 - Set `telemetry.apdexThresholdMs` to your target response time; the default `25` ms marks most real API calls as tolerated or frustrated.
-- Watch `truncated` in `/telemetry/routes`: `true` means unmatched paths filled the map. Collapse them with a [custom route label](04-customizing-the-request-middleware.md).
+- Watch `truncated` in `/telemetry/routes`: `true` means the app serves more method and route pairs than `telemetry.routes.maxEntries`. Raise the cap, or group routes with a [custom route label](04-customizing-the-request-middleware.md). Unmatched requests take one entry, `<unmatched>`.
 - Use Prometheus for history and alerting; the JSON views are for dashboards and quick checks of one replica.
 
 ## Patterns and antipatterns

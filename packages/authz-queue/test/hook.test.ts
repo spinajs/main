@@ -8,7 +8,7 @@ import { testHost } from '@spinajs/authz-testing';
 import { Job, QueueJob, SystemTask, isPermanentJobFailure } from '@spinajs/queue';
 import type { IQueueMessage } from '@spinajs/queue';
 
-import { AuthzQueueHook, InitiatorPrincipalFactory, JobAccessDenied, StampedInitiatorPrincipalFactory, reviveCeiling } from '../src/index.js';
+import { AuthzQueueHook, InitiatorPrincipalFactory, JobAccessDenied, JobWithoutSystemTask, StampedInitiatorPrincipalFactory, reviveCeiling } from '../src/index.js';
 
 const user = (id: string, extra: Partial<Principal> = {}): Principal => ({ type: 'user', id, authenticated: true, source: 'session', attributes: {}, ...extra });
 
@@ -20,6 +20,12 @@ class TestHook extends AuthzQueueHook {
   warned: unknown[][] = [];
   /** The engine's answer per permission; a permission not listed is denied. */
   grants: Record<string, Partial<Decision>> = {};
+  /** What `authz.queue.systemTask` decides; the default refuses. */
+  refuses = true;
+
+  protected refusesUndeclared(): boolean {
+    return this.refuses;
+  }
 
   protected Log = { warn: (...args: unknown[]) => this.warned.push(args) } as unknown as AuthzQueueHook['Log'];
 
@@ -153,7 +159,7 @@ describe('AuthzQueueHook.aroundHandle', () => {
 
   it("runAs 'system' ignores the Initiator", async () => {
     const hook = new TestHook();
-    const ran = await run(hook, messageOf(AsSystem, { type: 'user', id: 'alice' }));
+    const ran = await run(hook, messageOf(Purge, { type: 'user', id: 'alice' }));
     expect(ran.principal).to.equal(SYSTEM);
   });
 
@@ -233,6 +239,12 @@ class RunReport extends QueueJob {
     return 1;
   }
 }
+@Job({ runAs: 'system', access: 'report:run' })
+class SystemReport extends QueueJob {
+  async execute() {
+    return 1;
+  }
+}
 @Job({ runAs: 'system' })
 @SystemTask('purges expired drafts of every tenant')
 class Purge extends QueueJob {
@@ -285,8 +297,32 @@ describe('AuthzQueueHook and @Job({ access })', () => {
     expect(hook.checked[0].principal).to.equal(UNATTENDED);
   });
 
-  it("warns once per class about runAs 'system' with neither access nor @SystemTask", async () => {
+  it("refuses a runAs: 'system' job with neither access nor @SystemTask before it runs", async () => {
     const hook = await built();
+    let ran = false;
+    const err = await rejection(hook.aroundHandle(messageOf(AsSystem), async () => (ran = true)));
+    expect(err).to.be.instanceOf(JobWithoutSystemTask);
+    expect(isPermanentJobFailure(err)).to.equal(true);
+    expect(err).to.have.property('reason', 'system_task_missing');
+    expect(err).to.have.property('message', 'system_task_missing: job AsSystem runs as SYSTEM with no access and no @SystemTask(reason)');
+    expect(ran).to.equal(false);
+    expect(hook.ranAs).to.deep.equal([]);
+    expect(hook.warned).to.deep.equal([]);
+  });
+
+  it('a SYSTEM job is declared by @SystemTask(reason) or by access', async () => {
+    const hook = await built();
+    expect(await hook.aroundHandle(messageOf(Purge), async () => 'purged')).to.equal('purged');
+    expect(hook.ranAs.at(-1)?.principal).to.equal(SYSTEM);
+    hook.grants['report:run'] = { allowed: true, residual: TRUE };
+    expect(await hook.aroundHandle(messageOf(SystemReport), async () => 'ran')).to.equal('ran');
+    expect(hook.checked.at(-1)).to.deep.include({ principal: SYSTEM, permission: 'report:run' });
+    expect(hook.warned).to.deep.equal([]);
+  });
+
+  it("under 'warn' the undeclared job runs and the hook warns once per class", async () => {
+    const hook = await built();
+    hook.refuses = false;
     await run(hook, messageOf(AsSystem));
     await run(hook, messageOf(AsSystem));
     await run(hook, messageOf(Purge));

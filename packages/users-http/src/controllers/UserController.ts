@@ -10,7 +10,7 @@ import type { User } from '@spinajs/users';
 import { CurrentUser } from '../args/current-user.js';
 import { ownUser } from '../services/own-user.js';
 import { NO_STORE, SESSION_CALLER } from '../services/session-callers.js';
-import { assertTokenRoutesOn, offeredTokenProfiles, offeredTokenRoles } from '../services/token-offer.js';
+import { assertTokenRoutesOn, offeredTokenPermissions, offeredTokenProfiles, offeredTokenRoles } from '../services/token-offer.js';
 
 const PROFILE_MAX_LENGTH = 128;
 
@@ -65,6 +65,27 @@ export class UserController extends BaseController {
     assertTokenRoutesOn();
     const profile = profileOf(req);
     return new Ok({ Roles: await offeredTokenRoles(caller, this.AccessDomain, profile) }, { Headers: [NO_STORE] });
+  }
+
+  /**
+   * Permissions a new token may be narrowed to
+   * `{ Permissions }`: what a token carrying the roles `GET /user/tokens/roles` offers (with `profile`, a token pinned to
+   * it) is allowed at GLOBAL, the names `POST /user/tokens` takes in `scope.permissions`, less
+   * `users.http.tokens.hiddenPermissions`. None when no role is offered.
+   * @security cookieAuth
+   * @param profile Optional profile the token would be pinned to
+   * @response 400 Bad request — `profile` is not one role name
+   * @response 401 Unauthorized — no signed-in principal
+   * @response 403 Forbidden — not the user in person (`session_required`, `impersonating`), or no `user:read` on its own record
+   * @response 404 Not found — no TokenService is registered
+   * @response 500 The token roles, the hidden permissions or the access summary cannot be read: nothing is offered
+   */
+  @Get('tokens/permissions')
+  @Access('user:read', { resource: ownUser, subject: 'load', also: SESSION_CALLER })
+  public async tokenPermissions(@CurrentPrincipal() caller: Principal, @Req() req: Request) {
+    assertTokenRoutesOn();
+    const profile = profileOf(req);
+    return new Ok({ Permissions: await offeredTokenPermissions(caller, this.AccessDomain, profile) }, { Headers: [NO_STORE] });
   }
 
   /**
