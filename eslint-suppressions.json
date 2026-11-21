@@ -7480,7 +7480,7 @@
       "count": 1
     },
     "prefer-const": {
-      "count": 2
+      "count": 1
     }
   },
   "packages/queue/src/interfaces.ts": {
