@@ -98,11 +98,11 @@ class Sources {
   }
 
   /**
-   * The sources an aggregate reads. Its SQL names no table, so with a join the database finds the column in whichever
-   * table of the query has it.
+   * The sources an aggregate reads. Under a table alias its SQL names that table; without one, with a join, the
+   * database finds the column in whichever table of the query has it.
    */
   public aggregated(tableAlias: string | undefined, column: string): ReadSource[] {
-    if (!this.joined) return this.of(tableAlias, column);
+    if (!this.joined || tableAlias) return this.of(tableAlias, column);
 
     const has = (descriptor: IModelDescriptor): boolean => column.trim() === '*' || descriptor.Columns.some((c) => lc(c.Name) === lc(column));
     const known = this.queryTables().filter((source) => has(source.descriptor));
