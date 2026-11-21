@@ -1,8 +1,9 @@
 import './audit.js';
-import '@spinajs/log';
 import '@spinajs/orm-sqlite';
 import { rowsOf } from '@spinajs/audit-orm';
+import type { Configuration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
+import { MemoryTarget } from '@spinajs/log';
 import { Connection, Model, ModelBase, Orm, Primary } from '@spinajs/orm';
 import type { OrmDriver } from '@spinajs/orm';
 import { migrateTestDatabase } from '@spinajs/orm/testing';
@@ -30,7 +31,7 @@ export interface ModelSpec {
   readonly table: string;
   /** Column → type; `id` is the primary key, TEXT unless `autoIncrement`. */
   readonly columns: Readonly<Record<string, 'TEXT' | 'INTEGER'>>;
-  /** Applied to the class and its prototype before the ORM sees it: `registerHistory`, `@Hidden`, `@SoftDelete`. */
+  /** Applied to the class and its prototype before the ORM sees it: `registerHistory`, `@Hidden`, `@SoftDelete`, `@Archived`. */
   readonly decorate: (model: typeof ModelBase, proto: object) => void;
   readonly autoIncrement?: boolean;
   /** The model's `@Primary()` columns instead of `id`, all listed in `columns`; the table then has no primary key. */
@@ -61,7 +62,16 @@ export function applyDecorator(decorator: unknown, target: object, property?: st
 }
 
 const DIALECTS: readonly Dialect[] = ['sqlite', 'pglite'];
-const SILENT = { targets: [{ name: 'Empty', type: 'BlackHoleTarget' }], rules: [{ name: '*', level: 'trace', target: 'Empty' }] };
+const LOGGER = {
+  targets: [
+    { name: 'Empty', type: 'BlackHoleTarget' },
+    { name: 'Memory', type: 'MemoryTarget' },
+  ],
+  rules: [
+    { name: '*', level: 'trace', target: 'Empty' },
+    { name: 'orm-history', level: 'warn', target: 'Memory' },
+  ],
+};
 const AUDIT = { trails: { recorded: { store: 'MemoryAuditStore' }, logged: { store: 'LogAuditStore' } } };
 
 /** One ORM over sqlite `:memory:` (the default connection, migrated when opened) and PGlite, with tracked models defined per test. */
@@ -74,19 +84,33 @@ export class HistoryDb {
   static async open(): Promise<HistoryDb> {
     const pglite = await createTestDatabase({ connection: 'pglite', migrate: false });
     const connections: unknown[] = [{ Driver: 'orm-driver-sqlite', Name: 'sqlite', Filename: ':memory:' }, pglite.config];
+    let app: TestApp | undefined;
     try {
-      const app = await createTestApp({ config: { logger: SILENT, db: { DefaultConnection: 'sqlite', StrictTableCheck: false, Connections: connections }, audit: AUDIT } });
+      app = await createTestApp({ config: { logger: LOGGER, db: { DefaultConnection: 'sqlite', StrictTableCheck: false, Connections: connections }, audit: AUDIT } });
       // v4 refuses Migration.OnStartup; the migrations registered on `default` (this package's among them) apply here.
       const { orm } = await migrateTestDatabase(app.container);
       return new HistoryDb(app, orm, pglite);
     } catch (err) {
-      await pglite.dispose();
+      try {
+        await app?.dispose();
+      } finally {
+        await pglite.dispose();
+      }
       throw err;
     }
   }
 
   static dialects(): readonly Dialect[] {
     return DIALECTS;
+  }
+
+  get config(): Configuration {
+    return this.app.config;
+  }
+
+  /** The messages the `orm-history` logger wrote at warn level or above since the last `clear()`. */
+  warnings(): string[] {
+    return (DI.get(MemoryTarget)?.getRecords() ?? []).filter((e) => e.Variables.logger === 'orm-history').map((e) => e.Variables.message);
   }
 
   driver(dialect: Dialect): OrmDriver {
@@ -165,5 +189,6 @@ export class HistoryDb {
     for (const dialect of this.historyOn) if (dialect !== 'sqlite') await this.dropHistory(dialect);
     await this.migrateHistory('sqlite');
     resetAudit();
+    DI.get(MemoryTarget)?.clear();
   }
 }

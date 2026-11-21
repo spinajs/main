@@ -144,7 +144,7 @@ export class HistorySpecs {
     return spec;
   }
 
-  /** A rule covers what can be keyed; a model it cannot key is left out instead of failing its writes (H21). */
+  /** A rule covers what can be keyed; a model it cannot key is left out instead of failing its writes. */
   private ruled(model: Constructor<ModelBase>, rules: readonly DataRule[]): HistorySpec | undefined {
     const rule = ruleFor(model, rules);
     if (!rule) return undefined;

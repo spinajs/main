@@ -29,7 +29,7 @@ export const AUDIT_DATA_CONFIGURATION_SCHEMA = {
         },
       },
     },
-    // What a tracked insert does when the driver did not report the keys it wrote (H7).
+    // What a tracked insert does when the driver did not report the keys it wrote.
     onUnknownKeys: { type: 'string', enum: ['warn', 'throw'], default: 'warn' },
   },
 };

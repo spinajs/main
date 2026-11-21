@@ -20,11 +20,10 @@ function writesAny(query: UpdateQueryBuilder<unknown>, columns: readonly string[
 
 const inputOf = (spec: HistorySpec, entry: PendingEntry, at: Date): AuditInput => ({ kind: 'data', action: entry.op, subject: { type: spec.entity, id: entry.id }, data: entry.data, at });
 
-// A `lost` marker concerns the rows of the entity whose keys were never reported, not one row.
 const lostInputOf = (spec: HistorySpec, at: Date): AuditInput => ({ kind: 'data', action: 'lost', subject: { type: spec.entity, id: LOST_SUBJECT_ID }, data: { reason: 'unknown_keys' }, at });
 
 // The record joins the write's transaction, where a failed statement cannot be skipped on every dialect,
-// so the trail's own onFailure is not consulted (H22).
+// so the trail's own onFailure is not consulted.
 function record(spec: HistorySpec, write: CapturedWrite, inputs: readonly AuditInput[]): Promise<void> {
   return audit().record(inputs, { trail: spec.trail, mode: 'transactional', transaction: write.driver, onFailure: 'reject' });
 }
@@ -45,15 +44,8 @@ export class HistoryObserver extends WriteObserver {
   public interest(statement: WriteStatement): CaptureInterest | undefined {
     const spec = this.Specs.of(statement.model);
     if (!spec) return undefined;
-    if (spec.columns !== '*' && statement.kind === 'update' && !writesAny(statement.query, spec.columns)) return undefined;
+    if (spec.columns !== '*' && statement.kind === 'update' && !writesAny(statement.query, [spec.pk, ...spec.columns])) return undefined;
     return { columns: spec.columns, transactional: true };
-  }
-
-  public prepare(statement: WriteStatement): void {
-    const spec = this.Specs.of(statement.model);
-    if (spec && statement.kind === 'update' && writesAny(statement.query, [spec.pk])) {
-      throw new HistoryWriteError(`orm-history: an update of ${spec.entity} writes its primary key ${spec.pk}; history is keyed by it, delete and insert the row instead`);
-    }
   }
 
   public async observe(write: CapturedWrite): Promise<void> {
@@ -61,6 +53,11 @@ export class HistoryObserver extends WriteObserver {
     if (!spec) return;
     const at = new Date();
     if (write.unknownKeys) return this.unknownKeys(spec, write, at);
+    // The capture reads an update's after rows by the keys it read before, so a row whose key changed has no after;
+    // a key named with its unchanged value is no change. The throw rolls the statement back.
+    if (write.kind === 'update' && write.rows.some((r) => r.before !== undefined && r.after === undefined)) {
+      throw new HistoryWriteError(`orm-history: an update of ${spec.entity} writes its primary key ${spec.pk}; history is keyed by it, delete and insert the row instead`);
+    }
     const inputs = write.rows.flatMap((row) => {
       const entry = historyEntryOf(spec, row);
       return entry ? [inputOf(spec, entry, at)] : [];

@@ -4,9 +4,7 @@ import 'mocha';
 import { AuditConfigError, AuditWriteFailed } from '@spinajs/audit';
 import { MemoryAuditStore } from '@spinajs/audit/testing';
 import { rowsOf } from '@spinajs/audit-orm';
-import { Configuration } from '@spinajs/configuration';
-import { DI } from '@spinajs/di';
-import { Hidden, InsertQueryBuilder, SoftDelete, createQuery } from '@spinajs/orm';
+import { Archived, Hidden, InsertQueryBuilder, SoftDelete, createQuery } from '@spinajs/orm';
 import { HistoryConfigError, HistoryWriteError, LOST_SUBJECT_ID, registerHistory } from '../src/index.js';
 import { who } from './support/audit.js';
 import { HistoryDb, applyDecorator } from './support/db.js';
@@ -16,6 +14,20 @@ const expect = chai.expect;
 const TRACE = '4bf92f3577b34da6a3ce929d0e0e4736';
 
 type Row = Record<string, unknown>;
+
+const keyChange = (entity: string): string => `orm-history: an update of ${entity} writes its primary key id; history is keyed by it, delete and insert the row instead`;
+const UNKNOWN_KEYS_REFUSED = 'orm-history: an insert of auto did not report the keys it wrote, so its history cannot be recorded; insert one row at a time or supply the keys';
+const UNKNOWN_KEYS_WARNING = 'orm-history: an insert of auto did not report the keys it wrote, so its history is missing; insert one row at a time, supply the keys or set audit.data.onUnknownKeys to throw';
+
+// rejectedWith(Class, text) matches a fragment; the messages above are asserted whole.
+async function rejection(write: PromiseLike<unknown>): Promise<unknown> {
+  try {
+    await write;
+  } catch (err) {
+    return err;
+  }
+  throw new Error('expected the write to be refused');
+}
 
 describe('history writes', function () {
   this.timeout(60000);
@@ -110,9 +122,43 @@ describe('history writes', function () {
         expect(await db.rows('stray', dialect)).to.have.length(0);
       });
 
-      it('refuses an update of the primary key', async () => {
+      it('records an update that names the primary key with its unchanged value', async () => {
         await Invoice.insert({ id: 'i4', status: 'x' });
-        await expect(Invoice.update({ id: 'i5' }).where('id', 'i4')).to.be.rejectedWith(HistoryWriteError, 'writes its primary key id');
+        await Invoice.update({ id: 'i4', status: 'y' }).where('id', 'i4');
+        expect((await events()).map((r) => [r.action, r.data])).to.deep.eq([
+          ['insert', { after: { id: 'i4', status: 'x', deleted_at: null } }],
+          ['update', { before: { status: 'x' }, after: { id: 'i4', status: 'y', deleted_at: null }, changed: ['status'] }],
+        ]);
+      });
+
+      it('refuses an update that changes the primary key and leaves the row and its history as they were', async () => {
+        await Invoice.insert({ id: 'i4', status: 'x' });
+        expect(await rejection(Invoice.update({ id: 'i5' }).where('id', 'i4')))
+          .to.be.instanceOf(HistoryWriteError)
+          .and.have.property('message', keyChange('invoice'));
+        expect((await db.rows('invoice', dialect)).map((r) => r.id)).to.deep.eq(['i4']);
+        expect((await events()).map((r) => r.action)).to.deep.eq(['insert']);
+      });
+
+      it('records archive() of a tracked @Archived model as an update', async () => {
+        const Doc = await db.define(
+          {
+            name: 'Doc',
+            table: 'doc',
+            columns: { status: 'TEXT', archived_at: 'TEXT' },
+            decorate: (c, p) => {
+              registerHistory(c);
+              applyDecorator(Archived(), p, 'archived_at');
+            },
+          },
+          dialect,
+        );
+        await Doc.insert({ id: 'd1', status: 'x' });
+        await (await Doc.getOrFail('d1')).archive();
+
+        const rows = (await events()).filter((r) => r.subject_type === 'doc');
+        expect(rows.map((r) => r.action)).to.deep.eq(['insert', 'update']);
+        expect(rows[1].data).to.deep.include({ before: { archived_at: null }, changed: ['archived_at'] });
       });
 
       it('records every row of a multi-row insert through RETURNING', async () => {
@@ -126,7 +172,7 @@ describe('history writes', function () {
       });
 
       it('marks the entity lost when an insert does not report its keys', async () => {
-        // A builder made without ModelBase.insert has no RETURNING (Fact 10).
+        // A builder made without ModelBase.insert has no RETURNING.
         const Auto = await db.define({ name: 'Auto', table: 'auto', autoIncrement: true, columns: { v: 'TEXT' }, decorate: (c) => registerHistory(c) }, dialect);
         const { query } = createQuery(Auto, InsertQueryBuilder);
         await query.values([{ v: 'a' }, { v: 'b' }]);
@@ -136,22 +182,34 @@ describe('history writes', function () {
         expect(rows.map((r) => [r.action, r.subject_id, r.data])).to.deep.eq([['lost', LOST_SUBJECT_ID, { reason: 'unknown_keys' }]]);
       });
 
+      it('warns once per model about inserts that do not report their keys', async () => {
+        const Auto = await db.define({ name: 'Auto', table: 'auto', autoIncrement: true, columns: { v: 'TEXT' }, decorate: (c) => registerHistory(c) }, dialect);
+        await createQuery(Auto, InsertQueryBuilder).query.values([{ v: 'a' }, { v: 'b' }]);
+        await createQuery(Auto, InsertQueryBuilder).query.values([{ v: 'c' }, { v: 'd' }]);
+
+        expect((await events()).map((r) => r.action)).to.deep.eq(['lost', 'lost']);
+        expect(db.warnings()).to.deep.eq([UNKNOWN_KEYS_WARNING]);
+      });
+
       it('throws on unknown insert keys when configured to', async () => {
-        DI.get(Configuration)?.set('audit.data.onUnknownKeys', 'throw');
+        db.config.set('audit.data.onUnknownKeys', 'throw');
         try {
           const Auto = await db.define({ name: 'Auto', table: 'auto', autoIncrement: true, columns: { v: 'TEXT' }, decorate: (c) => registerHistory(c) }, dialect);
           const { query } = createQuery(Auto, InsertQueryBuilder);
-          await expect(query.values([{ v: 'a' }, { v: 'b' }])).to.be.rejectedWith(HistoryWriteError, 'did not report the keys');
+          expect(await rejection(query.values([{ v: 'a' }, { v: 'b' }])))
+            .to.be.instanceOf(HistoryWriteError)
+            .and.have.property('message', UNKNOWN_KEYS_REFUSED);
           expect(await db.rows('auto', dialect)).to.have.length(0);
         } finally {
-          DI.get(Configuration)?.set('audit.data.onUnknownKeys', 'warn');
+          db.config.set('audit.data.onUnknownKeys', 'warn');
         }
       });
 
-      it('names a soft delete', async () => {
+      it('names a soft delete and a restore', async () => {
         await Invoice.insert({ id: 'i6', status: 'x' });
         await Invoice.update({ deleted_at: '2026-11-06' }).where('id', 'i6');
-        expect((await events()).at(-1)?.action).to.eq('soft_delete');
+        await Invoice.update({ deleted_at: null }).where('id', 'i6');
+        expect((await events()).map((r) => r.action)).to.deep.eq(['insert', 'soft_delete', 'restore']);
       });
 
       it('records only the listed columns and skips an update that writes none of them', async () => {
@@ -162,6 +220,22 @@ describe('history writes', function () {
 
         const rows = (await events()).filter((r) => r.subject_type === 'ticket');
         expect(rows.map((r) => [r.action, r.data])).to.deep.eq([
+          ['insert', { after: { id: 't1', status: 'open' } }],
+          ['update', { before: { status: 'open' }, after: { id: 't1', status: 'closed' }, changed: ['status'] }],
+        ]);
+      });
+
+      it('in column mode records nothing for an unchanged key and refuses a changed one', async () => {
+        const Ticket = await db.define({ name: 'Ticket', table: 'ticket', columns: { status: 'TEXT', note: 'TEXT' }, decorate: (c) => registerHistory(c, { columns: ['status'] }) }, dialect);
+        await Ticket.insert({ id: 't1', status: 'open', note: 'a' });
+        await Ticket.update({ id: 't1', note: 'b' }).where('id', 't1');
+        await Ticket.update({ id: 't1', status: 'closed' }).where('id', 't1');
+        expect(await rejection(Ticket.update({ id: 't9' }).where('id', 't1')))
+          .to.be.instanceOf(HistoryWriteError)
+          .and.have.property('message', keyChange('ticket'));
+
+        expect((await db.rows('ticket', dialect)).map((r) => [r.id, r.status, r.note])).to.deep.eq([['t1', 'closed', 'b']]);
+        expect((await events()).filter((r) => r.subject_type === 'ticket').map((r) => [r.action, r.data])).to.deep.eq([
           ['insert', { after: { id: 't1', status: 'open' } }],
           ['update', { before: { status: 'open' }, after: { id: 't1', status: 'closed' }, changed: ['status'] }],
         ]);
@@ -196,7 +270,7 @@ describe('history writes', function () {
   }
 
   describe('trail and rules (sqlite)', () => {
-    const rules = (value: unknown): void => DI.get(Configuration)?.set('audit.data.rules', value);
+    const rules = (value: unknown): void => db.config.set('audit.data.rules', value);
 
     beforeEach(async () => {
       await db.migrateHistory('sqlite');
@@ -234,6 +308,20 @@ describe('history writes', function () {
       const Plain = await db.define({ name: 'Plain', table: 'plain', columns: { v: 'TEXT' }, decorate: () => undefined }, 'sqlite');
       await Plain.insert({ id: 'p1', v: 'x' });
       expect((await db.rows('orm_history', 'sqlite')).map((r) => [r.action, r.subject_type, r.subject_id])).to.deep.eq([['insert', 'plain', 'p1']]);
+    });
+
+    it('follows a change of the rules for a model whose spec it already resolved', async () => {
+      const Plain = await db.define({ name: 'Plain', table: 'plain', columns: { v: 'TEXT' }, decorate: () => undefined }, 'sqlite');
+      rules([{ models: '*' }]);
+      await Plain.insert({ id: 'p1', v: 'x' });
+      rules([{ models: '*', trail: 'recorded' }]);
+      await Plain.insert({ id: 'p2', v: 'x' });
+      rules([]);
+      await Plain.insert({ id: 'p3', v: 'x' });
+
+      expect((await db.rows('orm_history', 'sqlite')).map((r) => r.subject_id)).to.deep.eq(['p1']);
+      expect(MemoryAuditStore.appends().map((a) => a.events.map((e) => e.subject?.id))).to.deep.eq([['p2']]);
+      expect(await db.rows('plain', 'sqlite')).to.have.length(3);
     });
 
     it('leaves a model with @History(false) untracked under a match-all rule', async () => {
