@@ -6,7 +6,8 @@ import { Bootstrapper, DI, Injectable, type ContainerSnapshot } from '@spinajs/d
 import { Clock, DbTimeSource, FaultInjector } from '@spinajs/durable';
 import { FakeClock } from '@spinajs/durable/testing';
 import { IdempotencyInFlight, IdempotencyStore, OrmIdempotencyStore, type IdempotencyClaim, type IdempotencyClaimOptions, type StoredReply } from '@spinajs/idempotency';
-import { MigrationTransactionMode, Orm } from '@spinajs/orm';
+import { MigrationTransactionMode } from '@spinajs/orm';
+import { migrateTestDatabase } from '@spinajs/orm/testing';
 import '@spinajs/orm-sqlite';
 import { decideDelivery, Event, QUEUE_CONFIGURATION_SCHEMA, QueueEvent, QueueService, isRedeliverLater, resolveDeliveryPolicy } from '../src/index.js';
 import { MemoryBroker, wireCopy } from '../src/testing/index.js';
@@ -90,7 +91,7 @@ async function boot(options: BootOptions = {}) {
     for (const bootstrapper of await DI.resolve(Array.ofType(Bootstrapper))) await bootstrapper.bootstrap();
   }
   await DI.resolve(Configuration);
-  await (await DI.resolve(Orm)).Migrator.ready();
+  await migrateTestDatabase();
   const queue = await DI.resolve(QueueService);
   return { queue, client: memoryClientOf(queue, 'memory'), faults, clock };
 }
