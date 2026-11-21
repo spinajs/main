@@ -77,11 +77,15 @@ export default {
 | SQS client class | `SqsQueueClient` token; `@PerInstanceCheck()` keyed by `options.name` | `SqsQueueClient` | your subclass | `DI.register(Sub).as(SqsQueueClient)` after importing the package; replaces it for every `service: 'SqsQueueClient'` entry |
 | Connection factory | none by default; a factory registered `.as(SqsQueueClient)` runs as a new instance on every resolve | DI builds the class | | `DI.register(myFactory).as(SqsQueueClient)`; see [Register a connection factory](#register-a-connection-factory) |
 | AWS client setup | `public async resolve()`, sets `protected Sqs: SQSClient` | `new SQSClient({ region, endpoint, credentials })` | | Override; assign `this.Sqs` yourself or call `super.resolve()` and keep it |
-| Send | `public async emit(message)` | `SendMessage` per routed URL | FIFO send below | Override; use `this.getChannelForMessage()` and `this.Sqs` |
+| Send | `public async emit(message)` | `sendParams()` for every routed URL, then `sendMessage()` for each | | Override a seam below rather than `emit()` |
+| Send parameters | `protected sendParams(url, message, options?: SqsSendOptions): SendMessageCommandInput` | attributes; `DelaySeconds` and `x-spinajs-not-before` on a standard queue; group and deduplication ids on a `.fifo` queue | | Override, call `super.sendParams()` and change the result |
+| FIFO group id | `protected groupIdOf(message): string` | the message field the routing `groupBy` names; throws `InvalidArgument` | custom group below | Override; return 1 to 128 ASCII letters, digits or punctuation |
+| SQS calls | `protected async sendMessage(input)`, `protected async deleteMessage(url, receiptHandle)` | `SendMessageCommand`, `DeleteMessageCommand` through `this.Sqs` | | Override to record or wrap every send and delete; unit tests replace them |
+| Queue kind and time | `protected isFifo(url)`, `protected now()` | `url.endsWith('.fifo')`, `Date.now()` | | Override for queue URLs that hide the suffix, or for a test clock |
 | Destination lookup | `public getChannelForMessage(message)` (from `QueueClient`) | `queue.routing`, then connection defaults | | Override to compute URLs |
 | Subscribe | `public async subscribe(channelOrMessage, callback)` | one `pollLoop()` per URL, shared by every callback on it | | Override, call `super.subscribe()` |
 | Poll loop | `protected async pollLoop(desc)` | sequential receive and handle with backoff | | Override; must never reject, it runs detached |
-| Message handler | `protected async handleMessage(desc, m)` | parse, `CreatedAt` to `DateTime`, callback, delete | SNS unwrap below | Override, call `super.handleMessage(desc, m)` |
+| Message handler | `protected async handleMessage(desc, m: SqsReceived)` | parse, `CreatedAt` to `DateTime`, attributes, re-send if not yet due, callback, delete | SNS unwrap below | Override, call `super.handleMessage(desc, m)` |
 | Error sleep | `protected backoffSleep(ms, signal)` | abortable `setTimeout` | | Override to add jitter |
 | Stop | `protected stop(desc)`, `unsubscribe()`, `dispose()` | clear `running`, abort; `dispose()` waits for the loops, then destroys `SQSClient` | | Override `dispose()`, call `super.dispose()` last |
 
@@ -95,7 +99,15 @@ Protected state a subclass can use:
 | `Log` | `QueueClient` | The `queue` logger |
 | `Routing` | `QueueClient` | `queue.routing`, read live |
 
-The descriptor type `desc` (`url`, `callback`, `handlers`, `running`, `controller`, `exited`) is not exported. In an override, take it from the parent signature: `...args: Parameters<SqsQueueClient['handleMessage']>`.
+Exported types for overrides:
+
+| Type | Holds |
+| --- | --- |
+| `ISqsSubscriptionDescriptor` | `desc`: `url`, `callback`, `handlers`, `running`, `controller`, `exited` |
+| `SqsReceived` | what `handleMessage()` reads of an SQS `Message`: `Body`, `ReceiptHandle`, `MessageId`, `MessageAttributes`, `Attributes` |
+| `SqsSendOptions` | `sendParams()` options: `delayMs`, `notBefore` (epoch ms, wins over `delayMs`), `headers` (extra attributes), `groupId` and `dedupId` (FIFO, instead of `groupIdOf()` and the `MessageId`) |
+
+`toMessageAttributes(message, extra?)` and `readMessageAttributes(attributes)` are exported too, with `NOT_BEFORE_ATTRIBUTE` and `MAX_SQS_DELAY_MS`.
 
 ### Queue transport: custom implementation
 
@@ -106,12 +118,11 @@ Subclass `SqsQueueClient` when the transport still talks to SQS and you change o
 - `@Autoinject` properties are filled only when DI builds the class. A factory that calls `new` skips them.
 - Keep `pollLoop()` and `handleMessage()` free of unhandled rejections. They run detached; a throw that escapes is lost or crashes the process.
 
-#### Send to FIFO queues
+#### Choose the FIFO group yourself
 
-A FIFO queue rejects `SendMessage` without `MessageGroupId`. This subclass sets the group from a custom `options.messageGroupId` key (default: the message name) and uses the `JobId` as deduplication id. For events, which have no `JobId`, enable content-based deduplication on the queue.
+A send to a `.fifo` URL takes its `MessageGroupId` from `groupIdOf(message)`, which by default reads the message field the route's `groupBy` names ([FIFO queues](02-publishing-messages.md#fifo-queues)). This subclass puts every message of the connection into one group from a custom `options.messageGroupId` key (default: the message name), so no route needs `groupBy`. The deduplication id stays the `MessageId`. SQS refuses a group id that is not 1 to 128 ASCII letters, digits or punctuation, and an override is not checked.
 
 ```ts sample
-import { SendMessageCommand } from '@aws-sdk/client-sqs';
 import { Injectable, PerInstanceCheck } from '@spinajs/di';
 import { IQueueMessage, QueueClient } from '@spinajs/queue';
 import { SqsQueueClient } from '@spinajs/queue-sqs-transport';
@@ -119,23 +130,9 @@ import { SqsQueueClient } from '@spinajs/queue-sqs-transport';
 @PerInstanceCheck()
 @Injectable(QueueClient)
 export class FifoSqsQueueClient extends SqsQueueClient {
-  public async emit(message: IQueueMessage): Promise<void> {
-    const body = JSON.stringify(message);
-    const groupId = (this.Options.options?.messageGroupId as string | undefined) ?? message.Name;
-    const dedupId = (message as IQueueMessage & { JobId?: string }).JobId;
-
-    await Promise.all(
-      this.getChannelForMessage(message).map((QueueUrl) =>
-        this.Sqs.send(
-          new SendMessageCommand({
-            QueueUrl,
-            MessageBody: body,
-            MessageGroupId: groupId,
-            MessageDeduplicationId: dedupId,
-          }),
-        ),
-      ),
-    );
+  protected groupIdOf(message: IQueueMessage): string {
+    const configured = this.Options.options?.messageGroupId;
+    return typeof configured === 'string' ? configured : message.Name;
   }
 }
 
@@ -355,7 +352,7 @@ export const config = {
 ## Related
 
 - [SQS connection](01-sqs-connection.md): the default registration and every connection key.
-- [Publishing messages](02-publishing-messages.md): what the default `emit()` does.
+- [Publishing messages](02-publishing-messages.md): what the default `emit()` and `sendParams()` do.
 - [Consuming messages](03-consuming-messages.md): what the default `subscribe()`, `pollLoop()` and `handleMessage()` do.
 - [`@spinajs/queue`](../queue/README.md): the `QueueClient` contract and `BlackHoleQueueClient`.
 - [`@spinajs/di`](../di/README.md): `@Injectable`, `@PerInstanceCheck`, factory registrations and resolution order.
