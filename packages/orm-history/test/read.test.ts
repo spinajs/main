@@ -127,6 +127,7 @@ describe('history reads', function () {
         for (const afterSeq of [-1, 1.5, Number.NaN]) {
           await expect(Invoice.history().of('r1', { afterSeq })).to.be.rejectedWith(HistoryConfigError, 'orm-history: afterSeq must be an integer of 0 or more');
           await expect(Invoice.history().since(0, { afterSeq })).to.be.rejectedWith(HistoryConfigError, 'orm-history: afterSeq must be an integer of 0 or more');
+          await expect(Invoice.history().since(afterSeq)).to.be.rejectedWith(HistoryConfigError, 'orm-history: seq must be an integer of 0 or more');
         }
       });
     });

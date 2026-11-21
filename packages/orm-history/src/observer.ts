@@ -54,7 +54,8 @@ export class HistoryObserver extends WriteObserver {
     const at = new Date();
     if (write.unknownKeys) return this.unknownKeys(spec, write, at);
     // The capture reads an update's after rows by the keys it read before, so a row whose key changed has no after;
-    // a key named with its unchanged value is no change. The throw rolls the statement back.
+    // a key named with its unchanged value is no change. The throw fails the write: outside a caller's transaction the
+    // statement rolls back with the capture's own; inside one it has run, and only the caller's rollback undoes it.
     if (write.kind === 'update' && write.rows.some((r) => r.before !== undefined && r.after === undefined)) {
       throw new HistoryWriteError(`orm-history: an update of ${spec.entity} writes its primary key ${spec.pk}; history is keyed by it, delete and insert the row instead`);
     }

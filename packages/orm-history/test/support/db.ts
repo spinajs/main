@@ -99,11 +99,9 @@ export class HistoryDb {
       const { orm } = await migrateTestDatabase(app.container);
       return new HistoryDb(app, orm, pglite);
     } catch (err) {
-      try {
-        await app?.dispose();
-      } finally {
-        await pglite.dispose();
-      }
+      // A failing dispose must not replace the error that made open() fail.
+      await app?.dispose().catch(() => undefined);
+      await pglite.dispose().catch(() => undefined);
       throw err;
     }
   }

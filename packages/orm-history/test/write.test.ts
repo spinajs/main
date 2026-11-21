@@ -140,6 +140,18 @@ describe('history writes', function () {
         expect((await events()).map((r) => r.action)).to.deep.eq(['insert']);
       });
 
+      it('refuses a key change inside a caller transaction, which the rollback of that transaction undoes', async () => {
+        await Invoice.insert({ id: 'i4', status: 'x' });
+        const failed = await rejection(
+          Invoice.transaction(async () => {
+            await Invoice.update({ id: 'i5' }).where('id', 'i4');
+          }),
+        );
+        expect(failed).to.be.instanceOf(HistoryWriteError).and.have.property('message', keyChange('invoice'));
+        expect((await db.rows('invoice', dialect)).map((r) => r.id)).to.deep.eq(['i4']);
+        expect((await events()).map((r) => r.action)).to.deep.eq(['insert']);
+      });
+
       it('records archive() of a tracked @Archived model as an update', async () => {
         const Doc = await db.define(
           {
@@ -308,10 +320,11 @@ describe('history writes', function () {
           expect(entries[1].after?.at).to.eq('2026-11-01T12:30:15.250Z');
         });
 
-        it('writes no entry for the same JSON value in another key order where the driver parses JSON', async () => {
+        it('pins a known limit of sqlite: the same JSON value in another key order is recorded as a change there only', async () => {
           await Doc.insert({ id: 'd3', body: BODY });
           await Doc.update({ body: { a: null, b: [1, { c: 2, d: 'ł' }] } }).where('id', 'd3');
-          // sqlite hands a JSON column over as its text, and history compares text as text.
+          // Not a decision: sqlite hands a JSON column over as its text, and history compares text as text. Parsing
+          // the @Json columns before the comparison would remove the sqlite branch.
           const ops = (await Doc.history().of('d3')).map((e) => [e.op, e.changed]);
           expect(ops).to.deep.eq(dialect === 'sqlite' ? [['insert', []], ['update', ['body']]] : [['insert', []]]);
         });

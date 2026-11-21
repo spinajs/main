@@ -57,6 +57,7 @@ describe('@History', () => {
     }
     keyed(F);
     registerHistory(F, { trail: 'billing' });
+    expect(historySpecOf(F)?.trail).to.eq('billing');
     registerHistory(F, { trail: 'ledger' });
     expect(historySpecOf(F)?.trail).to.eq('ledger');
     expect(historyModels().filter((m) => m === F)).to.have.length(1);

@@ -29,7 +29,11 @@ export interface HistoryQuery {
   readonly ops?: readonly HistoryOp[];
   readonly from?: Date;
   readonly to?: Date;
-  /** Keep the entries that changed at least one of these columns; inserts and deletes list none and never match. */
+  /**
+   * Keep the entries that changed at least one of these columns; inserts, deletes and redacted entries list none and
+   * never match. The trail cannot filter the payload, so it is read in pages of 1000 events, one after the other, until
+   * `limit` entries match or the list ends: bound a long history with `from`, `to` or `afterSeq`.
+   */
   readonly changed?: readonly string[];
 }
 
@@ -44,7 +48,10 @@ export interface ModelHistory {
   of(id: string | number | bigint, query?: HistoryQuery): Promise<readonly HistoryEntry[]>;
   asOf(id: string | number | bigint, at: Date): Promise<AsOf>;
   since(seq: number, query?: HistoryQuery): Promise<readonly HistoryEntry[]>;
-  /** Row changes of this model made by `actor` (a principal key as the trail stores it, `user:42`), by `seq`. */
+  /**
+   * Row changes of this model made by `actor` (a principal key as the trail stores it, `user:42`), by `seq`. With
+   * `changed`, every event of the actor on the model is read until `limit` entries match: bound it with `from` or `to`.
+   */
   byActor(actor: string, query?: HistoryQuery): Promise<readonly HistoryEntry[]>;
   forget(id: string | number | bigint): Promise<number>;
 }
@@ -67,7 +74,7 @@ export interface TrackedRow {
   history(): RowHistory;
 }
 
-/** Implemented by `read.ts` (Task 6); the members `@History()` installs on a model, and `historyOf`, forward to it. */
+/** Implemented by `read.ts`; the members `@History()` installs on a model, and `historyOf`, forward to it. */
 export abstract class ModelHistorySource {
   abstract of(model: Constructor<ModelBase>): ModelHistory;
   abstract ofRow(row: ModelBase): RowHistory;

@@ -84,7 +84,7 @@ export async function changesOf(member: Member) {
 | `from`, `to` | none | Bounds on `at`, both inclusive. |
 | `changed` | none | Only entries that changed at least one of these columns; an empty list returns nothing. |
 
-An invalid `Date` for `at`, `from` or `to`, and an `afterSeq` that is not a non-negative integer, are refused with `HistoryConfigError` as well.
+An invalid `Date` for `at`, `from` or `to`, and an `afterSeq` or a `since(seq)` cursor that is not a non-negative integer, are refused with `HistoryConfigError` as well.
 
 - An insert or a delete lists no changed column, so `changed` never returns it; ask for it with `ops`. A redacted entry lists none either. `soft_delete` and `restore` list the soft-delete column.
 - `changed` is read from the payload, which the trail cannot filter: the trail is read in pages of 1000 events, one after the other, until `limit` entries match or the list ends, so a narrow filter over a long history reads all of it. Bound such a read with `from`, `to` or `afterSeq`; this holds for `byActor` with `changed` as well.
