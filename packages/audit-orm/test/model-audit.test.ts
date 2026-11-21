@@ -207,8 +207,12 @@ describe('Model.audit() and row.audit()', function () {
     expect(Undeclared).to.be.a('function');
   });
 
-  it('gives a subclass of a marked model the members', () => {
+  it('gives a subclass of a marked model the members, reading its own table', async () => {
+    @Model('audit_credit')
     class Credit extends AuditInvoice {}
     expect(Credit.audit).to.eq(AuditInvoice.audit);
+    expect('audit' in Credit.prototype).to.eq(true);
+    expect((await AuditInvoice.audit().since(0)).map((e) => e.subject?.id)).to.deep.eq(['i1', 'i2']);
+    expect(await Credit.audit().since(0)).to.deep.eq([]);
   });
 });

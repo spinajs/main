@@ -150,7 +150,7 @@ const MEMBERS: ModelMembers = {
   },
 };
 
-/** Gives a model `audit()`; for a model of another package, whose class cannot carry `@Auditable()`. Its typing then comes from `auditOf`. */
+/** Gives a model `audit()`; for a model of another package, whose class cannot carry `@Auditable()`. The member is not typed then; typed code reads the model through `auditOf`. */
 export function registerAuditable(model: Constructor<ModelBase>): void {
   extendModel(model, 'audit', MEMBERS);
 }

@@ -487,7 +487,8 @@ from `@spinajs/orm-history`, which records every tracked insert, update and dele
 `@spinajs/audit-orm` reads what the audit trail recorded about a model's rows (`of(id)`, `since(seq)`, `entries()`).
 `auditOf(Model, trail?)` and `auditOf(row, trail?)` answer for any model. A model marked `@Auditable()` also has
 `Model.audit(trail?)` and `row.audit(trail?)`; it declares their typing itself, with an interface merged with the class
-for the rows and a `declare static` line for the class. A model without the mark has no `audit()` member.
+for the rows and a `declare static` line for the class. A model that is neither marked nor registered has no `audit()`
+member; a subclass of a marked model inherits it.
 
 ```ts sample
 import { Auditable, auditOf } from '@spinajs/audit-orm';
@@ -511,18 +512,19 @@ export class Cart extends ModelBase<Cart> {
   public Id: number;
 }
 
-export async function history(order: Order) {
+export async function audited(order: Order) {
+  const ofOne = await Order.audit('billing').of(42);
   const ofOrder = await order.audit().entries();
   const ofCarts = await auditOf(Cart).since(0, { source: 'default' });
-  return { ofOrder, ofCarts };
+  return { ofOne, ofOrder, ofCarts };
 }
 ```
 
-`registerAuditable(Model)` gives `audit()` to a model of another package, whose class cannot carry the decorator; its
-typing then comes from `auditOf`.
+`registerAuditable(Model)` gives `audit()` to a model of another package, whose class cannot carry the decorator. The
+member is not typed then; typed code reads the model through `auditOf`.
 
-Without a trail name they read the `default` trail. A trail keeps transactional events on the connection of the audited
-write, which is the model's, and confirmed and deferred events on the trail's own connection. When the two differ, both
+Without a trail name `auditOf` and `audit()` read the `default` trail. A trail keeps transactional events on the
+connection of the audited write, which is the model's, and confirmed and deferred events on the trail's own connection. When the two differ, both
 are read and merged by time; a connection that has no table of the trail adds nothing, and one that cannot be reached
 fails the read. `query.source` reads one connection only, and `since(seq)` with a `seq` above 0 needs it, because `seq`
 counts per connection: a history longer than `limit` (at most 1000) is paged per connection with `query.source`. These are
