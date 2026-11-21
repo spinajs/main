@@ -1,7 +1,10 @@
 import type { Constructor } from '@spinajs/di';
 import type { ModelBase } from '@spinajs/orm';
 
-export type HistoryOp = 'insert' | 'update' | 'delete' | 'soft_delete' | 'restore' | 'lost';
+const OPS = ['insert', 'update', 'delete', 'soft_delete', 'restore', 'lost'] as const;
+
+export type HistoryOp = (typeof OPS)[number];
+export const HISTORY_OPS: readonly HistoryOp[] = OPS;
 
 /** A view over a StoredAuditEvent of kind 'data'. */
 export interface HistoryEntry {

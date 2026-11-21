@@ -30,7 +30,7 @@ function sourceOf(spec: HistorySpec): string {
   return d.Options.Name;
 }
 
-// The text the capture gives the write side (captureKeyText) and Model.audit() the read side.
+// The same text as the write side's captureKeyText for a string, a safe integer and a bigint, the only keys recorded.
 const keyOf = (id: string | number | bigint): string => auditSubjectId(id) ?? String(id);
 
 function assertCursor(name: string, seq: number): void {

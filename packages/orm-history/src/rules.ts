@@ -17,7 +17,7 @@ const RULE = {
 
 const SECTION = {
   rules: { type: 'array', items: { type: 'object', required: ['models'], propertyNames: { enum: Object.keys(RULE) }, properties: RULE } },
-  // What a tracked insert does when the driver did not report the keys it wrote.
+  // What a tracked insert does when the keys it wrote are not reported or have no text.
   onUnknownKeys: { type: 'string', enum: ['warn', 'throw'], default: 'warn' },
 };
 

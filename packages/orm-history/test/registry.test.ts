@@ -1,7 +1,7 @@
 import * as chai from 'chai';
 import 'mocha';
 import type { Constructor } from '@spinajs/di';
-import { ModelBase, updateModelDescriptor } from '@spinajs/orm';
+import { ModelBase, UuidConverter, updateModelDescriptor } from '@spinajs/orm';
 import { History, historyModels, historySpecOf, registerHistory } from '../src/registry.js';
 import type { TrackedModel, TrackedRow } from '../src/types.js';
 import { HistoryConfigError } from '../src/errors.js';
@@ -95,5 +95,16 @@ describe('history spec of a model', () => {
   it('refuses a subclass without ORM metadata of its own', () => {
     class PlainLedger extends Ledger {}
     expect(() => historySpecOf(PlainLedger)).to.throw(HistoryConfigError, '@History on PlainLedger: needs a single-column primary key, it has 0');
+  });
+
+  it('refuses a key that @Uuid() stores as bytes', () => {
+    class Device extends ModelBase {}
+    keyed(Device);
+    // What @Uuid() writes into the descriptor.
+    updateModelDescriptor(Device, (d) => {
+      d.Converters.set('id', { Class: UuidConverter });
+    });
+    registerHistory(Device);
+    expect(() => historySpecOf(Device)).to.throw(HistoryConfigError, '@History on Device: its primary key id is stored as bytes by @Uuid(), which has no text for a subject id; history needs a string or integer key');
   });
 });
