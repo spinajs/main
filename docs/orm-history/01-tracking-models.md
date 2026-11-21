@@ -158,6 +158,6 @@ A multi-row insert records one event per row when the driver reports the keys it
 | `warn` (default) | The rows are written. One event `action: 'lost'`, `subject: { type: <entity>, id: '*' }`, `data: { reason: 'unknown_keys' }` is recorded per such insert, and the logger `orm-history` warns once per model. |
 | `throw` | The insert fails with `HistoryWriteError`; outside a transaction of your own it is rolled back. |
 
-A plain insert whose rows the capture cannot read back because their key has no text (bytes, a date, a number that is not a safe integer) is handled the same way, with `data: { reason: 'keys_without_text' }` and its own warning.
+A plain insert whose rows the capture cannot read back because their key has no text (bytes, a date, a number that is not a safe integer) is handled the same way, with `data: { reason: 'keys_without_text' }` and its own warning. The rows of the same insert that do have a key text are recorded as usual, after the `lost` event. Updates, deletes and some upserts of rows whose key has no text are not flagged ([Keys](04-limits.md#keys)).
 
-After a `lost` event, `asOf` answers `unknown` for the rows of that entity until a later entry of the row decides again ([As-of and erasure](03-as-of-and-erasure.md)). Supply the keys, or insert one row at a time, to keep a complete history.
+After a `lost` event, `asOf` answers `unknown` for the rows of that entity until a later entry of the row decides again ([As-of and erasure](03-as-of-and-erasure.md)); the entries of rows that the same insert recorded come after it and decide. Supply the keys, or insert one row at a time, to keep a complete history.
