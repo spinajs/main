@@ -2,17 +2,22 @@ import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 import 'mocha';
 import { AuditConfigError, AuditNotSupported, audit } from '@spinajs/audit';
-import { ModelBase } from '@spinajs/orm';
+import type { AuditInput } from '@spinajs/audit';
+import { ModelBase, Primary } from '@spinajs/orm';
 import { HistoryConfigError, historyOf, registerHistory, toHistoryEntry } from '../src/index.js';
+import type { HistoryEntry } from '../src/index.js';
 import { who } from './support/audit.js';
-import { HistoryDb } from './support/db.js';
+import { HistoryDb, applyDecorator } from './support/db.js';
 import type { Dialect } from './support/db.js';
 
 chai.use(chaiAsPromised);
 const expect = chai.expect;
 const TRACE = '4bf92f3577b34da6a3ce929d0e0e4736';
+const T = (minute: number): Date => new Date(Date.UTC(2026, 9, 1, 12, minute));
 
 type Row = Record<string, unknown>;
+
+const change = (id: string, action: string, minute: number): AuditInput => ({ kind: 'data', action, subject: { type: 'invoice', id }, data: { after: { id, status: String(minute) } }, at: T(minute) });
 
 class Untracked extends ModelBase {}
 
@@ -31,6 +36,7 @@ describe('history reads', function () {
   for (const dialect of HistoryDb.dialects()) {
     describe(dialect, () => {
       let Invoice: Awaited<ReturnType<HistoryDb['define']>>;
+      const write = (inputs: readonly AuditInput[]): Promise<void> => db.driver(dialect).transaction((tx) => audit().record(inputs, { trail: 'history', mode: 'transactional', transaction: tx, onFailure: 'reject' }));
 
       beforeEach(async () => {
         await db.migrateHistory(dialect);
@@ -95,12 +101,56 @@ describe('history reads', function () {
         if (dialect !== 'sqlite') expect(await erasures('sqlite')).to.deep.eq([]);
       });
 
+      it('windows a row and the entity by time and by seq', async () => {
+        await write([change('r7', 'insert', 10), change('r7', 'update', 20), change('r7', 'update', 30), change('r8', 'insert', 40)]);
+        const all = await Invoice.history().of('r7');
+        const minutes = (entries: readonly HistoryEntry[]): number[] => entries.map((e) => e.at.getUTCMinutes());
+
+        expect(minutes(await Invoice.history().of('r7', { from: T(15) }))).to.deep.eq([20, 30]);
+        expect(minutes(await Invoice.history().of('r7', { to: T(25) }))).to.deep.eq([10, 20]);
+        expect(minutes(await Invoice.history().of('r7', { from: T(15), to: T(25) }))).to.deep.eq([20]);
+        expect(minutes(await Invoice.history().since(0, { from: T(15), to: T(35) }))).to.deep.eq([20, 30]);
+        // The higher of the cursor and afterSeq wins.
+        expect((await Invoice.history().since(all[0].seq, { afterSeq: all[2].seq })).map((e) => e.id)).to.deep.eq(['r8']);
+      });
+
       it('refuses an untracked model and a bad limit', async () => {
         expect(() => historyOf(Untracked)).to.throw(HistoryConfigError, 'orm-history: Untracked is not tracked (no @History and no audit.data.rules match)');
-        await expect(Invoice.history().of('r1', { limit: 0 })).to.be.rejectedWith(HistoryConfigError, 'orm-history: limit must be an integer from 1 to 1000');
+        for (const limit of [0, 1001, 1.5]) await expect(Invoice.history().of('r1', { limit })).to.be.rejectedWith(HistoryConfigError, 'orm-history: limit must be an integer from 1 to 1000');
+      });
+
+      it('refuses an invalid instant and a bad afterSeq', async () => {
+        const invalid = new Date('2026-13-01');
+        await expect(Invoice.history().asOf('r1', invalid)).to.be.rejectedWith(HistoryConfigError, 'orm-history: at must be a valid Date');
+        await expect(Invoice.history().of('r1', { from: invalid })).to.be.rejectedWith(HistoryConfigError, 'orm-history: from must be a valid Date');
+        await expect(Invoice.history().since(0, { to: invalid })).to.be.rejectedWith(HistoryConfigError, 'orm-history: to must be a valid Date');
+        for (const afterSeq of [-1, 1.5, Number.NaN]) {
+          await expect(Invoice.history().of('r1', { afterSeq })).to.be.rejectedWith(HistoryConfigError, 'orm-history: afterSeq must be an integer of 0 or more');
+          await expect(Invoice.history().since(0, { afterSeq })).to.be.rejectedWith(HistoryConfigError, 'orm-history: afterSeq must be an integer of 0 or more');
+        }
       });
     });
   }
+
+  describe('a model the ORM has not loaded', () => {
+    it('rejects every read with the missing connection', async () => {
+      class Unbooted extends ModelBase<Unbooted> {
+        public Id: number;
+      }
+      applyDecorator(Primary(), Unbooted.prototype, 'Id');
+      registerHistory(Unbooted);
+      try {
+        const message = 'orm-history: Unbooted has no ORM connection yet (is the ORM booted?)';
+        const history = historyOf(Unbooted);
+        await expect(history.of(1)).to.be.rejectedWith(HistoryConfigError, message);
+        await expect(history.asOf(1, new Date())).to.be.rejectedWith(HistoryConfigError, message);
+        await expect(history.since(0)).to.be.rejectedWith(HistoryConfigError, message);
+        await expect(history.forget(1)).to.be.rejectedWith(HistoryConfigError, message);
+      } finally {
+        registerHistory(Unbooted, false);
+      }
+    });
+  });
 
   describe('a trail of the log store (sqlite)', () => {
     afterEach(async () => {
@@ -114,6 +164,8 @@ describe('history reads', function () {
 
       await expect(Logged.history().of('l1')).to.be.rejectedWith(AuditNotSupported, 'audit: trail "logged" (store LogAuditStore) cannot be read from this application (of)');
       await expect(Logged.history().since(0)).to.be.rejectedWith(AuditNotSupported, 'cannot be read from this application (since)');
+      // asOf reads through the trail's `of`.
+      await expect(Logged.history().asOf('l1', new Date())).to.be.rejectedWith(AuditNotSupported, 'audit: trail "logged" (store LogAuditStore) cannot be read from this application (of)');
       await expect(Logged.history().forget('l1')).to.be.rejectedWith(AuditNotSupported, 'cannot be read from this application (forget)');
     });
   });

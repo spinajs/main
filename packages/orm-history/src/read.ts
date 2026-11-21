@@ -3,10 +3,9 @@ import type { AuditQuery, AuditTrail, StoredAuditEvent } from '@spinajs/audit';
 import { auditSubjectId } from '@spinajs/audit-orm';
 import { Autoinject, Injectable } from '@spinajs/di';
 import type { Constructor } from '@spinajs/di';
-import { extractModelDescriptor } from '@spinajs/orm';
-import type { ModelBase } from '@spinajs/orm';
+import { ModelBase, extractModelDescriptor } from '@spinajs/orm';
 
-import { asOfFrom } from './as-of.js';
+import { asOfFrom, assertInstant } from './as-of.js';
 import { HISTORY_OPS } from './encode.js';
 import { toHistoryEntry } from './entry.js';
 import { HistoryConfigError } from './errors.js';
@@ -34,8 +33,15 @@ function sourceOf(spec: HistorySpec): string {
 // The text the capture gives the write side (captureKeyText) and Model.audit() the read side.
 const keyOf = (id: string | number | bigint): string => auditSubjectId(id) ?? String(id);
 
+function assertWindow(q: HistoryQuery | undefined, afterSeq: number | undefined): void {
+  if (afterSeq !== undefined && (!Number.isInteger(afterSeq) || afterSeq < 0)) throw new HistoryConfigError('orm-history: afterSeq must be an integer of 0 or more');
+  if (q?.from !== undefined) assertInstant('from', q.from);
+  if (q?.to !== undefined) assertInstant('to', q.to);
+}
+
 /** Changes only: the erasure event of a forgotten row and the read events of an audited one are not part of its timeline. */
 function windowOf(spec: HistorySpec, q: HistoryQuery | undefined, afterSeq: number | undefined): AuditQuery {
+  assertWindow(q, afterSeq);
   const ops = q?.ops;
   return {
     source: sourceOf(spec),
@@ -68,6 +74,15 @@ function modelHistory(model: Constructor<ModelBase>, spec: HistorySpec | undefin
   };
 }
 
+const isModelClass = (c: unknown): c is Constructor<ModelBase> => typeof c === 'function' && c.prototype instanceof ModelBase;
+
+// A JS caller can hand over an object whose `constructor` is not a model class.
+function classOf(row: ModelBase): Constructor<ModelBase> {
+  const model: unknown = row.constructor;
+  if (isModelClass(model)) return model;
+  throw new HistoryConfigError(`orm-history: ${typeof model === 'function' ? model.name : typeof model} is not tracked (no @History and no audit.data.rules match)`);
+}
+
 @Injectable(ModelHistorySource)
 export class OrmModelHistorySource extends ModelHistorySource {
   @Autoinject(HistorySpecs)
@@ -78,7 +93,7 @@ export class OrmModelHistorySource extends ModelHistorySource {
   }
 
   public ofRow(row: ModelBase): RowHistory {
-    const model = row.constructor as Constructor<ModelBase>;
+    const model = classOf(row);
     const all = modelHistory(model, this.Specs.of(model));
     const pk: unknown = row.PrimaryKeyValue;
     if (typeof pk !== 'string' && typeof pk !== 'number' && typeof pk !== 'bigint') {

@@ -72,6 +72,15 @@ describe('row.history()', function () {
     expect(() => row.history()).to.throw(HistoryConfigError, message);
   });
 
+  it('refuses a row whose constructor is not a model class', () => {
+    const plain = new Invoice();
+    Object.defineProperty(plain, 'constructor', { value: Object });
+    expect(() => historyOf(plain)).to.throw(HistoryConfigError, 'orm-history: Object is not tracked (no @History and no audit.data.rules match)');
+    const bare = new Invoice();
+    Object.defineProperty(bare, 'constructor', { value: undefined });
+    expect(() => historyOf(bare)).to.throw(HistoryConfigError, 'orm-history: undefined is not tracked (no @History and no audit.data.rules match)');
+  });
+
   it('answers through the source the package registers', () => {
     expect(DI.resolve(ModelHistorySource)).to.be.instanceOf(OrmModelHistorySource);
   });

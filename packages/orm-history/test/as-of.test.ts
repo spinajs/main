@@ -1,6 +1,6 @@
 import * as chai from 'chai';
 import 'mocha';
-import { audit } from '@spinajs/audit';
+import { audit, auditStore, trailConfig } from '@spinajs/audit';
 import type { AuditInput } from '@spinajs/audit';
 import { LOST_SUBJECT_ID, registerHistory } from '../src/index.js';
 import { HistoryDb } from './support/db.js';
@@ -40,15 +40,44 @@ describe('asOf', function () {
 
       it('is absent before the insert and present with the row of the last entry after it', async () => {
         await write([
+          // An earlier entry of the entity: the trail covers T(5).
+          change('invoice', 'other', 'insert', 1, { after: { id: 'other', status: 'draft' } }),
           change('invoice', 'a1', 'insert', 10, { after: { id: 'a1', status: 'draft' } }),
           change('invoice', 'a1', 'update', 20, { before: { status: 'draft' }, after: { id: 'a1', status: 'paid' }, changed: ['status'] }),
         ]);
+        const [inserted, updated] = await Invoice.history().of('a1');
 
         expect(await Invoice.history().asOf('a1', T(5))).to.deep.eq({ state: 'absent', seq: null });
-        const between = await Invoice.history().asOf('a1', T(15));
-        expect(between.state === 'present' && between.row).to.deep.eq({ id: 'a1', status: 'draft' });
+        expect(await Invoice.history().asOf('a1', T(15))).to.deep.eq({ state: 'present', row: { id: 'a1', status: 'draft' }, seq: inserted.seq });
         const later = await Invoice.history().asOf('a1', T(25));
-        expect(later.state === 'present' && later.row.status).to.eq('paid');
+        expect(later.state === 'present' && [later.row.status, later.seq]).to.deep.eq(['paid', updated.seq]);
+        // The instant of an entry `of` returned includes that entry.
+        expect(await Invoice.history().asOf('a1', updated.at)).to.deep.eq({ state: 'present', row: { id: 'a1', status: 'paid' }, seq: updated.seq });
+      });
+
+      it('is unknown before the oldest entry of the entity: tracking may have started later', async () => {
+        await write([change('invoice', 'b1', 'insert', 20, { after: { id: 'b1', status: 'draft' } })]);
+
+        expect(await Invoice.history().asOf('b1', T(10))).to.deep.eq({ state: 'unknown' });
+        expect((await Invoice.history().asOf('b1', T(25))).state).to.eq('present');
+      });
+
+      it('is unknown before the retention horizon for a row deleted and inserted again', async () => {
+        await write([
+          change('invoice', 'b2', 'insert', 10, { after: { id: 'b2', status: 'first' } }),
+          change('invoice', 'b2', 'delete', 20, { before: { id: 'b2', status: 'first' } }),
+          change('invoice', 'b3', 'insert', 30, { after: { id: 'b3', status: 'draft' } }),
+          change('invoice', 'b2', 'insert', 40, { after: { id: 'b2', status: 'second' } }),
+        ]);
+        const trail = trailConfig('history');
+        const reader = await (await auditStore(trail)).reader(trail);
+        if (!reader) throw new Error('the history trail has no reader');
+        expect(await reader.prune(trail, T(25), db.connectionName(dialect))).to.eq(2);
+
+        // b2 existed at T(15), but its insert and delete are gone.
+        expect(await Invoice.history().asOf('b2', T(15))).to.deep.eq({ state: 'unknown' });
+        expect(await Invoice.history().asOf('b2', T(35))).to.deep.eq({ state: 'absent', seq: null });
+        expect((await Invoice.history().asOf('b2', T(45))).state).to.eq('present');
       });
 
       it('is absent after a delete, with the seq of the delete', async () => {
@@ -116,9 +145,11 @@ describe('asOf', function () {
         ]);
         await Invoice.history().forget('a6');
         await Invoice.history().forget('a7');
+        const [a6] = await Invoice.history().of('a6');
+        const [, removed] = await Invoice.history().of('a7');
 
-        expect((await Invoice.history().asOf('a6', T(15))).state).to.eq('redacted');
-        expect((await Invoice.history().asOf('a7', T(25))).state).to.eq('absent');
+        expect(await Invoice.history().asOf('a6', T(15))).to.deep.eq({ state: 'redacted', seq: a6.seq });
+        expect(await Invoice.history().asOf('a7', T(25))).to.deep.eq({ state: 'absent', seq: removed.seq });
       });
     });
   }
