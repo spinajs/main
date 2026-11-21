@@ -68,11 +68,15 @@ export class HistoryObserver extends WriteObserver {
     if (keyless && this.OnUnknownKeys === 'throw') {
       throw new HistoryWriteError(`orm-history: an insert of ${spec.entity} wrote a primary key ${spec.pk} that has no text (bytes, a date or a number that is not a safe integer), so its history cannot be recorded; history needs a string or integer key`);
     }
-    const inputs = write.rows.flatMap((row) => {
-      const entry = historyEntryOf(spec, row);
-      return entry ? [inputOf(spec, entry, at)] : [];
-    });
-    if (keyless) inputs.push(lostInputOf(spec, at, 'keys_without_text'));
+    // The marker goes first: asOf reads only the markers after a row's last entry, and the rows this insert did
+    // record are known.
+    const inputs = [
+      ...(keyless ? [lostInputOf(spec, at, 'keys_without_text')] : []),
+      ...write.rows.flatMap((row) => {
+        const entry = historyEntryOf(spec, row);
+        return entry ? [inputOf(spec, entry, at)] : [];
+      }),
+    ];
     if (inputs.length > 0) await record(spec, write, inputs);
     if (!keyless || this.warnedKeyless.has(spec.model)) return;
     this.warnedKeyless.add(spec.model);
