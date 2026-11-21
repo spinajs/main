@@ -514,6 +514,19 @@ export async function statusOn(id: number, day: Date): Promise<unknown> {
 }
 ```
 
+`changed` narrows a list to the entries that changed one of the named columns, and `byActor` lists what one principal changed on the model:
+
+```ts
+// when the status of invoice 17 changed, from what to what, and who changed it
+const steps = await Invoice.history().of(17, { changed: ['Status'] });
+steps.map((e) => ({ at: e.at, by: e.actor, from: e.before?.Status, to: e.after?.Status }));
+
+// what user 42 changed on invoices since Monday
+await Invoice.history().byActor('user:42', { from: monday });
+```
+
+An insert or a delete lists no changed column, so `changed` never returns it; ask for it with `ops`. `limit` counts matching entries; the trail is read in pages of 1000 events until enough match, so a narrow filter over a long history reads all of it.
+
 ### Audit events of a model
 
 `Model.audit(trail?)` and `row.audit(trail?)` return what the audit trail recorded about a model's rows (`of(id)`,

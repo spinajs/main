@@ -57,18 +57,36 @@ function windowOf(spec: HistorySpec, q: HistoryQuery | undefined, afterSeq: numb
 const nothingAsked = (query: AuditQuery): boolean => query.actions?.length === 0;
 const entriesOf = (events: readonly StoredAuditEvent[]): HistoryEntry[] => events.flatMap((e) => toHistoryEntry(e) ?? []);
 
+const PAGE = MAX_LIMIT;
+
+type Page = (query: AuditQuery) => Promise<readonly StoredAuditEvent[]>;
+
+// `changed` is inside the event payload, which a trail cannot filter: pages are read until `limit` entries match or the list ends.
+async function matching(read: Page, query: AuditQuery, names: readonly string[], limit: number, found: HistoryEntry[]): Promise<readonly HistoryEntry[]> {
+  const page = await read(query);
+  for (const entry of entriesOf(page)) {
+    if (!entry.changed.some((column) => names.includes(column))) continue;
+    found.push(entry);
+    if (found.length === limit) return found;
+  }
+  const last = page.at(-1);
+  return last === undefined || page.length < PAGE ? found : matching(read, { ...query, afterSeq: last.seq }, names, limit, found);
+}
+
+async function listed(read: Page, query: AuditQuery, q: HistoryQuery | undefined): Promise<readonly HistoryEntry[]> {
+  if (nothingAsked(query)) return [];
+  const names = q?.changed;
+  if (names === undefined) return entriesOf(await read(query));
+  return names.length === 0 ? [] : matching(read, { ...query, limit: PAGE }, names, limitOf(q), []);
+}
+
 function modelHistory(model: Constructor<ModelBase>, spec: HistorySpec | undefined): ModelHistory {
   if (!spec) throw new HistoryConfigError(`orm-history: ${model.name} is not tracked (no @History and no audit.data.rules match)`);
   const trail = (): AuditTrail => audit().trail(spec.trail);
   return {
-    of: async (id, q) => {
-      const query = windowOf(spec, q, q?.afterSeq);
-      return nothingAsked(query) ? [] : entriesOf(await trail().of({ type: spec.entity, id: keyOf(id) }, query));
-    },
-    since: async (seq, q) => {
-      const query = { ...windowOf(spec, q, q?.afterSeq), subjectType: spec.entity };
-      return nothingAsked(query) ? [] : entriesOf(await trail().since(seq, query));
-    },
+    of: async (id, q) => listed((query) => trail().of({ type: spec.entity, id: keyOf(id) }, query), windowOf(spec, q, q?.afterSeq), q),
+    since: async (seq, q) => listed((query) => trail().since(seq, query), { ...windowOf(spec, q, q?.afterSeq), subjectType: spec.entity }, q),
+    byActor: async (actor, q) => listed((query) => trail().byActor(actor, query), { ...windowOf(spec, q, q?.afterSeq), subjectType: spec.entity }, q),
     asOf: async (id, at) => asOfFrom(trail(), spec, sourceOf(spec), keyOf(id), at),
     forget: async (id) => trail().forget({ type: spec.entity, id: keyOf(id) }, sourceOf(spec)),
   };
