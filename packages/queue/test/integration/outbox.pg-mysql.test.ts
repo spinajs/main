@@ -6,6 +6,7 @@ import { DI, type ContainerSnapshot } from '@spinajs/di';
 import { Clock, DbTimeSource } from '@spinajs/durable';
 import { FakeClock } from '@spinajs/durable/testing';
 import { MigrationTransactionMode, Orm, type OrmDriver } from '@spinajs/orm';
+import { migrateTestDatabase } from '@spinajs/orm/testing';
 import '@spinajs/orm-mysql';
 import '@spinajs/orm-postgres';
 import '@spinajs/orm-sqlite';
@@ -105,9 +106,8 @@ for (const target of TARGETS) {
       DI.register(() => clock).as(Clock);
       DI.register(() => clock.dbSource).as(DbTimeSource);
       await DI.resolve(Configuration);
-      // resolving the Orm runs the startup migrations, so the table exists from here on
+      await migrateTestDatabase();
       orders = await ordersConnection();
-      await (await DI.resolve(Orm)).Migrator.ready();
       // rows of a run that died before its afterEach
       await orders.del().from(OUTBOX_TABLE).where('Id', '>', 0);
     });
