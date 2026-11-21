@@ -579,7 +579,9 @@ extendModel(Ticket, 'label', {
 export const both = `${Ticket.label()} / ${new Ticket().label()}`;
 ```
 
-Applications rarely call it themselves; a package's decorator does, on the models marked with it.
+Applications rarely call it themselves; a package's decorator does, on the models marked with it:
+
+- [`@spinajs/orm-history`](../orm-history/README.md): `@History()` adds `Model.history()` and `row.history()`.
 
 ## Column SQL specs, indexes and partial models
 

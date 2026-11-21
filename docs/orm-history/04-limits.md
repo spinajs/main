@@ -1,0 +1,39 @@
+# Limits
+
+## What is not recorded
+
+History records what the write capture of `@spinajs/orm` sees: statements built on a tracked model ([What the capture does not see](../orm/25-write-capture.md#what-the-capture-does-not-see)). Not recorded:
+
+- Raw SQL, `RawQuery`, `TRUNCATE`, and builders without a model (`driver.insert()`, `driver.update()`, `driver.del()`).
+- The deletes of a many-to-many relation's `sync()`, which run on the junction table without a model. A junction table is tracked when its own model is tracked and its rows are written through that model; when its rows must be tracked, delete them through the model or the unit of work.
+- Rows the database changes by itself (`ON DELETE CASCADE`, triggers) and writes of other services to the same database.
+- Relations other than their foreign-key columns: a row's entry holds its own columns only.
+
+## Keys
+
+- **Single-column primary keys only.** A model with a composite key and its own `@History()` fails its first tracked write with `HistoryConfigError`; one matched only by a rule is left untracked with a warning.
+- **A primary key change is refused.** An update that changes the key of a tracked row fails with `HistoryWriteError` (`orm-history: an update of <entity> writes its primary key <key>; history is keyed by it, delete and insert the row instead`). The change is detected after the statement ran, when its row is gone under the old key, and the error rolls the statement back. Inside your own transaction, roll back on that error as on any other. An update that names the key with its unchanged value (`row.archive()`, `Model.update(row.toSql())`) is an ordinary update. An update that swaps keys among the rows it writes (`SET id = CASE ...`) is not detected: each key still exists, and it is recorded as an update of each.
+- **Inserts whose keys are not reported** record a `lost` event instead of their rows, or fail with `audit.data.onUnknownKeys: 'throw'` ([Inserts whose keys are not reported](01-tracking-models.md#inserts-whose-keys-are-not-reported)).
+
+## Values
+
+- `at` is the instant history recorded the statement, right after it ran, on the application's clock, one per statement, kept to the millisecond. It is not the commit time: entries of concurrent transactions can commit in another order than their `at`.
+- Values are raw driver values. A JSON column is an object on Postgres, PGlite and MySQL and its text on sqlite. On sqlite, the same JSON value written with its keys in another order is therefore a change and records an update; where the driver parses JSON it is no change.
+- The keys of `before`, `after` and an `asOf` row come back sorted (the payload is canonical JSON), not in the table's column order.
+- A masked (`@Hidden()`) column is named in `changed` but its value is never stored; `hidden: 'record'` stores it.
+
+## Order and connections
+
+- `seq` orders the trail table of one connection. Entries of models on different connections are not one ordered stream, and no order between them is defined.
+- Reads of a model cover its own connection only, where its writes recorded their events.
+
+## Configuration
+
+- A history trail needs a store that joins the write's transaction (`TableAuditStore`, `OutboxAuditStore`): the audit service refuses a tracked write to any other store with `AuditConfigError`, and the write is rolled back.
+- A match-all rule (`models: '*'`) also covers the models of every package the application loads, framework models included. Opt one out with `registerHistory(Model, false)`.
+- Installing the package changes nothing for an untracked model, apart from two migrations on the default connection: the package's `orm_history` and the `audit_event` of `@spinajs/audit-orm`, which the package imports. That import also registers the read-audit query middleware of `@spinajs/audit-orm`, which does nothing for a model without read auditing.
+
+## Cost and access
+
+- A tracked statement runs in a transaction with the capture's reads (a key select and the rows before and after it, by key) and one insert into the trail table.
+- Reads apply no authorization scoping: whoever may call `Model.history()` or `historyOf()` reads every entry of the model. An application that exposes them decides who may call them.

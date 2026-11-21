@@ -152,6 +152,22 @@ describe('history reads', function () {
     });
   });
 
+  describe('a bigint key (pglite)', () => {
+    afterEach(async () => {
+      await db.clear();
+    });
+
+    it('is the subject id as decimal text, and finds the row by the bigint', async () => {
+      await db.migrateHistory('pglite');
+      const Big = await db.define({ name: 'Big', table: 'big', primary: ['id'], columns: { id: 'BIGINT', v: 'TEXT' }, decorate: (c) => registerHistory(c) }, 'pglite');
+      await Big.insert({ id: 9007199254740993n, v: 'x' });
+
+      const entries = await Big.history().of(9007199254740993n);
+      expect(entries.map((e) => [e.id, e.op, e.after?.id])).to.deep.eq([['9007199254740993', 'insert', '9007199254740993']]);
+      expect(await Big.history().of('9007199254740993')).to.deep.eq(entries);
+    });
+  });
+
   describe('a trail of the log store (sqlite)', () => {
     afterEach(async () => {
       await db.clear();

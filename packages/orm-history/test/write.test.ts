@@ -4,8 +4,8 @@ import 'mocha';
 import { AuditConfigError, AuditWriteFailed } from '@spinajs/audit';
 import { MemoryAuditStore } from '@spinajs/audit/testing';
 import { rowsOf } from '@spinajs/audit-orm';
-import { Archived, Hidden, InsertQueryBuilder, SoftDelete, createQuery } from '@spinajs/orm';
-import { HistoryConfigError, HistoryWriteError, LOST_SUBJECT_ID, registerHistory } from '../src/index.js';
+import { Archived, Hidden, InsertQueryBuilder, Json, SoftDelete, createQuery } from '@spinajs/orm';
+import { HistoryConfigError, HistoryWriteError, LOST_SUBJECT_ID, registerHistory, toHistoryValue } from '../src/index.js';
 import { who } from './support/audit.js';
 import { HistoryDb, applyDecorator } from './support/db.js';
 
@@ -265,6 +265,56 @@ describe('history writes', function () {
         await Secret.update({ token: 't2' }).where('id', 'k1');
 
         expect((await events()).map((r) => r.data)).to.deep.eq([{ after: { id: 'k1', token: 't1' } }, { before: { token: 't1' }, after: { id: 'k1', token: 't2' }, changed: ['token'] }]);
+      });
+
+      describe('encoding', () => {
+        let Doc: Awaited<ReturnType<HistoryDb['define']>>;
+        const BODY = { b: [1, { d: 'ł', c: 2 }], a: null };
+
+        beforeEach(async () => {
+          Doc = await db.define(
+            {
+              name: 'Doc',
+              table: 'doc',
+              columns: { label: 'TEXT', big: 'TEXT', body: 'JSON', at: 'DATETIME' },
+              decorate: (c, p) => {
+                registerHistory(c);
+                applyDecorator(Json(), p, 'body');
+              },
+            },
+            dialect,
+          );
+        });
+
+        it('keeps non-ASCII text, a 64 KB value and a JSON column as the driver reads them', async () => {
+          // 64 KB in UTF-8.
+          const big = 'ł'.repeat(32 * 1024);
+          await Doc.insert({ id: 'd1', label: 'Łukasz 東京 😀', big, body: BODY });
+
+          const [row] = await db.rows('doc', dialect);
+          const [entry] = await Doc.history().of('d1');
+          expect(entry.after).to.deep.eq(Object.fromEntries(Object.entries(row).map(([k, v]) => [k, toHistoryValue(v)])));
+          expect([entry.after?.label, entry.after?.big]).to.deep.eq(['Łukasz 東京 😀', big]);
+        });
+
+        it('writes a date as an ISO string and no entry for the same instant in another Date', async () => {
+          await Doc.insert({ id: 'd2', label: 'x' });
+          await Doc.update({ at: new Date(Date.UTC(2026, 10, 1, 12, 30, 15, 250)) }).where('id', 'd2');
+          await Doc.update({ at: new Date('2026-11-01T12:30:15.250Z') }).where('id', 'd2');
+
+          const entries = await Doc.history().of('d2');
+          expect(entries.map((e) => e.op)).to.deep.eq(['insert', 'update']);
+          // PGlite returns a Date, which history writes as ISO; the sqlite driver stores the ISO text itself.
+          expect(entries[1].after?.at).to.eq('2026-11-01T12:30:15.250Z');
+        });
+
+        it('writes no entry for the same JSON value in another key order where the driver parses JSON', async () => {
+          await Doc.insert({ id: 'd3', body: BODY });
+          await Doc.update({ body: { a: null, b: [1, { c: 2, d: 'ł' }] } }).where('id', 'd3');
+          // sqlite hands a JSON column over as its text, and history compares text as text.
+          const ops = (await Doc.history().of('d3')).map((e) => [e.op, e.changed]);
+          expect(ops).to.deep.eq(dialect === 'sqlite' ? [['insert', []], ['update', ['body']]] : [['insert', []]]);
+        });
       });
     });
   }
