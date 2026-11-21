@@ -482,8 +482,8 @@ Neither writes into `AuditedModel`'s descriptor.
 `@spinajs/orm` records no history of its own rows. A model opts into row history with `@History()`
 from `@spinajs/orm-history`, which records every tracked insert, update and delete in the write's transaction.
 The mark installs `Model.history()` and `row.history()` on the model at run time; their typing is the model's own, a
-`declare static history` line for the class and a `declare history` line for its rows, and a marked class without them
-does not compile. `Model.history()` reads the entries of one row (`of(id)`) and its state at an instant (`asOf(id, at)`),
+`declare static history` line for the class and an interface merged with the class for its rows, and a marked class
+without them does not compile. `Model.history()` reads the entries of one row (`of(id)`) and its state at an instant (`asOf(id, at)`),
 follows the changes of all rows (`since(seq)`, which also lists the entity's `lost` markers: `op: 'lost'`, `id: '*'`),
 lists one principal's changes (`byActor(actor)`) and erases a row's payloads (`forget(id)`); `row.history()` does the same
 for a loaded row (`entries()`, `asOf(at)`, `forget()`). A model tracked by an `audit.data.rules` entry or by `registerHistory()` has no such members in its type:
@@ -496,11 +496,12 @@ import { Model, ModelBase, Primary } from '@spinajs/orm';
 import { History } from '@spinajs/orm-history';
 import type { TrackedModel, TrackedRow } from '@spinajs/orm-history';
 
+export interface Invoice extends TrackedRow {}
+
 @History()
 @Model('invoices')
-export class Invoice extends ModelBase<Invoice> implements TrackedRow {
+export class Invoice extends ModelBase<Invoice> {
   declare static history: TrackedModel['history'];
-  declare history: TrackedRow['history'];
 
   @Primary()
   public Id: number;

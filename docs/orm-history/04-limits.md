@@ -14,6 +14,7 @@ History records what the write capture of `@spinajs/orm` sees: statements built 
 - **Single-column primary keys only.** A model with a composite key and its own `@History()` fails its first tracked write with `HistoryConfigError`; one matched only by a rule is left untracked with a warning.
 - **A primary key change is refused.** An update that changes the key of a tracked row fails with `HistoryWriteError` (`orm-history: an update of <entity> writes its primary key <key column>; history is keyed by it, delete and insert the row instead`). The change is detected after the statement ran, when its row is gone under the old key. Outside a transaction of your own, the error rolls the statement back with the capture's transaction. Inside one, the statement has already run in it: only rolling that transaction back undoes the change, so let the error reach `transaction()`; a caller that catches it and commits keeps the new key, with no entry. An update that names the key with its unchanged value (`row.archive()`, `Model.update(row.toSql())`) is an ordinary update. An update that swaps keys among the rows it writes (`SET id = CASE ...`) is not detected: each key still exists, and it is recorded as an update of each.
 - **Inserts whose keys are not reported** record a `lost` event instead of their rows, or fail with `audit.data.onUnknownKeys: 'throw'` ([Inserts whose keys are not reported](01-tracking-models.md#inserts-whose-keys-are-not-reported)).
+- **Keys need a text.** The subject id is a string key as it is or an integer key in decimal. A key `@Uuid()` stores as bytes is refused: with the model's own `@History()` its first tracked write fails with `HistoryConfigError`, under a rule it is left untracked with a warning. Any other key the driver returns with no text (bytes, a `Date`, a number that is not a safe integer) is found at a plain insert, which records a `lost` event or fails under `onUnknownKeys: 'throw'`, and at an upsert that supplies it, which records a `lost` event as for unreported keys. An update or delete of such rows, and an upsert that does not supply the key, record nothing and say nothing. A converter on the key must keep its text: `row.history()` reads by the model's value, the event holds the stored one.
 
 ## Values
 
@@ -21,6 +22,7 @@ History records what the write capture of `@spinajs/orm` sees: statements built 
 - Values are raw driver values. A JSON column is an object on Postgres, PGlite and MySQL and its text on sqlite and MSSQL. On sqlite and MSSQL, the same JSON value written with its keys in another order is therefore a change and records an update; where the driver parses JSON it is no change.
 - The keys of `before`, `after` and an `asOf` row come back sorted (the payload is canonical JSON), not in the table's column order.
 - A masked (`@Hidden()`) column is named in `changed` but its value is never stored; `hidden: 'record'` stores it.
+- **Masking follows the model a statement is built on.** A `@Hidden()` column declared only on a subclass is stored unmasked by a write made through the base class: `User.update({ ... }).where(...)` over rows of `AdminUser` writes the value of `AdminUser`'s hidden `twoFactorSecret` into the trail, which keeps it. Declare `@Hidden()` on the base class, or `exclude` the column in the base's `@History()`; `forget(id)` blanks what a row already recorded.
 
 ## Order and connections
 
@@ -36,4 +38,5 @@ History records what the write capture of `@spinajs/orm` sees: statements built 
 ## Cost and access
 
 - A tracked statement runs in a transaction with the capture's reads (a key select and the rows before and after it, by key) and one insert into the trail table.
+- Its size follows the statement: an update or delete without a narrow `where` reads every row it reaches into memory, before and after, and hands them to the trail in one record. `db.WriteCapture.MaxRows` bounds it, and is unlimited by default ([Write capture](../orm/25-write-capture.md#limits)).
 - Reads apply no authorization scoping: whoever may call `Model.history()` or `historyOf()` reads every entry of the model. An application that exposes them decides who may call them.
