@@ -6,6 +6,7 @@ import { MigrationTransactionMode, Orm, OrmDriver } from '@spinajs/orm';
 import { migrateTestDatabase } from '@spinajs/orm/testing';
 import '@spinajs/orm-sqlite';
 import '@spinajs/log';
+import { resetTracing } from '@spinajs/tracing/testing';
 import { Event, hydrateOutboxMessage, IQueueMessage, Job, OUTBOX_TABLE, OutboxRow, QueueClient, QueueEvent, QueueJob, QueueMessage, QueueService, toOutboxRow, type IQueueOutboxConfig } from '../../src/index.js';
 import { MemoryQueueClient } from '../../src/testing/index.js';
 
@@ -212,6 +213,8 @@ export async function disposeOutbox(): Promise<void> {
     await DI.dispose();
   }
   DI.clearCache();
+  // a `bootstrap: true` boot starts global tracing, which would replace the trace headers later suites emit
+  await resetTracing();
 }
 
 export function memoryClientOf(queue: QueueService, name: string): MemoryQueueClient {

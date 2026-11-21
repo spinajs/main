@@ -14,22 +14,22 @@ export const OTHER_TOPIC = '/topic/other';
 /** An event whose failed handler is retried at once, into the failing subscription only. */
 export const RETRIED_EVENT = 'MemoryRetried';
 
-function memoryConf(connection: Record<string, unknown>) {
-  return class MemoryConf extends FrameworkConfiguration {
-    protected onLoad() {
-      return {
-        logger: {
-          targets: [{ name: 'Empty', type: 'BlackHoleTarget', layout: '{message}' }],
-          rules: [{ name: '*', level: 'error', target: 'Empty' }],
-        },
-        queue: {
-          default: 'memory',
-          routing: { ...conformanceRouting(), MemoryOther: OTHER_TOPIC, [RETRIED_EVENT]: { maxRetries: 1, onEventFailure: 'retry' } },
-          connections: [connection],
-        },
-      };
-    }
-  };
+let connection: Record<string, unknown> = {};
+
+class MemoryConf extends FrameworkConfiguration {
+  protected onLoad() {
+    return {
+      logger: {
+        targets: [{ name: 'Empty', type: 'BlackHoleTarget', layout: '{message}' }],
+        rules: [{ name: '*', level: 'error', target: 'Empty' }],
+      },
+      queue: {
+        default: 'memory',
+        routing: { ...conformanceRouting(), MemoryOther: OTHER_TOPIC, [RETRIED_EVENT]: { maxRetries: 1, onEventFailure: 'retry' } },
+        connections: [connection],
+      },
+    };
+  }
 }
 
 export function brokerName(prefix: string): string {
@@ -40,7 +40,11 @@ export async function bootClientWithClock(options: { broker: string; deferred?: 
   DI.clearCache();
   const clock = new FakeClock(0);
   DI.register(() => clock).as(Clock);
-  DI.register(memoryConf({ service: 'MemoryQueueClient', name: 'memory', defaultQueueChannel: '/queue/memory', defaultTopicChannel: '/topic/memory', defaultQueueDeadLetterChannel: '/queue/memory.dlq', options })).as(Configuration);
+  connection ={ service: 'MemoryQueueClient', name: 'memory', defaultQueueChannel: '/queue/memory', defaultTopicChannel: '/topic/memory', defaultQueueDeadLetterChannel: '/queue/memory.dlq', options };
+  // DI ignores a class registered again under a name it holds and resolves the last one registered, so the
+  // configuration of a suite that ran in between would win; registered afresh, this one is the last.
+  DI.unregister(Configuration, MemoryConf);
+  DI.register(MemoryConf).as(Configuration);
   await DI.resolve(Configuration);
   const queue = await DI.resolve(QueueService);
   const client = queue.get('memory');
