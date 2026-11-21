@@ -8,9 +8,9 @@
 | --- | --- | --- |
 | `present` | The deciding entry is an `insert`, `update`, `soft_delete` or `restore` with its payload. A soft-deleted row is `present`, with its soft-delete column set. | `row`: the entry's `after`; `seq`: the entry's. |
 | `absent` | The deciding entry is a `delete`, also of a row that was forgotten since: the operation is not payload. | `seq`: the delete's. |
-| `absent` | No entry of the row is at or before `at`, and `at` is not older than the oldest event of the entity retained on the model's connection: the trail covers that instant and the row had no entry yet. | `seq: null` |
+| `absent` | No entry of the row is at or before `at`, the row's first retained entry is its `insert`, and the entity has a retained row change (not a `lost` marker) at or before `at` on the model's connection: the trail covers that instant and the row was not created yet. | `seq: null` |
 | `redacted` | The deciding entry was erased by `forget`. | `seq`: the entry's. |
-| `unknown` | Nothing retained decides: no entry of the row is at or before `at`, and `at` is older than the oldest retained event of the entity; or a `lost` event of the entity was recorded after the deciding entry and at or before `at`, so an insert whose keys were not reported may have written the row. | |
+| `unknown` | Nothing retained decides. No entry of the row is at or before `at`, and either the row's first retained entry is not an insert (the row predates tracking, its insert was pruned, or it has no entry at all) or the entity has no retained row change at or before `at`. Or a `lost` event of the entity was recorded after the deciding entry and at or before `at`, so an insert whose keys were not reported may have written the row. | |
 
 ```ts sample
 import { Model, ModelBase, Primary } from '@spinajs/orm';
@@ -54,7 +54,7 @@ export async function statusAt(id: number, at: Date): Promise<string> {
 History keeps no retention of its own. A trail with `retentionDays` loses older events to `pruneAudit()`, which `AuditRetentionTask` of `@spinajs/audit-orm/scheduler` runs on every connection that holds the trail's table ([Retention](../audit/01-trails-and-guarantees.md#retention)). After pruning:
 
 - the newest retained entry of a row still decides every instant from its own on: `asOf` keeps answering for those;
-- an instant before the oldest retained event of the entity answers `unknown`, never a guess: the entry that would decide it is gone.
+- an instant before the oldest retained row change of the entity answers `unknown`, never a guess: the entry that would decide it is gone. So does an instant before a row's oldest retained entry once the row's insert is pruned.
 
 A model that needs a retention of its own names a trail that has it.
 

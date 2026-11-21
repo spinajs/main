@@ -56,7 +56,7 @@ registerHistory(Member, { exclude: ['last_seen_at'] });
 
 - `@History()` without options records the whole row in the trail `history`.
 - The model's `@SoftDelete()` column is always recorded: it is added to `columns`, and `exclude` drops it from its list. Setting it is recorded as `soft_delete`, clearing it as `restore`.
-- A subclass is tracked as its nearest marked base class is, under the same entity. `@History(false)` or `registerHistory(Model, false)` opts a model and its subclasses out, also under a rule that matches every model.
+- A subclass is tracked with the options of its nearest marked base class, under the same entity when it maps to the same table or the base names `entity`; a subclass with a table of its own and no `entity` option records under its own table name. `@History(false)` or `registerHistory(Model, false)` opts a model and its subclasses out, also under a rule that matches every model.
 - `registerHistory(Model, options)` does what the decorator does, for a class that cannot be decorated. Called again, it replaces the earlier options; `registerHistory(Model, false)` takes the mark back and removes `history()` from the model.
 - A combination the options refuse (`columns` with `exclude`, an empty `columns`, an `entity` that is too long, an empty `trail`) throws `HistoryConfigError` when the class is decorated. A model without a single-column primary key is refused with `HistoryConfigError` at its first tracked write.
 
@@ -97,10 +97,10 @@ The trail's store must join the write's transaction: `TableAuditStore` (the defa
 
 A trail's table must exist on every connection that holds a model tracked in it: events are written in the write's transaction, on the model's connection, and nowhere else.
 
-- **Trail `history` on the default connection: nothing to do.** The package declares `OrmHistory_2026_11_16_00_00_00` (`@Migration('default')`), which creates `orm_history`. Importing the package also imports `@spinajs/audit-orm`, which declares `AuditEvent_2026_11_16_00_00_00` for its table `audit_event` on the same connection. Both are created by the next `migrate-up`, also when no model is tracked.
+- **Trail `history` on the default connection: nothing to do.** The package declares `OrmHistory_2026_11_16_00_00_00` (`@Migration('default')`), which creates `orm_history`. Importing the package also imports `@spinajs/audit-orm`, which declares `AuditEvent_2026_11_16_00_00_00` for its table `audit_event` on the same connection. Both are created by the next `npx spinajs migrate-up`, also when no model is tracked.
 - **Trail `history` on another connection:** a subclass of the package's migration, decorated for that connection.
 - **Another trail:** a subclass of `AuditTrailTableMigration` whose `table()` returns the trail's table, on each connection that holds a model tracked in it.
-
+- **A shipping trail (`OutboxAuditStore`):** its events go to the buffer table `audit_outbox` on the model's connection, so that connection needs a subclass of `AuditOutboxTableMigration`; a trail with an archive also needs its archive table on its `archiveConnection` ([Shipping](../audit/06-shipping.md#setup-an-archive-on-another-connection)).
 ```ts sample
 import { AuditTrailTableMigration } from '@spinajs/audit-orm';
 import { Migration } from '@spinajs/orm';
@@ -118,6 +118,8 @@ export class BillingTrail_2026_11_21_00_00_01 extends AuditTrailTableMigration {
 ```
 
 A tracked write on a connection without the table fails with `AuditWriteFailed` (`... is the table migrated there (AuditTrailTableMigration)?`) and is rolled back.
+
+The application never migrates at boot. Until the two migrations of the default connection have run, it does not start: `Orm.resolve()` runs the ORM's boot check, and with `db.MigrationCheck` at its default `'fail'` (a connection's `Migration.Check` overrides it) it rejects with `PendingMigrationsException`, whose message names `OrmHistory_2026_11_16_00_00_00` and `AuditEvent_2026_11_16_00_00_00`. That holds as soon as the package is installed and imported, with no model tracked. Run `npx spinajs migrate-up` as a deploy step before the new version starts ([Deploying migrations](../orm/10-migrations.md#deploying-migrations)); on a developer machine, `db.MigrationCheck: 'warn'` boots with a warning instead.
 
 ## Failures
 
