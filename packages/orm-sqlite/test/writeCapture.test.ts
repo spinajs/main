@@ -86,11 +86,21 @@ class CapBlob extends ModelBase {
   public Name: string;
 }
 
+// A text key the database fills: LastInsertId reports the rowid, which is not the key.
+@Connection('sqlite')
+@Model('cap_gen')
+class CapGen extends ModelBase {
+  @Primary()
+  public Id: string;
+
+  public Name: string;
+}
+
 const fixture = { writes: [] as CapturedWrite[], inTransaction: [] as boolean[], transactional: true, prepareFails: false, prepared: [] as WriteStatement[] };
 
 class FixtureObserver extends WriteObserver {
   interest({ model }: WriteStatement): CaptureInterest | undefined {
-    return [CapMember, CapPair, CapSoft, CapBlob].some((m) => model === m) ? { columns: '*', transactional: fixture.transactional } : undefined;
+    return [CapMember, CapPair, CapSoft, CapBlob, CapGen].some((m) => model === m) ? { columns: '*', transactional: fixture.transactional } : undefined;
   }
 
   prepare(statement: WriteStatement): void {
@@ -571,6 +581,33 @@ describe('write capture on sqlite', function () {
         ['update', 1, 0],
         ['delete', 1, 0],
       ]);
+    });
+
+    describe('with a single-row insert that returns no keys', () => {
+      const insert = (model: typeof CapMember | typeof CapGen, values: Record<string, unknown>) => createQuery(model, InsertQueryBuilder).query.values(values);
+
+      beforeEach(async () => {
+        await db().Connections.get('sqlite')!.schema().raw('CREATE TABLE cap_gen (Id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(8)))), Name TEXT)');
+        await db().reloadTableInfo();
+      });
+
+      it('reports the keys as unknown when the database fills a key that is not an auto-increment integer', async () => {
+        // The rowid of the second row is 2, the supplied key of the first.
+        await insert(CapGen, { Id: '2', Name: 'supplied' });
+        await insert(CapGen, { Name: 'filled' });
+
+        expect(fixture.writes.map((w) => [w.unknownKeys, w.keylessRows, w.rows])).to.deep.eq([
+          [false, 0, [{ id: '2', before: undefined, after: { Id: '2', Name: 'supplied' } }]],
+          [true, 0, []],
+        ]);
+        expect(await rows('cap_gen')).to.have.length(2);
+      });
+
+      it('reports the row under LastInsertId for an INTEGER PRIMARY KEY AUTOINCREMENT key', async () => {
+        await insert(CapMember, { Email: 'b', Name: 'three' });
+
+        expect(fixture.writes.map((w) => [w.unknownKeys, w.keylessRows, w.rows])).to.deep.eq([[false, 0, [{ id: '3', before: undefined, after: { Id: 3, Email: 'b', Name: 'three' } }]]]);
+      });
     });
 
     describe('with keys that have no key text', () => {

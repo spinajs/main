@@ -4,7 +4,7 @@ import { rowsOf } from '@spinajs/audit-orm';
 import type { Configuration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
 import { MemoryTarget } from '@spinajs/log';
-import { Connection, Model, ModelBase, Orm, Primary } from '@spinajs/orm';
+import { Connection, Model, ModelBase, Orm, Primary, RawQuery } from '@spinajs/orm';
 import type { OrmDriver, TableQueryBuilder } from '@spinajs/orm';
 import { migrateTestDatabase } from '@spinajs/orm/testing';
 import { createTestApp } from '@spinajs/testing';
@@ -37,6 +37,8 @@ export interface ModelSpec {
   /** Applied to the class and its prototype before the ORM sees it: `registerHistory`, `@Hidden`, `@SoftDelete`, `@Archived`. */
   readonly decorate: (model: typeof ModelBase, proto: object) => void;
   readonly autoIncrement?: boolean;
+  /** A TEXT `id` that sqlite fills when an insert leaves it out. */
+  readonly filledKey?: boolean;
   /** The model's `@Primary()` columns instead of `id`, all listed in `columns`; the table then has no primary key. */
   readonly primary?: readonly string[];
   /** Extends this class and maps onto its table, which then is not created again; `columns` and `autoIncrement` are ignored. */
@@ -194,6 +196,7 @@ export class HistoryDb {
         .schema()
         .createTable(spec.table, (t) => {
           if (spec.primary === undefined && spec.autoIncrement) t.int('id').primaryKey().autoIncrement();
+          else if (spec.primary === undefined && spec.filledKey) t.text('id').primaryKey().default().raw(RawQuery.create('lower(hex(randomblob(8)))'));
           else if (spec.primary === undefined) t.text('id').primaryKey();
           for (const [column, type] of Object.entries(spec.columns)) COLUMN.get(type)?.(t, column);
         });

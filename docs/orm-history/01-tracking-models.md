@@ -154,7 +154,7 @@ Each changed row is one `AuditInput`: `kind: 'data'`, `action` the operation, `s
 
 ## Inserts whose keys are not reported
 
-A multi-row insert records one event per row when the driver reports the keys it wrote (`RETURNING` on sqlite, PGlite and Postgres; the first id of a batch on MySQL). An insert whose keys are unknown (a multi-row insert on MSSQL without supplied keys, an insert split into several statements, an insert builder made without `ModelBase.insert`) is handled by `audit.data.onUnknownKeys`:
+A multi-row insert records one event per row when the driver reports the keys it wrote (`RETURNING` on sqlite, PGlite and Postgres; the first id of a batch on MySQL). An insert whose keys are unknown (a multi-row insert on MSSQL without supplied keys, an insert split into several statements, an insert builder made without `ModelBase.insert`, which has no `RETURNING`: a multi-row one, and a single-row one whose key the database fills unless that key is an auto-increment integer) is handled by `audit.data.onUnknownKeys`:
 
 | Value | What happens |
 | --- | --- |
