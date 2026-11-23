@@ -27,7 +27,7 @@ History records what the write capture of `@spinajs/orm` sees: statements built 
 - Values are raw driver values. A JSON column is an object on Postgres, PGlite and MySQL and its text on sqlite and MSSQL. On sqlite and MSSQL, the same JSON value written with its keys in another order is therefore a change and records an update; where the driver parses JSON it is no change.
 - The keys of `before`, `after` and an `asOf` row come back sorted (the payload is canonical JSON), not in the table's column order.
 - A masked (`@Hidden()`) column is named in `changed` but its value is never stored; `hidden: 'record'` stores it.
-- **Masking follows the model a statement is built on.** A `@Hidden()` column declared only on a subclass is stored unmasked by a write made through the base class: `User.update({ ... }).where(...)` over rows of `AdminUser` writes the value of `AdminUser`'s hidden `twoFactorSecret` into the trail, which keeps it. Declare `@Hidden()` on the base class, or `exclude` the column in the base's `@History()`; `forget(id)` blanks what a row already recorded.
+- **Masking covers every model of the table.** A column is masked when any model class the ORM loaded on the same table and connection declares it `@Hidden()`, so `User.update({ ... })` masks the `twoFactorSecret` that only its subclass `AdminUser` hides. A class the ORM registers after the first tracked write of its table is not seen until that spec is built again: after a restart, a new `registerHistory()` of the tracked model or, for a rule-tracked one, a new `audit.data.rules`.
 
 ## Order and connections
 

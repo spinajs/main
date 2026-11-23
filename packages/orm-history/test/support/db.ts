@@ -41,6 +41,8 @@ export interface ModelSpec {
   readonly base?: TrackedClass;
   /** Extends this abstract class, which declares the `@Primary()` `id`; the table is created as without `base`. */
   readonly abstractBase?: abstract new () => ModelBase;
+  /** Maps onto a table an earlier `define` created, without extending its class; `columns` and `autoIncrement` are ignored. */
+  readonly existingTable?: boolean;
 }
 
 interface Defined {
@@ -164,7 +166,8 @@ export class HistoryDb {
     applyDecorator(Connection(dialect), model);
     applyDecorator(Model(spec.table), model);
 
-    if (!spec.base) {
+    const ownsTable = !spec.base && !spec.existingTable;
+    if (ownsTable) {
       await this.driver(dialect)
         .schema()
         .createTable(spec.table, (t) => {
@@ -173,7 +176,7 @@ export class HistoryDb {
           for (const [column, type] of Object.entries(spec.columns)) COLUMN.get(type)?.(t, column);
         });
     }
-    this.models.push({ model, table: spec.table, dialect, ownsTable: !spec.base });
+    this.models.push({ model, table: spec.table, dialect, ownsTable });
 
     const orm = this.orm as unknown as ModelRegistration;
     orm.registerModel(model);
