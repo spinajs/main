@@ -30,11 +30,15 @@ function sourceOf(spec: HistorySpec): string {
   return d.Options.Name;
 }
 
-// The text the capture gives the write side (captureKeyText) and Model.audit() the read side.
+// The same text as the write side's captureKeyText for a string, a safe integer and a bigint, the only keys recorded.
 const keyOf = (id: string | number | bigint): string => auditSubjectId(id) ?? String(id);
 
+function assertCursor(name: string, seq: number): void {
+  if (!Number.isInteger(seq) || seq < 0) throw new HistoryConfigError(`orm-history: ${name} must be an integer of 0 or more`);
+}
+
 function assertWindow(q: HistoryQuery | undefined, afterSeq: number | undefined): void {
-  if (afterSeq !== undefined && (!Number.isInteger(afterSeq) || afterSeq < 0)) throw new HistoryConfigError('orm-history: afterSeq must be an integer of 0 or more');
+  if (afterSeq !== undefined) assertCursor('afterSeq', afterSeq);
   if (q?.from !== undefined) assertInstant('from', q.from);
   if (q?.to !== undefined) assertInstant('to', q.to);
 }
@@ -85,7 +89,10 @@ function modelHistory(model: Constructor<ModelBase>, spec: HistorySpec | undefin
   const trail = (): AuditTrail => audit().trail(spec.trail);
   return {
     of: async (id, q) => listed((query) => trail().of({ type: spec.entity, id: keyOf(id) }, query), windowOf(spec, q, q?.afterSeq), q),
-    since: async (seq, q) => listed((query) => trail().since(seq, query), { ...windowOf(spec, q, q?.afterSeq), subjectType: spec.entity }, q),
+    since: async (seq, q) => {
+      assertCursor('seq', seq);
+      return listed((query) => trail().since(seq, query), { ...windowOf(spec, q, q?.afterSeq), subjectType: spec.entity }, q);
+    },
     byActor: async (actor, q) => listed((query) => trail().byActor(actor, query), { ...windowOf(spec, q, q?.afterSeq), subjectType: spec.entity }, q),
     asOf: async (id, at) => asOfFrom(trail(), spec, sourceOf(spec), keyOf(id), at),
     forget: async (id) => trail().forget({ type: spec.entity, id: keyOf(id) }, sourceOf(spec)),

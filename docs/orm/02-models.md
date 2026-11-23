@@ -484,8 +484,8 @@ from `@spinajs/orm-history`, which records every tracked insert, update and dele
 The mark installs `Model.history()` and `row.history()` on the model at run time; their typing is the model's own, a
 `declare static history` line for the class and a `declare history` line for its rows, and a marked class without them
 does not compile. `Model.history()` reads the entries of one row (`of(id)`) and its state at an instant (`asOf(id, at)`),
-follows the changes of all rows (`since(seq)`, which also lists the entity's `lost` markers: `op: 'lost'`, `id: '*'`)
-and erases a row's payloads (`forget(id)`); `row.history()` does the same
+follows the changes of all rows (`since(seq)`, which also lists the entity's `lost` markers: `op: 'lost'`, `id: '*'`),
+lists one principal's changes (`byActor(actor)`) and erases a row's payloads (`forget(id)`); `row.history()` does the same
 for a loaded row (`entries()`, `asOf(at)`, `forget()`). A model tracked by an `audit.data.rules` entry or by `registerHistory()` has no such members in its type:
 `historyOf(Model)` and `historyOf(row)` return the same objects. Every read goes to the model's audit trail. The `row`
 of a `present` answer and `before` and `after` of an entry are the recorded columns by name, with JSON values
@@ -525,7 +525,7 @@ steps.map((e) => ({ at: e.at, by: e.actor, from: e.before?.Status, to: e.after?.
 await Invoice.history().byActor('user:42', { from: monday });
 ```
 
-An insert or a delete lists no changed column, so `changed` never returns it; ask for it with `ops`. `limit` counts matching entries; the trail is read in pages of 1000 events until enough match, so a narrow filter over a long history reads all of it.
+An insert or a delete lists no changed column, so `changed` never returns it; ask for it with `ops`. A redacted entry lists none either: after `forget(17)`, `of(17, { changed: ['Status'] })` returns nothing while `of(17)` lists the redacted entries. `limit` counts matching entries; the trail is read in pages of 1000 events until enough match, so a narrow filter over a long history reads all of it: bound it with `from` and `to`.
 
 ### Audit events of a model
 
@@ -617,6 +617,7 @@ export const both = `${Ticket.label()} / ${new Ticket().label()}`;
 
 Applications rarely call it themselves; a package's decorator does, on the models marked with it:
 
+- [`@spinajs/orm-history`](../orm-history/README.md): `@History()` adds `Model.history()` and `row.history()`.
 - `@spinajs/audit-orm`: `@Auditable()` gives a model `Model.audit()` and `row.audit()` ([Reading the trail](../audit/02-reading-the-trail.md)).
 
 ## Column SQL specs, indexes and partial models

@@ -90,7 +90,8 @@ One folder per package under `docs/`. Each package page lists its features and l
 | Package | What it covers |
 | --- | --- |
 | [`@spinajs/audit`](audit/README.md) | One event shape, named trails, write modes, masking, reading and erasure; [limits](audit/09-limits.md) |
-| [`@spinajs/audit-orm`](audit/01-trails-and-guarantees.md#tables) | Trail tables, `auditOf()` and `@Auditable()` with `Model.audit()`, retention, [shipping](audit/06-shipping.md), [sealing and `spinajs audit:verify`](audit/07-integrity-and-verification.md) |
+| [`@spinajs/audit-orm`](audit/01-trails-and-guarantees.md#tables) | Trail tables, `Model.audit()`, retention, [shipping](audit/06-shipping.md), [sealing and `spinajs audit:verify`](audit/07-integrity-and-verification.md) |
+| [`@spinajs/orm-history`](orm-history/README.md) | Row history of ORM models in an audit trail: `@History()`, `audit.data.rules`, `Model.history()`, `asOf` and erasure |
 
 ## Messaging, email and templates
 

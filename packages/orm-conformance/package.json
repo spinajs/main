@@ -31,6 +31,7 @@
     "@spinajs/di": "3.0.23",
     "@spinajs/log": "3.0.23",
     "@spinajs/orm": "3.0.23",
+    "@spinajs/orm-history": "3.0.23",
     "@spinajs/orm-mssql": "3.0.23",
     "@spinajs/orm-mysql": "3.0.23",
     "@spinajs/orm-pglite": "3.0.23",

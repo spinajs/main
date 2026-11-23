@@ -5,7 +5,7 @@ import type { Configuration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
 import { MemoryTarget } from '@spinajs/log';
 import { Connection, Model, ModelBase, Orm, Primary } from '@spinajs/orm';
-import type { OrmDriver } from '@spinajs/orm';
+import type { OrmDriver, TableQueryBuilder } from '@spinajs/orm';
 import { migrateTestDatabase } from '@spinajs/orm/testing';
 import { createTestApp } from '@spinajs/testing';
 import type { TestApp } from '@spinajs/testing';
@@ -17,6 +17,7 @@ import type { TrackedModel, TrackedRow } from '../../src/index.js';
 import { resetAudit } from './audit.js';
 
 export type Dialect = 'sqlite' | 'pglite';
+export type ColumnType = 'TEXT' | 'INTEGER' | 'BIGINT' | 'JSON' | 'DATETIME';
 
 /**
  * A model class `define` made: a class defined at run time has no declaration to carry the two history members, nor
@@ -30,7 +31,7 @@ export interface ModelSpec {
   /** Also the subject type of its history events. */
   readonly table: string;
   /** Column → type; `id` is the primary key, TEXT unless `autoIncrement`. */
-  readonly columns: Readonly<Record<string, 'TEXT' | 'INTEGER'>>;
+  readonly columns: Readonly<Record<string, ColumnType>>;
   /** Applied to the class and its prototype before the ORM sees it: `registerHistory`, `@Hidden`, `@SoftDelete`, `@Archived`. */
   readonly decorate: (model: typeof ModelBase, proto: object) => void;
   readonly autoIncrement?: boolean;
@@ -62,6 +63,13 @@ export function applyDecorator(decorator: unknown, target: object, property?: st
 }
 
 const DIALECTS: readonly Dialect[] = ['sqlite', 'pglite'];
+const COLUMN = new Map<ColumnType, (t: TableQueryBuilder, name: string) => void>([
+  ['TEXT', (t, name) => t.text(name)],
+  ['INTEGER', (t, name) => t.int(name)],
+  ['BIGINT', (t, name) => t.bigint(name)],
+  ['JSON', (t, name) => t.json(name)],
+  ['DATETIME', (t, name) => t.dateTime(name)],
+]);
 const LOGGER = {
   targets: [
     { name: 'Empty', type: 'BlackHoleTarget' },
@@ -91,11 +99,9 @@ export class HistoryDb {
       const { orm } = await migrateTestDatabase(app.container);
       return new HistoryDb(app, orm, pglite);
     } catch (err) {
-      try {
-        await app?.dispose();
-      } finally {
-        await pglite.dispose();
-      }
+      // A failing dispose must not replace the error that made open() fail.
+      await app?.dispose().catch(() => undefined);
+      await pglite.dispose().catch(() => undefined);
       throw err;
     }
   }
@@ -162,10 +168,7 @@ export class HistoryDb {
         .createTable(spec.table, (t) => {
           if (spec.primary === undefined && spec.autoIncrement) t.int('id').primaryKey().autoIncrement();
           else if (spec.primary === undefined) t.text('id').primaryKey();
-          for (const [column, type] of Object.entries(spec.columns)) {
-            if (type === 'INTEGER') t.int(column);
-            else t.text(column);
-          }
+          for (const [column, type] of Object.entries(spec.columns)) COLUMN.get(type)?.(t, column);
         });
     }
     this.models.push({ model, table: spec.table, dialect, ownsTable: !spec.base });

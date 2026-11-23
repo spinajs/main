@@ -7,31 +7,28 @@ export const DEFAULT_HISTORY_TRAIL = 'history';
 // The pattern @spinajs/audit accepts for a key of audit.trails.
 const TRAIL_NAME = '^[A-Za-z][A-Za-z0-9_-]{0,63}$';
 
-// The audit root is open: each section under it is validated by the package that reads it.
 // The section and a rule are closed with propertyNames, not additionalProperties, as in @spinajs/audit: the
-// configuration's removeAdditional would drop a misspelt key silently. Each enum lists every key of its properties.
+// configuration's removeAdditional would drop a misspelt key silently. Each enum is derived from the properties it
+// closes, so the two cannot drift.
+const RULE = {
+  models: { anyOf: [{ const: '*' }, { type: 'array', minItems: 1, items: { type: 'string', minLength: 1 } }] },
+  trail: { type: 'string', pattern: TRAIL_NAME },
+};
+
+const SECTION = {
+  rules: { type: 'array', items: { type: 'object', required: ['models'], propertyNames: { enum: Object.keys(RULE) }, properties: RULE } },
+  // What a tracked insert does when the keys it wrote are not reported or have no text.
+  onUnknownKeys: { type: 'string', enum: ['warn', 'throw'], default: 'warn' },
+};
+
+// The audit root is open: each section under it is validated by the package that reads it.
 export const AUDIT_DATA_CONFIGURATION_SCHEMA = {
   $id: 'spinajs/orm-history.audit-data.configuration.schema.json',
   $configurationModule: 'audit.data',
   description: 'Row history of ORM models (audit.data.*)',
   type: 'object',
-  propertyNames: { enum: ['rules', 'onUnknownKeys'] },
-  properties: {
-    rules: {
-      type: 'array',
-      items: {
-        type: 'object',
-        required: ['models'],
-        propertyNames: { enum: ['models', 'trail'] },
-        properties: {
-          models: { anyOf: [{ const: '*' }, { type: 'array', minItems: 1, items: { type: 'string', minLength: 1 } }] },
-          trail: { type: 'string', pattern: TRAIL_NAME },
-        },
-      },
-    },
-    // What a tracked insert does when the driver did not report the keys it wrote.
-    onUnknownKeys: { type: 'string', enum: ['warn', 'throw'], default: 'warn' },
-  },
+  propertyNames: { enum: Object.keys(SECTION) },
+  properties: SECTION,
 };
 
 registerConfigurationSchemaAtImport(AUDIT_DATA_CONFIGURATION_SCHEMA);

@@ -5,8 +5,7 @@ import type { HistorySpec } from './registry.js';
 import type { HistoryOp } from './types.js';
 
 export type { HistoryOp } from './types.js';
-
-export const HISTORY_OPS: readonly HistoryOp[] = ['insert', 'update', 'delete', 'soft_delete', 'restore', 'lost'];
+export { HISTORY_OPS } from './types.js';
 
 /** Subject id of a `lost` marker: it concerns rows of the entity whose keys were never reported, not one row. */
 export const LOST_SUBJECT_ID = '*';

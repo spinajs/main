@@ -180,6 +180,7 @@ graphify-out/
 !/docs/orm/
 !/docs/orm-cli/
 !/docs/orm-conformance/
+!/docs/orm-history/
 !/docs/orm-http/
 !/docs/orm-mssql/
 !/docs/orm-mysql/

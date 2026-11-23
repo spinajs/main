@@ -3,8 +3,8 @@ import { DI, Singleton } from '@spinajs/di';
 import type { Constructor } from '@spinajs/di';
 import { Logger } from '@spinajs/log-common';
 import type { Log } from '@spinajs/log-common';
-import { extendModel, extractModelDescriptor, unextendModel } from '@spinajs/orm';
-import type { ModelBase, ModelMembers } from '@spinajs/orm';
+import { UuidConverter, extendModel, extractModelDescriptor, unextendModel } from '@spinajs/orm';
+import type { IModelDescriptor, ModelBase, ModelMembers } from '@spinajs/orm';
 
 import { HistoryConfigError } from './errors.js';
 import { DEFAULT_HISTORY_TRAIL, lineageOf, ruleFor } from './rules.js';
@@ -96,16 +96,28 @@ function declaredFor(model: Constructor<ModelBase>): HistoryOptions | false | un
   return undefined;
 }
 
+// The capture keys a row by the text of its raw key, and the 16 bytes UuidConverter writes have none.
+function keyStoredAsBytes(d: IModelDescriptor): boolean {
+  const converter = d.Converters.get(d.PrimaryKey[0])?.Class;
+  return converter !== undefined && (converter === UuidConverter || converter.prototype instanceof UuidConverter);
+}
+
+function assertKeyed(model: Constructor<ModelBase>, d: IModelDescriptor | null | undefined): asserts d is IModelDescriptor {
+  if (!d || d.PrimaryKey.length !== 1) throw new HistoryConfigError(`@History on ${model.name}: needs a single-column primary key, it has ${d?.PrimaryKey.length ?? 0}`);
+  if (keyStoredAsBytes(d)) throw new HistoryConfigError(`@History on ${model.name}: its primary key ${d.PrimaryKey[0]} is stored as bytes by @Uuid(), which has no text for a subject id; history needs a string or integer key`);
+}
+
 function buildSpec(model: Constructor<ModelBase>, o: HistoryOptions): HistorySpec {
   const d = extractModelDescriptor(model);
-  if (!d || d.PrimaryKey.length !== 1) throw new HistoryConfigError(`@History on ${model.name}: needs a single-column primary key, it has ${d?.PrimaryKey.length ?? 0}`);
+  assertKeyed(model, d);
   const softDelete = d.SoftDelete?.DeletedAt || undefined;
+  const always = [softDelete, d.Archived?.ArchivedAt].filter((c): c is string => !!c);
   const listed = new Set(o.columns ?? []);
   return {
     model,
     entity: o.entity ?? d.TableName,
     pk: d.PrimaryKey[0],
-    columns: o.columns ? [...new Set([...o.columns, ...(softDelete ? [softDelete] : [])])] : '*',
+    columns: o.columns ? [...new Set([...o.columns, ...always])] : '*',
     exclude: new Set((o.exclude ?? []).filter((c) => c !== softDelete)),
     masked: o.hidden === 'record' ? new Set() : new Set((d.Hidden ?? []).filter((h) => !listed.has(h))),
     softDelete,
@@ -148,9 +160,16 @@ export class HistorySpecs {
   private ruled(model: Constructor<ModelBase>, rules: readonly DataRule[]): HistorySpec | undefined {
     const rule = ruleFor(model, rules);
     if (!rule) return undefined;
-    if (extractModelDescriptor(model)?.PrimaryKey.length === 1) return buildSpec(model, rule.trail === undefined ? {} : { trail: rule.trail });
-    this.Log.warn({ model: model.name }, 'orm-history: ${model} matches audit.data.rules but has no single-column primary key, so it is not tracked');
-    return undefined;
+    const d = extractModelDescriptor(model);
+    if (d?.PrimaryKey.length !== 1) {
+      this.Log.warn({ model: model.name }, 'orm-history: ${model} matches audit.data.rules but has no single-column primary key, so it is not tracked');
+      return undefined;
+    }
+    if (keyStoredAsBytes(d)) {
+      this.Log.warn({ model: model.name, pk: d.PrimaryKey[0] }, 'orm-history: ${model} matches audit.data.rules but its primary key ${pk} is stored as bytes by @Uuid(), so it is not tracked');
+      return undefined;
+    }
+    return buildSpec(model, rule.trail === undefined ? {} : { trail: rule.trail });
   }
 }
 

@@ -137,6 +137,13 @@ describe('asOf', function () {
         expect((await Invoice.history().asOf('a5', T(35))).state).to.eq('present');
       });
 
+      it('includes a recorded entry at the instant the trail table gave back for it', async () => {
+        await Invoice.insert({ id: 'a8', status: 'a' });
+        const [entry] = await Invoice.history().of('a8');
+        const at = await Invoice.history().asOf('a8', entry.at);
+        expect(at.state === 'present' && at.seq).to.eq(entry.seq);
+      });
+
       it('answers redacted for a forgotten row, and still absent for a forgotten row that was deleted', async () => {
         await write([
           change('invoice', 'a6', 'insert', 10, { after: { id: 'a6', status: 'a' } }),

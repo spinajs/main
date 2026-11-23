@@ -4,8 +4,8 @@ import 'mocha';
 import { AuditConfigError, AuditWriteFailed } from '@spinajs/audit';
 import { MemoryAuditStore } from '@spinajs/audit/testing';
 import { rowsOf } from '@spinajs/audit-orm';
-import { Archived, Hidden, InsertQueryBuilder, SoftDelete, createQuery } from '@spinajs/orm';
-import { HistoryConfigError, HistoryWriteError, LOST_SUBJECT_ID, registerHistory } from '../src/index.js';
+import { Archived, Hidden, InsertBehaviour, InsertQueryBuilder, Json, SoftDelete, Uuid, createQuery } from '@spinajs/orm';
+import { HistoryConfigError, HistoryWriteError, LOST_SUBJECT_ID, registerHistory, toHistoryValue } from '../src/index.js';
 import { who } from './support/audit.js';
 import { HistoryDb, applyDecorator } from './support/db.js';
 
@@ -140,6 +140,18 @@ describe('history writes', function () {
         expect((await events()).map((r) => r.action)).to.deep.eq(['insert']);
       });
 
+      it('refuses a key change inside a caller transaction, which the rollback of that transaction undoes', async () => {
+        await Invoice.insert({ id: 'i4', status: 'x' });
+        const failed = await rejection(
+          Invoice.transaction(async () => {
+            await Invoice.update({ id: 'i5' }).where('id', 'i4');
+          }),
+        );
+        expect(failed).to.be.instanceOf(HistoryWriteError).and.have.property('message', keyChange('invoice'));
+        expect((await db.rows('invoice', dialect)).map((r) => r.id)).to.deep.eq(['i4']);
+        expect((await events()).map((r) => r.action)).to.deep.eq(['insert']);
+      });
+
       it('records archive() of a tracked @Archived model as an update', async () => {
         const Doc = await db.define(
           {
@@ -159,6 +171,52 @@ describe('history writes', function () {
         const rows = (await events()).filter((r) => r.subject_type === 'doc');
         expect(rows.map((r) => r.action)).to.deep.eq(['insert', 'update']);
         expect(rows[1].data).to.deep.include({ before: { archived_at: null }, changed: ['archived_at'] });
+      });
+
+      it('records archive() in column mode, which tracks the @Archived column as it tracks the soft-delete one', async () => {
+        const Doc = await db.define(
+          {
+            name: 'Doc',
+            table: 'doc',
+            columns: { status: 'TEXT', archived_at: 'TEXT' },
+            decorate: (c, p) => {
+              registerHistory(c, { columns: ['status'] });
+              applyDecorator(Archived(), p, 'archived_at');
+            },
+          },
+          dialect,
+        );
+        await Doc.insert({ id: 'd1', status: 'x' });
+        await (await Doc.getOrFail('d1')).archive();
+
+        const rows = (await events()).filter((r) => r.subject_type === 'doc');
+        expect(rows.map((r) => r.action)).to.deep.eq(['insert', 'update']);
+        expect(rows[0].data).to.deep.eq({ after: { id: 'd1', status: 'x', archived_at: null } });
+        expect(rows[1].data).to.deep.include({ before: { archived_at: null }, changed: ['archived_at'] });
+      });
+
+      it('records an upsert as the update of the row it changes and the insert of the row it adds', async () => {
+        await Invoice.insert({ id: 'u1', status: 'draft' });
+        const { query } = createQuery(Invoice, InsertQueryBuilder);
+        await query
+          .values([
+            { id: 'u1', status: 'paid' },
+            { id: 'u2', status: 'draft' },
+          ])
+          .onDuplicate('id')
+          .update(['status']);
+        expect((await events()).map((r) => [r.action, r.subject_id])).to.deep.eq([
+          ['insert', 'u1'],
+          ['update', 'u1'],
+          ['insert', 'u2'],
+        ]);
+      });
+
+      it('records nothing for an insert-or-ignore that leaves its row as it was', async () => {
+        await Invoice.insert({ id: 'u3', status: 'draft' });
+        await Invoice.insert({ id: 'u3', status: 'paid' }, InsertBehaviour.InsertOrIgnore);
+        expect((await db.rows('invoice', dialect)).map((r) => r.status)).to.deep.eq(['draft']);
+        expect((await events()).map((r) => r.action)).to.deep.eq(['insert']);
       });
 
       it('records every row of a multi-row insert through RETURNING', async () => {
@@ -266,6 +324,57 @@ describe('history writes', function () {
 
         expect((await events()).map((r) => r.data)).to.deep.eq([{ after: { id: 'k1', token: 't1' } }, { before: { token: 't1' }, after: { id: 'k1', token: 't2' }, changed: ['token'] }]);
       });
+
+      describe('encoding', () => {
+        let Doc: Awaited<ReturnType<HistoryDb['define']>>;
+        const BODY = { b: [1, { d: 'ł', c: 2 }], a: null };
+
+        beforeEach(async () => {
+          Doc = await db.define(
+            {
+              name: 'Doc',
+              table: 'doc',
+              columns: { label: 'TEXT', big: 'TEXT', body: 'JSON', at: 'DATETIME' },
+              decorate: (c, p) => {
+                registerHistory(c);
+                applyDecorator(Json(), p, 'body');
+              },
+            },
+            dialect,
+          );
+        });
+
+        it('keeps non-ASCII text, a 64 KB value and a JSON column as the driver reads them', async () => {
+          // 64 KB in UTF-8.
+          const big = 'ł'.repeat(32 * 1024);
+          await Doc.insert({ id: 'd1', label: 'Łukasz 東京 😀', big, body: BODY });
+
+          const [row] = await db.rows('doc', dialect);
+          const [entry] = await Doc.history().of('d1');
+          expect(entry.after).to.deep.eq(Object.fromEntries(Object.entries(row).map(([k, v]) => [k, toHistoryValue(v)])));
+          expect([entry.after?.label, entry.after?.big]).to.deep.eq(['Łukasz 東京 😀', big]);
+        });
+
+        it('writes a date as an ISO string and no entry for the same instant in another Date', async () => {
+          await Doc.insert({ id: 'd2', label: 'x' });
+          await Doc.update({ at: new Date(Date.UTC(2026, 10, 1, 12, 30, 15, 250)) }).where('id', 'd2');
+          await Doc.update({ at: new Date('2026-11-01T12:30:15.250Z') }).where('id', 'd2');
+
+          const entries = await Doc.history().of('d2');
+          expect(entries.map((e) => e.op)).to.deep.eq(['insert', 'update']);
+          // PGlite returns a Date, which history writes as ISO; the sqlite driver stores the ISO text itself.
+          expect(entries[1].after?.at).to.eq('2026-11-01T12:30:15.250Z');
+        });
+
+        it('pins a known limit of sqlite: the same JSON value in another key order is recorded as a change there only', async () => {
+          await Doc.insert({ id: 'd3', body: BODY });
+          await Doc.update({ body: { a: null, b: [1, { c: 2, d: 'ł' }] } }).where('id', 'd3');
+          // Not a decision: sqlite hands a JSON column over as its text, and history compares text as text. Parsing
+          // the @Json columns before the comparison would remove the sqlite branch.
+          const ops = (await Doc.history().of('d3')).map((e) => [e.op, e.changed]);
+          expect(ops).to.deep.eq(dialect === 'sqlite' ? [['insert', []], ['update', ['body']]] : [['insert', []]]);
+        });
+      });
     });
   }
 
@@ -350,6 +459,46 @@ describe('history writes', function () {
       await Pair.insert({ a: '1', b: '2', v: 'x' });
       expect(rowsOf(await db.driver('sqlite').select().from('pair'))).to.have.length(1);
       expect(await db.rows('orm_history', 'sqlite')).to.have.length(0);
+    });
+
+    it('leaves a model whose @Uuid() key is stored as bytes untracked under a match-all rule, with a warning', async () => {
+      rules([{ models: '*' }]);
+      const Device = await db.define({ name: 'Device', table: 'device', columns: { v: 'TEXT' }, decorate: (_, p) => applyDecorator(Uuid(), p, 'id') }, 'sqlite');
+      await Device.insert({ v: 'x' });
+      expect(await db.rows('device', 'sqlite')).to.have.length(1);
+      expect(await db.rows('orm_history', 'sqlite')).to.have.length(0);
+      expect(db.warnings()).to.deep.eq(['orm-history: Device matches audit.data.rules but its primary key id is stored as bytes by @Uuid(), so it is not tracked']);
+    });
+
+    describe('an insert whose key has no text', () => {
+      // Above 2^53 a JS number is not a safe integer; sqlite stores this one exactly.
+      const UNSAFE = 2 ** 53 + 2;
+      const define = () => db.define({ name: 'Wide', table: 'wide', autoIncrement: true, columns: { v: 'TEXT' }, decorate: (c) => registerHistory(c) }, 'sqlite');
+
+      it('marks the entity lost and warns once per model', async () => {
+        const Wide = await define();
+        await Wide.insert({ id: UNSAFE, v: 'a' });
+        await Wide.insert({ id: UNSAFE + 2, v: 'b' });
+        expect(await db.rows('wide', 'sqlite')).to.have.length(2);
+        expect((await db.rows('orm_history', 'sqlite')).map((r) => [r.action, r.subject_id, JSON.parse(String(r.data)) as unknown])).to.deep.eq([
+          ['lost', LOST_SUBJECT_ID, { reason: 'keys_without_text' }],
+          ['lost', LOST_SUBJECT_ID, { reason: 'keys_without_text' }],
+        ]);
+        expect(db.warnings()).to.deep.eq(['orm-history: an insert of wide wrote a primary key id that has no text (bytes, a date or a number that is not a safe integer), so its history is missing; history needs a string or integer key']);
+      });
+
+      it('fails with onUnknownKeys: throw', async () => {
+        db.config.set('audit.data.onUnknownKeys', 'throw');
+        try {
+          const Wide = await define();
+          expect(await rejection(Wide.insert({ id: UNSAFE, v: 'a' })))
+            .to.be.instanceOf(HistoryWriteError)
+            .and.have.property('message', 'orm-history: an insert of wide wrote a primary key id that has no text (bytes, a date or a number that is not a safe integer), so its history cannot be recorded; history needs a string or integer key');
+          expect(await db.rows('wide', 'sqlite')).to.have.length(0);
+        } finally {
+          db.config.set('audit.data.onUnknownKeys', 'warn');
+        }
+      });
     });
   });
 });

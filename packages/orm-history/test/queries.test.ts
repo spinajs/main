@@ -1,15 +1,13 @@
 import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 import 'mocha';
+import { SoftDelete } from '@spinajs/orm';
 import { registerHistory } from '../src/index.js';
 import { who } from './support/audit.js';
-import { HistoryDb } from './support/db.js';
+import { HistoryDb, applyDecorator } from './support/db.js';
 
 chai.use(chaiAsPromised);
 const expect = chai.expect;
-
-// More than one trail page of 1000 events on sqlite; generous because other builds share the machine.
-const PAGING_TIMEOUT = 600000;
 
 describe('history queries', function () {
   this.timeout(120000);
@@ -104,6 +102,43 @@ describe('history queries', function () {
         expect(await Invoice.history().byActor('user:3')).to.deep.eq([]);
       });
 
+      it('lists a redacted entry without changed and never with it', async () => {
+        await Invoice.insert({ id: 'r1', status: 'a', total: '1' });
+        await Invoice.update({ status: 'b' }).where('id', 'r1');
+        await Invoice.history().forget('r1');
+
+        expect((await Invoice.history().of('r1')).map((e) => [e.op, e.redacted])).to.deep.eq([
+          ['insert', true],
+          ['update', true],
+        ]);
+        expect(await Invoice.history().of('r1', { changed: ['status'] })).to.deep.eq([]);
+      });
+
+      it('matches a soft delete and a restore on the soft-delete column', async () => {
+        const Note = await db.define(
+          {
+            name: 'Note',
+            table: 'note',
+            columns: { body: 'TEXT', deleted_at: 'TEXT' },
+            decorate: (c, p) => {
+              registerHistory(c);
+              applyDecorator(SoftDelete(), p, 'deleted_at');
+            },
+          },
+          dialect,
+        );
+        await Note.insert({ id: 'n1', body: 'a' });
+        await Note.update({ deleted_at: '2026-11-06' }).where('id', 'n1');
+        await Note.update({ deleted_at: null }).where('id', 'n1');
+        await Note.update({ body: 'b' }).where('id', 'n1');
+
+        const entries = await Note.history().of('n1', { changed: ['deleted_at'] });
+        expect(entries.map((e) => [e.op, e.changed])).to.deep.eq([
+          ['soft_delete', ['deleted_at']],
+          ['restore', ['deleted_at']],
+        ]);
+      });
+
       it('refuses a limit outside 1 to 1000 on both', async () => {
         await expect(Invoice.history().byActor('user:1', { limit: 0 })).to.be.rejectedWith('orm-history: limit must be an integer from 1 to 1000');
         await expect(Invoice.history().of('r1', { changed: ['status'], limit: 1001 })).to.be.rejectedWith('orm-history: limit must be an integer from 1 to 1000');
@@ -111,8 +146,7 @@ describe('history queries', function () {
     });
   }
 
-  it('reads past a page of entries that do not match', async function () {
-    this.timeout(PAGING_TIMEOUT);
+  it('reads past a page of entries that do not match', async () => {
     await db.migrateHistory('sqlite');
     const Invoice = await db.define({ name: 'Invoice', table: 'invoice', columns: { status: 'TEXT', total: 'TEXT' }, decorate: (c) => registerHistory(c) }, 'sqlite');
     try {
@@ -128,8 +162,7 @@ describe('history queries', function () {
     }
   });
 
-  it('ends on a filter that matches nothing over more than one page', async function () {
-    this.timeout(PAGING_TIMEOUT);
+  it('ends on a filter that matches nothing over more than one page', async () => {
     await db.migrateHistory('sqlite');
     const Invoice = await db.define({ name: 'Invoice', table: 'invoice', columns: { status: 'TEXT', total: 'TEXT' }, decorate: (c) => registerHistory(c) }, 'sqlite');
     try {
@@ -144,6 +177,10 @@ describe('history queries', function () {
       // The first page holds the insert and 999 updates; the limit is reached one entry into the second.
       const totals = await Invoice.history().of('r1', { changed: ['total'], limit: 1000 });
       expect([totals.length, totals.at(-1)?.after?.total]).to.deep.eq([1000, '1000']);
+      const feed = await Invoice.history().since(0, { changed: ['total'], limit: 1000 });
+      expect([feed.length, feed.at(-1)?.after?.total]).to.deep.eq([1000, '1000']);
+      const mine = await Invoice.history().byActor('user:9', { changed: ['total'], limit: 1000 });
+      expect([mine.length, mine.at(-1)?.after?.total]).to.deep.eq([1000, '1000']);
     } finally {
       await db.clear();
     }

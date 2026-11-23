@@ -127,6 +127,7 @@ describe('history reads', function () {
         for (const afterSeq of [-1, 1.5, Number.NaN]) {
           await expect(Invoice.history().of('r1', { afterSeq })).to.be.rejectedWith(HistoryConfigError, 'orm-history: afterSeq must be an integer of 0 or more');
           await expect(Invoice.history().since(0, { afterSeq })).to.be.rejectedWith(HistoryConfigError, 'orm-history: afterSeq must be an integer of 0 or more');
+          await expect(Invoice.history().since(afterSeq)).to.be.rejectedWith(HistoryConfigError, 'orm-history: seq must be an integer of 0 or more');
         }
       });
     });
@@ -149,6 +150,22 @@ describe('history reads', function () {
       } finally {
         registerHistory(Unbooted, false);
       }
+    });
+  });
+
+  describe('a bigint key (pglite)', () => {
+    afterEach(async () => {
+      await db.clear();
+    });
+
+    it('is the subject id as decimal text, and finds the row by the bigint', async () => {
+      await db.migrateHistory('pglite');
+      const Big = await db.define({ name: 'Big', table: 'big', primary: ['id'], columns: { id: 'BIGINT', v: 'TEXT' }, decorate: (c) => registerHistory(c) }, 'pglite');
+      await Big.insert({ id: 9007199254740993n, v: 'x' });
+
+      const entries = await Big.history().of(9007199254740993n);
+      expect(entries.map((e) => [e.id, e.op, e.after?.id])).to.deep.eq([['9007199254740993', 'insert', '9007199254740993']]);
+      expect(await Big.history().of('9007199254740993')).to.deep.eq(entries);
     });
   });
 
