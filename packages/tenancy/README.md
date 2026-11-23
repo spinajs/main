@@ -10,3 +10,10 @@ The tenant scope of a SpinaJS application: which tenant the current request, mes
 - A new scope starts with an empty authz request cache; re-entering the tenant one is already in keeps it.
 
 The scope lives in the request store the framework already shares, so `runAs` keeps it and log lines carry it as `Tenant`. This package depends on neither the ORM, http nor authz; `@spinajs/tenancy-http` and `@spinajs/tenancy-orm` build on it.
+
+## Registry and access
+
+- `tenancy.registry` names the `TenantRegistry` (default `ConfigTenantRegistry`, the tenants listed under `tenancy.tenants`; `MemoryTenantRegistry` for tests). `tenantRegistry()` answers it behind a cache of `tenancy.registryCacheMs` (5000) that has `invalidate(id)`.
+- `tenancy.access` names the `TenantAccess` (default `PrincipalAttributeTenantAccess`: the principal's `attributes.tenants` holds the tenant id).
+- `admitTenant(proposal, principal)` answers the record of a tenant that is known, active and open to the principal, or throws `TenantUnavailable`.
+- `forEachTenant(fn, { concurrency, states })` runs `fn` in every tenant and reports the failures.
