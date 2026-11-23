@@ -570,6 +570,26 @@ describe('write capture on sqlite', function () {
         expect(fixture.writes[0].rows).to.deep.eq([{ id: 'k', before: { Id: 'k', Email: 'a', Name: 'one' }, after: { Id: 'k', Email: 'a', Name: 'x' } }]);
       });
 
+      it('counts the keyless rows of an update towards db.WriteCapture.MaxRows', async () => {
+        await insertRows([
+          { Id: one, Email: 'a', Name: 'one' },
+          { Id: two, Email: 'b', Name: 'two' },
+          { Id: 'k', Email: 'c', Name: 'three' },
+          { Id: 'm', Email: 'd', Name: 'four' },
+        ]);
+        const config = await DI.resolve(Configuration);
+        config.set('db.WriteCapture.MaxRows', 2);
+        try {
+          await expect(CapBlob.update({ Name: 'x' }).whereIn('Email', ['a', 'b', 'c', 'd'])).to.be.rejectedWith(WriteCaptureLimitExceeded, 'write capture: an update of CapBlob reaches 3 rows, above db.WriteCapture.MaxRows (2); narrow the statement or raise the limit');
+          await CapBlob.update({ Name: 'x' }).whereIn('Email', ['a', 'c']);
+        } finally {
+          config.set('db.WriteCapture.MaxRows', 0);
+        }
+
+        expect(fixture.writes.map((w) => [w.keylessRows, w.rows])).to.deep.eq([[1, [{ id: 'k', before: { Id: 'k', Email: 'c', Name: 'three' }, after: { Id: 'k', Email: 'c', Name: 'x' } }]]]);
+        expect((await rows<{ Name: string }>('cap_blob')).map((r) => r.Name)).to.deep.eq(['x', 'two', 'x', 'four']);
+      });
+
       it('counts the row a plain insert supplies', async () => {
         await createQuery(CapBlob, InsertQueryBuilder).query.values({ Id: one, Email: 'a', Name: 'one' });
 
