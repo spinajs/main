@@ -151,7 +151,7 @@ describe('ColumnChangeObserver', function () {
         const bulk = () => {
           const query = driver.Container.resolve<InsertQueryBuilder>(InsertQueryBuilder, [driver, Doc]);
           query.values([{ folder_id: 'f1' }, { folder_id: 'f2' }]);
-          return { kind: 'insert' as const, query, model: Doc, driver, rows: [], unknownKeys: true };
+          return { kind: 'insert' as const, query, model: Doc, driver, rows: [], unknownKeys: true, keylessRows: 0 };
         };
         const since = () => changeLog().coveredSince('column', 'doc');
 

@@ -74,11 +74,23 @@ class CapSoft extends ModelBase {
   public DeletedAt: DateTime;
 }
 
+// A BLOB key holds bytes, which have no key text, and text, which has.
+@Connection('sqlite')
+@Model('cap_blob')
+class CapBlob extends ModelBase {
+  @Primary()
+  public Id: Buffer | string;
+
+  public Email: string;
+
+  public Name: string;
+}
+
 const fixture = { writes: [] as CapturedWrite[], inTransaction: [] as boolean[], transactional: true, prepareFails: false, prepared: [] as WriteStatement[] };
 
 class FixtureObserver extends WriteObserver {
   interest({ model }: WriteStatement): CaptureInterest | undefined {
-    return [CapMember, CapPair, CapSoft].some((m) => model === m) ? { columns: '*', transactional: fixture.transactional } : undefined;
+    return [CapMember, CapPair, CapSoft, CapBlob].some((m) => model === m) ? { columns: '*', transactional: fixture.transactional } : undefined;
   }
 
   prepare(statement: WriteStatement): void {
@@ -190,6 +202,7 @@ describe('write capture on sqlite', function () {
 
     const write = recorder.writes[0];
     expect(write.unknownKeys).to.eq(true);
+    expect(write.keylessRows).to.eq(0);
     expect(write.rows).to.deep.eq([]);
     expect(await rows('uow_tag')).to.have.length(2);
   });
@@ -495,12 +508,188 @@ describe('write capture on sqlite', function () {
       expect((await rows<{ Name: string }>('cap_member')).map((r) => r.Name)).to.deep.eq(['one', 'two']);
     });
 
+    it('refuses an upsert after it ran when its conflict values then reach more rows than db.WriteCapture.MaxRows', async () => {
+      const driver = db().Connections.get('sqlite')!;
+      // Id 1 and Email 'x' reach the two existing rows before the statement; the row it inserts is the third after it.
+      const upsert = (id: number) =>
+        createQuery(CapMember, InsertQueryBuilder)
+          .query.values([
+            { Id: 1, Email: 'x', Name: 'new' },
+            { Id: id, Email: `e${id}`, Name: 'new' },
+          ])
+          .orIgnore();
+      const refusal = 'write capture: an insert of CapMember reaches 3 rows, above db.WriteCapture.MaxRows (2); narrow the statement or raise the limit';
+      const ids = async () => (await rows<{ Id: number }>('cap_member')).map((r) => r.Id);
+      const config = await DI.resolve(Configuration);
+      config.set('db.WriteCapture.MaxRows', 2);
+      try {
+        await expect(upsert(3)).to.be.rejectedWith(WriteCaptureLimitExceeded, refusal);
+        expect(await ids()).to.deep.eq([1, 2]);
+
+        await driver.transaction(async () => {
+          await expect(upsert(4)).to.be.rejectedWith(WriteCaptureLimitExceeded, refusal);
+        });
+        expect(await ids()).to.deep.eq([1, 2, 4]);
+
+        fixture.transactional = false;
+        await expect(upsert(5)).to.be.rejectedWith(WriteCaptureLimitExceeded, refusal);
+        expect(await ids()).to.deep.eq([1, 2, 4, 5]);
+      } finally {
+        config.set('db.WriteCapture.MaxRows', 0);
+      }
+
+      expect(fixture.writes).to.deep.eq([]);
+    });
+
+    it('refuses a delete above db.WriteCapture.MaxRows', async () => {
+      const config = await DI.resolve(Configuration);
+      config.set('db.WriteCapture.MaxRows', 1);
+      try {
+        await expect(createQuery(CapMember, DeleteQueryBuilder).query.where('Id', '>', 0)).to.be.rejectedWith(WriteCaptureLimitExceeded, 'write capture: a delete of CapMember reaches 2 rows, above db.WriteCapture.MaxRows (1); narrow the statement or raise the limit');
+      } finally {
+        config.set('db.WriteCapture.MaxRows', 0);
+      }
+
+      expect(await rows('cap_member')).to.have.length(2);
+    });
+
     it('reports an upsert whose unique value has no key text (a date) as unknown', async () => {
       const { query } = createQuery(CapMember, InsertQueryBuilder);
       await query.values({ Email: new Date(Date.UTC(2026, 0, 1)), Name: 'd' }).orIgnore();
 
       expect(fixture.writes[0].unknownKeys).to.eq(true);
       expect(fixture.writes[0].rows).to.deep.eq([]);
+    });
+
+    it('reports no keyless rows for the writes of a model with integer keys', async () => {
+      await CapMember.insert({ Email: 'b', Name: 'three' });
+      await CapMember.update({ Name: 'b' }).where('Id', 1);
+      await CapMember.destroy(1);
+
+      expect(fixture.writes.map((w) => [w.kind, w.rows.length, w.keylessRows])).to.deep.eq([
+        ['insert', 1, 0],
+        ['update', 1, 0],
+        ['delete', 1, 0],
+      ]);
+    });
+
+    describe('with keys that have no key text', () => {
+      const one = Buffer.from([1]);
+      const two = Buffer.from([2]);
+
+      beforeEach(async () => {
+        await db().Connections.get('sqlite')!.schema().raw('CREATE TABLE cap_blob (Id BLOB PRIMARY KEY, Email TEXT UNIQUE, Name TEXT)');
+        await db().reloadTableInfo();
+      });
+
+      const insertRows = async (values: Partial<CapBlob>[]) => {
+        await createQuery(CapBlob, InsertQueryBuilder).query.values(values);
+        fixture.writes = [];
+      };
+
+      it('counts the rows an update and a delete reach', async () => {
+        await insertRows([
+          { Id: one, Email: 'a', Name: 'one' },
+          { Id: two, Email: 'b', Name: 'two' },
+        ]);
+
+        await CapBlob.update({ Name: 'x' }).whereIn('Email', ['a', 'b']);
+        await createQuery(CapBlob, DeleteQueryBuilder).query.whereIn('Email', ['a', 'b']);
+
+        expect(fixture.writes.map((w) => [w.kind, w.unknownKeys, w.keylessRows, w.rows])).to.deep.eq([
+          ['update', false, 2, []],
+          ['delete', false, 2, []],
+        ]);
+        expect(await rows('cap_blob')).to.deep.eq([]);
+      });
+
+      it('reports the row with key text of an update next to the count of the other', async () => {
+        await insertRows([
+          { Id: 'k', Email: 'a', Name: 'one' },
+          { Id: two, Email: 'b', Name: 'two' },
+        ]);
+
+        await CapBlob.update({ Name: 'x' }).whereIn('Email', ['a', 'b']);
+
+        expect(fixture.writes[0].keylessRows).to.eq(1);
+        expect(fixture.writes[0].rows).to.deep.eq([{ id: 'k', before: { Id: 'k', Email: 'a', Name: 'one' }, after: { Id: 'k', Email: 'a', Name: 'x' } }]);
+      });
+
+      it('counts the keyless rows of an update towards db.WriteCapture.MaxRows', async () => {
+        await insertRows([
+          { Id: one, Email: 'a', Name: 'one' },
+          { Id: two, Email: 'b', Name: 'two' },
+          { Id: 'k', Email: 'c', Name: 'three' },
+          { Id: 'm', Email: 'd', Name: 'four' },
+        ]);
+        const config = await DI.resolve(Configuration);
+        config.set('db.WriteCapture.MaxRows', 2);
+        try {
+          await expect(CapBlob.update({ Name: 'x' }).whereIn('Email', ['a', 'b', 'c', 'd'])).to.be.rejectedWith(WriteCaptureLimitExceeded, 'write capture: an update of CapBlob reaches 3 rows, above db.WriteCapture.MaxRows (2); narrow the statement or raise the limit');
+          await CapBlob.update({ Name: 'x' }).whereIn('Email', ['a', 'c']);
+        } finally {
+          config.set('db.WriteCapture.MaxRows', 0);
+        }
+
+        expect(fixture.writes.map((w) => [w.keylessRows, w.rows])).to.deep.eq([[1, [{ id: 'k', before: { Id: 'k', Email: 'c', Name: 'three' }, after: { Id: 'k', Email: 'c', Name: 'x' } }]]]);
+        expect((await rows<{ Name: string }>('cap_blob')).map((r) => r.Name)).to.deep.eq(['x', 'two', 'x', 'four']);
+      });
+
+      it('counts the keyless rows an upsert reaches through a unique column towards db.WriteCapture.MaxRows', async () => {
+        await insertRows([
+          { Id: one, Email: 'a', Name: 'one' },
+          { Id: two, Email: 'b', Name: 'two' },
+          { Id: 'k', Email: 'c', Name: 'three' },
+        ]);
+        const upsert = (values: Partial<CapBlob>[]) => createQuery(CapBlob, InsertQueryBuilder).query.values(values).orIgnore();
+        const config = await DI.resolve(Configuration);
+        config.set('db.WriteCapture.MaxRows', 2);
+        try {
+          await expect(
+            upsert([
+              { Id: 'k', Email: 'a', Name: 'new' },
+              { Id: 'y', Email: 'b', Name: 'new' },
+            ]),
+          ).to.be.rejectedWith(WriteCaptureLimitExceeded, 'write capture: an insert of CapBlob reaches 3 rows, above db.WriteCapture.MaxRows (2); narrow the statement or raise the limit');
+          await upsert([{ Id: 'k', Email: 'a', Name: 'new' }]);
+        } finally {
+          config.set('db.WriteCapture.MaxRows', 0);
+        }
+
+        const k = { Id: 'k', Email: 'c', Name: 'three' };
+        expect(fixture.writes.map((w) => [w.unknownKeys, w.keylessRows, w.rows])).to.deep.eq([[false, 1, [{ id: 'k', before: k, after: k }]]]);
+        expect((await rows<{ Name: string }>('cap_blob')).map((r) => r.Name)).to.deep.eq(['one', 'two', 'three']);
+      });
+
+      it('counts the row a plain insert supplies', async () => {
+        await createQuery(CapBlob, InsertQueryBuilder).query.values({ Id: one, Email: 'a', Name: 'one' });
+
+        expect(fixture.writes.map((w) => [w.unknownKeys, w.keylessRows, w.rows])).to.deep.eq([[false, 1, []]]);
+      });
+
+      it('counts the row an upsert reaches through a unique column once, next to the row it inserts', async () => {
+        await insertRows([{ Id: one, Email: 'a', Name: 'one' }]);
+
+        const { query } = createQuery(CapBlob, InsertQueryBuilder);
+        await query
+          .values([
+            { Id: 'k', Email: 'a', Name: 'new' },
+            { Id: 'n', Email: 'z', Name: 'other' },
+          ])
+          .onDuplicate('Email')
+          .update(['Name']);
+
+        expect(fixture.writes[0].unknownKeys).to.eq(false);
+        expect(fixture.writes[0].keylessRows).to.eq(1);
+        expect(fixture.writes[0].rows).to.deep.eq([{ id: 'n', before: undefined, after: { Id: 'n', Email: 'z', Name: 'other' } }]);
+        expect((await rows<{ Name: string }>('cap_blob')).map((r) => r.Name)).to.deep.eq(['new', 'other']);
+      });
+
+      it('reports an upsert that supplies a key with no key text as unknown, with no keyless rows', async () => {
+        await createQuery(CapBlob, InsertQueryBuilder).query.values({ Id: one, Email: 'a', Name: 'one' }).orIgnore();
+
+        expect(fixture.writes.map((w) => [w.unknownKeys, w.keylessRows, w.rows])).to.deep.eq([[true, 0, []]]);
+      });
     });
   });
 });
