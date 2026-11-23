@@ -8,7 +8,7 @@ import { DI } from '@spinajs/di';
 import type { OrmDriver } from '@spinajs/orm';
 import { createHash } from 'node:crypto';
 
-import { AUTHZ_CHANGELOG_CONFIGURATION_SCHEMA, CHANGELOG_RETENTION_DAYS_DEFAULT, changeLogRetentionDays, pruneChangeLog, readPolicyVersion, recordPolicyVersion } from '../../src/index.js';
+import { AUTHZ_CHANGELOG_CONFIGURATION_SCHEMA, CHANGELOG_RETENTION_DAYS_DEFAULT, changeLogRetentionDays, pruneChangeLog, readPolicyVersion, recordCoverage, recordPolicyVersion } from '../../src/index.js';
 import { CHANGELOG_RETENTION_SCHEDULE, ChangeLogRetentionTask } from '../../src/scheduler.js';
 import { createChangeLogTables, dropChangeLogTables } from '../support/changelog.js';
 import { TestDb } from '../support/db.js';
@@ -80,6 +80,14 @@ describe('policy versions and changelog retention (sqlite)', function () {
     expect(await pruneChangeLog(400, now)).to.equal(1);
     expect((await changeLog().since(0)).map((c) => c.key)).to.deep.equal(['edge', 'new']);
     expect(await rejection(pruneChangeLog(0, now))).to.be.instanceOf(AuthzConfigError);
+  });
+
+  it('retention moves the horizon to its cutoff, and leaves a later one alone', async () => {
+    await recordCoverage(['tuple'], [], [], new Date('2025-01-01T00:00:00Z'));
+    await recordCoverage(['rule'], [], [], new Date('2026-11-01T00:00:00Z'));
+    await pruneChangeLog(400, new Date('2026-11-06T00:00:00Z'));
+    expect((await changeLog().coveredSince('tuple'))!.toISOString()).to.equal('2025-10-02T00:00:00.000Z');
+    expect((await changeLog().coveredSince('rule'))!.toISOString()).to.equal('2026-11-01T00:00:00.000Z');
   });
 
   it('reads authz.changelog.retentionDays, 400 by default', () => {

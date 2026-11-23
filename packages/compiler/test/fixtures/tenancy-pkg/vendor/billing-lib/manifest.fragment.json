@@ -1,0 +1,20 @@
+{
+  "manifestVersion": 2,
+  "package": { "name": "billing-lib", "version": "1.0.0", "entry": "index.js", "outDir": "." },
+  "services": [],
+  "values": [],
+  "controllers": [],
+  "socketControllers": [],
+  "socketContracts": [],
+  "configModules": [],
+  "configUsages": [],
+  "models": [
+    { "id": "billing-lib:BillingRecord", "className": "BillingRecord", "tableName": "billing_records", "columns": [], "relations": [], "tenant": { "column": "org_id" }, "source": { "file": "src/index.ts", "line": 3, "col": 1, "package": "billing-lib" } }
+  ],
+  "migrations": [],
+  "schedules": [],
+  "commands": [],
+  "queueMessages": [],
+  "schemas": {},
+  "diagnostics": []
+}

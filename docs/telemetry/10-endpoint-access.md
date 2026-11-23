@@ -70,7 +70,7 @@ The `'AccessPolicy'` slots let every request through only when all three hold:
 2. `configuration.isProduction` is not `true`;
 3. the env names development: the env the configuration loaded (`--env`, else `APP_ENV`), else `APP_ENV`, else `NODE_ENV`, normalized with `normalizeEnvironment()` to `'dev'`. A missing env counts as production.
 
-The skip is decided once, when the route registers. `telemetrySkipsAuth(settings, env)` and `isExplicitDevelopment(env, configuredEnv)` are exported for the same decision elsewhere; `configuredEnvOf(instance)` reads the env of the `Configuration` an instance's `@Config()` properties use.
+The skip is decided once, when the route registers. `@spinajs/authz-http` exports the same decision as `skipsAuthInDevelopment(settings, env)` and `isExplicitDevelopment(env, configuredEnv)`; `configuredEnvOf(instance)` reads the env of the `Configuration` an instance's `@Config()` properties use. The slot guard itself is built on the shared [`SlotAccessPolicy`](../authz-http/12-slot-access-policy.md).
 
 ## Services and extension points
 
@@ -137,10 +137,10 @@ export default {
 ### Decide the development skip in your own code
 
 ```ts sample
-import { telemetrySkipsAuth } from '@spinajs/telemetry';
+import { skipsAuthInDevelopment } from '@spinajs/authz-http';
 
 export function canSkipAuth(cfg: { get<T>(path: string, def?: T): T }): boolean {
-  return telemetrySkipsAuth({
+  return skipsAuthInDevelopment({
     skipInDevelopment: cfg.get('telemetry.auth.skipInDevelopment'),
     isProduction: cfg.get('configuration.isProduction'),
   });

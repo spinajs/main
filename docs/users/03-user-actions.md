@@ -36,7 +36,7 @@ Each of these runs its own checks, then its [action hook](04-action-hooks.md) (`
 | `ban(identifier, reason = 'NO_REASON', duration = 86400, actor = SYSTEM)` | Refuse with `UserIsBanned` when `IsBanned`; write the four `user:ban:*` keys (duration in seconds, both values as a hook left them); revoke sessions and tokens | `UserMetadataChange`, `UserBanned`; mail `banned` |
 | `unban(identifier)` | Refuse with `UserIsBanned` when `user:ban:is_banned` is not set; delete the four `user:ban:*` keys | `UserUnbanned`; mail `unbanned` |
 | `deleteUser(identifier, actor = SYSTEM)` | Soft delete (`destroy()`), revoke sessions and tokens | `UserDeleted`; mail `deleted` |
-| `expirePassword(identifier, actor = SYSTEM)` | `PasswordService.expire(user:<Uuid>, { cause: 'admin', actor })`: stores `'!expired'`, ends authn sessions and, under `authn.local.reset.revokeTokens`, API tokens. The account stays active. | `UserPasswordExpired` (through [`QueueAuthnEventSink`](08-authn-event-sinks.md)); mail `passwordExpired` |
+| `expirePassword(identifier, actor = SYSTEM)` | `PasswordService.expire(user:<Uuid>, { cause: 'admin', actor })`: stores `'!expired'`, ends authn sessions and, under `authn.local.reset.revokeTokens`, API tokens. The account stays active. | `UserPasswordExpired` (through [`QueueAuthnEventListener`](08-authn-event-sinks.md)); mail `passwordExpired` |
 | `notifyPasswordWillExpire(identifier, expiresAt?)` | Nothing changes | mail `passwordWillExpire` with `ExpiresAt` in the model |
 | `updateUser(user, data?)` | `updateModel(user, data)`; a `Login` or `Email` a hook changed must be free | `UserChanged` |
 

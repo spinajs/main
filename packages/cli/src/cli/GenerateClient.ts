@@ -2,7 +2,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { basename, dirname, extname, resolve } from 'node:path';
 import { Log, Logger } from '@spinajs/log-common';
 import { CliCommand, Command, Option } from '../index.js';
-import { outputPaths, parseList, toFilesOptions, unavailableFlag, type GenerateClientFlags } from '../generateClientFlags.js';
+import { diagnosticErrors, diagnosticLines, outputPaths, parseList, toFilesOptions, unavailableFlag, type GenerateClientFlags } from '../generateClientFlags.js';
 
 @Command('generate:client', 'Writes a typed client from app.manifest.json')
 @Option('-m, --manifest <path>', false, 'application manifest file', 'app.manifest.json')
@@ -21,6 +21,7 @@ import { outputPaths, parseList, toFilesOptions, unavailableFlag, type GenerateC
 @Option('--next', false, 'write the Next.js adapter (implies --server)')
 @Option('--mocks', false, 'write mock data and a fake client')
 @Option('--msw', false, 'also write MSW handlers (needs --mocks)')
+@Option({ flags: '--import-extension <mode>', description: 'how generated files import each other: js (Node ESM), ts, or none (bundlers such as Turbopack)', choices: ['js', 'ts', 'none'] })
 @Option('--check', false, 'write nothing; exit with code 1 and list the files that differ from disk')
 export class GenerateClient extends CliCommand {
   @Logger('cli')
@@ -39,8 +40,17 @@ export class GenerateClient extends CliCommand {
     if (refused) throw new Error(`${refused} is not available in this version`);
 
     const out = resolve(options.out);
-    const files = await generateClientFiles({ ...filesOptions, manifest: await readManifest(options.manifest), basename: basename(out, extname(out)) });
+    const files = await generateClientFiles({ ...filesOptions, manifest: await readManifest(options.manifest), basename: basename(out, extname(out)), fileExtension: extname(out) === '.mts' ? '.mts' : '.ts' });
     const targets = outputPaths(out, files);
+
+    const lines = diagnosticLines(files);
+    if (lines.length > 0) process.stderr.write(`${lines.join('\n')}\n`);
+    const errors = diagnosticErrors(files);
+    if (errors > 0) {
+      process.stderr.write(`${errors} generator diagnostic(s) are errors (--zod-unsupported error); no file was written or checked\n`);
+      process.exitCode = 1;
+      return;
+    }
 
     if (options.check) {
       await this.check(targets);

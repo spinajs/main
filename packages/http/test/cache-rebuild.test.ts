@@ -25,7 +25,7 @@ function makeCache(existing: boolean, entries: string[] = ['0.0.1_deadbeef', 'do
   const cache = new DefaultControllerCache();
 
   Object.defineProperty(cache, 'Log', { value: noopLog });
-  Object.defineProperty(cache, 'Hasher', { value: { hash: async () => 'deadbeef' } });
+  Object.defineProperty(cache, 'Hasher', { value: { hash: async () => 'deadbeef', hashData: async () => 'deadbeef' } });
   Object.defineProperty(cache, 'CacheFS', {
     value: {
       exists: async (...args: unknown[]) => {

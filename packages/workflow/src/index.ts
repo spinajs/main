@@ -20,3 +20,4 @@ export * from './policy.js';
 export * from './health.js';
 export * from './worker.js';
 export * from './signals.js';
+export * from './lineage.js';

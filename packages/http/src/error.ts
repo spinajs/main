@@ -5,7 +5,7 @@ import { DI, Constructor } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 import { HTTP_ERROR_MAP } from './tokens.js';
 import { HTTP_STATUS_CODE, HttpAcceptHeaders, Response as HttpResponse } from './interfaces.js';
-import { deliverReply, repliedInPlace } from './reply-pipeline.js';
+import { deliverReply, endedWithoutAction, repliedInPlace } from './reply-pipeline.js';
 import { ServerError } from './response-methods/serverError.js';
 import { BadRequestResponse } from './response-methods/badRequest.js';
 import { BadRequest, CodedHttpException } from '@spinajs/exceptions';
@@ -166,6 +166,7 @@ export function __handle_error__(container: IContainer = DI.RootContainer, reply
         // as if it were whole: the connection is dropped.
         if (res.headersSent) {
             logger.error({ error: err, method: req.method, url: redactUrl(req.originalUrl) }, 'Error in controller ${method} at path ${url} after its reply started');
+            endedWithoutAction(res, err);
             if (!res.writableEnded) {
                 res.destroy();
             }

@@ -16,7 +16,7 @@ const { instance } = testHost;
 export class AdminHarnessBackend extends MemoryAuthzAdminBackend {}
 
 /** The adminEvents lane handle. */
-export class RecordingEventSink extends AuthzEventSink {
+export class RecordingEventListener extends AuthzEventSink {
   readonly events: AuthzEvent[] = [];
 
   async publish(events: readonly AuthzEvent[]): Promise<void> {
@@ -46,7 +46,7 @@ export interface AdminSideStores {
   readonly links: MemoryLinkStore;
   readonly rules: MemoryRuleStore;
   readonly attributes?: MemoryScopeAttributeStore;
-  readonly events: RecordingEventSink;
+  readonly events: RecordingEventListener;
 }
 
 /** The stores one case runs on, for tests that look past AuthzAdmin. */
@@ -85,7 +85,7 @@ export function registerAdminSide(host: HostSetup, roleStore: RoleStore, opts: A
     links: (rbac.links ?? []).filter((l) => !l.revoked).map((l) => ({ link: { id: l.id, scope: l.scope, expiresAt: l.expiresAt ?? null, attributes: l.attributes ?? {}, ...(l.createdBy ? { createdBy: l.createdBy } : {}) }, token: l.token, role: l.role, tags: l.tags })),
   });
   const rules = new MemoryRuleStore(opts.configRules ? {} : { rules: rbac.rules });
-  const events = new RecordingEventSink();
+  const events = new RecordingEventListener();
 
   c.register(instance(assignments)).as(AssignmentStore);
   c.register(instance(assignments)).as(AdminAssignmentStore);

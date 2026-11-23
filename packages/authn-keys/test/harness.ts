@@ -1,8 +1,8 @@
 import { AuthnAudit } from '@spinajs/authn/audit';
-import type { AuthenticationStrategy, AuthnEventSink, NonceStore } from '@spinajs/authn/contracts';
+import type { AuthenticationStrategy, AuthnEventListener, NonceStore } from '@spinajs/authn/contracts';
 import { MemoryNonceStore } from '@spinajs/authn/nonces';
 import { DbNonceStore } from '@spinajs/authn-orm';
-import { EnrolledMfaPolicy, FakeAuthnService, FakeBackoffThrottle, FakeIdentityStore, MemoryLinkStore, MemoryPasswordCredentialStore, MemorySecretStore, MemorySessionIssuer, RecordingEventSink, RecordingPrincipalFactory, ScriptedActionHook, UnsupportedConfig, fakeSeedPort, generateKeyPair, kitHooks, throttleParams } from '@spinajs/authn-testing';
+import { EnrolledMfaPolicy, FakeAuthnService, FakeBackoffThrottle, FakeIdentityStore, MemoryLinkStore, MemoryPasswordCredentialStore, MemorySecretStore, MemorySessionIssuer, RecordingEventListener, RecordingPrincipalFactory, ScriptedActionHook, UnsupportedConfig, fakeSeedPort, generateKeyPair, kitHooks, throttleParams } from '@spinajs/authn-testing';
 import type { ConfigOverrides, Harness, HarnessContext, KitKeyPair } from '@spinajs/authn-testing';
 import { signChallenge } from '../src/challenge/index.js';
 import { LocalJwsSigner, StrictJwsVerifier } from '../src/jws/index.js';
@@ -45,8 +45,8 @@ export interface KeysParts {
   readonly nonces: NonceStore;
   readonly secrets: MemorySecretStore;
   readonly throttle: FakeBackoffThrottle;
-  readonly events: RecordingEventSink;
-  readonly sinks: AuthnEventSink[];
+  readonly events: RecordingEventListener;
+  readonly listeners: AuthnEventListener[];
   readonly identities: FakeIdentityStore;
   readonly sessions: MemorySessionIssuer;
   readonly registry: DefaultKeyRegistry;
@@ -76,12 +76,12 @@ export async function keysParts(config: ConfigOverrides, kind: StoreKind, hooks 
   const secrets = new MemorySecretStore();
   const params = throttleParams(config);
   const throttle = new FakeBackoffThrottle(params);
-  const events = new RecordingEventSink();
-  const sinks: AuthnEventSink[] = [events];
+  const events = new RecordingEventListener();
+  const listeners: AuthnEventListener[] = [events];
   const identities = new FakeIdentityStore();
   const sessions = new MemorySessionIssuer();
   const hook = hooks ? new ScriptedActionHook() : undefined;
-  const registry = new DefaultKeyRegistry({ store, secrets, throttle, audit: AuthnAudit.over(sinks), options, ...(hook ? { hooks: await kitHooks([hook]) } : {}) });
+  const registry = new DefaultKeyRegistry({ store, secrets, throttle, audit: AuthnAudit.over(listeners), options, ...(hook ? { hooks: await kitHooks([hook]) } : {}) });
   const verifier = new StrictJwsVerifier();
   const strategies = [new JwsAssertionStrategy({ registry, verifier, nonces, options }), new HttpSignatureStrategy({ registry, nonces, options }), new KeyChallengeStrategy({ registry, secrets, options })];
   const service = new FakeAuthnService({
@@ -93,10 +93,10 @@ export async function keysParts(config: ConfigOverrides, kind: StoreKind, hooks 
     policy: new EnrolledMfaPolicy([]),
     steps: [],
     sessions,
-    sinks,
+    listeners,
     principals: new RecordingPrincipalFactory(),
   });
-  return { options, store, nonces, secrets, throttle, events, sinks, identities, sessions, registry, verifier, strategies, service, ...(hook ? { hook } : {}) };
+  return { options, store, nonces, secrets, throttle, events, listeners, identities, sessions, registry, verifier, strategies, service, ...(hook ? { hook } : {}) };
 }
 
 export async function keysHarness(ctx: HarnessContext, kind: StoreKind = 'memory', hooks = false): Promise<Harness> {
