@@ -23,6 +23,7 @@ History records what the write capture of `@spinajs/orm` sees: statements built 
 ## Values
 
 - `at` is the instant history recorded the statement, right after it ran, on the application's clock, one per statement, kept to the millisecond. It is not the commit time: entries of concurrent transactions can commit in another order than their `at`.
+- An entry holds the row as the database returns it after the write, not as the write supplied it. A column that cannot hold a character keeps what it stored: an MSSQL `VARCHAR` column (`string()` without `exact()`, code page 1252) turns `Łukasz 東京` into `Lukasz ??`, and that is the value in the entry.
 - Values are raw driver values. A JSON column is an object on Postgres, PGlite and MySQL and its text on sqlite and MSSQL. On sqlite and MSSQL, the same JSON value written with its keys in another order is therefore a change and records an update; where the driver parses JSON it is no change.
 - The keys of `before`, `after` and an `asOf` row come back sorted (the payload is canonical JSON), not in the table's column order.
 - A masked (`@Hidden()`) column is named in `changed` but its value is never stored; `hidden: 'record'` stores it.
