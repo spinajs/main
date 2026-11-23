@@ -2,7 +2,8 @@ import * as chai from 'chai';
 import 'mocha';
 import { audit, auditStore, trailConfig } from '@spinajs/audit';
 import type { AuditInput } from '@spinajs/audit';
-import { LOST_SUBJECT_ID, registerHistory } from '../src/index.js';
+import { LOST_SUBJECT_ID } from '../src/encode.js';
+import { registerHistory } from '../src/index.js';
 import { HistoryDb } from './support/db.js';
 
 const expect = chai.expect;
