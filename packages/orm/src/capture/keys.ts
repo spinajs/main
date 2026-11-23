@@ -48,17 +48,31 @@ export function keyTexts(values: readonly unknown[]): KeyTexts {
   return { keys: [...keys], keyless };
 }
 
+/** Tells keyless values apart without comparing them pairwise; not a key text, so it never reaches `rows`. */
+function keylessIdentity(value: unknown): string | undefined {
+  if (Buffer.isBuffer(value)) return `b:${value.toString('hex')}`;
+  if (value instanceof Date) return `d:${String(value.getTime())}`;
+  if (typeof value === 'number') return `n:${String(value)}`;
+  return undefined;
+}
+
 /**
  * The rows behind the keyless key values of several reads of one statement. One read meets a row once, so values are
- * compared only with those of earlier reads, by value, as the key has no text to compare.
+ * matched only with those of earlier reads.
  */
 export function countKeyless(reads: readonly (readonly unknown[])[]): number {
-  let met: readonly unknown[] = [];
+  const identities = new Set<string>();
+  const others: unknown[] = [];
+  let count = 0;
   for (const values of reads) {
-    const earlier = met;
-    met = met.concat(values.filter((v) => !earlier.some((e) => isDeepStrictEqual(e, v))));
+    const fresh = values.map((value) => ({ value, identity: keylessIdentity(value) })).filter(({ value, identity }) => (identity === undefined ? !others.some((o) => isDeepStrictEqual(o, value)) : !identities.has(identity)));
+    for (const { value, identity } of fresh) {
+      if (identity === undefined) others.push(value);
+      else identities.add(identity);
+    }
+    count += fresh.length;
   }
-  return met.length;
+  return count;
 }
 
 const uniqueKeys = (values: readonly unknown[]): string[] => keyTexts(values).keys;

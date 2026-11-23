@@ -30,6 +30,15 @@ describe('write capture registration', () => {
   it('counts a keyless row several reads met once', () => {
     expect(countKeyless([[Buffer.from([1]), Buffer.from([2])], [], [Buffer.from([2]), Buffer.from([3])]])).to.eq(3);
     expect(countKeyless([[new Date(0)], [new Date(0)], [1.5]])).to.eq(2);
+    expect(countKeyless([[1.5, 2.5], [2.5, NaN], [NaN]])).to.eq(3);
+  });
+
+  it('tells keyless values of different kinds apart', () => {
+    expect(countKeyless([[Buffer.from([0x15])], [new Date(15)], [15.5], [Buffer.from([0x15]), new Date(15), 15.5]])).to.eq(3);
+  });
+
+  it('compares a keyless value of another kind by value', () => {
+    expect(countKeyless([[{ a: 1 }, true], [{ a: 1 }, { a: 2 }, true], [Uint8Array.from([1])], [Buffer.from([1])]])).to.eq(5);
   });
 
   it('declares db.WriteCapture.MaxRows, 0 meaning no limit', () => {
