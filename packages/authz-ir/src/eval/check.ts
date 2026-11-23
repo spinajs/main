@@ -1,9 +1,11 @@
 import { GLOBAL_OBJECT, GLOBAL_TYPE, parseSubjectTypeRef } from '../ir.js';
 import type { ObjectRef, ParsedSubjectType, PolicyIR, RelationDef, RelationName, Rewrite, TupleSubjectRef } from '../ir.js';
+import { tupleContextPaths } from './caveats.js';
 import type { CaveatEvaluator, CaveatInput } from './caveats.js';
 import { and3, explainNode, not3, or3 } from './explain.js';
 import type { ExplainNode, Truth } from './explain.js';
 import type { TupleSource } from './evaluator.js';
+import { TupleSourceGap } from '../replay/gap.js';
 
 /** A check ran past `maxCalls`. */
 export class IRLimitExceeded extends Error {}
@@ -23,7 +25,7 @@ export interface WalkOptions {
   readonly input: CaveatInput;
   readonly maxDepth: number;
   readonly maxCalls: number;
-  /** `type#relation` keys a ceiling's `roles` rules out. */
+  /** `type#relation` keys a ceiling's `roles` rules out where they permit; a deny side reads them all. */
   readonly blocked: ReadonlySet<string>;
 }
 
@@ -58,6 +60,22 @@ export async function subjectsOf(tuples: TupleSource, object: ObjectRef, name: R
   }
 }
 
+export interface SubjectRead {
+  readonly subjects: readonly TupleSubjectRef[];
+  /** Set when the source could establish only `subjects`: the relation may hold more. */
+  readonly gap?: TupleSourceGap;
+}
+
+/** `subjectsOf`, with a partial read (`TupleSourceGap`) returned as its known subjects and the gap. */
+export async function readSubjects(tuples: TupleSource, object: ObjectRef, name: RelationName, rel: RelationDef): Promise<SubjectRead> {
+  try {
+    return { subjects: await subjectsOf(tuples, object, name, rel) };
+  } catch (e) {
+    if (e instanceof TupleSourceGap) return { subjects: e.known, gap: e };
+    throw e;
+  }
+}
+
 async function readAll(tuples: TupleSource, object: ObjectRef, name: RelationName): Promise<TupleSubjectRef[]> {
   const out: TupleSubjectRef[] = [];
   for await (const s of tuples.read(object, name)) out.push(s);
@@ -74,13 +92,17 @@ export class Walker {
   private readonly memo = new Map<string, Truth>();
   private readonly path = new Set<string>();
   private calls = 0;
+  /** Below the subtract of an exclusion or the `when` of a deny entry: what holds here takes access away. */
+  private denying = false;
   tooDeep?: string;
 
   constructor(private readonly o: WalkOptions) {}
 
   async node(object: ObjectRef, name: RelationName, depth: number): Promise<Step> {
     const key = `${objectLabel(object)}#${name}`;
-    const known = this.memo.get(`${key}@${depth}`);
+    // The same node answers differently on a deny side, where no role relation is blocked.
+    const memoKey = `${key}@${depth}${this.denying ? '!' : ''}`;
+    const known = this.memo.get(memoKey);
     if (known) return { truth: known, cut: false, node: explainNode(key, known, 'memo') };
     if (this.path.has(key)) return { truth: 'deny', cut: true, node: explainNode(key, 'deny', 'cycle') };
     if (++this.calls > this.o.maxCalls) throw new IRLimitExceeded(`maxCalls ${this.o.maxCalls} exceeded at ${key}`);
@@ -91,7 +113,7 @@ export class Walker {
       if (type !== undefined && own(type.permissions, name)) out = await this.rewrite(object, name, type.permissions[name], depth);
       else if (type !== undefined && own(type.relations, name)) out = await this.stored(object, name, depth);
       else out = { truth: 'deny', cut: false, node: explainNode('no such relation', 'deny', `types.${object.type}`) };
-      if (!out.cut) this.memo.set(`${key}@${depth}`, out.truth);
+      if (!out.cut) this.memo.set(memoKey, out.truth);
       return { ...out, node: explainNode(key, out.truth, `types.${object.type}.${type && own(type.permissions, name) ? 'permissions' : 'relations'}.${name}`, [out.node]) };
     } finally {
       this.path.delete(key);
@@ -114,17 +136,18 @@ export class Walker {
   private async stored(object: ObjectRef, name: RelationName, depth: number): Promise<Step> {
     const rel = this.o.ir.types[object.type].relations[name];
     if (rel === undefined) return { truth: 'deny', cut: false, node: explainNode(`${name} is not stored`, 'deny', `types.${object.type}`) };
-    if (this.o.blocked.has(`${object.type}#${name}`)) return { truth: 'deny', cut: false, node: explainNode(`${name} is outside the ceiling roles`, 'deny', 'principal.ceiling') };
+    if (!this.denying && this.o.blocked.has(`${object.type}#${name}`)) return { truth: 'deny', cut: false, node: explainNode(`${name} is outside the ceiling roles`, 'deny', 'principal.ceiling') };
     const allowed = rel.allowed.map(parseSubjectTypeRef);
     const p = this.o.input.principal;
     const branches: Array<() => Promise<Step>> = [];
-    for (const s of await subjectsOf(this.o.tuples, object, name, rel)) {
+    const read = await readSubjects(this.o.tuples, object, name, rel);
+    for (const s of read.subjects) {
       if (!admits(allowed, s)) continue;
       const label = `${objectLabel(object)}#${name}@${subjectLabel(s)}`;
       if (s.relation !== undefined) branches.push(() => this.caveated(s.caveat?.name, s.caveat?.context, () => this.hop({ type: s.type, id: s.id }, s.relation!, depth), label));
       else if (s.type === p.type && (s.id === p.id || s.id === '*')) branches.push(() => this.caveated(s.caveat?.name, s.caveat?.context, () => Promise.resolve(leaf(label, 'allow', rel.source.kind)), label));
     }
-    return this.junction('union', branches);
+    return partial(await this.junction('union', branches), read.gap);
   }
 
   /** A node one tuple hop below `depth`, or `unknown` past maxDepth. */
@@ -141,10 +164,11 @@ export class Walker {
     const rel = this.o.ir.types[object.type].relations[tupleset];
     if (rel === undefined) return leaf(`${tupleset} is not a tupleset`, 'deny', `types.${object.type}`);
     const allowed = rel.allowed.map(parseSubjectTypeRef);
-    const branches = (await subjectsOf(this.o.tuples, object, tupleset, rel))
+    const read = await readSubjects(this.o.tuples, object, tupleset, rel);
+    const branches = read.subjects
       .filter((s) => s.relation === undefined && s.id !== '*' && own(this.o.ir.types, s.type) && admits(allowed, s))
       .map((s) => () => this.caveated(s.caveat?.name, s.caveat?.context, () => this.hop({ type: s.type, id: s.id }, computed, depth), `${objectLabel(object)}#${tupleset}@${subjectLabel(s)}`));
-    const out = await this.junction('union', branches);
+    const out = partial(await this.junction('union', branches), read.gap);
     return { ...out, node: explainNode(`${tupleset}->${computed}`, out.truth, 'tupleToUserset', out.node.children) };
   }
 
@@ -167,7 +191,7 @@ export class Walker {
   private async exclusion(object: ObjectRef, self: RelationName, base: Rewrite, subtract: Rewrite, depth: number): Promise<Step> {
     const b = await this.rewrite(object, self, base, depth);
     if (b.truth === 'deny') return { ...b, node: explainNode('exclusion', 'deny', 'exclusion', [b.node]) };
-    const s = await this.rewrite(object, self, subtract, depth);
+    const s = await this.onDenySide(() => this.rewrite(object, self, subtract, depth));
     const truth: Truth = s.truth === 'allow' ? 'deny' : b.truth === 'allow' && s.truth === 'deny' ? 'allow' : 'unknown';
     return { truth, cut: b.cut || s.cut, node: explainNode('exclusion', truth, 'exclusion', [b.node, s.node]) };
   }
@@ -176,10 +200,12 @@ export class Walker {
   private async caveated(caveat: string | undefined, tupleContext: Readonly<Record<string, unknown>> | undefined, inner: () => Promise<Step>, label?: string): Promise<Step> {
     if (caveat === undefined) {
       const r = await inner();
+      // Stryker disable next-line ConditionalExpression: a call without a caveat always has a label (only `{ caveat, of }` omits one, and it has a caveat), so this is never true
       return label === undefined ? r : { ...r, node: explainNode(label, r.truth, 'tuple', [r.node]) };
     }
     const c = await this.o.caveats.evaluate(caveat, this.o.input, tupleContext);
-    const cNode = explainNode(`caveat ${caveat}`, c, `caveats.${caveat}`);
+    const supplied = tupleContextPaths(tupleContext);
+    const cNode: ExplainNode = { ...explainNode(`caveat ${caveat}`, c, `caveats.${caveat}`), ...(supplied.length === 0 ? {} : { tupleContext: supplied }) };
     if (c === 'deny') return { truth: 'deny', cut: false, node: explainNode(label ?? `with ${caveat}`, 'deny', 'caveat', [cNode]) };
     const r = await inner();
     const truth = and3(c, r.truth);
@@ -189,11 +215,12 @@ export class Walker {
   /** First-applicable: entry i decides when its `when` holds and no earlier `when` does, the Kleene form of `FirstApplicable.combine`. */
   private async priority(object: ObjectRef, self: RelationName, entries: ReadonlyArray<{ when: Rewrite; then: 'permit' | 'deny' }>, depth: number): Promise<Step> {
     let result: Truth = 'deny';
+    // Stryker disable next-line StringLiteral: its initial value is read only by and3, which treats every value but 'deny' and 'unknown' as 'allow'
     let earlierMiss: Truth = 'allow';
     let cut = false;
     const children: ExplainNode[] = [];
     for (const e of entries) {
-      const w = await this.rewrite(object, self, e.when, depth);
+      const w = e.then === 'deny' ? await this.onDenySide(() => this.rewrite(object, self, e.when, depth)) : await this.rewrite(object, self, e.when, depth);
       children.push(explainNode(`then ${e.then}`, w.truth, 'priority', [w.node]));
       cut ||= w.cut;
       if (e.then === 'permit') result = or3(result, and3(w.truth, earlierMiss));
@@ -202,7 +229,25 @@ export class Walker {
     }
     return { truth: result, cut, node: explainNode('priority', result, 'priority', children) };
   }
+
+  /** A ceiling's `roles` narrow permits only (G6), as the RBAC engine counts every deny role: nothing is blocked while `walk` runs. */
+  private async onDenySide(walk: () => Promise<Step>): Promise<Step> {
+    const outer = this.denying;
+    this.denying = true;
+    try {
+      return await walk();
+    } finally {
+      this.denying = outer;
+    }
+  }
 }
 
 const leaf = (label: string, truth: Truth, source: string): Step => ({ truth, cut: false, node: explainNode(label, truth, source) });
+
+/** A union over a partial read: the subjects the read missed could still allow. */
+function partial(out: Step, gap: TupleSourceGap | undefined): Step {
+  if (gap === undefined) return out;
+  const truth = or3(out.truth, 'unknown');
+  return { ...out, truth, node: explainNode(out.node.label, truth, out.node.source, [...out.node.children, explainNode(gap.message, 'unknown', 'gap')]) };
+}
 

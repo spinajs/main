@@ -9,7 +9,7 @@ import type { LinkDef, RuleDef } from '../../src/contracts.js';
 
 import type { Assignment, AssignmentSubject } from '../../src/index.js';
 import { adminHarness } from './admin-harness.js';
-import type { RecordingEventSink } from './admin-harness.js';
+import type { RecordingEventListener } from './admin-harness.js';
 
 const expect = chai.expect;
 const { ref, role } = fixtureDsl;
@@ -213,7 +213,7 @@ describe('AuthzAdmin: canvas C6 writes (design §6.6.4)', function () {
     expect(JSON.stringify(listed)).to.not.include(created.token);
     expect(JSON.stringify(published())).to.not.include(created.token);
     expect(JSON.stringify(session.audit!.entries)).to.not.include(created.token);
-    expect(JSON.stringify((session.lane?.adminEvents as RecordingEventSink).events)).to.not.include(created.token);
+    expect(JSON.stringify((session.lane?.adminEvents as RecordingEventListener).events)).to.not.include(created.token);
     expect(await rolesOf(P1, { type: 'link', id: created.link.id })).to.deep.equal(['viewer']);
     const viaLink = linkPrincipal(created.link.id, { scope: P1, expiresAt });
     expect(await allows(viaLink, 'inspect:view', F1)).to.equal(true);

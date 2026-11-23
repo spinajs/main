@@ -1,8 +1,8 @@
 import { Injectable } from '@spinajs/di';
-import { SelectQueryBuilder, SqlOperator, extractModelDescriptor, SelectQueryExtension } from '@spinajs/orm';
+import { SelectQueryBuilder, SqlOperator, extractModelDescriptor, SelectQueryExtension, LikeLiteral } from '@spinajs/orm';
 import type { QueryBuilder } from '@spinajs/orm';
 import { IFilter, IFilterEntry, isFilterGroup, IColumnFilter, FilterableLogicalOperators, FilterableOperators } from './interfaces.js';
-import { _is_array, _min_length, _is_string, _non_undefined, _check_arg, _trim, _non_empty } from '@spinajs/util';
+import { _is_array, _min_length, _max_length, _is_string, _non_undefined, _check_arg, _trim, _non_empty } from '@spinajs/util';
 import { InvalidArgument } from '@spinajs/exceptions';
 
 /**
@@ -14,7 +14,8 @@ const ValidationHelpers = {
   },
 
   requireTwoValueArray: (filter: IFilter) => {
-    _check_arg(_is_array(), _min_length(2, new InvalidArgument(`Operator '${filter.Operator}' for column '${filter.Column}' requires an array with exactly 2 values, got: ${filter.Value.length}`, filter.Column, 'LENGTH_TOO_SHORT')))(filter.Value, filter.Column);
+    const message = `Operator '${filter.Operator}' for column '${filter.Column}' requires an array with exactly 2 values, got: ${filter.Value?.length}`;
+    _check_arg(_is_array(), _min_length(2, new InvalidArgument(message, filter.Column, 'LENGTH_TOO_SHORT')), _max_length(2, new InvalidArgument(message, filter.Column, 'LENGTH_TOO_LONG')))(filter.Value, filter.Column);
   },
 
   requireString: (filter: IFilter) => {
@@ -29,6 +30,10 @@ const ValidationHelpers = {
     _check_arg(_non_undefined(
       new InvalidArgument(`Operator '${filter.Operator}' for column '${filter.Column}' requires a value, got: ${filter.Value}`, filter.Column, 'VALUE_REQUIRED')
     ))(filter.Value, filter.Column);
+
+    if (Array.isArray(filter.Value)) {
+      throw new InvalidArgument(`Operator '${filter.Operator}' for column '${filter.Column}' requires a single value, got an array`, filter.Column, 'SINGLE_VALUE_REQUIRED');
+    }
   },
 
   noValidation: () => {
@@ -76,18 +81,20 @@ const OPERATOR_MAP: Record<FilterableOperators, {
   },
   'like': {
     validate: ValidationHelpers.requireString,
-    applyAnd: (qb, filter) => qb.andWhere(filter.Column, SqlOperator.LIKE, `%${filter.Value}%`),
-    applyOr: (qb, filter) => qb.orWhere(filter.Column, SqlOperator.LIKE, `%${filter.Value}%`)
+    applyAnd: (qb, filter) => qb.andWhere(filter.Column, SqlOperator.LIKE, LikeLiteral.contains(String(filter.Value))),
+    applyOr: (qb, filter) => qb.orWhere(filter.Column, SqlOperator.LIKE, LikeLiteral.contains(String(filter.Value)))
   },
+  // `b-like` matches values that END with the text and `e-like` values that BEGIN with it, the reverse of what the
+  // names suggest. The names are kept for compatibility: clients rely on them.
   'b-like': {
     validate: ValidationHelpers.requireString,
-    applyAnd: (qb, filter) => qb.andWhere(filter.Column, SqlOperator.LIKE, `%${filter.Value}`),
-    applyOr: (qb, filter) => qb.orWhere(filter.Column, SqlOperator.LIKE, `%${filter.Value}`)
+    applyAnd: (qb, filter) => qb.andWhere(filter.Column, SqlOperator.LIKE, LikeLiteral.endsWith(String(filter.Value))),
+    applyOr: (qb, filter) => qb.orWhere(filter.Column, SqlOperator.LIKE, LikeLiteral.endsWith(String(filter.Value)))
   },
   'e-like': {
     validate: ValidationHelpers.requireString,
-    applyAnd: (qb, filter) => qb.andWhere(filter.Column, SqlOperator.LIKE, `${filter.Value}%`),
-    applyOr: (qb, filter) => qb.orWhere(filter.Column, SqlOperator.LIKE, `${filter.Value}%`)
+    applyAnd: (qb, filter) => qb.andWhere(filter.Column, SqlOperator.LIKE, LikeLiteral.startsWith(String(filter.Value))),
+    applyOr: (qb, filter) => qb.orWhere(filter.Column, SqlOperator.LIKE, LikeLiteral.startsWith(String(filter.Value)))
   },
   'between': {
     validate: ValidationHelpers.requireTwoValueArray,
@@ -250,6 +257,9 @@ function isAggregateColumn(root: SelectQueryBuilder<any>, column: string): boole
   return !!model && (extractModelDescriptor(model)?.Columns.find((c) => c.Name === column)?.Aggregate ?? false);
 }
 
+/** The most conditions `filter()` takes at the top level of a request; a nested group is not counted. */
+export const MAX_FILTERS = 100;
+
 /** `filter()` of select builders, installed by {@link FilterQueryExtension}; exported so a replacing extension can delegate to it. */
 export function filterQuery(this: QueryBuilder, filters?: IFilterEntry[] | null, logicalOperator?: FilterableLogicalOperators, filterColumns?: IColumnFilter<unknown>[]): QueryBuilder {
   const query = this as SelectQueryBuilder<any>;
@@ -258,8 +268,6 @@ export function filterQuery(this: QueryBuilder, filters?: IFilterEntry[] | null,
     return query;
   }
 
-  // Performance optimization: limit the number of filters to prevent abuse
-  const MAX_FILTERS = 100;
   if (filters.length > MAX_FILTERS) {
     throw new InvalidArgument(`Too many filters provided: ${filters.length}. Maximum allowed: ${MAX_FILTERS}`);
   }

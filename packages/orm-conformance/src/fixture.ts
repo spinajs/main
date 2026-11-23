@@ -1,10 +1,10 @@
 import type { OrmDriver } from '@spinajs/orm';
 
-export type FixtureTable = 'cf_users' | 'cf_tags' | 'cf_posts' | 'cf_post_tags' | 'cf_docs' | 'cf_events';
+export type FixtureTable = 'cf_users' | 'cf_tags' | 'cf_posts' | 'cf_post_tags' | 'cf_comments' | 'cf_docs' | 'cf_events' | 'cf_versioned';
 export type FixtureSeed = Partial<Record<FixtureTable, ReadonlyArray<Record<string, unknown>>>>;
 
 /** Parents first: seeds insert in this order and the reset drops in the reverse one. */
-export const FIXTURE_TABLES: readonly FixtureTable[] = ['cf_users', 'cf_tags', 'cf_posts', 'cf_post_tags', 'cf_docs', 'cf_events'];
+export const FIXTURE_TABLES: readonly FixtureTable[] = ['cf_users', 'cf_tags', 'cf_posts', 'cf_post_tags', 'cf_comments', 'cf_docs', 'cf_events', 'cf_versioned'];
 
 async function createFixture(driver: OrmDriver): Promise<void> {
   const schema = driver.schema();
@@ -41,6 +41,13 @@ async function createFixture(driver: OrmDriver): Promise<void> {
     t.foreignKey('TagId').references('cf_tags', 'Id');
   });
 
+  await schema.createTable('cf_comments', (t) => {
+    t.int('Id').primaryKey().autoIncrement();
+    t.int('PostId').notNull();
+    t.string('Body', 64).notNull();
+    t.foreignKey('PostId').references('cf_posts', 'Id');
+  });
+
   await schema.createTable('cf_docs', (t) => {
     t.int('Id').primaryKey().autoIncrement();
     t.string('Label', 64);
@@ -52,6 +59,12 @@ async function createFixture(driver: OrmDriver): Promise<void> {
     t.string('Name', 64).notNull();
     t.dateTime('At').notNull();
     t.date('Day');
+  });
+
+  await schema.createTable('cf_versioned', (t) => {
+    t.int('Id').primaryKey().autoIncrement();
+    t.string('Name', 64).notNull();
+    t.int('Version').notNull();
   });
 }
 

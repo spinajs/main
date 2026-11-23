@@ -181,7 +181,7 @@ describe('B36: deny reasons through the Authorizer', () => {
       expect((await a.check({ principal: alice, permission: 'doc:read', resource: rows[0] })).reason).to.deep.equal({ code: 'blocked', priority: 100, model: 'acl' });
     });
 
-    it('B36: a relation that never settles in the reason pass falls back to the static truths and is logged', async () => {
+    it('B36: a relation that never settles in the reason pass falls back to the static truths and is logged @timing', async () => {
       const rows = [new FakeRow('doc', 'd1', { owner: 'bob', locked: false })];
       const hanging = new FakeRelation('doc', 'blocked', () => new Promise<boolean>(() => undefined));
       const { a, log } = setup(rows, hanging, 30);

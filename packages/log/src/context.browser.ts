@@ -81,6 +81,11 @@ export function scalarContext(ctx: Record<string, unknown>): Record<string, unkn
       if (label !== undefined) {
         out[k] = label;
       }
+    } else if (k === "Tenant") {
+      const label = tenantLabel(v);
+      if (label !== undefined) {
+        out[k] = label;
+      }
     }
   }
   return out;
@@ -96,6 +101,19 @@ function principalLabel(v: unknown): string | undefined {
     return undefined;
   }
   return noControl(`${type.replace(/%/g, "%25").replace(/:/g, "%3A")}:${id}`);
+}
+
+// The scope @spinajs/tenancy keeps in the store (log must not depend on it): the tenant id, or * for the cross-tenant scope.
+function tenantLabel(v: unknown): string | undefined {
+  if (v === null || typeof v !== "object" || Array.isArray(v)) {
+    return undefined;
+  }
+  const { kind, tenant, reason } = v as { kind?: unknown; tenant?: unknown; reason?: unknown };
+  if (kind === "all") {
+    return typeof reason === "string" && reason !== "" ? "*" : undefined;
+  }
+  const id = kind === "tenant" && tenant !== null && typeof tenant === "object" ? (tenant as { id?: unknown }).id : undefined;
+  return typeof id === "string" && id !== "" ? noControl(id) : undefined;
 }
 
 function noControl(s: string): string {

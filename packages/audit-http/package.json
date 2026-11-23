@@ -1,0 +1,66 @@
+{
+  "name": "@spinajs/audit-http",
+  "version": "3.0.23",
+  "description": "Records HTTP requests in the audit trail: the Audit route middleware",
+  "main": "./lib/index.js",
+  "types": "./lib/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/index.d.ts",
+      "import": "./lib/index.js"
+    }
+  },
+  "type": "module",
+  "private": false,
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "scripts": {
+    "build": "npm run clean && npm run compile",
+    "compile": "tsc -b tsconfig.build.json",
+    "clean": "rimraf lib/ && rimraf tsconfig.build.tsbuildinfo",
+    "pretest": "npm run compile",
+    "test": "ts-mocha -p tsconfig.json \"test/**/*.test.ts\"",
+    "lint": "cd ../.. && npm run lint -- packages/audit-http"
+  },
+  "files": [
+    "lib/**/*"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/spinajs/main.git"
+  },
+  "keywords": [
+    "spinajs",
+    "audit",
+    "http"
+  ],
+  "author": "SpinaJS <spinajs@coderush.pl> (https://github.com/spinajs/main)",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/spinajs/main/issues"
+  },
+  "homepage": "https://github.com/spinajs/main#readme",
+  "dependencies": {
+    "@spinajs/audit": "3.0.23",
+    "@spinajs/configuration": "3.0.23",
+    "@spinajs/di": "3.0.23",
+    "@spinajs/exceptions": "3.0.23",
+    "@spinajs/http": "3.0.23",
+    "@spinajs/log-common": "3.0.23",
+    "@spinajs/util": "3.0.23"
+  },
+  "devDependencies": {
+    "@spinajs/fs": "3.0.23",
+    "@spinajs/idempotency": "3.0.23",
+    "@spinajs/intl": "3.0.23",
+    "@spinajs/log": "3.0.23",
+    "@spinajs/testing": "3.0.23"
+  },
+  "spinajs": {
+    "manifest": "lib/manifest.fragment.json"
+  }
+}

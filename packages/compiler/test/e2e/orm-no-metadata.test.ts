@@ -11,7 +11,7 @@ const PROBE = resolve('test/e2e/support/probe.orm.mjs');
 const CONFIG = `
 export default {
   logger: { targets: [{ name: 'Empty', type: 'BlackHoleTarget', layout: '\${message}' }], rules: [{ name: '*', level: 'error', target: 'Empty' }] },
-  db: { DefaultConnection: 'default', Connections: [{ Driver: 'orm-driver-sqlite', Filename: ':memory:', Name: 'default', Migration: { OnStartup: true, Table: 'orm_migrations' } }] },
+  db: { DefaultConnection: 'default', Connections: [{ Driver: 'orm-driver-sqlite', Filename: ':memory:', Name: 'default', Migration: { Table: 'orm_migrations' } }] },
 };
 `;
 

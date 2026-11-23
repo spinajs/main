@@ -10,16 +10,32 @@ import { AUTHZ_REBAC_TUPLE_TABLE } from '../stores/db.js';
 
 type Where = IWhereBuilder<unknown>;
 
-/** EXISTS a tuple of the row (namespace, object_id) with the relation and one of the subject keys; it uses the authz_rebac_tuple_object index. */
+/**
+ * EXISTS a tuple of the row (namespace, object_id) with the relation and either no caveat and one of the subject keys,
+ * or the caveat key and one of the subject keys of a conditional group; it uses the authz_rebac_tuple_object index.
+ */
 function applyExpr(e: RebacPlanExpr, where: Where, row: PlanRow): void {
   if ('tuples' in e) {
     const { relation, subjects } = e.tuples;
-    if (subjects.length === 0) {
+    const conditional = e.tuples.conditional ?? [];
+    if (subjects.length === 0 && conditional.length === 0) {
       where.where(false);
       return;
     }
     const t = row.from(AUTHZ_REBAC_TUPLE_TABLE, 'authz_rt');
-    t.where('namespace', row.type).whereColumn('object_id', '=', outer(row.id)).where('relation', relation).whereIn('subject_key', [...subjects]);
+    t.where('namespace', row.type).whereColumn('object_id', '=', outer(row.id)).where('relation', relation);
+    t.where(function () {
+      if (subjects.length > 0) {
+        this.orWhere(function () {
+          this.whereNull('caveat_key').whereIn('subject_key', [...subjects]);
+        });
+      }
+      for (const c of conditional) {
+        this.orWhere(function () {
+          this.where('caveat_key', c.caveat).whereIn('subject_key', [...c.subjects]);
+        });
+      }
+    });
     where.whereExist(t);
     return;
   }

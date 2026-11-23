@@ -36,6 +36,9 @@
       "path": "../queue/tsconfig.json"
     },
     {
+      "path": "../tenancy/tsconfig.json"
+    },
+    {
       "path": "../util/tsconfig.json"
     }
   ]

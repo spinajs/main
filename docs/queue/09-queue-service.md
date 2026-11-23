@@ -19,6 +19,7 @@
 | `consume<T>(MessageClass, callback?, subscriptionId?, durable?): Promise<void>` | `QueueService`, abstract | Subscribe and handle |
 | `stopConsuming(MessageClass): Promise<void>` | `QueueService`, abstract | Unsubscribe |
 | `get(name?): QueueClient` | `QueueService`, abstract | Connection by name, or `queue.default` |
+| `publishDirect(message, options?): Promise<void>` | `QueueService`, abstract | Send to the brokers now, bypassing the outbox |
 | `Configuration` | `QueueService`, protected, `@Config('queue')` | The `queue` config block |
 | `getConnectionsForMessage(message \| MessageClass): string[]` | `QueueService`, protected | Connection names from `queue.routing` |
 | `Connections` | `DefaultQueueService`, protected | `Map<string, QueueClient>` keyed by connection name |
@@ -101,6 +102,10 @@ export class RecordingQueueService extends QueueService {
       return message.JobId;
     }
     return undefined;
+  }
+
+  public async publishDirect(message: IQueueMessage): Promise<void> {
+    this.Emitted.push(message);
   }
 
   public async consume(messageClass: Constructor<QueueMessage>): Promise<void> {

@@ -1,0 +1,47 @@
+name: conditions
+model: |
+  model
+    schema 1.1
+
+  type user
+  type group
+    relations
+      define member: [user]
+  type folder
+    relations
+      define viewer: [user]
+  type doc
+    relations
+      define parent: [folder with not_expired]
+      define viewer: [user, user with office_ip, group#member with office_ip]
+      define read: viewer or viewer from parent
+
+  # spina:caveat not_expired {"expr":{"attr":"env.day","lt":{"ref":"env.until"}},"params":{"env.day":"int","env.until":"int"}}
+  condition not_expired(env_day: int, env_until: int) {
+    env_day < env_until
+  }
+
+  # spina:caveat office_ip {"expr":{"attr":"env.ip","eq":"10.0.0.1"},"params":{"env.ip":"string"}}
+  condition office_ip(env_ip: string) {
+    env_ip == "10.0.0.1"
+  }
+tuples:
+  - { user: user:anne, relation: viewer, object: doc:d1 }
+  - { user: user:bob, relation: viewer, object: doc:d1, condition: { name: office_ip } }
+  - { user: group:eng#member, relation: viewer, object: doc:d2, condition: { name: office_ip } }
+  - { user: user:carl, relation: member, object: group:eng }
+  - { user: folder:f1, relation: parent, object: doc:d3, condition: { name: not_expired, context: { env_until: 20 } } }
+  - { user: user:dora, relation: viewer, object: folder:f1 }
+tests:
+  - name: conditional tuples
+    check:
+      - { user: user:anne, object: doc:d1, assertions: { read: true } }
+      - { user: user:bob, object: doc:d1, context: { env_ip: "10.0.0.1" }, assertions: { read: true } }
+      - { user: user:bob, object: doc:d1, context: { env_ip: "10.0.0.2" }, assertions: { read: false } }
+      - { user: user:carl, object: doc:d2, context: { env_ip: "10.0.0.1" }, assertions: { read: true } }
+      - { user: user:carl, object: doc:d2, context: { env_ip: "10.0.0.2" }, assertions: { read: false } }
+      - { user: user:dora, object: doc:d3, context: { env_day: 10 }, assertions: { read: true } }
+      - { user: user:dora, object: doc:d3, context: { env_day: 25 }, assertions: { read: false } }
+    list_objects:
+      - { user: user:bob, type: doc, context: { env_ip: "10.0.0.1" }, assertions: { read: [doc:d1] } }
+      - { user: user:bob, type: doc, context: { env_ip: "10.0.0.2" }, assertions: { read: [] } }

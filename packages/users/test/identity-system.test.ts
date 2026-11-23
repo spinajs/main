@@ -8,12 +8,12 @@ import { pathToFileURL } from 'url';
 import { DefaultQueueService } from '@spinajs/queue';
 import { AuthzConfigError, AuthzContributor, ResourceAdapter, SYSTEM, UNATTENDED, currentPrincipal, runWithPrincipal } from '@spinajs/authz';
 import type { Principal } from '@spinajs/authz';
-import { QueryMiddleware } from '@spinajs/orm';
+import { QueryMiddleware, WriteObserver } from '@spinajs/orm';
 import type { AuthnEvent, AuthnEventType, IdentityRef } from '@spinajs/authn/contracts';
 
 import type { ActionName, AfterContext } from '@spinajs/hooks';
 import { EmailSend } from '@spinajs/email';
-import { QueueAuthnEventSink, USER_COMMON_METADATA, User, UserActivated, UserLifecycleMailHook, UserPasswordStateHook, userView, UserIdentityStore, UserLogged, UserPasswordAgeSource, UserPasswordStore } from '../src/index.js';
+import { QueueAuthnEventListener, USER_COMMON_METADATA, User, UserActivated, UserLifecycleMailHook, UserPasswordStateHook, userView, UserIdentityStore, UserLogged, UserPasswordAgeSource, UserPasswordStore } from '../src/index.js';
 import { TEST_USER_UUID } from './migration/rbac.migration.js';
 import { rootAuthz } from './support/authz-host.js';
 import { bootUsersDb, registerUsersTestHost, seedUser, storedUser } from './support/users-db.js';
@@ -86,7 +86,7 @@ describe('the identity stores over a user model that is an @AccessResource', fun
   after(() => {
     // What the import registered (the package does not export these classes).
     for (const [service, name] of [
-      [QueryMiddleware, 'AncestorMiddleware'],
+      [WriteObserver, 'AncestorObserver'],
       [QueryMiddleware, 'AccessGuardMiddleware'],
       [QueryMiddleware, 'AccessListMiddleware'],
       [ResourceAdapter, 'OrmResourceAdapter'],
@@ -227,12 +227,12 @@ describe('the identity stores over a user model that is an @AccessResource', fun
     }
   });
 
-  it('QueueAuthnEventSink reads the user of the event', async () => {
+  it('QueueAuthnEventListener reads the user of the event', async () => {
     scopeUsers();
-    const sink = await DI.resolve(QueueAuthnEventSink);
+    const sink = await DI.resolve(QueueAuthnEventListener);
 
     for (const [name, caller] of CALLERS) {
-      expect(await principalAfter(caller, () => sink.publish(event('login', { type: 'user', id: TEST_USER_UUID }, { strategy: 'local' }))), name).to.eq(caller ?? UNATTENDED);
+      expect(await principalAfter(caller, () => sink.on(event('login', { type: 'user', id: TEST_USER_UUID }, { strategy: 'local' }))), name).to.eq(caller ?? UNATTENDED);
     }
 
     expect(emit.args.map((a) => a[0]).filter((e) => e instanceof UserLogged)).to.have.lengthOf(2);
