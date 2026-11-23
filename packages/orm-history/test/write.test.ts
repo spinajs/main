@@ -416,6 +416,12 @@ describe('history writes', function () {
           await Doc.update({ native: '{ "b": 2, "a": 1 }' }).where('id', 'd8');
           await Doc.update({ native: '{"a":1,"b":3}' }).where('id', 'd8');
           expect(await changes('d8')).to.deep.eq([['insert', []], ['update', ['native']]]);
+
+          await Doc.insert({ id: 'd10', sub: { a: 1, b: 2 } });
+          await Doc.update({ sub: { b: 2, a: 1 } }).where('id', 'd10');
+          await Doc.update({ sub: { a: 1, b: 3 } }).where('id', 'd10');
+          expect((await db.rows('doc', dialect)).find((r) => r.id === 'd10')?.sub).to.eq('{"a":1,"b":3}');
+          expect(await changes('d10')).to.deep.eq([['insert', []], ['update', ['sub']]]);
         });
 
         it("compares as text a declared JSON column whose text holds a number with more than 15 significant digits or outside the double's normal range", async () => {

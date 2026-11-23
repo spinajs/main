@@ -8,7 +8,7 @@ A value converter turns one column's database value into a JS value and back: a 
 
 1. A converter decorator (`@DateTime()`, `@Json()`, ...) records `{ Class, Options }` in the model descriptor's `Converters` map, keyed by property name.
 2. `Orm.resolve()` calls `reloadTableInfo()`, which reads every model's columns with `driver.tableInfo()`.
-3. For each `Converters` entry whose column exists in the table, `Orm` checks `connection.Container.hasRegistered(Class)`. When registered, it resolves the class and stores the instance in `column.Converter`.
+3. For each `Converters` entry whose column exists in the table, `Orm` checks `connection.Container.hasRegistered()` for the class and then for each of its base classes. When one is registered, it resolves the declared class and stores the instance in `column.Converter`. A subclass of a shipped converter therefore runs without its own registration.
 4. A column still without a converter gets one from the `__orm_db_value_converters__` map, looked up by its lowercased native type.
 5. The resolved instance stays on the column descriptor and is shared by every instance of the model.
 
@@ -175,7 +175,8 @@ DI.register(JsonValueConverter).asMapValue('__orm_db_value_converters__', 'json'
 ## Important behaviour
 
 - Converters attach once, during `Orm.resolve()`, and only to columns found in the reflected table. A model whose table does not exist gets none, and `hydrate()` copies every value raw through `NonDbPropertyHydrator`.
-- A decorator's converter class that is not registered in DI is skipped without an error. Register it, for example with `@Injectable()`.
+- A decorator's converter class that is not registered in DI, and does not extend a registered class, is skipped without an error. Register it, for example with `@Injectable()`.
+- A column may declare a subclass of a shipped converter (`JsonValueConverter`, `UuidConverter`, `DatetimeValueConverter`, `BooleanValueConverter`, `TimeValueConverter`, `SetValueConverter`, `Int64ValueConverter`, `UniversalValueConverter`). The subclass runs on write and read, not the class the driver registers for its base. A subclass of `SqlBooleanValueConverter` or `SqlSetConverter` is skipped: those classes implement their base instead of extending it.
 - The native-type lookup never attaches a datetime converter: no lowercase datetime key exists in the default map. Declare `@DateTime()` on datetime columns.
 - `@DateTime()` reads the emitted design type. `DateTime | null` emits `Object` and throws at class definition unless the decorator is given `nullable: true`. `@CreatedAt()`, `@UpdatedAt()`, `@SoftDelete()` and `@Archived()` keep the strict check and always use seconds.
 - On SQLite a column declared with a numeric type in any case (`INTEGER`, `BIGINT`, `REAL`, `NUMERIC`, ...) receives Unix seconds from `@DateTime()`, `@CreatedAt()`, `@UpdatedAt()`, `@SoftDelete()` and `@Archived()`; they share `DatetimeValueConverter`. A numeric column that holds ISO text written by an earlier version needs a one-time conversion; see [Migration](../orm-sqlite/04-schema-and-ddl.md#migration).
