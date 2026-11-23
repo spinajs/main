@@ -3,8 +3,8 @@ import { DI, Singleton } from '@spinajs/di';
 import type { Constructor } from '@spinajs/di';
 import { Logger } from '@spinajs/log-common';
 import type { Log } from '@spinajs/log-common';
-import { UuidConverter, extendModel, extractModelDescriptor, unextendModel } from '@spinajs/orm';
-import type { IModelDescriptor, ModelBase, ModelBaseClass, ModelMembers } from '@spinajs/orm';
+import { Orm, UuidConverter, extendModel, extractModelDescriptor, unextendModel } from '@spinajs/orm';
+import type { IModelDescriptor, ModelBase, ModelBaseClass, ModelMembers, OrmDriver } from '@spinajs/orm';
 
 import { HistoryConfigError } from './errors.js';
 import { DEFAULT_HISTORY_TRAIL, lineageOf, ruleFor } from './rules.js';
@@ -107,6 +107,25 @@ function assertKeyed(model: ModelBaseClass, d: IModelDescriptor | null | undefin
   if (keyStoredAsBytes(d)) throw new HistoryConfigError(`@History on ${model.name}: its primary key ${d.PrimaryKey[0]} is stored as bytes by @Uuid(), which has no text for a subject id; history needs a string or integer key`);
 }
 
+// An alias or `default` names the driver of another connection, so connections compare by driver.
+function connectionOf(orm: Orm, d: IModelDescriptor): OrmDriver | string | null {
+  return orm.Connections.get(d.Connection ?? '') ?? d.Connection;
+}
+
+/** The `@Hidden()` columns of every model the ORM loaded on the table and connection of `d`. */
+function hiddenOnTable(d: IModelDescriptor): readonly string[] {
+  const orm = DI.get(Orm);
+  if (!orm) return d.Hidden ?? [];
+  const connection = connectionOf(orm, d);
+  const hidden = new Set(d.Hidden ?? []);
+  for (const { type } of orm.Models) {
+    const other = extractModelDescriptor(type);
+    if (other?.TableName !== d.TableName || connectionOf(orm, other) !== connection) continue;
+    for (const column of other.Hidden ?? []) hidden.add(column);
+  }
+  return [...hidden];
+}
+
 function buildSpec(model: ModelBaseClass, o: HistoryOptions): HistorySpec {
   const d = extractModelDescriptor(model);
   assertKeyed(model, d);
@@ -119,7 +138,7 @@ function buildSpec(model: ModelBaseClass, o: HistoryOptions): HistorySpec {
     pk: d.PrimaryKey[0],
     columns: o.columns ? [...new Set([...o.columns, ...always])] : '*',
     exclude: new Set((o.exclude ?? []).filter((c) => c !== softDelete)),
-    masked: o.hidden === 'record' ? new Set() : new Set((d.Hidden ?? []).filter((h) => !listed.has(h))),
+    masked: o.hidden === 'record' ? new Set() : new Set(hiddenOnTable(d).filter((h) => !listed.has(h))),
     softDelete,
     trail: o.trail ?? DEFAULT_HISTORY_TRAIL,
   };
@@ -152,7 +171,8 @@ export class HistorySpecs {
     const hit = this.resolved.get(model);
     if (hit !== undefined && hit.own === own && hit.rules === rules) return hit.spec;
     const spec = own === undefined ? this.ruled(model, rules) : buildSpec(model, own);
-    this.resolved.set(model, { own, rules, spec });
+    // Without a resolved Orm only the model's own @Hidden() columns are masked, so that spec is built again at next use.
+    if (spec === undefined || DI.get(Orm)) this.resolved.set(model, { own, rules, spec });
     return spec;
   }
 

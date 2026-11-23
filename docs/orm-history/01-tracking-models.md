@@ -52,9 +52,10 @@ registerHistory(Member, { exclude: ['last_seen_at'] });
 | `exclude` | none | Columns left out of every recorded row and of `changed`; an update that changes only these records nothing. Cannot be combined with `columns`. |
 | `entity` | the table name | The subject type of the events, 1 to 128 characters. Subclasses that share a table share it. |
 | `trail` | `history` | The audit trail the events go to. |
-| `hidden` | `mask` | `mask`: a `@Hidden()` column is named in `changed`, its value is never stored. `record`: its value is stored like any other. A `@Hidden()` column listed in `columns` is recorded. |
+| `hidden` | `mask` | `mask`: a `@Hidden()` column of any model of the table is named in `changed`, its value is never stored. `record`: its value is stored like any other. A `@Hidden()` column listed in `columns` is recorded. |
 
 - `@History()` without options records the whole row in the trail `history`.
+- `hidden: 'mask'` masks the `@Hidden()` columns of any model of the table: the model, its base classes, its subclasses and unrelated classes the ORM loaded on the same table and connection. A write built on a base class masks a column only a subclass hides ([Values](04-limits.md#values)).
 - The model's `@SoftDelete()` column is always recorded: it is added to `columns`, and `exclude` drops it from its list. Setting it is recorded as `soft_delete`, clearing it as `restore`. Its `@Archived()` column is added to `columns` as well (an `exclude` of it stands), so `row.archive()` is recorded as an update.
 - A subclass is tracked with the options of its nearest marked base class, under the same entity when it maps to the same table or the base names `entity`; a subclass with a table of its own and no `entity` option records under its own table name. When the base names `entity`, the rows of both tables share one subject type and their ids collide: `Sub.history().of(5)` also lists the entries of row 5 of the base's table, and `asOf` answers from whichever was written last. `@History(false)` or `registerHistory(Model, false)` opts a model and its subclasses out, also under a rule that matches every model.
 - The mark can sit on an abstract base class, such as one that holds the columns several models share: it covers the concrete subclasses, each tracked with the base's options under its own table. The abstract class itself has no table. When it holds no `@Primary()` column, `Base.history()` throws `HistoryConfigError`, as on any class without a single-column primary key. When it holds the shared key, `Base.history()` returns, and its reads reject with `HistoryConfigError` `orm-history: Base has no ORM connection yet (is the ORM booted?)`, also with `@Connection()` on the base: only a registered `@Model()` gets a connection.
@@ -83,7 +84,7 @@ export default {
 ```
 
 - `models` is `'*'` or a list of class names; a name of a base class covers its subclasses. `trail` is optional and defaults to `history`.
-- The first rule that matches wins. A matched model is tracked as `@History({ trail })` would track it: the whole row, `@Hidden()` columns masked.
+- The first rule that matches wins. A matched model is tracked as `@History({ trail })` would track it: the whole row, the `@Hidden()` columns of any model of the table masked.
 - A model's own `@History(...)` or `registerHistory()` wins over every rule; `@History(false)` opts it out.
 - A matched model without a single-column primary key, or whose key `@Uuid()` stores as bytes, is left untracked, with a warning on the logger `orm-history`. With its own `@History()` the same model fails its writes instead.
 - The rules are read on each use; setting `audit.data.rules` at run time takes effect at the next write.
