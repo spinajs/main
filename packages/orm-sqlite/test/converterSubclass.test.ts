@@ -2,6 +2,7 @@ import { Configuration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
 import { BooleanValueConverter, Connection, DatetimeValueConverter, Int64ValueConverter, Json, JsonValueConverter, Model, ModelBase, Orm, Primary, SetValueConverter, TimeValueConverter, UniversalValueConverter, UuidConverter, extractDecoratorPropertyDescriptor } from '@spinajs/orm';
 import type { IModelDescriptor, IUniversalConverterOptions, ValueConverter } from '@spinajs/orm';
+import { MethodNotImplemented } from '@spinajs/exceptions';
 import { TimeSpan } from '@spinajs/util';
 import { expect } from 'chai';
 import { DateTime } from 'luxon';
@@ -29,7 +30,16 @@ class TaggedJsonConverter extends JsonValueConverter {
   }
 }
 
-class PlainUuidConverter extends UuidConverter {}
+class ReversedUuidConverter extends UuidConverter {
+  public toDB(value: string | Uint8Array): Uint8Array | null {
+    const bytes = super.toDB(value);
+    return bytes ? Buffer.from(bytes).reverse() : null;
+  }
+
+  public fromDB(value: Uint8Array | string | null | undefined): string | null {
+    return super.fromDB(value instanceof Uint8Array ? Buffer.from(value).reverse() : value);
+  }
+}
 
 class DayConverter extends DatetimeValueConverter {
   public toDB(value: DateTime | null): string | null {
@@ -72,6 +82,8 @@ class MinutesConverter extends TimeValueConverter {
   }
 }
 
+class EmptyFlagConverter extends BooleanValueConverter {}
+
 class PipeSetConverter extends SetValueConverter {
   public toDB(value: string[] | null): string | null {
     return value ? value.join('|') : null;
@@ -105,9 +117,10 @@ class TaggedUniversalConverter extends UniversalValueConverter {
 }
 
 function ConvertedBy(Class: new () => ValueConverter, Options?: unknown): PropertyDecorator {
-  return extractDecoratorPropertyDescriptor((model: IModelDescriptor, _: unknown, column: string) => {
+  const decorator: PropertyDecorator = extractDecoratorPropertyDescriptor((model: IModelDescriptor, _: unknown, column: string) => {
     model.Converters.set(column, { Class, Options });
-  }) as PropertyDecorator;
+  });
+  return decorator;
 }
 
 @Connection('sqlite')
@@ -125,7 +138,7 @@ class SubclassDoc extends ModelBase {
   @ConvertedBy(TaggedJsonConverter)
   public Tagged: unknown;
 
-  @ConvertedBy(PlainUuidConverter)
+  @ConvertedBy(ReversedUuidConverter)
   public Uid: string;
 
   @ConvertedBy(DayConverter)
@@ -152,12 +165,32 @@ class SubclassDoc extends ModelBase {
   public Value: unknown;
 }
 
+@Connection('sqlite')
+@Model('converter_subclass_doc')
+class EmptyTokenDoc extends ModelBase {
+  @Primary()
+  public Id: number;
+
+  @ConvertedBy(EmptyFlagConverter)
+  public Flag: boolean;
+}
+
 function driver(): SqliteOrmDriver {
   return db().Connections.get('sqlite') as SqliteOrmDriver;
 }
 
 async function raw(id: number): Promise<Record<string, unknown>> {
   return (await driver().select().from('converter_subclass_doc').where('Id', id).first()) as Record<string, unknown>;
+}
+
+async function rejection(work: PromiseLike<unknown>): Promise<unknown> {
+  try {
+    await work;
+  } catch (err) {
+    return err;
+  }
+
+  throw new Error('expected the query to reject');
 }
 
 async function read(id: number): Promise<SubclassDoc> {
@@ -235,14 +268,22 @@ describe('sqlite: a column declaring a subclass of a shipped converter', functio
       expect((await read(3)).Tagged).to.deep.eq({ a: 2 });
       expect((await read(4)).Tagged).to.deep.eq([3]);
     });
+
+    it('reads a row that holds text which is not JSON as that text', async () => {
+      await driver().insert().into('converter_subclass_doc').values({ Id: 15, Plain: '[object Object]', Tagged: 'json:hello' });
+
+      const doc = await read(15);
+      expect(doc.Plain).to.eq('[object Object]');
+      expect(doc.Tagged).to.eq('hello');
+    });
   });
 
-  it('UuidConverter: a plain subclass writes 16 bytes and reads back the dashed text', async () => {
+  it('UuidConverter: a subclass runs on write and read', async () => {
     await new SubclassDoc({ Id: 5, Uid: UID }).insert();
 
     const stored = (await raw(5)).Uid;
     expect(Buffer.isBuffer(stored)).to.eq(true);
-    expect((stored as Buffer).toString('hex')).to.eq(UID.replace(/-/g, ''));
+    expect(Buffer.from(stored as Buffer).reverse().toString('hex')).to.eq(UID.replace(/-/g, ''));
     expect((await read(5)).Uid).to.eq(UID);
   });
 
@@ -269,6 +310,17 @@ describe('sqlite: a column declaring a subclass of a shipped converter', functio
     expect((await raw(9)).Flag).to.eq('N');
     expect((await read(8)).Flag).to.eq(true);
     expect((await read(9)).Flag).to.eq(false);
+  });
+
+  it('an empty subclass of a token converter throws on write, on read and when a model is built from data', async () => {
+    const onWrite = await rejection(EmptyTokenDoc.insert({ Id: 20, Flag: true }));
+    expect(onWrite).to.be.instanceOf(MethodNotImplemented).with.property('message').that.contains('EmptyFlagConverter.toDB() is not implemented');
+
+    await driver().insert().into('converter_subclass_doc').values({ Id: 21, Flag: '1' });
+    const onRead = await rejection(EmptyTokenDoc.where('Id', 21).first());
+    expect(onRead).to.be.instanceOf(MethodNotImplemented).with.property('message').that.contains('EmptyFlagConverter.fromDB() is not implemented');
+
+    expect(() => new EmptyTokenDoc({ Id: 22, Flag: true })).to.throw(MethodNotImplemented, 'EmptyFlagConverter.fromDB() is not implemented');
   });
 
   it('TimeValueConverter: a subclass runs on write and read', async () => {
