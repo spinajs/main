@@ -137,7 +137,7 @@ export class UuidConverter extends ValueConverter {
     return buffer;
   }
 
-  public fromDB(value: Uint8Array | string | null) {
+  public fromDB(value: Uint8Array | string | null | undefined) {
     if (!value) {
       return null;
     }
@@ -149,7 +149,7 @@ export class UuidConverter extends ValueConverter {
     const hex = isBytes ? Buffer.from(value.buffer, value.byteOffset, value.byteLength).toString('hex') : String(value).replace(/-/g, '');
 
     if (hex.length !== 32) {
-      // not a 16-byte uuid - return as-is rather than emit a malformed value
+      // not 16 bytes: adding the dashes would emit a malformed uuid
       return isBytes ? hex : String(value);
     }
 

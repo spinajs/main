@@ -108,7 +108,7 @@ describe('Orm converters', () => {
       expect(converter.fromDB(short), 'a Uint8Array').to.eq('deadbeef');
       expect(converter.fromDB(Buffer.alloc(0)), 'an empty Buffer').to.eq('');
       expect(converter.fromDB(new Uint8Array(0)), 'an empty Uint8Array').to.eq('');
-      expect(converter.fromDB(undefined as any), 'undefined').to.be.null;
+      expect(converter.fromDB(undefined), 'undefined').to.be.null;
     });
   });
 
