@@ -14,7 +14,8 @@ export const STUDIO_CONFIGURATION_SCHEMA = {
     enabled: { type: 'boolean', default: false },
     allowProduction: { type: 'boolean', default: false },
     allowExplainInProduction: { type: 'boolean', default: false },
-    path: { ...name, default: '/_studio' },
+    // Not the root: the trace store would take every request for Studio's own, and the routes list would hold Studio's routes.
+    path: { ...name, pattern: '[^/\\s]', default: '/_studio' },
     ui: { type: 'object', default: {}, properties: { path: name } },
     buffers: {
       type: 'object',

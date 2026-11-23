@@ -30,6 +30,8 @@ interface TraceEntry {
   errorCount: number;
   principalId?: string;
   root?: StudioSpan;
+  // The root came past spansPerTrace: it is kept for the summary only, not in `spans`.
+  rootUnrecorded: boolean;
   openRoot?: Pick<StudioSpan, 'name' | 'kind'>;
   truncated: boolean;
 }
@@ -212,8 +214,12 @@ export class TraceStore extends AsyncService implements SpanSink {
     if (!isRoot) return;
 
     // A root past spansPerTrace is still kept for the summary, so it still counts.
-    if (!recorded) this.charge(entry, approximateBytes(span));
+    if (!recorded) {
+      this.charge(entry, approximateBytes(span));
+      this.revision++;
+    }
     entry.root = span;
+    entry.rootUnrecorded = !recorded;
     entry.openRoot = undefined;
     this.notify(summarize(entry));
   }
@@ -246,6 +252,14 @@ export class TraceStore extends AsyncService implements SpanSink {
 
   public *spans(): Generator<StudioSpan> {
     for (const entry of this.traces.values()) yield* entry.spans;
+  }
+
+  /** {@link spans}, plus each root kept only for its summary: a request whose trace filled `spansPerTrace` is often the slowest. */
+  public *latencySpans(): Generator<StudioSpan> {
+    for (const entry of this.traces.values()) {
+      yield* entry.spans;
+      if (entry.rootUnrecorded && entry.root) yield entry.root;
+    }
   }
 
   // Own-ness is a property of the local root, never of the trace id: the caller chooses the trace id.
@@ -295,7 +309,7 @@ export class TraceStore extends AsyncService implements SpanSink {
     // Looked up before the eviction below, which may push this id out of the remembered set.
     const truncated = this.evicted.delete(traceId);
     if (this.traces.size >= this.options.traces) this.evictFirst();
-    const entry: TraceEntry = { traceId, startNs, endNs: startNs, spans: [], bytes: 0, errorCount: 0, truncated };
+    const entry: TraceEntry = { traceId, startNs, endNs: startNs, spans: [], bytes: 0, errorCount: 0, rootUnrecorded: false, truncated };
     this.traces.set(traceId, entry);
     return entry;
   }

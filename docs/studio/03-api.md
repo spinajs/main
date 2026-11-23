@@ -111,6 +111,38 @@ Answers a `DiServiceDetail` for one DI key. `id` is a node id or a bare key; a k
 
 The DI routes show class names, DI keys, lifetimes, package names and source file paths. They never show a registered value, a configuration value or an instance's state.
 
+## Routes
+
+Endpoint `routes`.
+
+### `GET /api/routes`
+
+Answers a `StudioRoutes`: `data` holds one `RouteInfo` per route the router serves, in router order, with Studio's own routes left out. `source` is `runtime`, or `merged` when a manifest is loaded. `total` is the number of routes.
+
+| Parameter | Value |
+| --- | --- |
+| `limit` | 1 to 5000; default 5000. |
+| `cursor` | The `cursor` of the previous page. |
+
+Without `limit` and `cursor` the answer holds every route, up to 5000.
+
+Each `RouteInfo` holds:
+
+- `method`: the HTTP verb the route answers; a `file` route answers `GET`.
+- `path`: the mounted path, the global prefix included, with its parameters as declared (`/orders/:id`).
+- `controller`, `action`: the controller class and its handler method.
+- `policies`, `controllerPolicies`: the `@Policy` groups of the route and of its class, as policy names, one array per group. `@Access` adds the group `['AccessPolicy']`. A policy named by a configuration key shows that key.
+- `access`, `controllerAccess`: the `@Access` permissions of the route and of its class.
+- `allowAnonymous`: the route or its class carries `@AllowAnonymous` or `@Public(reason)`. It is open on purpose.
+- `unguarded`: nothing guards the route: no policy, no `@Access`, and it is not open on purpose. `authz.http.unguardedRoutes` reports the same routes, and also those open only through `@Public`.
+- `source`: with a manifest, where the route is declared (`file`, `line`, `col`, `package`).
+- `stats`: `count`, `errorRate`, `p50Ms` and `p95Ms`, from the trace buffer. Absent when the buffer holds no request of the route.
+- `telemetry`: `count` (responses) and `errorRate`, when `@spinajs/telemetry` is installed with its route stats on.
+
+`stats` is computed from the SERVER spans in the trace buffer, keyed by the HTTP method and `http.route`, the route template. Two requests to `/orders/7` and `/orders/8` count for `/orders/:id`. A request no route matched carries no `http.route` and is not counted. Neither is a `HEAD` request to a `GET` route: Express answers it, but the span records `HEAD`, and no route in the list is keyed `HEAD`. A request whose trace had already filled `studio.buffers.spansPerTrace` is counted all the same. The samples are the buffered spans and nothing else: Studio keeps no latency store of its own, so the numbers cover the requests the buffer still holds (`studio.buffers.traces` traces, `studio.buffers.traceBytes` bytes), across all routes together, sampled requests only. `errorRate` is the share of spans with an error status: a `5xx` answer or a closed connection. The percentiles are nearest-rank over those samples. Studio computes them in one pass over the buffer, and keeps the result until the buffer or the mounted routes change, with one entry per mounted route. With tracing off, or a sampler that records nothing, the buffer stays empty and never changes: no route has `stats`, and every call reuses the one empty result.
+
+The routes route shows paths, controller and method names, policy names, permissions and source file locations. It never shows a policy's options, a `@Public` reason, a request, or a principal. Every name is cut at 2 KiB.
+
 ## Authz model
 
 Endpoint `authz`. Studio reads the authz domains the app created; it never boots a domain. A domain is booted once something resolved its `AuthzService`, usually the first check in it.
@@ -148,6 +180,19 @@ Answers the RBAC role graph of a domain as a `StudioGraph` with `source: 'runtim
 Nodes are `role` (`role:<name>`, grouped by its ladder, with `assignable` and `deny`) and `permission` (`perm:<name>`). Edges go from a role: `grants` to a permission it grants, `inherits` to a role it extends, and `ladder` to the role right below it on its ladder, labelled with the ladder name.
 
 The domains and roles routes show domain, model, role and permission names, the inheritance between roles, permission descriptions and resource types. They never show an assignment, a principal, a grant's resource pattern, fields or relation, an RBAC rule, or a condition.
+
+### `GET /api/authz/access-map`
+
+Answers which permissions the mounted routes (Studio's own left out) require and which RBAC roles of a domain grant them, as a `StudioGraph` with `source: 'runtime'`.
+
+| Parameter | Value |
+| --- | --- |
+| `domain` | A domain name; default `root`. An unknown domain is a `400`. |
+| `limit` | 1 to 5000 nodes; default 5000. |
+
+Nodes are `route` (`route:<METHOD> <path>`, grouped by controller, with `unguarded`, `allowAnonymous` and `action`), `permission` (`perm:<name>`) and `role` (`role:<name>`, as in the roles graph). Edges: `requires` from a route to each permission of its own `@Access` and of its class's; `grants` from a role to a required permission it grants. A role that grants no required permission is not in the map. The roles come from the domain's booted RBAC model; without one the map has no roles. The map is built one route at a time, in router order: the route, its permissions, then the roles granting a permission no earlier route required. A cut, at `limit` nodes or at 20 000 edges, therefore drops whole routes from the end and keeps the roles of the routes shown; the map is then `truncated`.
+
+The access map shows what the routes route and the roles graph show, joined: route paths, permission and role names. It never shows an assignment or a principal.
 
 ## ReBAC
 

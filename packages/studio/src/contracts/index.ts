@@ -119,3 +119,7 @@ export interface StudioExplainResult { decision: StudioDecision; trace?: Trace; 
 
 export interface StudioTupleRef { type: string; id: string; relation?: string }
 export interface StudioTuple { object: StudioTupleRef; relation: string; subject: StudioTupleRef }
+
+export interface RouteInfo { method: string; path: string; controller: string; action: string; policies: string[][]; access: string[]; controllerPolicies: string[][]; controllerAccess: string[]; allowAnonymous: boolean; unguarded: boolean; source?: SourceRef; stats?: { count: number; errorRate: number; p50Ms: number; p95Ms: number }; telemetry?: { count: number; errorRate: number } }
+/** `GET /_studio/api/routes`; `total` is the number of mounted routes, `cursor` (opaque) the start of the next page. */
+export interface StudioRoutes { source: StudioSource; data: RouteInfo[]; total?: number; cursor?: string }

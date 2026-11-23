@@ -109,6 +109,15 @@ describe('TraceStore', () => {
     expect(s.list({}).items.map((t) => t.traceId)).to.deep.eq([traceIdOf('b')]);
   });
 
+  it('gives the latency pass a root that came past spansPerTrace, as a change of the store', () => {
+    const { store: s, processor } = store({ spansPerTrace: 2 });
+    for (const id of ['2', '3']) run(processor, { trace: 'h', id, parent: '1' });
+    const before = s.version;
+    run(processor, { trace: 'h', id: '1', kind: SpanKind.SERVER, durationMs: 900, attributes: { 'http.route': '/heavy', 'http.request.method': 'GET' } });
+    expect(s.version).to.not.eq(before);
+    expect([...s.latencySpans()].filter((span) => span.attributes['http.route'] === '/heavy')).to.have.length(1);
+  });
+
   it('treats a span with a remote parent as the local root', () => {
     const { store: s, processor } = store();
     run(processor, { trace: 'x', id: '1', parent: '9', remoteParent: true, name: 'GET /remote', kind: SpanKind.SERVER });
