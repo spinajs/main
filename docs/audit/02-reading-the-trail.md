@@ -87,7 +87,8 @@ export async function audited(invoice: Invoice) {
 `registerAuditable(Model)` marks a class that cannot carry the decorator. `registerAuditable(Model, false)` takes the
 mark back: it removes the `audit()` the mark installed on that class and its rows, and does nothing on a class that was
 never marked. `@Auditable(false)` is its decorator form and, unlike `@Auditable()`, needs neither declaration. A
-subclass of a marked base keeps the member it inherits. `auditOf` reads a model whatever its mark.
+subclass of a marked base keeps the member it inherits, and the inherited `Sub.audit()` keeps reading the subclass's
+events, so the `false` form has no effect on a subclass of a marked base. `auditOf` reads a model whatever its mark.
 
 ```ts
 @Auditable(false)

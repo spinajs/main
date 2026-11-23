@@ -159,8 +159,9 @@ export function registerAuditable(model: Constructor<ModelBase>, mark?: false): 
   else extendModel(model, 'audit', MEMBERS);
 }
 
-/** `Model.audit(trail?)` and `row.audit(trail?)` on this model. The class declares the typing; the signature refuses one that does not. `@Auditable(false)` needs no typing. */
+/** Takes the mark back; needs no typing declarations. */
 export function Auditable(mark: false): (target: Constructor<ModelBase>) => void;
+/** `Model.audit(trail?)` and `row.audit(trail?)` on this model. The class declares the typing; the signature refuses one that does not. */
 export function Auditable(): <M extends Constructor<ModelBase & AuditableRow> & AuditableModel>(target: M) => void;
 export function Auditable(mark?: false) {
   return (target: Constructor<ModelBase>): void => registerAuditable(target, mark);
