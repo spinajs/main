@@ -10,7 +10,7 @@ Nothing is recorded until code asks for it: `@spinajs/audit` and `@spinajs/audit
 | --- | --- |
 | `@spinajs/audit` | `audit()` and `AuditService`, the event and trail contracts, the ports `AuditStore`, `AuditReader`, `AuditEventSink` and `AuditContext`, `LogAuditStore`, masking, `canonicalJson`, `payloadHash`, `eventDigest`, `sealHash`. No ORM, http or queue import. |
 | `@spinajs/audit/testing` | `MemoryAuditStore`, `MemoryAuditReader` and a settable context for the tests of packages that record. |
-| `@spinajs/audit-orm` | `TableAuditStore`, `TableAuditReader`, the trail table migration, `Model.audit()` and `row.audit()`, retention (`pruneAudit`), shipping (`OutboxAuditStore`, `shipAudit`, `auditBacklog`, `ArchiveAuditSink`, `ArchiveAuditReader`), sealing (`sealAudit`, `verifyTable`) and the `spinajs audit:verify` command. |
+| `@spinajs/audit-orm` | `TableAuditStore`, `TableAuditReader`, the trail table migration, `auditOf()`, `@Auditable()` with `Model.audit()` and `row.audit()`, retention (`pruneAudit`), shipping (`OutboxAuditStore`, `shipAudit`, `auditBacklog`, `ArchiveAuditSink`, `ArchiveAuditReader`), sealing (`sealAudit`, `verifyTable`) and the `spinajs audit:verify` command. |
 | `@spinajs/audit-orm/scheduler` | `AuditRetentionTask`, `AuditShipTask`, `AuditSealTask` for `@spinajs/scheduler`. |
 | `@spinajs/audit-orm/queue` | `QueueAuditSink`, `AuditBatchRecorded` and `consumeAuditBatches()` for `@spinajs/queue`. |
 
@@ -21,7 +21,7 @@ Importing `@spinajs/audit-orm` registers `TableAuditStore`, `OutboxAuditStore`, 
 | Page | What it covers |
 | --- | --- |
 | [Trails and guarantees](01-trails-and-guarantees.md) | The event, the trail options, the built-in trails, the three write modes, failures, masking, retention. |
-| [Reading the trail](02-reading-the-trail.md) | `audit().trail(name)`, `Model.audit()`, `row.audit()`, `StoredAuditEvent`, `source`. |
+| [Reading the trail](02-reading-the-trail.md) | `audit().trail(name)`, `auditOf()`, `@Auditable()` with `Model.audit()` and `row.audit()`, `StoredAuditEvent`, `source`. |
 | [Shipping](06-shipping.md) | The buffer table, the shipper, archives on another connection, shipping through a queue to an audit service. |
 | [Integrity and verification](07-integrity-and-verification.md) | Sealed trails, what a seal covers, the keyless chain and its threat model, `verify()` and `spinajs audit:verify`. |
 | [Erasure](08-erasure.md) | `forget()`: what is blanked and kept, the `erasure` event, erasure windows of a shipping trail. |
