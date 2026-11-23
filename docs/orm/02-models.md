@@ -569,6 +569,11 @@ export async function audited(order: Order) {
 `registerAuditable(Model)` gives `audit()` to a model of another package, whose class cannot carry the decorator. The
 member is not typed then; typed code reads the model through `auditOf`.
 
+`registerAuditable(Model, false)` takes the mark back and removes the `audit()` the mark installed on that class and its
+rows; on a class that was never marked it does nothing. `@Auditable(false)` is its decorator form and needs neither
+declaration. A subclass of a marked base keeps the member it inherits, and the inherited `Sub.audit()` keeps reading the
+subclass's events, so the `false` form has no effect on a subclass of a marked base. `auditOf` keeps reading the model.
+
 Without a trail name `auditOf` and `audit()` read the `default` trail. A trail keeps transactional events on the
 connection of the audited write, which is the model's, and confirmed and deferred events on the trail's own connection. When the two differ, both
 are read and merged by time; a connection that has no table of the trail adds nothing, and one that cannot be reached

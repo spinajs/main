@@ -4,7 +4,7 @@ import 'mocha';
 import { AuditConfigError, audit } from '@spinajs/audit';
 import { Connection, Migration, Model, ModelBase, OrmMigration, Primary } from '@spinajs/orm';
 import type { OrmDriver } from '@spinajs/orm';
-import { Auditable, AuditTrailTableMigration, auditOf, auditSubjectId, auditSubjectType } from '../src/index.js';
+import { Auditable, AuditTrailTableMigration, auditOf, auditSubjectId, auditSubjectType, registerAuditable } from '../src/index.js';
 import type { AuditableModel, AuditableRow } from '../src/index.js';
 import { TestDb } from './support/db.js';
 
@@ -214,5 +214,51 @@ describe('Model.audit() and row.audit()', function () {
     expect('audit' in Credit.prototype).to.eq(true);
     expect((await AuditInvoice.audit().since(0)).map((e) => e.subject?.id)).to.deep.eq(['i1', 'i2']);
     expect(await Credit.audit().since(0)).to.deep.eq([]);
+  });
+
+  it('takes the members back when the mark is taken back, and gives them again on a new mark', () => {
+    class Later extends ModelBase<Later> {}
+    const members = (): boolean[] => ['audit' in Later, 'audit' in Later.prototype];
+    registerAuditable(Later);
+    expect(members()).to.deep.eq([true, true]);
+    registerAuditable(Later, false);
+    expect(members()).to.deep.eq([false, false]);
+    registerAuditable(Later);
+    expect(members()).to.deep.eq([true, true]);
+  });
+
+  it('takes nothing back from a class that was never marked', () => {
+    class Never extends ModelBase<Never> {}
+    expect(() => registerAuditable(Never, false)).to.not.throw();
+    expect(['audit' in Never, 'audit' in Never.prototype]).to.deep.eq([false, false]);
+  });
+
+  it('leaves a subclass the member it inherits from a marked base when the subclass takes the mark back', async () => {
+    @Model('audit_refund')
+    class Refund extends AuditInvoice {}
+    expect(() => registerAuditable(Refund, false)).to.not.throw();
+    expect(Refund.audit).to.eq(AuditInvoice.audit);
+    expect('audit' in Refund.prototype).to.eq(true);
+    expect(await Refund.audit().since(0)).to.deep.eq([]);
+    expect((await AuditInvoice.audit().since(0)).map((e) => e.subject?.id)).to.deep.eq(['i1', 'i2']);
+  });
+
+  it('takes the mark back with @Auditable(false), which needs none of the declarations', () => {
+    @Auditable(false)
+    class Unmarked extends ModelBase<Unmarked> {}
+    expect(['audit' in Unmarked, 'audit' in Unmarked.prototype]).to.deep.eq([false, false]);
+  });
+
+  it('reads a model through auditOf after its mark was taken back', async () => {
+    @Connection('sqlite')
+    @Model('audit_revoked')
+    class Revoked extends ModelBase<Revoked> {
+      @Primary()
+      public id: string;
+    }
+    registerAuditable(Revoked);
+    registerAuditable(Revoked, false);
+    await audit().record({ kind: 'action', action: 'revoked.read', subject: { type: 'audit_revoked', id: 'r1' } }, { mode: 'confirmed' });
+    expect((await auditOf(Revoked).of('r1')).map((e) => e.action)).to.deep.eq(['revoked.read']);
   });
 });
