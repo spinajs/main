@@ -1,7 +1,7 @@
 import { AuditConfigError, auditStore, listAudit, trailConfig } from '@spinajs/audit';
 import type { AuditFilter, AuditQuery, StoredAuditEvent, TrailConfig } from '@spinajs/audit';
 import type { Constructor } from '@spinajs/di';
-import { extendModel, extractModelDescriptor } from '@spinajs/orm';
+import { extendModel, extractModelDescriptor, unextendModel } from '@spinajs/orm';
 import type { ModelBase, ModelMembers } from '@spinajs/orm';
 
 import { auditConnection, findConnection } from './rows.js';
@@ -150,12 +150,18 @@ const MEMBERS: ModelMembers = {
   },
 };
 
-/** Gives a model `audit()`; for a model of another package, whose class cannot carry `@Auditable()`. The member is not typed then; typed code reads the model through `auditOf`. */
-export function registerAuditable(model: Constructor<ModelBase>): void {
-  extendModel(model, 'audit', MEMBERS);
+/**
+ * Gives a model `audit()`; for a model of another package, whose class cannot carry `@Auditable()`. The member is not typed then; typed code reads the model through `auditOf`.
+ * `false` takes the mark back: it removes the `audit()` the mark installed on this class; a member a subclass inherits from a marked base stays.
+ */
+export function registerAuditable(model: Constructor<ModelBase>, mark?: false): void {
+  if (mark === false) unextendModel(model, 'audit');
+  else extendModel(model, 'audit', MEMBERS);
 }
 
-/** `Model.audit(trail?)` and `row.audit(trail?)` on this model. The class declares the typing; the signature refuses one that does not. */
-export function Auditable(): <M extends Constructor<ModelBase & AuditableRow> & AuditableModel>(target: M) => void {
-  return (target) => registerAuditable(target);
+/** `Model.audit(trail?)` and `row.audit(trail?)` on this model. The class declares the typing; the signature refuses one that does not. `@Auditable(false)` needs no typing. */
+export function Auditable(mark: false): (target: Constructor<ModelBase>) => void;
+export function Auditable(): <M extends Constructor<ModelBase & AuditableRow> & AuditableModel>(target: M) => void;
+export function Auditable(mark?: false) {
+  return (target: Constructor<ModelBase>): void => registerAuditable(target, mark);
 }

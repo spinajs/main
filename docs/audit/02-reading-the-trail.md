@@ -84,6 +84,18 @@ export async function audited(invoice: Invoice) {
 }
 ```
 
+`registerAuditable(Model)` marks a class that cannot carry the decorator. `registerAuditable(Model, false)` takes the
+mark back: it removes the `audit()` the mark installed on that class and its rows, and does nothing on a class that was
+never marked. `@Auditable(false)` is its decorator form and, unlike `@Auditable()`, needs neither declaration. A
+subclass of a marked base keeps the member it inherits. `auditOf` reads a model whatever its mark.
+
+```ts
+@Auditable(false)
+export class Member extends ModelBase<Member> {}
+
+registerAuditable(Invoice, false); // Invoice.audit and row.audit are gone; auditOf(Invoice) still reads its events
+```
+
 `Model.audit(trail?)`, `row.audit(trail?)` and `auditOf` read the `default` trail unless named. When the model's connection is not the trail's, both are read and merged by `at`: transactional events sit on the model's connection, the others on the trail's. Such a merged read refuses `afterSeq` (a position on one connection); pass `source` to page one of them. A connection that cannot be reached fails a merged read instead of returning part of it. `row.audit()` on a row without a primary key value is refused.
 
 ## `AuditNotSupported`
