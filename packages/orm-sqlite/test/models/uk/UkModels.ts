@@ -10,6 +10,24 @@ export class UkTag extends ModelBase {
   public Id: string;
 
   public Name: string;
+
+  @HasMany('UkNote', { foreignKey: 'tag_id', primaryKey: 'Id' })
+  public Notes: Relation<UkNote, UkTag>;
+}
+
+@Connection('sqlite')
+@Model('uk_note')
+export class UkNote extends ModelBase {
+  @Primary()
+  public Id: number;
+
+  public Text: string;
+
+  @Uuid()
+  public tag_id: string;
+
+  @BelongsTo(UkTag, 'tag_id', 'Id')
+  public Tag: SingleRelation<UkTag>;
 }
 
 @Connection('sqlite')

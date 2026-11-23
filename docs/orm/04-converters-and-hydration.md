@@ -46,9 +46,9 @@ sequenceDiagram
    - skips `Virtual` columns and foreign-key columns a relation manages;
    - throws `OrmException` (`Field <name> cannot be null`) for a non-key, non-nullable column holding `null`, `undefined` or `''`;
    - writes `column.Converter.toDB(value, model, column, options)`, or the raw value;
-   - writes each `@BelongsTo` foreign key from the related model's join column. Without a related model it writes the raw column; after a detach, `NULL`.
+   - writes each `@BelongsTo` foreign key from the related model's join column. Without a related model it writes the raw column; after a detach, `NULL`. The key goes through the foreign-key column's converter like any other column (`NULL` stays `NULL`); a driver's converter gets these keys from the protected `relationForeignKeys(model)` of the `ModelToSqlConverter` base class.
 3. `toSql(true)` keeps only the columns in `changeSet()`.
-4. Static `insert()` of a plain object uses `ObjectToSqlConverter` instead. `StandardObjectToSqlConverter` skips `undefined` properties, calls `toDB(value, undefined, column, options)`, and turns a model held under a `@BelongsTo` property into its key.
+4. Static `insert()` of a plain object uses `ObjectToSqlConverter` instead. `StandardObjectToSqlConverter` skips `undefined` properties, calls `toDB(value, undefined, column, options)`, and turns a model held under a `@BelongsTo` property into its key, converted the same way.
 
 ### Serializing a model
 
@@ -193,6 +193,7 @@ DI.register(JsonValueConverter).asMapValue('__orm_db_value_converters__', 'json'
 - `hydrate()` accepts a model instance on a foreign-key column (stores its key) and under a `@BelongsTo` name (attaches it and sets the foreign key).
 - `dehydrate()` emits a relation's foreign-key column even when the relation is not populated; `dehydrateWithRelations()` never emits a `@BelongsTo` that holds no model, so the key is never typed as a number under the relation's name.
 - `@Uuid()` writes a 16-byte `Buffer`. Store it in a `BINARY(16)` column; the schema builder's `table.uuid()` creates one.
+- A foreign key the ORM takes from a relation passes the foreign-key column's converter wherever it is written: `toSql()`, the junction rows of a relation's `sync()` / `update()`, and the keys `save()` resolves for children and junction rows. It is stored in the form `where()` binds, so a `@Uuid()` foreign key is 16 bytes whether it was assigned or came from the relation.
 - `whereInSet()` on a `@Set()` column throws `InvalidArgument` for a value containing `,` or `null`.
 - `SqliteModelToSqlConverter` leaves `undefined` columns out of the payload so table defaults apply; `StandardModelToSqlConverter` writes them. See [`@spinajs/orm-sqlite`](../orm-sqlite/README.md).
 - Converters and hydrators are shared instances. Keep them stateless.
@@ -426,6 +427,14 @@ await Product.update({ Attributes: attributes }).where('Id', id);
 ```
 
 A `@DateTime` value in `update(data)` must be a `DateTime`, a `Date`, a number of unix seconds (milliseconds under `unit: 'milliseconds'`) or ISO 8601 / SQL text; anything else throws `InvalidArgument` when `update()` is called.
+
+### Foreign keys taken from a relation pass the column converter
+
+A foreign key written from a relation (a `@BelongsTo` target, a junction row of `sync()`, `update()` or `save()`) was stored without its column's converter. Rows written that way keep the unconverted value: on SQLite a `@Uuid()` foreign key holds the dashed text instead of 16 bytes, and `where()`, `populate()` and the orphan delete of `sync()` never match it. Rewrite such rows once, for example on SQLite 3.41 or later:
+
+```sql
+UPDATE note SET tag_id = unhex(replace(tag_id, '-', '')) WHERE typeof(tag_id) = 'text';
+```
 
 ## Related
 

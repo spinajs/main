@@ -19,6 +19,12 @@ export class UkMigration_2026_11_23_00_00_00 extends OrmMigration {
       table.uuid('tag_id');
     });
 
+    await connection.schema().createTable('uk_note', (table) => {
+      table.int('Id').primaryKey().autoIncrement().unique();
+      table.string('Text');
+      table.uuid('tag_id');
+    });
+
     await connection.schema().createTable('uk_item', (table) => {
       table.uuid('Id').primaryKey().unique();
       table.string('Name');

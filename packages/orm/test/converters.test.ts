@@ -132,6 +132,17 @@ describe('Orm converters', () => {
       expect(result).to.have.property('UserId', 42);
     });
 
+    it('passes a FK value a relation decides through the FK column converter', () => {
+      const key = '0db8f7f5-56cd-4801-ac23-ad6d78bfec3f';
+      const columns = [column('Id', { PrimaryKey: true, Nullable: false }), column('tag_id', { IsForeignKey: true, Converter: new UuidConverter() })];
+      const relations = [{ Name: 'Tag', ForeignKey: 'tag_id', Type: RelationType.One, PrimaryKey: 'Id', Recursive: false }];
+      const toSql = (values: Record<string, unknown>) => new StandardModelToSqlConverter().toSql(mockModel(columns, relations, { Id: 1, ...values })) as Record<string, unknown>;
+
+      expect(toSql({ Tag: { Value: { Id: key } } }).tag_id, 'from the related model').to.deep.eq(new UuidConverter().toDB(key));
+      expect(toSql({ tag_id: key, Tag: { Value: undefined } }).tag_id, 'from the raw column').to.deep.eq(new UuidConverter().toDB(key));
+      expect(toSql({ tag_id: null, Tag: { Value: null } }), 'detached').to.have.property('tag_id', null);
+    });
+
     it('should throw when an unrelated NOT NULL FK column is null', () => {
       const model = mockModel(
         [column('Id', { PrimaryKey: true, Nullable: false }), column('UserId', { IsForeignKey: true, Nullable: false })],
