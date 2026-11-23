@@ -17,6 +17,16 @@ every tenant. Use it for one statement; use `runAcrossTenants(reason, fn)` of `@
 const overdue = await Invoice.where('status', 'overdue').acrossTenants('nightly dunning report');
 ```
 
+In the callback of a relation list's `sync()`, `this.acrossTenants(reason)` widens the statement that removes the
+orphans (the junction rows of a many-to-many list, so its junction model must be a tenant model) to every tenant;
+without it that statement stays in the current tenant:
+
+```ts
+await invoice.Lines.sync(function () {
+  this.acrossTenants('merge of duplicate tenants');
+});
+```
+
 ## Services and extension points
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
@@ -26,8 +36,9 @@ const overdue = await Invoice.where('status', 'overdue').acrossTenants('nightly 
 | `TenantDeleteExtension` | `DeleteQueryExtension`, `@Injectable` at import | itself | none | Not meant to be replaced |
 
 `TenantQueryMethods` is the type of the added method. The package augments `ISelectQueryBuilder`, `SelectQueryBuilder`,
-`IUpdateQueryBuilder`, `UpdateQueryBuilder`, `IDeleteQueryBuilder` and `DeleteQueryBuilder` of `@spinajs/orm`;
-`.acrossTenants()` returns the same builder type (`SameQuery`).
+`IUpdateQueryBuilder`, `UpdateQueryBuilder`, `IDeleteQueryBuilder`, `DeleteQueryBuilder` and
+`IRelationSyncStatement` (the `this` of a `sync()` callback) of `@spinajs/orm`; `.acrossTenants()` returns the same
+builder type (`SameQuery`).
 
 `acrossTenantsReason(builder)` returns the reason a builder carries, or `undefined`. It also reads the mark through an
 execution copy made from the marked builder, such as a page of `stream()`, and ignores a mark set on a class prototype.

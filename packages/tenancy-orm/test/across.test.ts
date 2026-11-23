@@ -96,6 +96,25 @@ describe('.acrossTenants()', function () {
     await expect(Promise.resolve(Invoice.query().populate('Lines').acrossTenants('report'))).to.be.rejectedWith(TenantRequired, 'select on tenant table invoice_line');
   });
 
+  it('widens the orphan delete of a sync() only when its callback says so', async () => {
+    const [a1] = await inTenant('t1', () => Invoice.where('code', 'A-1'));
+    await inTenant('t1', () => InvoiceLine.insert({ invoice_id: a1.Id, sku: 'own' }));
+    await inTenant('t2', () => InvoiceLine.insert({ invoice_id: a1.Id, sku: 'theirs' }));
+    const skus = async (): Promise<string[]> => (await everywhere(() => InvoiceLine.query())).map((line) => line.sku).sort();
+
+    await inTenant('t1', () => a1.Lines.sync());
+    expect(await skus()).to.deep.eq(['theirs']);
+    await inTenant('t1', () => a1.Lines.sync(function () {}));
+    expect(await skus()).to.deep.eq(['theirs']);
+
+    await inTenant('t1', () =>
+      a1.Lines.sync(function () {
+        this.acrossTenants('invoice merge');
+      }),
+    );
+    expect(await skus()).to.deep.eq([]);
+  });
+
   it('leaves the shape rules of part 2 as they are in the all-tenants scope', async () => {
     // B9: another table on a tenant model passes in the all-tenants scope, and the to-one and recursive refusals are about the tenant predicate.
     expect(await inTenant('t1', () => Invoice.query().from('carrier').acrossTenants('report'))).to.be.an('array');

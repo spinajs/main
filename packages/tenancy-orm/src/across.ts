@@ -35,6 +35,9 @@ declare module '@spinajs/orm' {
   interface DeleteQueryBuilder<T> {
     acrossTenants(reason: string): SameQuery<this, T>;
   }
+  interface IRelationSyncStatement {
+    acrossTenants(reason: string): this;
+  }
 }
 
 function acrossTenants(this: QueryBuilder, reason: string): QueryBuilder {
