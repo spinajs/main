@@ -11,7 +11,7 @@ import { QueryMiddleware } from '../interfaces.js';
 import { sqlDialectOf } from '../sql-dialect.js';
 import { WriteObserver } from './contracts.js';
 import type { CaptureInterest, CapturedRow, RowChange, WriteStatement } from './contracts.js';
-import { captureKeyText, countKeyless, insertedKeyTexts, lockedReads, upsertKeys, writeTargetKeyTexts } from './keys.js';
+import { captureKeyText, countKeyless, insertedKeyTexts, lockedReads, noKeys, upsertKeys, writeTargetKeyTexts } from './keys.js';
 import { keylessRead, mergeReads, noReads, readRows } from './read.js';
 import type { Reads } from './read.js';
 
@@ -167,7 +167,7 @@ async function targetRows(query: QueryBuilder, plan: Plan, conflict: readonly st
     return conflict && conflict.length > 0 ? conflictingRows(query, plan, conflict) : noReads();
   }
   // One key above the limit is enough to refuse, so a runaway statement never loads all of its keys.
-  const target = query instanceof UpdateQueryBuilder || query instanceof DeleteQueryBuilder ? await writeTargetKeyTexts(query, plan.pk, max === Infinity ? undefined : max + 1) : { keys: [], keyless: [] };
+  const target = query instanceof UpdateQueryBuilder || query instanceof DeleteQueryBuilder ? await writeTargetKeyTexts(query, plan.pk, max === Infinity ? undefined : max + 1) : noKeys();
   refuseAbove(plan, target.keys.length + target.keyless.length, max);
   const rows = await readRows(query.Driver, plan.statement.model, plan.table, plan.pk, plan.columns, target.keys, plan.pk, lockedReads(query.Driver));
   return mergeReads([keylessRead(target.keyless), rows]);

@@ -35,6 +35,8 @@ export interface KeyTexts {
   readonly keyless: unknown[];
 }
 
+export const noKeys = (): KeyTexts => ({ keys: [], keyless: [] });
+
 export function keyTexts(values: readonly unknown[]): KeyTexts {
   const keys = new Set<string>();
   const keyless: unknown[] = [];
@@ -134,7 +136,7 @@ export function insertedKeys(query: InsertQueryBuilder, result: unknown, pk: str
 
 export function insertedKeyTexts(query: InsertQueryBuilder, result: unknown, pk: string): KeyTexts | undefined {
   const rows = query.Values.length;
-  if (rows === 0) return { keys: [], keyless: [] };
+  if (rows === 0) return noKeys();
   const supplied = query.getColumnValues(pk);
   if (supplied.length === rows && supplied.every((v) => v !== null && v !== undefined)) return keyTexts(supplied);
   const r = insertResultOf(result);
