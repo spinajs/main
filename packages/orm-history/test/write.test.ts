@@ -430,6 +430,13 @@ describe('history writes', function () {
           expect(await changes('d10')).to.deep.eq([['insert', []]]);
         });
 
+        it('compares as text, in linear time, a cut-off double-encoded JSON text in a declared JSON column', async () => {
+          const whole = JSON.stringify(JSON.stringify(Object.fromEntries(Array.from({ length: 13000 }, (_, i) => [`k${i}`, `v${i}`]))));
+          await Doc.insert({ id: 'd11', typed: whole });
+          await Doc.update({ typed: whole.slice(0, -1) }).where('id', 'd11');
+          expect(await changes('d11')).to.deep.eq([['insert', []], ['update', ['typed']]]);
+        }).timeout(5000);
+
         it('compares text that is not JSON in a declared JSON column as text', async () => {
           await Doc.insert({ id: 'd7', typed: '{"a":' });
           await Doc.update({ typed: '{"a": ' }).where('id', 'd7');

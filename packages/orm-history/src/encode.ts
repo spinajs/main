@@ -52,15 +52,21 @@ function lossyNumber(token: string): boolean {
   return !Number.isFinite(n) || digits.length > 15 || (digits !== '' && Math.abs(n) < MIN_NORMAL_DOUBLE);
 }
 
-const holdsLossyNumber = (text: string): boolean => [...text.matchAll(JSON_TOKEN)].some(([, number]) => number !== undefined && lossyNumber(number));
+function holdsLossyNumber(text: string): boolean {
+  for (const [, number] of text.matchAll(JSON_TOKEN)) {
+    if (number !== undefined && lossyNumber(number)) return true;
+  }
+  return false;
+}
 
 // sqlite and MSSQL hand a JSON column over as its text, where PostgreSQL and MySQL parse it. Parsing merges numbers a
-// double cannot tell apart (beyond 2^53, 1e400 and null), so such text keeps the text comparison.
+// double cannot tell apart (beyond 2^53, 1e400 and null), so such text keeps the text comparison. The scan runs only on
+// text that parsed: on a string with no closing quote it rescans to the end from every later quote.
 function sameJsonText(a: string, b: string): boolean {
-  if (holdsLossyNumber(a) || holdsLossyNumber(b)) return false;
   const x = parsedJson(a);
   const y = parsedJson(b);
-  return x !== undefined && y !== undefined && canonicalJson(x) === canonicalJson(y);
+  if (x === undefined || y === undefined || holdsLossyNumber(a) || holdsLossyNumber(b)) return false;
+  return canonicalJson(x) === canonicalJson(y);
 }
 
 // Two values are the same when the store would keep the same text for them; nearly every column decides on the identity check.

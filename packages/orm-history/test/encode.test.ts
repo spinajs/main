@@ -74,6 +74,13 @@ describe('history encoding', () => {
     expect(changed('{"s":"12345678901234567891","n":1}', '{"n":1,"s":"12345678901234567891"}')).to.eq(undefined);
   });
 
+  it('reads as text, in linear time, a cut-off double-encoded JSON text in a JSON column', () => {
+    const whole = JSON.stringify(JSON.stringify(Object.fromEntries(Array.from({ length: 13000 }, (_, i) => [`k${i}`, `v${i}`]))));
+    const cut = whole.slice(0, -1);
+    expect(whole.length).to.be.greaterThan(256 * 1024);
+    expect(historyEntryOf(spec({ json: new Set(['body']) }), { id: '1', before: { id: 1, body: whole }, after: { id: 1, body: cut } })?.data.changed).to.deep.eq(['body']);
+  });
+
   it('counts -0 against 0 and a duplicate key as no change in a JSON column', () => {
     const s = spec({ json: new Set(['body']) });
     expect(historyEntryOf(s, { id: '1', before: { id: 1, body: '{"a":-0}' }, after: { id: 1, body: '{"a":0}' } })).to.eq(undefined);
