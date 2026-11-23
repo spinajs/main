@@ -122,10 +122,10 @@ export interface IRelation<R extends ModelBase<R>, O extends ModelBase<O>> exten
    * Synchronize relation data with db
    * NOTE: it removes data from db that are not in relation
    *
-   * @param obj - object to add
-   * @param mode - insert mode
+   * @param callback - applied, with the builder as `this`, to every update and delete statement the call builds itself
+   *        ( the orphan delete or soft-delete stamp ), before it runs; not to the select of existing links or the inserts
    */
-  sync(): Promise<void>;
+  sync(callback?: (this: IUpdateQueryBuilder<unknown> | IDeleteQueryBuilder<unknown>) => void): Promise<void>;
 
   /**
    * Calculates the intersection between this relation and the provided dataset. Pure

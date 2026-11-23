@@ -409,6 +409,7 @@
   "recordStatement",
   "redactPlan",
   "referentialRule",
+  "relationSyncOf",
   "renderSql",
   "renderStep",
   "reportsNullability",

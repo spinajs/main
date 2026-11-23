@@ -129,7 +129,7 @@ Relation (list) methods, from `IRelation` and the abstract `Relation` class:
 | `intersection(dataset, comparator?)` | no | Returns the dataset's members also in the list. Pure. |
 | `empty()` / `clear()` | no | Empties the list. `clear()` is async. |
 | `update()` | yes | Inserts or updates; deletes nothing. |
-| `sync()` | yes | Inserts or updates, then removes rows missing from the list. |
+| `sync(callback?)` | yes | Inserts or updates, then removes rows missing from the list. `callback` is applied to the removing statement. |
 
 `Dataset.diff()`, `Dataset.intersection()` and `Dataset.union()` return closures `(members, pKey) => models` for `set()`.
 
@@ -171,6 +171,11 @@ Relation (list) methods, from `IRelation` and the abstract `Relation` class:
 - Set operations without a comparator compare by primary key. A model without primary key columns throws `OrmException` (`set operation compares by primary key, but the model declares no primary key columns ...`). Unsaved models are equal only to themselves.
 - `slice()`, `filter()`, `map()` and `splice()` on a relation return a plain `Array`, not a relation.
 - `OneToManyRelationList.sync()` deletes the target rows that point at the owner but are missing from the list. A `@SoftDelete` target is stamped instead. It does **not** read the orphan policy; only `save()` does.
+- `sync(callback)` applies `callback`, with the builder as `this`, to every update and delete statement it builds itself, after the statement is built and before it runs: the one-to-many orphan delete (the soft-delete stamp, an update, for a `@SoftDelete` target) and the many-to-many orphan delete of junction rows. It is not applied to the many-to-many select of existing links or to the inserts. A condition it adds narrows what the statement removes (see [Replace an order's tags](#replace-an-orders-tags)). `update()` takes no callback.
+  - The callback runs synchronously. When it throws, `sync()` rejects and its transaction rolls back, inserts included.
+  - `this` is typed `IUpdateQueryBuilder<unknown> | IDeleteQueryBuilder<unknown>`: a many-to-many statement is on the junction model. Packages such as `@spinajs/authz-orm` add builder methods to use there (`this.accessible(permission)`).
+  - In a program where a package adds methods to both builder interfaces, the two-argument `this.where(column, value)` does not type-check on that union; write `this.where(column, '=', value)`.
+  - Query middleware tells these statements apart with [`relationSyncOf(query)`](./05-query-builder.md#statements-of-a-relation-lists-sync-and-update).
 - `sync()` and `update()` run in a transaction; inside a caller's transaction they take a savepoint. See [Transactions](./08-transactions.md).
 - `sync()` and `update()` build every statement on a model: target rows on the target model, junction rows (the select of existing links, the inserts and the orphan delete) on the junction model. Query middleware, the model's column converters and the [write capture](./25-write-capture.md) apply to them:
   - Key and foreign-key values of the select of existing links, the junction inserts, the junction delete and the one-to-many orphan delete pass the model's declared column converters, so a key stored in another form (a `@Uuid()` key stored as 16 bytes) matches its rows. The links found are read through the junction column's converter before they are compared with the members' keys.
@@ -439,6 +444,16 @@ export async function replaceTags(order: Order, tags: Tag[]): Promise<void> {
 
   // inserts missing junction rows, deletes the others
   await order.Tags.sync();
+}
+
+export async function replaceTagsKeepingPinned(order: Order, tags: Tag[], pinnedTagId: number): Promise<void> {
+  await order.Tags.populate();
+  order.Tags.set(tags);
+
+  // narrows the orphan delete of junction rows: the pinned tag stays linked
+  await order.Tags.sync(function () {
+    this.where('tag_id', '<>', pinnedTagId);
+  });
 }
 
 export async function addTags(order: Order, tags: Tag[]): Promise<void> {

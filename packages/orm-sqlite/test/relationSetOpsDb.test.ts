@@ -4,8 +4,7 @@ import { DI } from '@spinajs/di';
 import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 import 'mocha';
-import { DeleteQueryBuilder, InsertQueryBuilder, QueryMiddleware, SelectQueryBuilder, UpdateQueryBuilder, extractModelDescriptor } from '@spinajs/orm';
-import type { QueryBuilder } from '@spinajs/orm';
+import { DeleteQueryBuilder, InsertQueryBuilder, QueryBuilder, QueryMiddleware, SelectQueryBuilder, UpdateQueryBuilder, extractModelDescriptor, relationSyncOf } from '@spinajs/orm';
 import { bootUow, registerUowConnection, rows, UowOrder, UowOrderItem, UowOrderTag, UowTag } from './uowFixture.js';
 import { SdOwner } from './models/sd/SdOwner.js';
 import { SdItem } from './models/sd/SdItem.js';
@@ -16,7 +15,7 @@ import './migrations/UkMigration_2026_11_23_00_00_00.js';
 const expect = chai.expect;
 chai.use(chaiAsPromised);
 
-const statements = { recording: false, seen: [] as string[] };
+const statements = { recording: false, seen: [] as string[], origins: [] as string[] };
 
 function verbOf(query: QueryBuilder): string {
   if (query instanceof SelectQueryBuilder) return 'select';
@@ -25,12 +24,23 @@ function verbOf(query: QueryBuilder): string {
   return query instanceof DeleteQueryBuilder ? 'delete' : query.constructor.name;
 }
 
-/** Every statement a write runs, with the model it was built on. */
+function statementOf(query: object): string {
+  return query instanceof QueryBuilder ? `${verbOf(query)} ${query.Model?.name ?? 'no model'}` : 'not a builder';
+}
+
+function originOf(query: object): string {
+  const origin = relationSyncOf(query);
+  return origin ? `${origin.owner.name}.${origin.relation}` : 'none';
+}
+
+/** Every statement a write runs, with the model it was built on and what `relationSyncOf` answers for it. */
 class StatementRecorder extends QueryMiddleware {
   afterQueryCreation(): void {}
 
   beforeQueryExecution(query: QueryBuilder): void {
-    if (statements.recording) statements.seen.push(`${verbOf(query)} ${query.Model?.name ?? 'no model'}`);
+    if (!statements.recording) return;
+    statements.seen.push(statementOf(query));
+    statements.origins.push(`${statementOf(query)}: ${originOf(query)}`);
   }
 }
 
@@ -145,6 +155,7 @@ describe('Relation set operations against the database', function () {
     async function recorded(write: () => Promise<void>): Promise<string[]> {
       statements.recording = true;
       statements.seen = [];
+      statements.origins = [];
       try {
         await write();
       } finally {
@@ -181,6 +192,125 @@ describe('Relation set operations against the database', function () {
       expect(await recorded(() => order.Tags.update())).to.deep.eq(['select UowOrderTag', 'insert UowTag', 'insert UowOrderTag']);
 
       expect((await rows<{ tag_id: number }>('uow_order_tag')).map((l) => l.tag_id)).to.deep.eq([1, 3, 4]);
+    });
+
+    it('names the relation and the owner of every statement that sync() and update() build themselves', async () => {
+      await seededOrder();
+      await UowOrderItem.insert({ Sku: 'A', Qty: 1, order_id: 1 });
+      const order = await UowOrder.where({ Id: 1 }).populate('Items').populate('Tags').first();
+
+      order.Items.remove((i) => i.Sku === 'A');
+      order.Items.push(new UowOrderItem({ Sku: 'B', Qty: 2 }));
+      await recorded(() => order.Items.sync());
+      expect(statements.origins).to.deep.eq(['insert UowOrderItem: none', 'delete UowOrderItem: UowOrder.Items']);
+
+      order.Tags.remove((t) => t.Name === 'blue');
+      order.Tags.push(new UowTag({ Name: 'green' }));
+      await recorded(() => order.Tags.sync());
+      expect(statements.origins).to.deep.eq(['select UowOrderTag: UowOrder.Tags', 'insert UowTag: none', 'insert UowOrderTag: none', 'delete UowOrderTag: UowOrder.Tags']);
+
+      await recorded(() => order.Tags.update());
+      expect(statements.origins).to.deep.eq(['select UowOrderTag: UowOrder.Tags']);
+
+      await recorded(async () => {
+        await UowOrder.where({ Id: 1 });
+      });
+      expect(statements.origins).to.deep.eq(['select UowOrder: none']);
+    });
+
+    it('names the relation and the owner of the soft-delete stamp of a one-to-many sync()', async () => {
+      await SdOwner.insert({ Name: 'owner' });
+      await SdItem.insert({ owner_id: 1, Val: 'a' });
+      const owner = await SdOwner.where({ Id: 1 }).populate('Items').first();
+      owner.Items.empty();
+
+      await recorded(() => owner.Items.sync());
+      expect(statements.origins).to.deep.eq(['update SdItem: SdOwner.Items']);
+    });
+  });
+
+  describe('the callback of sync()', () => {
+    it('receives the orphan delete of a one-to-many sync(), already named by relationSyncOf, and not its inserts', async () => {
+      await UowOrder.insert({ Total: 10 });
+      await UowOrderItem.insert({ Sku: 'A', Qty: 1, order_id: 1 });
+      await UowOrderItem.insert({ Sku: 'B', Qty: 2, order_id: 1 });
+      const order = await UowOrder.where({ Id: 1 }).populate('Items').first();
+      order.Items.remove((i) => i.Sku === 'B');
+      order.Items.push(new UowOrderItem({ Sku: 'C', Qty: 3 }));
+
+      const received: Array<[string, ReturnType<typeof relationSyncOf>]> = [];
+      await order.Items.sync(function () {
+        received.push([statementOf(this), relationSyncOf(this)]);
+      });
+
+      expect(received).to.deep.eq([['delete UowOrderItem', { relation: 'Items', owner: UowOrder }]]);
+    });
+
+    it('receives the soft-delete stamp of a one-to-many sync() when the target is @SoftDelete', async () => {
+      await SdOwner.insert({ Name: 'owner' });
+      await SdItem.insert({ owner_id: 1, Val: 'a' });
+      const owner = await SdOwner.where({ Id: 1 }).populate('Items').first();
+      owner.Items.empty();
+      owner.Items.push(new SdItem({ Val: 'b' }));
+
+      const received: string[] = [];
+      await owner.Items.sync(function () {
+        received.push(statementOf(this));
+      });
+
+      expect(received).to.deep.eq(['update SdItem']);
+    });
+
+    it('receives the junction orphan delete of a many-to-many sync(), and not the link select or an insert', async () => {
+      await seededOrder();
+      const order = await UowOrder.where({ Id: 1 }).populate('Tags').first();
+      order.Tags.remove((t) => t.Name === 'blue');
+      order.Tags.push(new UowTag({ Name: 'green' }));
+
+      const received: string[] = [];
+      await order.Tags.sync(function () {
+        received.push(statementOf(this));
+      });
+
+      expect(received).to.deep.eq(['delete UowOrderTag']);
+    });
+
+    it('narrows the statement by the condition the callback adds', async () => {
+      await seededOrder();
+      for (const Sku of ['A', 'B', 'C']) await UowOrderItem.insert({ Sku, Qty: 1, order_id: 1 });
+      const order = await UowOrder.where({ Id: 1 }).populate('Items').populate('Tags').first();
+
+      order.Items.set((items) => items.filter((i) => i.Sku === 'A'));
+      await order.Items.sync(function () {
+        this.where('Sku', '<>', 'C');
+      });
+      expect((await rows<{ Sku: string }>('uow_order_item')).map((r) => r.Sku)).to.deep.eq(['A', 'C']);
+
+      order.Tags.empty();
+      await order.Tags.sync(function () {
+        this.where('tag_id', 2);
+      });
+      expect((await rows<{ tag_id: number }>('uow_order_tag')).map((l) => l.tag_id)).to.deep.eq([1]);
+    });
+
+    it('rejects sync() when the callback throws, and writes nothing', async () => {
+      await seededOrder();
+      await UowOrderItem.insert({ Sku: 'A', Qty: 1, order_id: 1 });
+      const order = await UowOrder.where({ Id: 1 }).populate('Items').populate('Tags').first();
+      const refuse = () => {
+        throw new Error('refused by the callback');
+      };
+
+      order.Items.empty();
+      order.Items.push(new UowOrderItem({ Sku: 'B', Qty: 2 }));
+      await expect(order.Items.sync(refuse)).to.be.rejectedWith('refused by the callback');
+      expect((await rows<{ Sku: string }>('uow_order_item')).map((r) => r.Sku)).to.deep.eq(['A']);
+
+      order.Tags.remove((t) => t.Name === 'blue');
+      order.Tags.push(new UowTag({ Name: 'green' }));
+      await expect(order.Tags.sync(refuse)).to.be.rejectedWith('refused by the callback');
+      expect((await rows<{ Name: string }>('uow_tag')).map((t) => t.Name)).to.deep.eq(['red', 'blue']);
+      expect((await rows<{ tag_id: number }>('uow_order_tag')).map((l) => l.tag_id)).to.deep.eq([1, 2]);
     });
   });
 
