@@ -21,6 +21,7 @@ import type { IModelChange, IModelSnapshot } from './snapshot.js';
 import { UnitOfWork } from './unit-of-work.js';
 import { quoterOf } from './quoting.js';
 import { registerModelBase } from './model-registry.js';
+import { columnToDb } from './column-values.js';
 
 import { DI, isConstructor, isClass, getInheritedDescriptor } from '@spinajs/di';
 import type { IContainer, Constructor } from '@spinajs/di';
@@ -1250,12 +1251,11 @@ function _toColumnValues(data: Record<string, unknown>, descriptor: IModelDescri
   const values: Record<string, unknown> = {};
 
   for (const [key, value] of Object.entries(data)) {
-    const column = descriptor.Columns.find((c) => c.Name === key);
-    if (column?.Ignore) {
+    if (descriptor.Columns.find((c) => c.Name === key)?.Ignore) {
       continue;
     }
 
-    values[key] = column?.Converter && value !== null && value !== undefined ? column.Converter.toDB(value, undefined as unknown as ModelBase, column, descriptor.Converters.get(key)?.Options) : value;
+    values[key] = columnToDb(descriptor, key, value);
   }
 
   return values;
