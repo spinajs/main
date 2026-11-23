@@ -246,6 +246,47 @@ describe("LogContext ambient async context", () => {
     });
   });
 
+  describe("tenant scope", () => {
+    it("projects a tenant scope as the tenant id", () => {
+      expect(scalarContext({ Tenant: { kind: "tenant", tenant: { id: "acme" } } })).to.deep.eq({ Tenant: "acme" });
+    });
+
+    it("projects the cross-tenant scope as *", () => {
+      expect(scalarContext({ Tenant: { kind: "all", reason: "nightly billing" } })).to.deep.eq({ Tenant: "*" });
+    });
+
+    it("escapes control characters of an id it did not validate", () => {
+      expect(scalarContext({ Tenant: { kind: "tenant", tenant: { id: "a\nb" } } })).to.deep.eq({ Tenant: "a\\u000ab" });
+    });
+
+    it("drops a malformed scope and leaves a store without the key as it was", () => {
+      for (const bad of [{}, { kind: "tenant" }, { kind: "tenant", tenant: null }, { kind: "tenant", tenant: { id: 7 } }, { kind: "other" }, ["acme"], null]) {
+        expect(scalarContext({ Tenant: bad })).to.deep.eq({});
+      }
+      expect(scalarContext({ requestId: "r-1" })).to.deep.eq({ requestId: "r-1" });
+    });
+
+    it("drops a scope @spinajs/tenancy would not accept: no reason across tenants, an empty id", () => {
+      for (const bad of [{ kind: "all" }, { kind: "all", reason: "" }, { kind: "all", reason: 7 }, { kind: "tenant", tenant: { id: "" } }]) {
+        expect(scalarContext({ Tenant: bad })).to.deep.eq({});
+      }
+    });
+
+    it("puts the tenant on a log line written inside LogContext.with", () => {
+      const log = DI.resolve(Log, ["ctx-tenant"]);
+
+      LogContext.with({ Tenant: { kind: "tenant", tenant: { id: "acme" } } }, () => {
+        log.info("m");
+      });
+      LogContext.with({ Tenant: { kind: "all", reason: "nightly billing" } }, () => {
+        log.info("m");
+      });
+
+      const records = sink().getRecords();
+      expect(records.map((r) => r.Variables.Tenant)).to.deep.eq(["acme", "*"]);
+    });
+  });
+
   after(() => {
     // restore the default no-op provider so sibling suites in a shared process
     // are not affected by this suite's wiring.

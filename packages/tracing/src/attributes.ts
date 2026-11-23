@@ -25,6 +25,7 @@ export const SpinaAttr = {
   Trigger: 'spina.scheduler.trigger',
   Replayed: 'spina.scheduler.replayed',
   SocketCommand: 'spina.socket.command',
+  Tenant: 'spina.tenant.id',
   Workflow: 'spina.workflow.name',
   WorkflowInstance: 'spina.workflow.instance_id',
   WorkflowVersion: 'spina.workflow.version',
