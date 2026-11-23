@@ -73,7 +73,7 @@ The before and after reads are raw `driver.select()` statements, which never lea
 
 ## Limits
 
-`db.WriteCapture.MaxRows` (default `0`, no limit) refuses a captured statement that reaches more rows, before it runs, with `WriteCaptureLimitExceeded`. For an update or delete the rows are those the key select finds, those whose key has no key text included, and the key select reads at most `MaxRows + 1` keys, so the count in the message stops there; for an insert they are the rows it supplies, whatever their keys.
+`db.WriteCapture.MaxRows` (default `0`, no limit) refuses a captured statement that reaches more rows, before it runs, with `WriteCaptureLimitExceeded`. For an update or delete the rows are those the key select finds, those whose key has no key text included, and the key select reads at most `MaxRows + 1` keys, so the count in the message stops there; for an insert they are the rows it supplies, whatever their keys, and for an upsert also the rows its conflict values reach, those whose key has no key text included.
 
 ```json
 { "db": { "WriteCapture": { "MaxRows": 10000 } } }

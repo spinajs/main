@@ -146,7 +146,7 @@ async function conflictingRows(query: InsertQueryBuilder, plan: Plan, columns: r
   const reads: Reads[] = [];
   for (const column of columns) reads.push(await readRows(query.Driver, plan.statement.model, plan.table, plan.pk, plan.columns, upsertKeys(query, column), column));
   const out = mergeReads(reads);
-  refuseAbove(plan, out.rows.size, maxRows());
+  refuseAbove(plan, out.rows.size + countKeyless(out.keyless), maxRows());
   return out;
 }
 
