@@ -21,7 +21,7 @@ import {
   tenantRecord,
   tenantRegistry,
 } from '../src/index.js';
-import type { TenantRecord } from '../src/index.js';
+import type { TenantRecord, TenantState } from '../src/index.js';
 import { tenancyApp } from './support/app.js';
 
 chai.use(chaiAsPromised);
@@ -45,6 +45,34 @@ function authzCache(): Map<string, unknown> {
 class UnfilteredTenantRegistry extends MemoryTenantRegistry {
   public override list(): AsyncIterable<TenantRecord> {
     return super.list();
+  }
+}
+
+/** Fails on the second pull of `list`, then would go on listing. */
+class FailingTenantRegistry extends MemoryTenantRegistry {
+  public static readonly failure = new Error('registry down');
+
+  public override list(): AsyncIterable<TenantRecord> {
+    const tenants = super.list()[Symbol.asyncIterator]();
+    let pulls = 0;
+    return {
+      [Symbol.asyncIterator]: () => ({ next: () => (++pulls === 2 ? Promise.reject(FailingTenantRegistry.failure) : tenants.next()) }),
+    };
+  }
+}
+
+/** Lists its tenants, then one record whose state cannot be read. */
+class UnreadableTenantRegistry extends MemoryTenantRegistry {
+  public static readonly failure = new Error('unreadable record');
+
+  public override async *list(): AsyncIterable<TenantRecord> {
+    yield* super.list();
+    yield {
+      ...tenantRecord({ id: 'unreadable' }),
+      get state(): TenantState {
+        throw UnreadableTenantRegistry.failure;
+      },
+    };
   }
 }
 
@@ -208,6 +236,54 @@ describe('tenancy services', () => {
 
       expect(most).to.eq(3);
       expect(report.succeeded).to.eq(4);
+    });
+
+    it('runs one tenant at a time by default', async () => {
+      let running = 0;
+      let most = 0;
+
+      const report = await forEachTenant(async () => {
+        running += 1;
+        most = Math.max(most, running);
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        running -= 1;
+      });
+
+      expect(most).to.eq(1);
+      expect(report.succeeded).to.eq(4);
+    });
+
+    it('starts no tenant after the registry failed, and rejects once the started ones finished', async () => {
+      await app.dispose();
+      app = await tenancyApp({ registry: 'FailingTenantRegistry' }, (container) => container.register(FailingTenantRegistry).as(TenantRegistry));
+      const registry = await memory();
+      for (const id of ['a', 'b', 'c']) registry.add({ id });
+      const started: string[] = [];
+      const finished: string[] = [];
+
+      const run = forEachTenant(
+        async (tenant) => {
+          started.push(tenant.id);
+          await new Promise((resolve) => setTimeout(resolve, 10));
+          finished.push(tenant.id);
+        },
+        { concurrency: 2 },
+      );
+
+      await expect(run).to.be.rejectedWith(FailingTenantRegistry.failure);
+      expect(finished).to.deep.eq(['a']);
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      expect(started).to.deep.eq(['a']);
+    });
+
+    it('rejects when the registry yields a record it cannot read, rather than report a shorter run', async () => {
+      await app.dispose();
+      app = await tenancyApp({ registry: 'UnreadableTenantRegistry' }, (container) => container.register(UnreadableTenantRegistry).as(TenantRegistry));
+      (await memory()).add({ id: 'a' });
+      const started: string[] = [];
+
+      await expect(forEachTenant(async (tenant) => void started.push(tenant.id))).to.be.rejectedWith(UnreadableTenantRegistry.failure);
+      expect(started).to.deep.eq(['a']);
     });
 
     it('runs from the cross-tenant scope and refuses to run inside one tenant', async () => {

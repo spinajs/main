@@ -94,6 +94,20 @@ function listedTenant(entry: unknown, index: number): TenantRecord {
   });
 }
 
+function listedTenants(listed: readonly unknown[]): TenantRecord[] {
+  const owners = new Map<string, number>();
+  return listed.map((entry: unknown, index) => {
+    const record = listedTenant(entry, index);
+    const keys = [`id ${JSON.stringify(record.id)}`, `slug ${JSON.stringify(record.slug)}`, ...record.domains.map((domain) => `domains ${JSON.stringify(domain)}`)];
+    for (const key of keys) {
+      const owner = owners.get(key) ?? index;
+      if (owner !== index) throw new InvalidOption(`tenancy.tenants[${index}].${key} is already used by tenancy.tenants[${owner}]`);
+      owners.set(key, index);
+    }
+    return record;
+  });
+}
+
 /** The tenants listed under `tenancy.tenants`, parsed again whenever the configured list is replaced. */
 @Injectable(TenantRegistry)
 export class ConfigTenantRegistry extends ListedTenantRegistry {
@@ -107,7 +121,7 @@ export class ConfigTenantRegistry extends ListedTenantRegistry {
   protected records(): readonly TenantRecord[] {
     const listed = this.Listed;
     if (listed !== this.parsedFrom) {
-      this.parsed = Array.isArray(listed) ? listed.map((entry: unknown, index) => listedTenant(entry, index)) : [];
+      this.parsed = Array.isArray(listed) ? listedTenants(listed) : [];
       this.parsedFrom = listed;
     }
     return this.parsed;
