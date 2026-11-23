@@ -580,6 +580,8 @@ export class SocketDispatcher extends AsyncService {
   /** The ambient AsyncLocalStorage store of one call; log lines and policies read it. */
   protected callStorage(connection: SocketConnection, call: string, requestId: string = randomUUID(), ids: TraceIds = childTraceIds(ROOT_CONTEXT)): ISocketCallStorage {
     return {
+      // first, so a contributor cannot replace a fixed key
+      ...connection.context,
       Principal: connection.principal,
       AuthnPrincipal: connection.authenticated ? connection.principal : null,
       requestId,

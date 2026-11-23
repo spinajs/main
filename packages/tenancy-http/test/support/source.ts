@@ -10,9 +10,11 @@ export const anonymous: Principal = { type: 'anonymous', id: 'anonymous', authen
 
 export const source = (over: Partial<TenantRequestSource> = {}): TenantRequestSource => ({ host: undefined, headers: {}, params: {}, principal: undefined, session: undefined, ...over });
 
+export const SILENT_LOGGER = { targets: [{ name: 'Empty', type: 'BlackHoleTarget', layout: '${message}' }], rules: [{ name: '*', level: 'trace', target: 'Empty' }] };
+
 /** A test application on the memory registry; `tenancy` is merged over that. No Bootstrapper runs. */
 export function tenancyHttpApp(tenancy: Record<string, unknown> = {}): Promise<TestApp> {
-  return createTestApp({ bootstrap: false, config: { tenancy: { registry: 'MemoryTenantRegistry', ...tenancy } } });
+  return createTestApp({ bootstrap: false, config: { logger: SILENT_LOGGER, tenancy: { registry: 'MemoryTenantRegistry', ...tenancy } } });
 }
 
 /** `acme` (slug `acme-inc`, domain `shop.acme.example`, active) and `frozen` (suspended). */

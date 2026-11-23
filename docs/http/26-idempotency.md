@@ -146,10 +146,11 @@ On any other route the policies always run, even after a `'beforePolicy'` middle
 
 Two consequences follow:
 
-- Policies that do not depend on the principal, such as an IP allowlist, MFA step-up freshness or a tenant header,
-  are not evaluated again on a replay. The replayed reply is the one they admitted the first time. A tenant chosen by
-  a header is not part of the fingerprint either, so one user's request to tenant B with a key used for tenant A
-  replays A's reply, on the claim path too: put the tenant in the URL, or in the body with `fingerprint: 'body'`.
+- Policies that do not depend on the principal, such as an IP allowlist or MFA step-up freshness, are not evaluated
+  again on a replay. The replayed reply is the one they admitted the first time. A tenant set by
+  `@spinajs/tenancy-http` is part of the key's [scope](#scope), so a request to tenant B never replays a reply stored
+  in tenant A, before the policies or on the claim path. A tenant your own code reads from a header is not: put it in
+  the URL, or in the body with `fingerprint: 'body'`, or register an `IdempotencyScopePart` for it.
 - A principal whose permission was revoked within `ttl` still gets the reply it was owed. That is the standard
   semantics of idempotency keys (the IETF Idempotency-Key draft, Stripe). Keep `ttl` short on routes where this matters.
 
@@ -167,7 +168,8 @@ in the `'beforePolicy'` stage or among the server middlewares.
 
 A key is one key per route and principal. The route is `http:<METHOD> <path>` with the route template, for example
 `/orders/:id/pay`. The principal is the authenticated principal, or `anonymous`. The same key from two users runs
-twice. All anonymous callers of a route share one key space (see [Shared scopes](#shared-scopes)).
+twice. All anonymous callers of a route share one key space, per tenant with `@spinajs/tenancy-http` (see
+[Shared scopes](#shared-scopes)).
 
 A restricted principal gets a scope of its own: its key (`principalKey`) together with its authority, which is its
 `ceiling`, `onBehalfOf` and `delegation`, `authn.impersonator` and `companions` (`idempotencyPrincipal()` of
@@ -175,6 +177,12 @@ A restricted principal gets a scope of its own: its key (`principalKey`) togethe
 or an admin impersonating that user, nor the other way round. An unrestricted principal keeps the plain
 `principalKey`. A share link is scoped by the link, its scope and expiry and the signed-in companion: two bearers of
 one link who are not signed in share its key space, as anonymous callers share theirs.
+
+Every registered `IdempotencyScopePart` adds a part to the scope, read from `req.storage` after the `'beforePolicy'`
+middlewares ran. `@spinajs/tenancy-http` registers one for the tenant that `TenantMiddleware` set: the same key from
+one user, or from anonymous callers, in two tenants runs once in each, and is neither replayed nor refused as in
+flight or reused across them. A request with no part, such as one outside any tenant scope, keeps the key it had
+without parts.
 
 ### Shared scopes
 
