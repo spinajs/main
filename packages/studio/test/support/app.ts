@@ -6,7 +6,7 @@ import { Bootstrapper, DI } from '@spinajs/di';
 import type { Class } from '@spinajs/di';
 import { BaseController, Controllers, HttpServer, ServerMiddleware } from '@spinajs/http';
 import { FsBootsrapper, fsService } from '@spinajs/fs';
-import type { DecisionRequest } from '@spinajs/authz';
+import type { AuthorizationModel, DecisionRequest } from '@spinajs/authz';
 import { PrincipalMiddleware } from '@spinajs/authz-http';
 import { StaticModel, testHost } from '@spinajs/authz-testing';
 import type { VoteFn } from '@spinajs/authz-testing';
@@ -33,6 +33,8 @@ export interface StartOptions {
   readonly config?: Readonly<Record<string, unknown>>;
   /** Votes of the root StaticModel `m1`; default {@link studioVotes}. */
   readonly votes?: VoteFn;
+  /** Extra root models, activated after `m1`; each appends its name to `authz.models`. */
+  readonly models?: readonly AuthorizationModel[];
 }
 
 let running: { server: HttpServer; before: Set<unknown> } | undefined;
@@ -56,6 +58,7 @@ export async function startApp(opts: StartOptions = {}): Promise<TestApp> {
   for (const [path, value] of Object.entries(opts.config ?? {})) cfg.set(path.split('.'), value);
   // Root activates only the models authz.models names; activate registers m1 and lists it (uninstallHost removes both).
   testHost.activate(DI.RootContainer, 'root', new StaticModel({ name: 'm1', votes: opts.votes ?? studioVotes }));
+  for (const model of opts.models ?? []) testHost.activate(DI.RootContainer, 'root', model);
 
   DI.resolve(FsBootsrapper).bootstrap();
   await DI.resolve(fsService);
