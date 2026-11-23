@@ -29,6 +29,8 @@ export interface HistoryQuery {
   readonly ops?: readonly HistoryOp[];
   readonly from?: Date;
   readonly to?: Date;
+  /** Keep the entries that changed at least one of these columns; inserts and deletes list none and never match. */
+  readonly changed?: readonly string[];
 }
 
 export type AsOf =
@@ -42,6 +44,8 @@ export interface ModelHistory {
   of(id: string | number | bigint, query?: HistoryQuery): Promise<readonly HistoryEntry[]>;
   asOf(id: string | number | bigint, at: Date): Promise<AsOf>;
   since(seq: number, query?: HistoryQuery): Promise<readonly HistoryEntry[]>;
+  /** Row changes of this model made by `actor` (a principal key as the trail stores it, `user:42`), by `seq`. */
+  byActor(actor: string, query?: HistoryQuery): Promise<readonly HistoryEntry[]>;
   forget(id: string | number | bigint): Promise<number>;
 }
 
