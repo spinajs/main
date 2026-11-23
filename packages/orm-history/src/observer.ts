@@ -22,7 +22,7 @@ const inputOf = (spec: HistorySpec, entry: PendingEntry, at: Date): AuditInput =
 
 const lostInputOf = (spec: HistorySpec, at: Date, reason = 'unknown_keys'): AuditInput => ({ kind: 'data', action: 'lost', subject: { type: spec.entity, id: LOST_SUBJECT_ID }, data: { reason }, at });
 
-const statementOf = (write: CapturedWrite): 'an insert' | 'an update' | 'a delete' =>(write.kind === 'delete' ? 'a delete' : `an ${write.kind}`);
+const statementOf = (write: CapturedWrite): 'an insert' | 'an update' | 'a delete' => (write.kind === 'delete' ? 'a delete' : `an ${write.kind}`);
 
 // The record joins the write's transaction, where a failed statement cannot be skipped on every dialect,
 // so the trail's own onFailure is not consulted.
