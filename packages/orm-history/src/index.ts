@@ -5,3 +5,5 @@ export * from './registry.js';
 export * from './encode.js';
 export * from './migration.js';
 export * from './observer.js';
+export * from './entry.js';
+export * from './read.js';

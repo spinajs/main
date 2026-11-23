@@ -481,6 +481,38 @@ Neither writes into `AuditedModel`'s descriptor.
 
 `@spinajs/orm` records no history of its own rows. A model opts into row history with `@History()`
 from `@spinajs/orm-history`, which records every tracked insert, update and delete in the write's transaction.
+The mark installs `Model.history()` and `row.history()` on the model at run time; their typing is the model's own, a
+`declare static history` line for the class and a `declare history` line for its rows, and a marked class without them
+does not compile. `Model.history()` reads the entries of one row (`of(id)`) and its state at an instant (`asOf(id, at)`),
+follows the changes of all rows (`since(seq)`, which also lists the entity's `lost` markers: `op: 'lost'`, `id: '*'`)
+and erases a row's payloads (`forget(id)`); `row.history()` does the same
+for a loaded row (`entries()`, `asOf(at)`, `forget()`). A model tracked by an `audit.data.rules` entry or by `registerHistory()` has no such members in its type:
+`historyOf(Model)` and `historyOf(row)` return the same objects. Every read goes to the model's audit trail. The `row`
+of a `present` answer and `before` and `after` of an entry are the recorded columns by name, with JSON values
+(a `Date` as ISO text, a `bigint` as text, bytes as `{ $bytes }` in base64), not a model instance.
+
+```ts sample
+import { Model, ModelBase, Primary } from '@spinajs/orm';
+import { History } from '@spinajs/orm-history';
+import type { TrackedModel, TrackedRow } from '@spinajs/orm-history';
+
+@History()
+@Model('invoices')
+export class Invoice extends ModelBase<Invoice> implements TrackedRow {
+  declare static history: TrackedModel['history'];
+  declare history: TrackedRow['history'];
+
+  @Primary()
+  public Id: number;
+
+  public Status: string;
+}
+
+export async function statusOn(id: number, day: Date): Promise<unknown> {
+  const then = await Invoice.history().asOf(id, day);
+  return then.state === 'present' ? then.row.Status : undefined;
+}
+```
 
 ### Audit events of a model
 
