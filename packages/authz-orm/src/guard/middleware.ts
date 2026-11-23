@@ -1,12 +1,14 @@
 import { AuthzConfigError, SYSTEM, authzStorage, currentPrincipal } from '@spinajs/authz';
 import { Injectable } from '@spinajs/di';
-import { DeleteQueryBuilder, InStatement, QueryMiddleware, SelectQueryBuilder, SqlOperator, UpdateQueryBuilder, WhereStatement, extractModelDescriptor, relationSyncOf } from '@spinajs/orm';
+import { InStatement, QueryMiddleware, SelectQueryBuilder, SqlOperator, WhereStatement, extractModelDescriptor, relationSyncOf } from '@spinajs/orm';
 import type { IQueryStatement, QueryBuilder } from '@spinajs/orm';
 
 import { ormLog, storageUnscoped } from '../host.js';
 import { marksOf } from '../marker.js';
 import { entryOf, nameOf } from '../registry.js';
 import type { ResourceEntry } from '../registry.js';
+import { isUpdateOrDelete } from '../sync-statement.js';
+import type { SyncStatement } from '../sync-statement.js';
 import { guardMode } from './env.js';
 
 const isScalar = (v: unknown): boolean => typeof v === 'string' || typeof v === 'number' || typeof v === 'bigint';
@@ -46,12 +48,16 @@ export function isSingleObjectLoad(query: SelectQueryBuilder, entry: ResourceEnt
 // driver, so a new one needs no change here.
 const INTERNAL = /[\\/](di|util|orm(-[a-z0-9]+)?|authz|authz-orm)[\\/](src|lib)[\\/]|node:internal|\(<anonymous>\)$|node_modules[\\/](typescript-mix|lodash)/;
 
+// On an async stack, a query awaited inside Promise.all() and its siblings has the combinator as a frame of its own,
+// the same for every call site of the app.
+const COMBINATOR = /^at async Promise\.(all|allSettled|any|race) \(index \d+\)$/;
+
 const UNKNOWN_SITE = 'unknown call site';
 
 /** The first stack frame outside the ORM and this package: the app line that built the query. */
 export function callSite(stack: string | undefined): string {
   const frames = (stack ?? '').split('\n').slice(1).map((l) => l.trim());
-  return frames.find((f) => f.startsWith('at ') && !INTERNAL.test(f)) ?? UNKNOWN_SITE;
+  return frames.find((f) => f.startsWith('at ') && !INTERNAL.test(f) && !COMBINATOR.test(f)) ?? UNKNOWN_SITE;
 }
 
 // Between a sync() statement's middleware and the app's call sit the builder, the list and the transaction: as many
@@ -81,8 +87,6 @@ function authorized(query: QueryBuilder): boolean {
   return currentPrincipal() === SYSTEM || storageUnscoped() !== undefined;
 }
 
-const isWrite = (query: QueryBuilder): query is UpdateQueryBuilder<unknown> | DeleteQueryBuilder<unknown> => query instanceof UpdateQueryBuilder || query instanceof DeleteQueryBuilder;
-
 /** Design §8: reads builders, never changes them. */
 @Injectable(QueryMiddleware)
 export class AccessGuardMiddleware extends QueryMiddleware {
@@ -98,7 +102,7 @@ export class AccessGuardMiddleware extends QueryMiddleware {
 
   beforeQueryExecution(query: QueryBuilder): void {
     if (query instanceof SelectQueryBuilder) this.guardSelect(query);
-    else if (isWrite(query)) this.guardSync(query);
+    else if (isUpdateOrDelete(query)) this.guardSync(query);
   }
 
   protected guardSelect(query: SelectQueryBuilder): void {
@@ -115,7 +119,7 @@ export class AccessGuardMiddleware extends QueryMiddleware {
   }
 
   /** Only the statements a relation list's sync() builds itself; the app's own updates and deletes stay unguarded. */
-  protected guardSync(query: UpdateQueryBuilder<unknown> | DeleteQueryBuilder<unknown>): void {
+  protected guardSync(query: SyncStatement): void {
     const sync = relationSyncOf(query);
     const entry = sync !== undefined ? entryOf(query.Model) : undefined;
     if (sync === undefined || !entry || authorized(query)) return;

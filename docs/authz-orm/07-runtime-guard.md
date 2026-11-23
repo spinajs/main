@@ -6,7 +6,7 @@ It only reads the builder. It never adds a filter: a flagged query still runs un
 
 ## How it works
 
-1. `afterQueryCreation(query)` runs when a select builder of an `@AccessResource` model is created. In `warn` mode only, it records the call site: the first stack frame outside `di`, `util`, `orm`, any `orm-<name>` package, `authz` and `authz-orm` (their `src` or `lib` folders).
+1. `afterQueryCreation(query)` runs when a select builder of an `@AccessResource` model is created. In `warn` mode only, it records the call site: the first stack frame outside `di`, `util`, `orm`, any `orm-<name>` package, `authz` and `authz-orm` (their `src` or `lib` folders) that is not the `at async Promise.all (index N)` frame of `Promise.all()`, `allSettled()`, `any()` or `race()`.
 2. `beforeQueryExecution(query)` lets a select through when any of these holds:
    - the builder is marked `.accessible(permission)` or `.unscoped(reason)`;
    - the current principal is `SYSTEM` (inside `authz().runAs(SYSTEM, reason, fn)`);
@@ -77,7 +77,7 @@ The guard has no `authz.orm` keys. It reads the app env; `authz.audit.unscoped` 
 - **hasMany relations are selects too.** A hasMany `populate()` of an `@AccessResource` model builds its own select; call `.accessible()` in the populate callback. A belongsTo or many-to-many populate runs no select of its own and a `@Recursive` one would filter its root rows only, so `.accessible()` in their callbacks throws `AuthzConfigError` ([Access lists](01-access-lists.md#important-behaviour)).
 - **The select of existing links is not flagged.** A many-to-many `sync()` or `update()` reads its junction rows to tell existing links from missing ones; the guard lets that read through, so `update()` of a list with an `@AccessResource` junction model needs no mark.
 - **The call site is taken only in `warn` mode.** In `throw` and `off` mode no stack is captured. For a select it is taken when the builder is created; for a `sync()` statement it is taken when the guard is about to warn, from the async stack, which holds the app's `async` function that awaited `sync()`.
-- **Behind a queue of outermost transactions the app's line is lost.** SQLite runs one outermost transaction at a time through a queue whose `.then()` ends the async stack, so a `sync()` that opens its own transaction there has no app frame on it: the warning names `unknown call site` and comes once per owner and relation instead of once per line. A `sync()` inside the app's own transaction (a savepoint), and drivers that run transactions concurrently, keep the app's line.
+- **Behind a queue of outermost transactions the app's line is lost.** SQLite runs one outermost transaction at a time through a queue whose `.then()` ends the async stack, so a `sync()` that opens its own transaction there has no app frame on it: the warning names `unknown call site` and comes once per owner and relation instead of once per line. With an unknown call site the warning is keyed by owner and relation, so a second unguarded call site of the same relation stays silent in `warn` mode; the `test` env still throws at every one. A `sync()` inside the app's own transaction (a savepoint), and drivers that run transactions concurrently, keep the app's line.
 - **Plain models are ignored.** A select of a model without `@AccessResource` is never flagged.
 
 ## Best practices

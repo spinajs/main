@@ -193,8 +193,8 @@ The guard only reads the builder. A `populate()` of an `@AccessResource` type ne
 other select. The statements a relation list's `sync()` removes orphans with are guarded the same way:
 mark them in the `sync()` callback (`this.accessible('comment:delete')`), where `.accessible()` refuses
 with `AccessDenied` instead of leaving rows behind, or run the call as SYSTEM. Updates and deletes the
-application builds itself are not guarded, and neither are the inserts of a `sync()`. Add `@spinajs/eslint-plugin-authz` (`@spinajs/authz/require-accessible`) to catch the
-same at edit time.
+application builds itself are not guarded, and neither are the inserts of a `sync()`. Add
+`@spinajs/eslint-plugin-authz` (`@spinajs/authz/require-accessible`) to catch the same at edit time.
 
 ## Nested data
 
