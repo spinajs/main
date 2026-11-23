@@ -1,9 +1,9 @@
 import { audit } from '@spinajs/audit';
-import type { AuditQuery, AuditTrail, StoredAuditEvent } from '@spinajs/audit';
+import type { AuditQuery, AuditSubject, AuditTrail, StoredAuditEvent } from '@spinajs/audit';
 import { auditSubjectId } from '@spinajs/audit-orm';
-import { Autoinject, Injectable } from '@spinajs/di';
+import { Autoinject, DI, Injectable } from '@spinajs/di';
 import type { Constructor } from '@spinajs/di';
-import { ModelBase, extractModelDescriptor } from '@spinajs/orm';
+import { ModelBase, Orm, extractModelDescriptor } from '@spinajs/orm';
 import type { ModelBaseClass } from '@spinajs/orm';
 
 import { asOfFrom, assertInstant } from './as-of.js';
@@ -85,6 +85,22 @@ async function listed(read: Page, query: AuditQuery, q: HistoryQuery | undefined
   return names.length === 0 ? [] : matching(read, { ...query, limit: PAGE }, names, limitOf(q), []);
 }
 
+/**
+ * The model's connection and the trail's own, not every connection that holds the trail table: a subject carries no
+ * connection, so a model of the same entity on a third connection has its own rows under the same ids. One of the same
+ * entity on the trail's own connection is erased with it.
+ */
+async function forgetOn(trail: AuditTrail, spec: HistorySpec, subject: AuditSubject): Promise<number> {
+  const source = sourceOf(spec);
+  const own = trail.config.connection;
+  // By driver: the trail's `default` or an alias of the model's connection is that connection, erased and recorded once.
+  const same = DI.get(Orm)?.Connections.get(own) === extractModelDescriptor(spec.model)?.Driver;
+  // The trail's own first: a trail table missing there fails the call before anything is erased, while the model's
+  // connection holds the table by construction.
+  const elsewhere = same ? 0 : await trail.forget(subject, own);
+  return elsewhere + (await trail.forget(subject, source));
+}
+
 function modelHistory(model: ModelBaseClass, spec: HistorySpec | undefined): ModelHistory {
   if (!spec) throw new HistoryConfigError(`orm-history: ${model.name} is not tracked (no @History and no audit.data.rules match)`);
   const trail = (): AuditTrail => audit().trail(spec.trail);
@@ -96,7 +112,7 @@ function modelHistory(model: ModelBaseClass, spec: HistorySpec | undefined): Mod
     },
     byActor: async (actor, q) => listed((query) => trail().byActor(actor, query), { ...windowOf(spec, q, q?.afterSeq), subjectType: spec.entity }, q),
     asOf: async (id, at) => asOfFrom(trail(), spec, sourceOf(spec), keyOf(id), at),
-    forget: async (id) => trail().forget({ type: spec.entity, id: keyOf(id) }, sourceOf(spec)),
+    forget: async (id) => forgetOn(trail(), spec, { type: spec.entity, id: keyOf(id) }),
   };
 }
 

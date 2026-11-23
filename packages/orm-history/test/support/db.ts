@@ -17,6 +17,8 @@ import type { TrackedModel, TrackedRow } from '../../src/index.js';
 import { resetAudit } from './audit.js';
 
 export type Dialect = 'sqlite' | 'pglite';
+/** A dialect's connection, or `spare`: another sqlite `:memory:` connection, neither dialect's. */
+export type Place = Dialect | 'spare';
 export type ColumnType = 'TEXT' | 'INTEGER' | 'BIGINT' | 'JSON' | 'DATETIME';
 
 /**
@@ -50,7 +52,7 @@ export interface ModelSpec {
 interface Defined {
   readonly model: TrackedClass;
   readonly table: string;
-  readonly dialect: Dialect;
+  readonly dialect: Place;
   readonly ownsTable: boolean;
 }
 
@@ -86,9 +88,16 @@ const LOGGER = {
     { name: 'orm-history', level: 'warn', target: 'Memory' },
   ],
 };
-const AUDIT = { trails: { recorded: { store: 'MemoryAuditStore' }, logged: { store: 'LogAuditStore' } } };
+const trailOn = (dialect: Dialect): string => `history-${dialect}`;
+const AUDIT = {
+  trails: {
+    recorded: { store: 'MemoryAuditStore' },
+    logged: { store: 'LogAuditStore' },
+    ...Object.fromEntries(DIALECTS.map((d) => [trailOn(d), { table: `history_${d}`, connection: d }])),
+  },
+};
 
-/** One ORM over sqlite `:memory:` (the default connection, migrated when opened) and PGlite, with tracked models defined per test. */
+/** One ORM over sqlite `:memory:` (the default connection, migrated when opened), PGlite and the spare sqlite, with tracked models defined per test. */
 export class HistoryDb {
   private readonly historyOn = new Set<Dialect>();
   private readonly models: Defined[] = [];
@@ -97,7 +106,7 @@ export class HistoryDb {
 
   static async open(): Promise<HistoryDb> {
     const pglite = await createTestDatabase({ connection: 'pglite', migrate: false });
-    const connections: unknown[] = [{ Driver: 'orm-driver-sqlite', Name: 'sqlite', Filename: ':memory:' }, pglite.config];
+    const connections: unknown[] = [{ Driver: 'orm-driver-sqlite', Name: 'sqlite', Filename: ':memory:' }, pglite.config, { Driver: 'orm-driver-sqlite', Name: 'spare', Filename: ':memory:' }];
     const aliases = Object.fromEntries(DIALECTS.map((d) => [HistoryDb.aliasOf(d), d]));
     let app: TestApp | undefined;
     try {
@@ -117,6 +126,11 @@ export class HistoryDb {
     return DIALECTS;
   }
 
+  /** A table trail whose own connection is the one of `dialect`; its table, `history_<dialect>`, is not created. */
+  static trailOn(dialect: Dialect): string {
+    return trailOn(dialect);
+  }
+
   /** A connection alias configured for the connection of `dialect`. */
   static aliasOf(dialect: Dialect): string {
     return `${dialect}-alias`;
@@ -131,7 +145,7 @@ export class HistoryDb {
     return (DI.get(MemoryTarget)?.getRecords() ?? []).filter((e) => e.Variables.logger === 'orm-history').map((e) => e.Variables.message);
   }
 
-  driver(dialect: Dialect): OrmDriver {
+  driver(dialect: Place): OrmDriver {
     const driver = this.orm.Connections.get(dialect);
     if (!driver) throw new Error(`HistoryDb: no connection ${dialect}`);
     return driver;
@@ -166,7 +180,7 @@ export class HistoryDb {
   }
 
   /** Creates the table of `spec` on `dialect` and a model class over it on that connection. */
-  async define(spec: ModelSpec, dialect: Dialect): Promise<TrackedClass> {
+  async define(spec: ModelSpec, dialect: Place): Promise<TrackedClass> {
     const Base: abstract new () => ModelBase = spec.base ?? spec.abstractBase ?? ModelBase;
     const model = { [spec.name]: class extends Base {} }[spec.name] as TrackedClass;
     if (!spec.base && !spec.abstractBase) for (const column of spec.primary ?? ['id']) applyDecorator(Primary(), model.prototype, column);

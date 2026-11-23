@@ -98,11 +98,11 @@ The trail's store must join the write's transaction: `TableAuditStore` (the defa
 
 ## Who migrates the trail table
 
-A trail's table must exist on every connection that holds a model tracked in it: events are written in the write's transaction, on the model's connection, and nowhere else.
+A trail's table must exist on every connection that holds a model tracked in it: events are written in the write's transaction, on the model's connection, and nowhere else. It must also exist on the trail's own `connection`, because `forget` erases there and writes its erasure record there ([`forget`](03-as-of-and-erasure.md#forget)).
 
 - **Trail `history` on the default connection: nothing to do.** The package declares `OrmHistory_2026_11_16_00_00_00` (`@Migration('default')`), which creates `orm_history`. Importing the package also imports `@spinajs/audit-orm`, which declares `AuditEvent_2026_11_16_00_00_00` for its table `audit_event` on the same connection. Both are created by the next `npx spinajs migrate-up`, also when no model is tracked.
 - **Trail `history` on another connection:** a subclass of the package's migration, decorated for that connection.
-- **Another trail:** a subclass of `AuditTrailTableMigration` whose `table()` returns the trail's table, on each connection that holds a model tracked in it.
+- **Another trail:** a subclass of `AuditTrailTableMigration` whose `table()` returns the trail's table, on each connection that holds a model tracked in it and on the trail's own `connection`.
 - **A shipping trail (`OutboxAuditStore`):** its events go to the buffer table `audit_outbox` on the model's connection, so that connection needs a subclass of `AuditOutboxTableMigration`; a trail with an archive also needs its archive table on its `archiveConnection` ([Shipping](../audit/06-shipping.md#setup-an-archive-on-another-connection)).
 ```ts sample
 import { AuditTrailTableMigration } from '@spinajs/audit-orm';

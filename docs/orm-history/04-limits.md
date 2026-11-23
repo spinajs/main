@@ -33,6 +33,7 @@ History records what the write capture of `@spinajs/orm` sees: statements built 
 
 - `seq` orders the trail table of one connection. Entries of models on different connections are not one ordered stream, and no order between them is defined.
 - Reads of a model cover its own connection only, where its writes recorded their events.
+- A subject (`{ type: <entity>, id }`) has no connection in it, so models on different connections that share an entity name share subject ids: `forget` erases the rows of such a model on the trail's own connection with it, leaves one on a third connection alone, and the sweep `audit().trail(name).forget(subject)` erases the rows of each with that id. Give such models distinct `entity` names.
 
 ## Configuration
 
