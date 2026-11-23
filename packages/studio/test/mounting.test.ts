@@ -2,7 +2,7 @@ import 'mocha';
 import { expect } from 'chai';
 import { FrameworkLogger } from '@spinajs/log';
 
-import { assertStudioMountable, StudioMountRefused } from '../src/index.js';
+import { assertStudioMountable, explainMountable, StudioMountRefused } from '../src/index.js';
 import { startApp, stopApp } from './support/app.js';
 import type { TestApp } from './support/app.js';
 import { registerHeaderSource } from './support/principals.js';
@@ -22,6 +22,13 @@ describe('assertStudioMountable', () => {
 
   it('mounts outside production', () => {
     expect(assertStudioMountable({ enabled: true, allowProduction: false, isProduction: false })).to.eq(true);
+  });
+
+  it('mounts explain outside production, and in production only with studio.allowExplainInProduction', () => {
+    expect(explainMountable({ allowExplainInProduction: false, isProduction: false })).to.eq(true);
+    expect(explainMountable({ allowExplainInProduction: false, isProduction: true })).to.eq(false);
+    expect(explainMountable({ allowExplainInProduction: 'true', isProduction: true })).to.eq(false);
+    expect(explainMountable({ allowExplainInProduction: true, isProduction: true })).to.eq(true);
   });
 });
 

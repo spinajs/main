@@ -1,10 +1,11 @@
-import { AuthzDomains } from '@spinajs/authz';
+import { AuthzDomains, isProduction } from '@spinajs/authz';
 import { Configuration } from '@spinajs/configuration';
 import type { IContainer } from '@spinajs/di';
 import { tracingState } from '@spinajs/tracing';
 
 import { TraceStore } from './buffers/trace-store.js';
 import type { StudioFeatures } from './contracts/index.js';
+import { explainMountable } from './guard.js';
 
 export type StudioFeature = keyof StudioFeatures;
 export type FeatureProbe = (container: IContainer) => boolean | Promise<boolean>;
@@ -25,6 +26,12 @@ const probes = new Map<StudioFeature, FeatureProbe>([
   }],
   ['di', () => true],
   ['authz', (c) => c.hasRegistered(AuthzDomains)],
+  // The keys and functions StudioControllerSource reads, so the feature says whether the route is mounted.
+  ['explain', (c) => {
+    const cfg = c.get(Configuration);
+    const production = cfg?.get<unknown>('configuration.isProduction');
+    return explainMountable({ allowExplainInProduction: cfg?.get<unknown>('studio.allowExplainInProduction'), isProduction: isProduction(typeof production === 'boolean' ? production : undefined) });
+  }],
   ['telemetry', registered('TelemetryStore')],
   ['scheduler', registered('SchedulerService')],
 ]);
@@ -34,7 +41,7 @@ export function registerStudioFeature(feature: StudioFeature, probe: FeatureProb
 }
 
 export async function detectFeatures(container: IContainer): Promise<StudioFeatures> {
-  const features: StudioFeatures = { traces: false, logs: false, slowQueries: false, di: false, routes: false, authz: false, rebac: false, telemetry: false, scheduler: false };
+  const features: StudioFeatures = { traces: false, logs: false, slowQueries: false, di: false, routes: false, authz: false, explain: false, rebac: false, telemetry: false, scheduler: false };
   for (const [feature, probe] of probes) {
     features[feature] = await probe(container);
   }

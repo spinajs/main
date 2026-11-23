@@ -22,3 +22,4 @@ export * from './graph/graph.js';
 export * from './graph/di.js';
 export * from './authz/domains.js';
 export * from './authz/roles.js';
+export * from './authz/explain.js';

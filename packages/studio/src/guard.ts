@@ -22,3 +22,15 @@ export function assertStudioMountable(settings: StudioMountSettings): boolean {
   }
   return true;
 }
+
+export interface StudioExplainSettings {
+  /** `studio.allowExplainInProduction` */
+  readonly allowExplainInProduction: unknown;
+  /** `configuration.isProduction`, already normalised by `isProduction()` of `@spinajs/authz`. */
+  readonly isProduction: boolean;
+}
+
+/** Explain answers "why can X do Y" about any principal: in production it is mounted only with its own flag. */
+export function explainMountable(settings: StudioExplainSettings): boolean {
+  return !settings.isProduction || settings.allowExplainInProduction === true;
+}
