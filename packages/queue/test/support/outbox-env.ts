@@ -1,6 +1,6 @@
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { Bootstrapper, Constructor, DI, Injectable, PerInstanceCheck, type ContainerSnapshot } from '@spinajs/di';
-import { Clock, DbTimeSource, FaultInjector, type FaultPointName } from '@spinajs/durable';
+import { Clock, DbTimeSource, DurableSystemClock, FaultInjector, type FaultPointName } from '@spinajs/durable';
 import { FakeClock } from '@spinajs/durable/testing';
 import { MigrationTransactionMode, Orm, OrmDriver } from '@spinajs/orm';
 import { migrateTestDatabase } from '@spinajs/orm/testing';
@@ -181,7 +181,11 @@ export async function bootOutboxDb(o: OutboxEnvOptions = {}): Promise<OutboxDb> 
   const clock = new FakeClock(T0);
   const faults = new RecordingFaults();
   DI.register(OutboxConf).as(Configuration);
-  if (!o.realTimers) {
+  if (o.realTimers) {
+    // The memory transport suites leave their fake clock registered; registered afresh, the default is the last and wins.
+    DI.unregister(Clock, DurableSystemClock);
+    DI.register(DurableSystemClock).as(Clock);
+  } else {
     DI.register(() => clock).as(Clock);
     DI.register(() => clock.dbSource).as(DbTimeSource);
   }
