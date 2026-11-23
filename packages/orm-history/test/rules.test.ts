@@ -51,4 +51,15 @@ describe('audit.data.rules', function () {
     await expect(createTestApp({ config: { logger: SILENT, audit: { data: { rule: [{ models: '*' }] } } } })).to.be.rejectedWith(InvalidConfiguration);
     await expect(createTestApp({ config: { logger: SILENT, audit: { data: { rules: [{ models: ['Invoice'], trial: 'billing' }] } } } })).to.be.rejectedWith(InvalidConfiguration);
   });
+
+  it('accepts audit.data.onUnknownKeys and refuses another value or a misspelt key', async () => {
+    const app = await createTestApp({ config: { logger: SILENT, audit: { data: { onUnknownKeys: 'throw' } } } });
+    try {
+      expect(app.config.get('audit.data.onUnknownKeys')).to.eq('throw');
+      expect(() => app.config.set('audit.data.onUnknownKeys', 'ignore')).to.throw(InvalidConfiguration);
+    } finally {
+      await app.dispose();
+    }
+    await expect(createTestApp({ config: { logger: SILENT, audit: { data: { onUnknownKey: 'throw' } } } })).to.be.rejectedWith(InvalidConfiguration);
+  });
 });

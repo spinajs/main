@@ -15,7 +15,7 @@ export const AUDIT_DATA_CONFIGURATION_SCHEMA = {
   $configurationModule: 'audit.data',
   description: 'Row history of ORM models (audit.data.*)',
   type: 'object',
-  propertyNames: { enum: ['rules'] },
+  propertyNames: { enum: ['rules', 'onUnknownKeys'] },
   properties: {
     rules: {
       type: 'array',
@@ -29,6 +29,8 @@ export const AUDIT_DATA_CONFIGURATION_SCHEMA = {
         },
       },
     },
+    // What a tracked insert does when the driver did not report the keys it wrote.
+    onUnknownKeys: { type: 'string', enum: ['warn', 'throw'], default: 'warn' },
   },
 };
 
