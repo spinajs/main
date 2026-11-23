@@ -6675,7 +6675,7 @@
   },
   "packages/orm/src/relation-objects.ts": {
     "@typescript-eslint/no-unnecessary-type-assertion": {
-      "count": 2
+      "count": 1
     },
     "@typescript-eslint/no-unsafe-call": {
       "count": 4

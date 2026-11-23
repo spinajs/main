@@ -324,7 +324,7 @@ export class TenantMiddleware extends QueryMiddleware {
 function relationSyncOf(query: object): { readonly relation: string; readonly owner: Constructor<ModelBase> } | undefined;
 ```
 
-`relationSyncOf(query)` names the relation list that built a statement: `relation` is the relation's property name on the owner, `owner` the owner's model class. It answers for the statements a [relation list's](06-relations.md) `sync()` or `update()` builds itself: the many-to-many select of existing links, the one-to-many orphan delete or soft-delete stamp and the many-to-many orphan delete of junction rows. It answers `undefined` for every other builder, the member and junction inserts of `sync()` included (they run through `ModelBase.insert`). It answers in the `sync()` callback and from `beforeQueryExecution` on, not in `afterQueryCreation`, which runs inside the builder's constructor.
+`relationSyncOf(query)` names the relation list that built a statement: `relation` is the relation's property name on the owner, `owner` the owner's model class. It answers for the statements a [relation list's](06-relations.md) `sync()` or `update()` builds itself: the many-to-many select of existing links, the one-to-many orphan delete or soft-delete stamp and the many-to-many orphan delete of junction rows. It answers `undefined` for every other builder, the member and junction inserts of `sync()` included (they run through `ModelBase.insert`), and a `clone()` of such a statement, which is another builder. It answers in the `sync()` callback and from `beforeQueryExecution` on, not in `afterQueryCreation`, which runs inside the builder's constructor.
 
 ## Important behaviour
 

@@ -1,6 +1,6 @@
 /* eslint-disable prettier/prettier */
 import { InsertBehaviour } from './interfaces.js';
-import type { IRelationDescriptor, IModelDescriptor, ForwardRefFunction, IRelation, ISelectQueryBuilder, IDeleteQueryBuilder, IUpdateQueryBuilder, QueryScope } from './interfaces.js';
+import type { IRelationDescriptor, IModelDescriptor, ForwardRefFunction, IRelation, ISelectQueryBuilder, IRelationSyncStatement, QueryScope } from './interfaces.js';
 import { DI, NewInstance } from '@spinajs/di';
 import type { Class, Constructor, ResolveResult } from '@spinajs/di';
 import { DateTime } from 'luxon';
@@ -13,9 +13,6 @@ import type { OrmDriver } from './driver.js';
 import { extractModelDescriptor } from './descriptor.js';
 import { isCompositePk, pkColumns, pkKeyStringFor, pkValueOf, whereNotAnyPk } from './primary-keys.js';
 import { OrmException } from './exceptions.js';
-
-/** Statements of a many-to-many list are on its junction model, so the row type is not the list's member type. */
-type SyncStatementCallback = (this: IUpdateQueryBuilder<unknown> | IDeleteQueryBuilder<unknown>) => void;
 
 const relationSyncs = new WeakMap<object, { readonly relation: string; readonly owner: Constructor<ModelBase> }>();
 
@@ -278,7 +275,7 @@ export abstract class Relation<R extends ModelBase<R>, O extends ModelBase<O>, Q
    * @param callback - applied, with the builder as `this`, to every update and delete statement the call builds itself
    *        ( the orphan delete or soft-delete stamp ), before it runs; not to the select of existing links or the inserts
    */
-  public abstract sync(callback?: SyncStatementCallback): Promise<void>;
+  public abstract sync(callback?: (this: IRelationSyncStatement) => void): Promise<void>;
 
   /**
    * Updates or ads data to relation
@@ -542,7 +539,7 @@ export class ManyToManyRelationList<T extends ModelBase, O extends ModelBase> ex
   * @param data relation data
   * @returns
   */
-  protected async _dbDiff(data: T[], callback?: SyncStatementCallback) {
+  protected async _dbDiff(data: T[], callback?: (this: IRelationSyncStatement) => void) {
     // A junction table carries exactly ONE foreign key column per side, so it cannot address
     // a composite target key. Fail loudly rather than delete the wrong rows.
     if (isCompositePk(this.TargetModelDescriptor!)) {
@@ -573,7 +570,7 @@ export class ManyToManyRelationList<T extends ModelBase, O extends ModelBase> ex
     *
     * @param callback - applied, with the builder as `this`, to the orphan delete of junction rows before it runs
     */
-  public async sync(callback?: SyncStatementCallback) {
+  public async sync(callback?: (this: IRelationSyncStatement) => void) {
     await this.Driver.transaction(async () => {
       await this._update();
       await this._dbDiff(this, callback);
@@ -680,7 +677,7 @@ export class OneToManyRelationList<T extends ModelBase, O extends ModelBase> ext
    * @param data relation data
    * @returns
    */
-  protected async _dbDiff(data: T[], callback?: SyncStatementCallback) {
+  protected async _dbDiff(data: T[], callback?: (this: IRelationSyncStatement) => void) {
     // A composite key is a tuple and always truthy, so filter on the key COLUMNS being set
     // rather than on the tuple itself.
     const keys = pkColumns(this.TargetModelDescriptor!);
@@ -766,7 +763,7 @@ export class OneToManyRelationList<T extends ModelBase, O extends ModelBase> ext
    * @param callback - applied, with the builder as `this`, to the orphan delete ( the soft-delete stamp for a
    *        `@SoftDelete` target ) before it runs
    */
-  public async sync(callback?: SyncStatementCallback) {
+  public async sync(callback?: (this: IRelationSyncStatement) => void) {
     await this.Driver.transaction(async () => {
       await this._update();
       await this._dbDiff(this, callback);
