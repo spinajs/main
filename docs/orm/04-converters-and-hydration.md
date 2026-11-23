@@ -430,11 +430,17 @@ A `@DateTime` value in `update(data)` must be a `DateTime`, a `Date`, a number o
 
 ### Foreign keys taken from a relation pass the column converter
 
-A foreign key written from a relation (a `@BelongsTo` target, a junction row of `sync()`, `update()` or `save()`) was stored without its column's converter. Rows written that way keep the unconverted value: on SQLite a `@Uuid()` foreign key holds the dashed text instead of 16 bytes, and `where()`, `populate()` and the orphan delete of `sync()` never match it. Rewrite such rows once, for example on SQLite 3.41 or later:
+A foreign key written from a relation (a `@BelongsTo` target, a junction row of `sync()`, `update()` or `save()`) was stored without its column's converter. Rows written that way keep the unconverted value: on SQLite a `@Uuid()` foreign key holds the dashed text instead of 16 bytes, and `where()` and `populate()` of the parent do not find them.
+
+Repair these rows before the first `sync()`, `update()` or `save()` of such a relation. If you skip the repair, the first `sync()` of an owner deletes every junction row of that owner still in text form, including the rows of the members it keeps, and does not write them again. The read of existing links accepts both forms, so a kept member counts as linked and is not inserted; the orphan delete binds the kept keys as bytes, so it matches the text row. Those links are lost. `update()` and `save()` delete no text row, but `save()` writes a second, converted row for a member linked in text form, so a repair after it leaves that link twice.
+
+On SQLite 3.41 or later, rewrite the rows once per table and column:
 
 ```sql
 UPDATE note SET tag_id = unhex(replace(tag_id, '-', '')) WHERE typeof(tag_id) = 'text';
 ```
+
+The statement covers `@Uuid()` foreign keys only. A foreign key column with another converter needs its own statement, one that writes what that converter's `toDB()` returns. On MySQL a `BINARY(16)` column never held the 36-character text. In strict mode the write was rejected. Without strict mode the text was truncated to its first 16 characters, and those rows cannot be repaired: the rest of the key is gone.
 
 ## Related
 

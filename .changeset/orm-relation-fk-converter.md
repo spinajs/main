@@ -7,6 +7,6 @@ A foreign key taken from a relation passes the foreign-key column's converter wh
 
 `UuidConverter.toDB()` returns a 16-byte `Buffer` or `Uint8Array` as it is, so a `@Uuid()` foreign key whose value is already in database form (copied from a raw row, or the key of a parent whose database-generated key `save()` read back through `RETURNING`) is written unchanged instead of throwing `TypeError`. A byte value of another length throws `InvalidArgument`.
 
-Rows written before keep the unconverted value; see "Foreign keys taken from a relation pass the column converter" in `docs/orm/04-converters-and-hydration.md`.
+Rows written before keep the unconverted value. Repair them before the first `sync()`, `update()` or `save()` of such a relation: without the repair, the first `sync()` of an owner deletes every junction row of that owner still in the unconverted form, including the rows of the members it keeps, and does not write them again. See "Foreign keys taken from a relation pass the column converter" in `docs/orm/04-converters-and-hydration.md` for the SQLite statement and the limits on other converters and on MySQL.
 
 `ModelToSqlConverter` has a protected `relationForeignKeys(model)` that both `StandardModelToSqlConverter` and `SqliteModelToSqlConverter` use for the relation-managed foreign keys; a custom subclass that overrides `toSql()` calls it.
