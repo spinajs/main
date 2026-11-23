@@ -1,4 +1,5 @@
 import { Exception } from '@spinajs/exceptions';
+import type { TenantRunReport } from './contracts.js';
 
 /** Code that needs one tenant ran with no scope, or in the cross-tenant scope. */
 export class TenantRequired extends Exception {}
@@ -18,5 +19,16 @@ export class TenantUnavailable extends Exception {
     message: string,
   ) {
     super(message);
+  }
+}
+
+/** `forEachTenant` stopped because the registry failed; `cause` is the registry's error, `report` covers the tenants that ran before. */
+export class TenantIterationAborted extends Exception {
+  constructor(
+    message: string,
+    public readonly report: TenantRunReport,
+    cause: unknown,
+  ) {
+    super(message, cause);
   }
 }
