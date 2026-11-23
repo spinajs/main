@@ -74,9 +74,40 @@ export class Orphan extends ModelBase<Orphan> {
   public label: string;
 }
 
-// Not a tenant model, on a tenant table.
+// Shared, with to-one relations to a tenant model, directly and through itself.
 @Connection('default')
-@Model('invoice')
+@Model('depot')
+export class Depot extends ModelBase<Depot> {
+  @Primary()
+  public Id: number;
+
+  public name: string;
+
+  public invoice_id: number | null;
+
+  public parent_id: number | null;
+
+  @BelongsTo(Invoice, 'invoice_id')
+  public Invoice: SingleRelation<Invoice>;
+
+  @BelongsTo(Depot, 'parent_id')
+  public Parent: SingleRelation<Depot>;
+
+  // Named by string: both are declared below.
+  @BelongsTo('InvoiceView', 'invoice_id')
+  public View: SingleRelation<InvoiceView>;
+
+  @Recursive()
+  @BelongsTo('Folder', 'parent_id')
+  public Folders: SingleRelation<Folder>;
+
+  @HasMany(Depot, { foreignKey: 'parent_id', primaryKey: 'Id' })
+  public Children: Relation<Depot, Depot>;
+}
+
+// Not a tenant model, on a tenant table named in another letter case.
+@Connection('default')
+@Model('INVOICE')
 export class InvoiceView extends ModelBase<InvoiceView> {
   @Primary()
   public Id: number;
@@ -108,8 +139,9 @@ export class Folder extends ModelBase<Folder> {
 @Model('archived_note')
 export class ArchivedNote extends Note {}
 
-// No table of its own: the tables of its subclasses are tenant tables.
-@Tenant()
+// No table of its own: the tables of its subclasses are tenant tables. Row level security makes their connection keep
+// one tenant scope per transaction.
+@Tenant({ rls: true })
 export abstract class TenantOwned<M = unknown> extends ModelBase<M> {
   @Column({ family: 'text', length: 64 })
   public tenant_id: string;
@@ -124,7 +156,7 @@ export class Ledger extends TenantOwned<Ledger> {
   public entry: string;
 }
 
-const TABLES = ['carrier', 'invoice', 'invoice_line', 'note', 'orphan', 'archived_note', 'ledger', 'folder'];
+const TABLES = ['carrier', 'invoice', 'invoice_line', 'note', 'orphan', 'archived_note', 'ledger', 'folder', 'depot'];
 
 @Migration('default')
 export class TenancyOrmTest_2026_11_16_00_00_00 extends OrmMigration {
@@ -169,6 +201,12 @@ export class TenancyOrmTest_2026_11_16_00_00_00 extends OrmMigration {
       table.int('Id').primaryKey().autoIncrement();
       table.string('tenant_id', 64).notNull();
       table.string('name', 32).notNull();
+      table.int('parent_id');
+    });
+    await connection.schema().createTable('depot', (table) => {
+      table.int('Id').primaryKey().autoIncrement();
+      table.string('name', 32).notNull();
+      table.int('invoice_id');
       table.int('parent_id');
     });
     await connection.index().table('invoice').name('invoice_tenant').columns(['tenant_id']);

@@ -143,9 +143,19 @@ export function tenantModelOfTable(table: string): TenantModelEntry | undefined 
  * none. Before the Orm has registered its models: the registered classes that map a table.
  */
 export function tenantModels(): TenantModelEntry[] {
+  return modelsWithTable().flatMap((model) => tenantModelOf(model) ?? []);
+}
+
+/** The model classes of `tenantModels()` whose tables are meant to carry row level security. */
+export function rlsModels(): object[] {
+  if (!defaults().rls && ![...registrations.values()].some((own) => own.rls === true)) return [];
+  return modelsWithTable().filter((model): model is object => typeof model === 'function' && tenantModelOf(model)?.rls === true);
+}
+
+function modelsWithTable(): unknown[] {
   const orm = DI.get(Orm);
   const models: unknown[] = orm ? orm.Models.map((m): unknown => m.type) : [...registrations.keys()];
-  return models.filter((model) => tableOf(model) !== undefined).flatMap((model) => tenantModelOf(model) ?? []);
+  return models.filter((model) => tableOf(model) !== undefined);
 }
 
 /** Test seam: forget a class's registration. */
