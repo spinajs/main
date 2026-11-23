@@ -29,8 +29,49 @@ export function toHistoryValue(value: unknown): unknown {
 
 const isObject = (v: unknown): v is object => typeof v === 'object' && v !== null;
 
+// JSON.parse never returns undefined, so it marks text that does not parse.
+function parsedJson(text: string): unknown {
+  try {
+    return JSON.parse(text) as unknown;
+  } catch {
+    return undefined;
+  }
+}
+
+// A string, or a number outside strings in group 1.
+const JSON_TOKEN = /"(?:[^"\\]|\\.)*"|(-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)/g;
+const MIN_NORMAL_DOUBLE = 2 ** -1022;
+
+// Fifteen significant digits always survive a double in its normal range. A false positive only keeps the text comparison.
+function lossyNumber(token: string): boolean {
+  const n = Number(token);
+  const digits = token
+    .replace(/[eE].*$/, '')
+    .replace(/[-.]/g, '')
+    .replace(/^0+|0+$/g, '');
+  return !Number.isFinite(n) || digits.length > 15 || (digits !== '' && Math.abs(n) < MIN_NORMAL_DOUBLE);
+}
+
+function holdsLossyNumber(text: string): boolean {
+  for (const [, number] of text.matchAll(JSON_TOKEN)) {
+    if (number !== undefined && lossyNumber(number)) return true;
+  }
+  return false;
+}
+
+// sqlite and MSSQL hand a JSON column over as its text, where PostgreSQL and MySQL parse it. Parsing merges numbers a
+// double cannot tell apart (beyond 2^53, 1e400 and null), so such text keeps the text comparison. The scan runs only on
+// text that parsed: on a string with no closing quote it rescans to the end from every later quote.
+function sameJsonText(a: string, b: string): boolean {
+  const x = parsedJson(a);
+  const y = parsedJson(b);
+  if (x === undefined || y === undefined || holdsLossyNumber(a) || holdsLossyNumber(b)) return false;
+  return canonicalJson(x) === canonicalJson(y);
+}
+
 // Two values are the same when the store would keep the same text for them; nearly every column decides on the identity check.
-function same(a: unknown, b: unknown): boolean {
+function same(a: unknown, b: unknown, json: boolean): boolean {
+  if (json && typeof a === 'string' && typeof b === 'string' && a !== b) return sameJsonText(a, b);
   const x = toHistoryValue(a);
   const y = toHistoryValue(b);
   return Object.is(x, y) || (isObject(x) && isObject(y) && canonicalJson(x) === canonicalJson(y));
@@ -61,7 +102,7 @@ export function historyEntryOf(spec: HistorySpec, change: RowChange): PendingEnt
   const { id, before, after } = change;
   if (before === undefined) return after === undefined ? undefined : { id, op: 'insert', data: { after: visibleRow(spec, after) } };
   if (after === undefined) return { id, op: 'delete', data: { before: visibleRow(spec, before) } };
-  const changed = [...new Set([...Object.keys(before), ...Object.keys(after)])].filter((c) => !spec.exclude.has(c) && !same(before[c], after[c])).sort();
+  const changed = [...new Set([...Object.keys(before), ...Object.keys(after)])].filter((c) => !spec.exclude.has(c) && !same(before[c], after[c], spec.json.has(c))).sort();
   if (changed.length === 0) return undefined;
   const visible = changed.filter((c) => !spec.masked.has(c));
   return {

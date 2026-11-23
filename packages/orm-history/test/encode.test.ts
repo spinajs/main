@@ -12,6 +12,7 @@ const spec = (over: Partial<HistorySpec> = {}): HistorySpec => ({
   columns: '*',
   exclude: new Set(),
   masked: new Set(),
+  json: new Set(),
   softDelete: undefined,
   trail: 'history',
   ...over,
@@ -47,6 +48,43 @@ describe('history encoding', () => {
 
   it('reads a JSON value in another key order as unchanged', () => {
     expect(historyEntryOf(spec(), { id: '1', before: { id: 1, body: { a: 1, b: [2] } }, after: { id: 1, body: { b: [2], a: 1 } } })).to.eq(undefined);
+  });
+
+  it('reads the text of a JSON column by value and keeps the text it was handed', () => {
+    const s = spec({ json: new Set(['body']) });
+    expect(historyEntryOf(s, { id: '1', before: { id: 1, body: '{"a":1,"b":[2]}' }, after: { id: 1, body: '{ "b": [2], "a": 1 }' } })).to.eq(undefined);
+    const e = historyEntryOf(s, { id: '1', before: { id: 1, n: 1, body: '{"a":1}' }, after: { id: 1, n: 2, body: '{ "a": 1 }' } });
+    expect(e?.data).to.deep.eq({ before: { n: 1 }, after: { id: 1, n: 2, body: '{ "a": 1 }' }, changed: ['n'] });
+  });
+
+  it('reads text that does not parse, and the text of an undeclared column, as text', () => {
+    const s = spec({ json: new Set(['body']) });
+    expect(historyEntryOf(s, { id: '1', before: { id: 1, body: '{"a":' }, after: { id: 1, body: '{"a": ' } })?.data.changed).to.deep.eq(['body']);
+    expect(historyEntryOf(s, { id: '1', before: { id: 1, body: '{"a":1}' }, after: { id: 1, body: '{"a": ' } })?.data.changed).to.deep.eq(['body']);
+    expect(historyEntryOf(s, { id: '1', before: { id: 1, note: '{"a":1,"b":2}' }, after: { id: 1, note: '{"b":2,"a":1}' } })?.data.changed).to.deep.eq(['note']);
+  });
+
+  it("reads the text of a JSON column as text when it holds a number with more than 15 significant digits or outside the double's normal range", () => {
+    const s = spec({ json: new Set(['body']) });
+    const changed = (before: string, after: string): readonly string[] | undefined => historyEntryOf(s, { id: '1', before: { id: 1, body: before }, after: { id: 1, body: after } })?.data.changed;
+    expect(changed('{"n":12345678901234567891}', '{"n":12345678901234567892}')).to.deep.eq(['body']);
+    expect(changed('[0.12345678901234567]', '[0.12345678901234568]')).to.deep.eq(['body']);
+    expect(changed('{"a":1e400}', '{"a":null}')).to.deep.eq(['body']);
+    expect(changed('{"a":1e-400}', '{"a":0}')).to.deep.eq(['body']);
+    expect(changed('{"s":"12345678901234567891","n":1}', '{"n":1,"s":"12345678901234567891"}')).to.eq(undefined);
+  });
+
+  it('reads as text, in linear time, a cut-off double-encoded JSON text in a JSON column', () => {
+    const whole = JSON.stringify(JSON.stringify(Object.fromEntries(Array.from({ length: 13000 }, (_, i) => [`k${i}`, `v${i}`]))));
+    const cut = whole.slice(0, -1);
+    expect(whole.length).to.be.greaterThan(256 * 1024);
+    expect(historyEntryOf(spec({ json: new Set(['body']) }), { id: '1', before: { id: 1, body: whole }, after: { id: 1, body: cut } })?.data.changed).to.deep.eq(['body']);
+  });
+
+  it('counts -0 against 0 and a duplicate key as no change in a JSON column', () => {
+    const s = spec({ json: new Set(['body']) });
+    expect(historyEntryOf(s, { id: '1', before: { id: 1, body: '{"a":-0}' }, after: { id: 1, body: '{"a":0}' } })).to.eq(undefined);
+    expect(historyEntryOf(s, { id: '1', before: { id: 1, body: '{"a":1,"a":2}' }, after: { id: 1, body: '{"a":2}' } })).to.eq(undefined);
   });
 
   it('writes nothing for an update that changed nothing', () => {

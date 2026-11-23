@@ -145,6 +145,7 @@ Each changed row is one `AuditInput`: `kind: 'data'`, `action` the operation, `s
 ```
 
 - An insert holds `after`, a delete `before`, an update (and a soft delete or restore) all three. An update that changes nothing writes nothing.
+- A column is changed when its value as JSON is. A column the model declares as JSON, with `@Json()` or `@Column({ family: 'json' })` (or a `nativeType` of `json` or `jsonb`), is compared by its parsed value where the driver hands it over as text (sqlite, MSSQL), as on the drivers that parse it: the same JSON with its keys in another order or other whitespace is no change. Text in it that does not parse or that holds a number beyond double precision ([Values](04-limits.md#values)), and JSON text in a column not declared as JSON, is compared as text. Only the comparison parses: `before` and `after` keep what the driver returned.
 - `changed` lists every changed column, masked ones included (`secret` above, a `@Hidden()` column). `before` holds the previous values of the changed columns that are not masked.
 - `after` holds the whole row in full mode, and the key with every tracked column in column mode, so each entry is self-contained.
 - Values are what the driver returned, before the model's converters, as JSON: a `Date` becomes its ISO string (an invalid one `null`), a `bigint` its decimal text, bytes `{ "$bytes": "<base64>" }`. Column names are the table's.

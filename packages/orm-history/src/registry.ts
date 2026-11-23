@@ -3,8 +3,8 @@ import { DI, Singleton } from '@spinajs/di';
 import type { Constructor } from '@spinajs/di';
 import { Logger } from '@spinajs/log-common';
 import type { Log } from '@spinajs/log-common';
-import { Orm, UuidConverter, extendModel, extractModelDescriptor, unextendModel } from '@spinajs/orm';
-import type { IModelDescriptor, ModelBase, ModelBaseClass, ModelMembers, OrmDriver } from '@spinajs/orm';
+import { JsonValueConverter, Orm, UuidConverter, extendModel, extractModelDescriptor, unextendModel } from '@spinajs/orm';
+import type { IModelDescriptor, ModelBase, ModelBaseClass, ModelMembers, OrmDriver, ValueConverter } from '@spinajs/orm';
 
 import { HistoryConfigError } from './errors.js';
 import { DEFAULT_HISTORY_TRAIL, lineageOf, ruleFor } from './rules.js';
@@ -28,6 +28,8 @@ export interface HistorySpec {
   readonly columns: readonly string[] | '*';
   readonly exclude: ReadonlySet<string>;
   readonly masked: ReadonlySet<string>;
+  /** Columns the model declares as JSON; their text is compared by value. */
+  readonly json: ReadonlySet<string>;
   readonly softDelete: string | undefined;
   readonly trail: string;
 }
@@ -96,10 +98,23 @@ function declaredFor(model: ModelBaseClass): HistoryOptions | false | undefined 
   return undefined;
 }
 
+function convertedBy(d: IModelDescriptor, column: string, base: Constructor<ValueConverter>): boolean {
+  const converter = d.Converters.get(column)?.Class;
+  return converter !== undefined && (converter === base || converter.prototype instanceof base);
+}
+
 // The capture keys a row by the text of its raw key, and the 16 bytes UuidConverter writes have none.
 function keyStoredAsBytes(d: IModelDescriptor): boolean {
-  const converter = d.Converters.get(d.PrimaryKey[0])?.Class;
-  return converter !== undefined && (converter === UuidConverter || converter.prototype instanceof UuidConverter);
+  return convertedBy(d, d.PrimaryKey[0], UuidConverter);
+}
+
+const JSON_TYPE = /^jsonb?$/i;
+
+// Not the column type the table reports: sqlite reports none for a column the schema builder made with json().
+function jsonColumns(d: IModelDescriptor): ReadonlySet<string> {
+  const json = new Set([...d.Converters.keys()].filter((c) => convertedBy(d, c, JsonValueConverter)));
+  for (const [column, s] of d.ColumnSpecs ?? []) if (s.family === 'json' || JSON_TYPE.test(s.nativeType ?? '')) json.add(column);
+  return json;
 }
 
 function assertKeyed(model: ModelBaseClass, d: IModelDescriptor | null | undefined): asserts d is IModelDescriptor {
@@ -139,6 +154,7 @@ function buildSpec(model: ModelBaseClass, o: HistoryOptions): HistorySpec {
     columns: o.columns ? [...new Set([...o.columns, ...always])] : '*',
     exclude: new Set((o.exclude ?? []).filter((c) => c !== softDelete)),
     masked: o.hidden === 'record' ? new Set() : new Set(hiddenOnTable(d).filter((h) => !listed.has(h))),
+    json: jsonColumns(d),
     softDelete,
     trail: o.trail ?? DEFAULT_HISTORY_TRAIL,
   };
