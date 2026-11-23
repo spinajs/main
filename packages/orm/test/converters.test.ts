@@ -45,7 +45,7 @@ describe('Orm converters', () => {
     expect((uid as Buffer).length).to.eq(16);
 
     // round-trip must be identity: fromDB rebuilds the dashed 36-char form
-    const back = converter.fromDB(uid as Buffer);
+    const back = converter.fromDB(uid);
     expect(back).to.eq(u);
   });
 
@@ -60,7 +60,7 @@ describe('Orm converters', () => {
 
   it('uuid fromDB(null) should return null ( B15a guard )', () => {
     const converter = new UuidConverter();
-    expect(converter.fromDB(null as any)).to.be.null;
+    expect(converter.fromDB(null)).to.be.null;
   });
 
   it('uuid toDB of the database form returns it unchanged', () => {
@@ -71,6 +71,45 @@ describe('Orm converters', () => {
     expect(converter.toDB(bytes), 'a Buffer').to.eq(bytes);
     expect(converter.toDB(plain), 'a Uint8Array').to.eq(plain);
     expect(() => converter.toDB(Buffer.alloc(4)), 'not 16 bytes').to.throw(InvalidArgument, /16 bytes, got 4/);
+  });
+
+  describe('uuid fromDB of bytes', () => {
+    const u = '0db8f7f5-56cd-4801-ac23-ad6d78bfec3f';
+    const converter = new UuidConverter();
+    const bytes = converter.toDB(u) as Buffer;
+
+    it('reads a Buffer, a plain Uint8Array and a view at an offset the same way', () => {
+      const larger = new Uint8Array(24);
+      larger.set(bytes, 5);
+      const view = larger.subarray(5, 21);
+
+      expect(Buffer.isBuffer(view), 'the view is no Buffer').to.be.false;
+      expect(view.byteOffset).to.eq(5);
+      expect(converter.fromDB(bytes), 'a Buffer').to.eq(u);
+      expect(converter.fromDB(new Uint8Array(bytes)), 'a Uint8Array').to.eq(u);
+      expect(converter.fromDB(view), 'a view').to.eq(u);
+      expect(converter.fromDB(u), 'the text form').to.eq(u);
+      expect(converter.fromDB(u.replace(/-/g, '')), 'the text form without dashes').to.eq(u);
+    });
+
+    it('round-trips every value toDB returns, both ways', () => {
+      const plain = new Uint8Array(bytes);
+      for (const value of [u, bytes, plain]) {
+        expect(converter.fromDB(converter.toDB(value)), String(value)).to.eq(u);
+      }
+
+      expect(Buffer.compare(converter.toDB(converter.fromDB(plain) as string) as Buffer, bytes)).to.eq(0);
+    });
+
+    it('returns the hex of bytes of another length, for a Uint8Array as for a Buffer', () => {
+      const short = Uint8Array.from([0xde, 0xad, 0xbe, 0xef]);
+
+      expect(converter.fromDB(Buffer.from(short)), 'a Buffer').to.eq('deadbeef');
+      expect(converter.fromDB(short), 'a Uint8Array').to.eq('deadbeef');
+      expect(converter.fromDB(Buffer.alloc(0)), 'an empty Buffer').to.eq('');
+      expect(converter.fromDB(new Uint8Array(0)), 'an empty Uint8Array').to.eq('');
+      expect(converter.fromDB(undefined as any), 'undefined').to.be.null;
+    });
   });
 
   it('int64 toDB of its own output is the same value', () => {

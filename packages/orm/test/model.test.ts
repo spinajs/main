@@ -1600,7 +1600,7 @@ describe('Model discrimination tests', () => {
 
 describe('UuidConverter', () => {
   it('fromDB returns null for null/undefined', () => {
-    expect(new UuidConverter().fromDB(null as any)).to.be.null;
+    expect(new UuidConverter().fromDB(null)).to.be.null;
     expect(new UuidConverter().fromDB(undefined as any)).to.be.null;
   });
 
