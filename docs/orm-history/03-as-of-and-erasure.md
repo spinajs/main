@@ -10,7 +10,7 @@
 | `absent` | The deciding entry is a `delete`, also of a row that was forgotten since: the operation is not payload. | `seq`: the delete's. |
 | `absent` | No entry of the row is at or before `at`, the row's first retained entry is its `insert`, and the entity has a retained row change (not a `lost` marker) at or before `at` on the model's connection: the trail covers that instant and the row was not created yet. | `seq: null` |
 | `redacted` | The deciding entry was erased by `forget`. | `seq`: the entry's. |
-| `unknown` | Nothing retained decides. No entry of the row is at or before `at`, and either the row's first retained entry is not an insert (the row predates tracking, its insert was pruned, or it has no entry at all) or the entity has no retained row change at or before `at`. Or a `lost` event of the entity was recorded after the deciding entry and at or before `at`, so an insert whose keys were not reported may have written the row. | |
+| `unknown` | Nothing retained decides. No entry of the row is at or before `at`, and either the row's first retained entry is not an insert (the row predates tracking, its insert was pruned, or it has no entry at all) or the entity has no retained row change at or before `at`. Or a `lost` event of the entity was recorded after the deciding entry and at or before `at`, so a statement whose rows history could not record may have written the row. | |
 
 ```ts sample
 import { Model, ModelBase, Primary } from '@spinajs/orm';
