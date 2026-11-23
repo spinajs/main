@@ -39,15 +39,16 @@ export function Job(opts?: JobOptions) {
 
 /**
  * The `@Job` options of a message's class. A `runAs` other than the two known values is dropped:
- * the job then runs with no authority.
+ * the job then runs with no authority; so is a `tenancy` other than the three known values.
  */
 export function jobOptions(message: object): JobOptions {
-  const options: { runAs?: unknown; access?: unknown; resource?: unknown } | undefined = Reflect.getOwnMetadata('queue:options', message.constructor);
+  const options: { runAs?: unknown; access?: unknown; resource?: unknown; tenancy?: unknown } | undefined = Reflect.getOwnMetadata('queue:options', message.constructor);
   return {
     ...(options?.runAs === 'initiator' || options?.runAs === 'system' ? { runAs: options.runAs } : {}),
     // a malformed list stays declared and empty, so the job is denied rather than left unchecked
     ...(options?.access !== undefined ? { access: accessOf(options.access) } : {}),
     ...(typeof options?.resource === 'function' ? { resource: options.resource as JobOptions['resource'] } : {}),
+    ...(options?.tenancy === 'carry' || options?.tenancy === 'required' || options?.tenancy === 'none' ? { tenancy: options.tenancy } : {}),
   };
 }
 

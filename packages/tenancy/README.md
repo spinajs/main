@@ -17,3 +17,7 @@ The scope lives in the request store the framework already shares, so `runAs` ke
 - `tenancy.access` names the `TenantAccess` (default `PrincipalAttributeTenantAccess`: the principal's `attributes.tenants` holds the tenant id).
 - `admitTenant(proposal, principal)` answers the record of a tenant that is known, active and open to the principal, or throws `TenantUnavailable`.
 - `forEachTenant(fn, { concurrency, states })` runs `fn` in every tenant and reports the failures.
+
+## Queue
+
+`import '@spinajs/tenancy/queue'` (needs `@spinajs/queue`) registers a message hook: a message emitted inside a tenant scope carries it in the header `x-spinajs-tenant`, and its handler runs in that scope, also after a retry or a redelivery. A value the caller or an earlier hook wrote under that name is replaced, and no other hook may write it. The header is as trustworthy as the broker: whoever can publish to it, or call `QueueClient.emit()` directly, can name any tenant. `@Job({ tenancy: 'required' })` refuses a message that names no single tenant (dead-lettered, reason `tenant_required`); `@Job({ tenancy: 'none' })` always runs with no scope.

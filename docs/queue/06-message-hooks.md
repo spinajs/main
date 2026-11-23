@@ -7,13 +7,13 @@ A `QueueMessageHook` runs code before every emit and around every message handle
 Emitting, in `DefaultQueueService.emit(message)`:
 
 1. It resolves `Array.ofType(QueueMessageHook)` from DI.
-2. It awaits `hook.beforeEmit(message)` for each hook, in registration order. A hook may change the message.
+2. It awaits `hook.beforeEmit(message)` for each hook, in ascending `order`; hooks of one order run in registration order. A hook may change the message.
 3. A hook that throws rejects `emit()`; no transport sees the message.
 
 Handling, in the consumer built by `DefaultQueueService.consume()`:
 
 1. It resolves `Array.ofType(QueueMessageHook)` again, on every call.
-2. It nests the hooks: the first registered hook's `aroundHandle(message, next)` is outermost, the last one calls the real work.
+2. It nests the hooks: the hook of the lowest `order` is outermost (among equals, the first registered), the last one calls the real work.
 3. The chain wraps, each separately: a job's `execute()`, a job's `onFailed()`, and the `callback` given to `consume()`.
 4. `message` is the hydrated message instance, so `jobOptions(message)` and `message.Initiator` are available.
 5. A hook that throws in a job's `execute()` chain fails the job through the normal failure path (see [Job tracking](03-job-tracking.md#how-it-works)).
@@ -36,10 +36,10 @@ sequenceDiagram
 
 | Export | Kind | Meaning |
 | --- | --- | --- |
-| `QueueMessageHook` | abstract class | `beforeEmit(message): void \| Promise<void>`; `aroundHandle<T>(message, next: () => Promise<T>): Promise<T>` |
+| `QueueMessageHook` | abstract class | `beforeEmit(message): void \| Promise<void>`; `aroundHandle<T>(message, next: () => Promise<T>): Promise<T>`; `order: number` (default `0`), its place in the chain |
 | `IQueueInitiator` | interface | `type`, `id`, optional `ceiling`: the shape a hook writes to `message.Initiator` |
-| `JobOptions` | interface | `runAs?: 'initiator' \| 'system'`, the `@Job()` options a hook interprets |
-| `jobOptions(message)` | function | `runAs` of the message's own class, or `{}` for an unknown value |
+| `JobOptions` | interface | `runAs?: 'initiator' \| 'system'`, `access?`, `resource?`, `tenancy?: 'carry' \| 'required' \| 'none'`: the `@Job()` options a hook interprets |
+| `jobOptions(message)` | function | the options of the message's own class; an unknown `runAs` or `tenancy` is left out |
 
 ## Services and extension points
 
@@ -49,7 +49,7 @@ sequenceDiagram
 
 ### Message hook: custom implementation
 
-Implement both methods; `aroundHandle()` must call `next()` once and return its result. Registration order is chain order, so import the module that registers your hook where you want it in the chain. Hooks are resolved per call, so a hook registered after `QueueService` was created still applies.
+Implement both methods; `aroundHandle()` must call `next()` once and return its result. Set `order` to place your hook: a hook that establishes context (identity, tenant) takes a lower order than the hooks that use it. Hooks of one order run in registration order. A hook must not write the `x-spinajs-tenant` header or `Initiator`: in `beforeEmit()` a hook of a higher order runs after the hooks that stamp them, and its value would win. Hooks are resolved per call, so a hook registered after `QueueService` was created still applies.
 
 This hook carries a correlation id from the request that emitted a message to the worker that handles it, through `AsyncLocalStorage`.
 
@@ -85,6 +85,7 @@ export function currentCorrelationId(): string | undefined {
 - **The queue never sets `Initiator`.** Without a hook that stamps it, jobs have no initiator and their rows have `InitiatorType` and `InitiatorId` null.
 - **`runAs` does nothing without a hook.** `@Job({ runAs })` is metadata for a hook such as `AuthzQueueHook`.
 - **`beforeEmit()` sees the object passed to `emit()`.** For the static `emit()` this is a plain object, so `jobOptions(message)` returns `{}` there; read `runAs` in `aroundHandle()`.
+- **`@Job()` options are not inherited.** `jobOptions(message)` reads the message's own class, so a subclass without a `@Job({ tenancy })` of its own is `carry`, even when its parent is `required`. Repeat the options on every job class that needs them.
 - **A job with a `consume()` callback goes through the chain twice**: once around `execute()`, once around the callback. A failed job goes through it a third time around `onFailed()`.
 - **`@NewInstance()` hooks are ignored.** `Array.ofType` leaves out `@NewInstance()` and factory registrations, so such a hook never runs.
 - **Hook errors are not swallowed**, except around `onFailed()`, where they are logged.
@@ -93,7 +94,7 @@ export function currentCorrelationId(): string | undefined {
 
 - Keep `beforeEmit()` to data that survives JSON: the transport serialises the message.
 - Do not trust message fields in `aroundHandle()` that any emitter can set; check them against the job row or a signature. `AuthzQueueHook` drops a caller-supplied `Initiator` in `beforeEmit()` for this reason.
-- Put hooks that establish context (identity, tenant) before hooks that use it, by registration order.
+- Put hooks that establish context (identity, tenant) before hooks that use it, by a lower `order`.
 
 ## Patterns and antipatterns
 
