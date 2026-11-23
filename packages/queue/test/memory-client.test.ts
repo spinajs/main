@@ -1,14 +1,19 @@
 import { DI } from '@spinajs/di';
 import * as chai from 'chai';
 import { DateTime } from 'luxon';
-import { IQueueMessage, QueueMessageType } from '../src/index.js';
+import { IQueueMessage, QueueHeaders, QueueMessageType } from '../src/index.js';
+import type { IQueueJob } from '../src/index.js';
 import { MemoryBroker, MemoryQueueClient } from '../src/testing/index.js';
-import { bootClient, brokerName, OTHER_TOPIC } from './support/memory-harness.js';
+import { bootClient, brokerName, OTHER_TOPIC, RETRIED_EVENT } from './support/memory-harness.js';
 
 const expect = chai.expect;
 
 function message(type: QueueMessageType, extra: Partial<IQueueMessage> = {}): IQueueMessage {
   return { Name: 'MemoryPing', Type: type, CreatedAt: DateTime.now(), Persistent: false, Priority: 0, ...extra };
+}
+
+function retriedJob(extra: Partial<IQueueJob> = {}): IQueueJob {
+  return { ...message(QueueMessageType.Job, { MessageId: 'm-1' }), RetryCount: 1, ...extra };
 }
 
 describe('MemoryQueueClient', function () {
@@ -70,34 +75,32 @@ describe('MemoryQueueClient', function () {
       expect(heard, 'a settled message is not delivered again').to.deep.equal(['m-1', 'm-2']);
     });
 
-    it('delivers a message whose callback rejected again on the next deliverAll()', async () => {
+    it('retries a rejected job RetryCount times, then dead-letters it', async () => {
       const client = await bootClient({ broker: brokerName('retry'), deferred: true });
       let calls = 0;
       await client.subscribe('/queue/memory', async () => {
-        if (++calls === 1) throw new Error('first attempt fails');
+        calls++;
+        throw new Error('always fails');
       });
 
-      await client.emit(message(QueueMessageType.Job, { MessageId: 'm-1' }));
+      await client.emit(retriedJob());
       await client.deliverAll();
-      expect(calls).to.equal(1);
+      await client.deliverAll();
+      await client.deliverAll();
 
-      await client.deliverAll();
       expect(calls).to.equal(2);
-
-      await client.deliverAll();
-      expect(calls).to.equal(2);
-      expect(client.published).to.have.length(1);
+      expect(client.deadLettered.map((d) => [d.channel, d.headers[QueueHeaders.RetryCount], d.headers[QueueHeaders.Error]])).to.deep.equal([['/queue/memory.dlq', '1', 'always fails']]);
     });
 
-    it('re-queues a rejected job without an owner, so a consumer that subscribes later gets it', async () => {
+    it('hands a retried job to whoever consumes its queue by then', async () => {
       const client = await bootClient({ broker: brokerName('job-owner'), deferred: true });
       await client.subscribe('/queue/memory', () => Promise.reject(new Error('first consumer fails')));
-      await client.emit(message(QueueMessageType.Job, { MessageId: 'm-1' }));
+      await client.emit(retriedJob());
       await client.deliverAll();
 
       client.unsubscribe();
       const heard: string[] = [];
-      await client.subscribe('/queue/memory', async (e) => void heard.push(e.MessageId!));
+      await client.subscribe('/queue/memory', async (e) => void heard.push(e.MessageId ?? ''));
       await client.deliverAll();
       expect(heard).to.deep.equal(['m-1']);
     });
@@ -145,7 +148,7 @@ describe('MemoryQueueClient', function () {
       expect(heard).to.deep.equal(['a', 'b']);
     });
 
-    it('retries a rejected event only to the subscription that failed', async () => {
+    it('retries a failed event only to the subscription that failed, when its route says onEventFailure retry', async () => {
       const client = await bootClient({ broker: brokerName('event-retry'), deferred: true });
       const heard: string[] = [];
       let failures = 1;
@@ -155,10 +158,37 @@ describe('MemoryQueueClient', function () {
         if (failures-- > 0) throw new Error('fails once');
       });
 
-      await client.emit(message(QueueMessageType.Event));
+      await client.emit(message(QueueMessageType.Event, { Name: RETRIED_EVENT }));
       await client.deliverAll();
       await client.deliverAll();
       expect(heard).to.deep.equal(['ok', 'flaky', 'flaky']);
+    });
+
+    it('drops a failed event by default', async () => {
+      const client = await bootClient({ broker: brokerName('event-drop'), deferred: true });
+      let calls = 0;
+      await client.subscribe('/topic/memory', async () => {
+        calls++;
+        throw new Error('always fails');
+      });
+
+      await client.emit(message(QueueMessageType.Event));
+      await client.deliverAll();
+      await client.deliverAll();
+      expect(calls).to.equal(1);
+      expect(client.deadLettered).to.deep.equal([]);
+    });
+
+    it('hands an event to one of the subscriptions that share a subscriptionId', async () => {
+      const client = await bootClient({ broker: brokerName('shared-id'), deferred: true });
+      const heard: string[] = [];
+      await client.subscribe('/topic/memory', async () => void heard.push('ledger-a'), 'ledger');
+      await client.subscribe('/topic/memory', async () => void heard.push('ledger-b'), 'ledger');
+      await client.subscribe('/topic/memory', async () => void heard.push('mailer'), 'mailer');
+
+      await client.emit(message(QueueMessageType.Event));
+      await client.deliverAll();
+      expect(heard).to.deep.equal(['ledger-a', 'mailer']);
     });
 
     it('drops an event nobody subscribed to', async () => {

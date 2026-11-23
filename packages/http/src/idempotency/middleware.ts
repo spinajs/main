@@ -13,11 +13,13 @@ import type { ResponseFunction } from '../interfaces.js';
 import { REPLAY_BEFORE_POLICY, sendReply } from '../reply-pipeline.js';
 import type { IReplaysBeforePolicy } from '../reply-pipeline.js';
 import { _setHeaders } from '../responses.js';
-import type { IRoute, IRouteInvocation, IRouteOutcome, MiddlewareStage, Request } from '../interfaces.js';
+import type { IRoute, IRouteInvocation, IRouteMiddlewareDoc, IRouteOutcome, MiddlewareStage, Request } from '../interfaces.js';
 import { RouteClientGone, RouteRegistrationException } from '../exceptions.js';
 import type { CapturedJsonReply } from '../response-capture.js';
 import { IDEMPOTENCY_KEY_HEADER, IDEMPOTENT_REPLAYED_HEADER, parseIdempotencyKey } from './options.js';
+import { IdempotencyScopePart, idempotencyScopeParts } from './scope-part.js';
 import type { ResolvedIdempotentOptions } from './options.js';
+import { idempotencyDocumentation } from './documentation.js';
 
 type ErrorClass = abstract new (...args: never[]) => Error;
 
@@ -26,18 +28,24 @@ interface StoredReply {
   body: unknown;
 }
 
+interface IdempotencyGateScope {
+  namespace: string;
+  principal?: string;
+  parts?: readonly string[];
+}
+
 /**
  * The part of IdempotencyService the middleware calls, declared here: these declarations must type-check for an app
  * that does not install the optional peer @spinajs/idempotency.
  */
 interface IdempotencyGateService {
   run<T>(
-    scope: { namespace: string; principal?: string },
+    scope: IdempotencyGateScope,
     key: string,
     fn: (signal: AbortSignal) => Promise<T>,
     opts: { fingerprint?: string; ttl: string | number; toReply(value: T): StoredReply | undefined; fromReply(reply: StoredReply): T },
   ): Promise<{ replayed: boolean; value: T }>;
-  peek(scope: { namespace: string; principal?: string }, key: string): Promise<{ state: 'running' | 'done'; reply?: StoredReply; fingerprint?: string } | undefined>;
+  peek(scope: IdempotencyGateScope, key: string): Promise<{ state: 'running' | 'done'; reply?: StoredReply; fingerprint?: string } | undefined>;
 }
 
 /** What onRegister takes from @spinajs/idempotency for the route. */
@@ -142,10 +150,11 @@ export class ReplayedResponse extends Response<unknown> {
 }
 
 /**
- * Runs the rest of the route chain at most once per Idempotency-Key, principal and route, and replays the stored reply
- * of a repeat. `@Idempotent` mounts it; `@spinajs/idempotency` is an optional peer, loaded only by onRegister, so an app
- * without `@Idempotent` routes loads neither it nor its table. An app on the ORM store imports the package itself,
- * before the boot: the Orm reads its models when it resolves.
+ * Runs the rest of the route chain at most once per Idempotency-Key, principal, route and IdempotencyScopePart parts (the
+ * tenant, with @spinajs/tenancy-http), and replays the stored reply of a repeat. `@Idempotent` mounts it;
+ * `@spinajs/idempotency` is an optional peer, loaded only by onRegister, so an app without `@Idempotent` routes loads
+ * neither it nor its table. An app on the ORM store imports the package itself, before the boot: the Orm reads its
+ * models when it resolves.
  */
 @Injectable()
 @NewInstance()
@@ -158,6 +167,9 @@ export class IdempotencyMiddleware extends RouteMiddleware implements IReplaysBe
 
   @Logger('http')
   protected _log!: Log;
+
+  @Autoinject(Array.ofType(IdempotencyScopePart))
+  protected _scopeParts!: IdempotencyScopePart[];
 
   protected gate?: IdempotencyGate;
 
@@ -210,6 +222,10 @@ export class IdempotencyMiddleware extends RouteMiddleware implements IReplaysBe
       isShared: idempotency.isSharedScope,
       isRandomKey: idempotency.isRandomKey,
     };
+  }
+
+  public override documentation(): IRouteMiddlewareDoc {
+    return idempotencyDocumentation(this.options.required);
   }
 
   public async onAround({ req, res }: IRouteInvocation, proceed: () => Promise<IRouteOutcome>): Promise<void> {
@@ -273,7 +289,8 @@ export class IdempotencyMiddleware extends RouteMiddleware implements IReplaysBe
 
     let held: Awaited<ReturnType<IdempotencyGateService['peek']>>;
     try {
-      held = await gate.service.peek({ namespace: gate.namespace, principal: gate.scopeOf(principal) }, key);
+      // TenantMiddleware is a 'beforePolicy' middleware: its scope is in req.storage before this check runs
+      held = await gate.service.peek(this.keyScope(req, gate.namespace, gate.scopeOf(principal)), key);
     } catch (error) {
       this._log.warn({ error, route: gate.namespace }, 'Idempotent route ${route}: reading its key before the policies failed; the policies and the claim run');
       return undefined;
@@ -284,6 +301,10 @@ export class IdempotencyMiddleware extends RouteMiddleware implements IReplaysBe
       return undefined;
     }
     return new ReplayedResponse(held.reply.body as CapturedJsonReply);
+  }
+
+  protected keyScope(req: Express.Request, namespace: string, principal: string): IdempotencyGateScope {
+    return { namespace, principal, parts: idempotencyScopeParts(this._scopeParts, (req as Request).storage) };
   }
 
   protected fingerprintOf(req: Express.Request, gate: IdempotencyGate): string {
@@ -316,7 +337,7 @@ export class IdempotencyMiddleware extends RouteMiddleware implements IReplaysBe
 
     let outcome: { replayed: boolean; value: CapturedJsonReply | null };
     try {
-      outcome = await gate.service.run({ namespace: gate.namespace, principal: scopeOf(req, gate) }, key, route, {
+      outcome = await gate.service.run(this.keyScope(req, gate.namespace, scopeOf(req, gate)), key, route, {
         fingerprint,
         ttl: gate.ttlMs,
         toReply: (captured) => this.toReply(captured, gate),

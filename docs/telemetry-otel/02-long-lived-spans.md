@@ -12,7 +12,7 @@
 3. `childSpan(key, name, attrs, fn)` runs `fn` inside a short span:
    1. with an open span under `key`, the child is started in `trace.setSpan(ROOT_CONTEXT, parent)`, so it is a child of the long span;
    2. otherwise in `context.active()`, a standalone span;
-   3. on success status `OK` and the result is returned; on a throw `recordException()`, status `ERROR` with the message, and the error is re-thrown; `end()` runs in both cases.
+   3. on success status `OK` and the result is returned; on a throw `error.type` and status `ERROR` with the error's class name, without its message or an `exception` event, and the error is re-thrown; `end()` runs in both cases.
 4. `close(key, status, attrs?)` sets `attrs`, sets status `OK` for `'ok'` or `ERROR` for `'error'`, ends the span and removes the key. With no span left, the sweep timer stops.
 5. The sweep timer calls `sweep()` every `otel.longSpan.sweepIntervalMs`. `sweep()` ends every span open for `otel.longSpan.maxAgeMs` or longer: attribute `orphaned: true`, status `ERROR` with message `span outlived otel.longSpan.maxAgeMs`, and a `warn` log entry.
 6. `dispose()` closes every open span with `close(key, 'error', { shutdown: true })` and stops the timer.
@@ -101,14 +101,14 @@ More variants are in [Customizing the long-span registry](05-customizing-the-lon
 - **Observability never breaks the flow.** `open()`, `event()`, `setAttributes()` and `close()` catch every error and log it at `warn` on the `otel` logger. `childSpan()` catches errors of starting the span and still runs `fn`; errors of `fn` itself are re-thrown.
 - **`sweep()` is guarded too.** A span that throws while closing is logged at `warn` and dropped; the sweep goes on with the other spans.
 - **One span per key.** `open()` on a key that is open ends the old span as `replaced` with status `ERROR`. Keys must be unique per flow: a transaction id, not a kiosk id.
-- **The registry works while tracing is disabled.** With no provider, spans come from the no-op tracer, but keys are stored, `has()` returns `true` and the sweep timer runs. Nothing is exported.
+- **The registry works while tracing is disabled.** While `OtelTracing` is inactive, spans come from the no-op tracer, but keys are stored, `has()` returns `true` and the sweep timer runs. Nothing is exported.
 - **The tracer name is fixed** to `spinajs` for `open()` and `childSpan()`. It is the instrumentation scope your backend shows for these spans.
 - **`childSpan()` with a key ignores the active context.** The parent context is built from `ROOT_CONTEXT` plus the long span, so baggage or another active span is not carried over.
 - **A child of a closed or unknown key is standalone.** `childSpan()` looks the key up when it starts; it does not fail.
 - **The sweep timer is lazy and `unref()`'d.** It starts on the first `open()`, stops when the last span closes, and never keeps the process alive. `sweepIntervalMs` is read when the timer starts; `maxAgeMs` on every sweep.
 - **Orphans are found late.** A span is force-closed between `maxAgeMs` and `maxAgeMs + sweepIntervalMs` after it opened.
 - **Spans are in memory only.** A restart loses open spans without ending them, so they are never exported. A flow resumed after a restart needs a new `open()`.
-- **Open spans are ended before the provider shuts down.** On `resolve()` the registry hooks into `OtelTracing.dispose()`, so spans still open are closed as `error` with `shutdown: true` and exported even though `OtelTracing` is disposed first.
+- **Open spans are ended before the OTLP processor is detached.** On `resolve()` the registry hooks into `OtelTracing.dispose()`, so spans still open are closed as `error` with `shutdown: true` and exported even though `OtelTracing` is disposed first.
 
 ## Best practices
 
@@ -187,7 +187,7 @@ export async function shutdown(): Promise<void> {
   const registry = await DI.resolve(LongSpanRegistry);
   const tracing = await DI.resolve(OtelTracing);
 
-  // Ends open spans (status ERROR, shutdown: true) while the provider can still export them.
+  // Ends open spans (status ERROR, shutdown: true) while the OTLP processor can still export them.
   await registry.dispose();
   await tracing.flush();
 

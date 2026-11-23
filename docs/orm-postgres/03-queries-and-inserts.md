@@ -51,6 +51,8 @@ PostgreSQL's Bind message counts parameters in an Int16, so the driver's `MaxBin
 
 The driver registers `PostgresDatetimeValueConverter`, an `IsoDatetimeValueConverter`, as `DatetimeValueConverter`. A `Date` or luxon `DateTime` written to a `dateTime` / `timestamp` column, bound in a `where()`, or passed as a raw binding to `executeOnDb()` is sent as ISO 8601 in UTC with `Z` (`2026-10-19T12:00:00.123Z`). PostgreSQL reads that text as the exact instant, whatever the zone of the Node process. A model property declared `@DateTime()` reads back as a luxon `DateTime` in the `UTC` zone. Two exceptions: an unset (`undefined`) value stays unset, so the insert writes `DEFAULT`, and a value for a `date` column is written as its calendar day in its own zone (`2026-10-15`).
 
+A numeric column (`int2`, `int4`, `int8`, `numeric`, `float4`, `float8`) takes Unix seconds instead, or milliseconds under `@DateTime({ unit: 'milliseconds' })`. `pg` returns `int8` and `numeric` values as text; the converter reads that text as a number in the same unit. See [Value converters and default values](../orm-sql/05-value-converters-and-defaults.md).
+
 ### Upsert
 
 `PostgresOnDuplicateQueryCompiler.compile()`:
@@ -83,6 +85,10 @@ When `onDuplicate()` is called without columns on a model query, the conflict ta
 | `BYTEA` | `Buffer` | |
 
 On the request side these stay numbers; only response schemas change. `selectCount()` and `Model.count()` convert the count and resolve with a `number`.
+
+### Query plans
+
+`driver.explain(sql, bindings)` runs `EXPLAIN (FORMAT JSON)` on one `SELECT` or `WITH` statement and returns a `QueryPlan` built by `normalizePostgresPlan`. The bindings stay statement parameters, the statement itself never runs (no `ANALYZE`), and the EXPLAIN uses a pool connection of its own, outside the transaction in scope. The slow-query capture calls it; see [Plans: postgres](../orm/13-observability-and-resilience.md#plans-postgres).
 
 ## Services and extension points
 

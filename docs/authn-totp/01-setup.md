@@ -68,7 +68,7 @@ The package ships no table and no migration. `DbMfaSecretStore` writes `authn_mf
 
 ## Important behaviour
 
-- `import '@spinajs/authn-totp/db'` loads all of `@spinajs/authn-orm`: its migration, `DbAuthnThrottle`, `DbAuthnAuditSink`, `DbMfaEnrolments` and its other stores register too. The root entry loads none of them.
+- `import '@spinajs/authn-totp/db'` loads all of `@spinajs/authn-orm`: its migration, `DbAuthnThrottle`, `DbMfaEnrolments` and its other stores register too. The root entry loads none of them.
 - With `DbMfaEnrolments` registered, `DefaultMfaPolicy` refuses the password login of a user with a confirmed `totp` row once `totp` is no longer in `authn.mfa.steps`. Remove the enrolments before you remove the step. See [`@spinajs/authn`](../authn/04-mfa-policy-and-steps.md).
 - The step reads its options, key ring and store on first use and keeps them for its lifetime. A config change at runtime, such as a new key, takes effect after a restart.
 - A `authn.mfa.totp` value out of range fails on first use with `InvalidOption`, also when it never went through the schema (constructor options, `Configuration.set` at runtime).

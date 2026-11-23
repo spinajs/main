@@ -1,6 +1,6 @@
 import { Autoinject, DI, Injectable } from '@spinajs/di';
 import type { PrincipalRef } from '@spinajs/authz';
-import { AuthnEventSink, SessionIssuer } from '@spinajs/authn/contracts';
+import { AuthnEventListener, SessionIssuer } from '@spinajs/authn/contracts';
 import type { AuthnEvent, AuthnEventType } from '@spinajs/authn/contracts';
 import { SseAccessPushTransport } from '../client-access/sse.js';
 
@@ -13,12 +13,12 @@ const SESSION_ENDS: ReadonlySet<AuthnEventType> = new Set<AuthnEventType>(['logo
 const IMPERSONATION: ReadonlySet<AuthnEventType> = new Set<AuthnEventType>(['impersonation.start', 'impersonation.end', 'impersonation.expire']);
 
 /** Ends a session's event streams when authn reports the session's end (logout, revoke, impersonation start and end). */
-@Injectable(AuthnEventSink)
-export class SseSessionEndSink extends AuthnEventSink {
+@Injectable(AuthnEventListener)
+export class SseSessionEndListener extends AuthnEventListener {
   @Autoinject(SseAccessPushTransport)
   protected Transport: SseAccessPushTransport;
 
-  public async publish(e: AuthnEvent): Promise<void> {
+  public async on(e: AuthnEvent): Promise<void> {
     const ends = SESSION_ENDS.has(e.type);
     if (e.outcome !== 'success' || !e.identity || (!ends && !IMPERSONATION.has(e.type))) return;
     if (ends) await this.sessionEnded(e.identity, e.session);

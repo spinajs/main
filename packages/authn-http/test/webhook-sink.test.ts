@@ -5,9 +5,11 @@ import { createHmac } from 'node:crypto';
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { AUTHN_CONFIGURATION_SCHEMA } from '@spinajs/authn/schemas';
+import { AuthnEventListener, AuthnListenerFailed } from '@spinajs/authn/contracts';
 import type { AuthnEvent } from '@spinajs/authn/contracts';
+import { EnrolledMfaPolicy, FakeAuthnService, FakeBackoffThrottle, FakeIdentityStore, FakeStrategy, MemoryLinkStore, MemorySessionIssuer, RecordingPrincipalFactory, throttleParams } from '@spinajs/authn-testing';
 
-import { WEBHOOK_SIGNATURE_HEADER, WebhookAuthnEventSink, signWebhook } from '../src/index.js';
+import { WEBHOOK_SIGNATURE_HEADER, WebhookAuthnEventListener, signWebhook } from '../src/index.js';
 import type { AuthnWebhookTarget } from '../src/index.js';
 import { configurationViolations, createTestApp, disposeTestApps } from '@spinajs/testing';
 
@@ -64,7 +66,7 @@ const event = (over: Partial<AuthnEvent> = {}): AuthnEvent => ({
 });
 
 function sinkFor(targets: readonly AuthnWebhookTarget[]) {
-  const sink = new WebhookAuthnEventSink();
+  const sink = new WebhookAuthnEventListener();
   const warn = sinon.spy();
   Object.defineProperty(sink, 'Webhooks', { value: targets });
   Object.defineProperty(sink, 'Log', { value: { warn } });
@@ -74,6 +76,36 @@ function sinkFor(targets: readonly AuthnWebhookTarget[]) {
 const target = (url: string, over: Partial<AuthnWebhookTarget> = {}): AuthnWebhookTarget => ({ url, secret: { secret: SECRET }, ...over });
 
 const logged = (warn: sinon.SinonSpy): string => JSON.stringify(warn.args);
+
+/** A blocking listener that stops every `session.issue` success. */
+class SessionIssueStopper extends AuthnEventListener {
+  public override get blocking(): boolean {
+    return true;
+  }
+
+  async on(e: AuthnEvent): Promise<void> {
+    if (e.type === 'session.issue' && e.outcome === 'success') throw new Error('ledger down');
+  }
+}
+
+/** A login through the kit's fake service, which announces as the core does, with `listeners` registered. */
+function loginWith(listeners: readonly AuthnEventListener[]) {
+  const identities = new FakeIdentityStore();
+  const id = identities.add({ login: 'webhooked' });
+  const service = new FakeAuthnService({
+    strategies: [new FakeStrategy({ name: 'form', kinds: ['password'], interactive: true, keys: () => [], verify: () => ({ ok: true, identity: id, method: 'password' }) })],
+    throttle: new FakeBackoffThrottle(throttleParams({})),
+    identities,
+    links: new MemoryLinkStore(),
+    linking: { jit: false, byVerifiedEmail: false },
+    policy: new EnrolledMfaPolicy([]),
+    steps: [],
+    sessions: new MemorySessionIssuer(),
+    listeners,
+    principals: new RecordingPrincipalFactory(),
+  });
+  return service.authenticate({ kind: 'password', login: 'webhooked', password: 'any' }, { now: new Date(), purpose: 'login' });
+}
 
 describe('signWebhook', () => {
   it('signs "<t>.<body>" with HMAC-SHA256 and writes t and v1', () => {
@@ -98,7 +130,7 @@ describe('signWebhook', () => {
   });
 });
 
-describe('WebhookAuthnEventSink', function () {
+describe('WebhookAuthnEventListener', function () {
   this.timeout(10000);
 
   const open: Receiver[] = [];
@@ -117,7 +149,7 @@ describe('WebhookAuthnEventSink', function () {
     const { sink, warn } = sinkFor([target(rx.url)]);
 
     const before = Math.floor(Date.now() / 1000);
-    await sink.publish(event());
+    await sink.on(event());
     const after = Math.floor(Date.now() / 1000);
 
     expect(rx.hits).to.have.length(1);
@@ -135,13 +167,26 @@ describe('WebhookAuthnEventSink', function () {
     expect(warn.callCount).to.equal(0);
   });
 
+  it('posts only the failures of a login whose session.issue a blocking listener stopped', async () => {
+    const rx = await listen();
+    const { sink } = sinkFor([target(rx.url)]);
+
+    const failure = await loginWith([new SessionIssueStopper(), sink]).catch((err: unknown) => err);
+
+    expect(failure).to.be.instanceOf(AuthnListenerFailed);
+    expect(rx.hits.map((h) => JSON.parse(h.body) as AuthnEvent).map((e) => [e.type, e.outcome, e.reason])).to.deep.equal([
+      ['login', 'failure', 'listener_failed'],
+      ['session.issue', 'failure', 'listener_failed'],
+    ]);
+  });
+
   it('signs for each target with its own secret and delivers each matching event once', async () => {
     const a = await listen();
     const b = await listen();
     const { sink } = sinkFor([target(a.url), target(b.url, { secret: { secret: OTHER_SECRET } })]);
 
-    await sink.publish(event());
-    await sink.publish(event({ type: 'logout' }));
+    await sink.on(event());
+    await sink.on(event({ type: 'logout' }));
 
     for (const [rx, secret] of [[a, SECRET], [b, OTHER_SECRET]] as const) {
       expect(rx.hits).to.have.length(2);
@@ -157,9 +202,9 @@ describe('WebhookAuthnEventSink', function () {
     const everything = await listen();
     const { sink } = sinkFor([target(filtered.url, { types: ['login', 'mfa.verify'] }), target(everything.url)]);
 
-    await sink.publish(event({ type: 'login' }));
-    await sink.publish(event({ type: 'logout' }));
-    await sink.publish(event({ type: 'mfa.verify' }));
+    await sink.on(event({ type: 'login' }));
+    await sink.on(event({ type: 'logout' }));
+    await sink.on(event({ type: 'mfa.verify' }));
 
     expect(filtered.hits.map((h) => (JSON.parse(h.body) as { type: string }).type)).to.deep.equal(['login', 'mfa.verify']);
     expect(everything.hits).to.have.length(3);
@@ -168,13 +213,13 @@ describe('WebhookAuthnEventSink', function () {
   it('treats an empty type list as a filter that matches nothing', async () => {
     const rx = await listen();
     const { sink } = sinkFor([target(rx.url, { types: [] })]);
-    await sink.publish(event());
+    await sink.on(event());
     expect(rx.hits).to.have.length(0);
   });
 
   it('posts nothing and does not fail when no webhook is configured', async () => {
     const { sink, warn } = sinkFor([]);
-    await sink.publish(event());
+    await sink.on(event());
     expect(warn.callCount).to.equal(0);
   });
 
@@ -183,14 +228,14 @@ describe('WebhookAuthnEventSink', function () {
     const { sink } = sinkFor([target(rx.url)]);
     const e = event({ data: { reason: 'support ticket' }, userAgent: 'curl/8', session: 'hdl_k3JxQ0bR7Tz' });
 
-    await sink.publish(e);
+    await sink.on(e);
 
     const body = JSON.parse(rx.hits[0].body) as Record<string, unknown>;
     expect(body).to.deep.equal(JSON.parse(JSON.stringify(e)));
     expect(rx.hits[0].body).to.not.contain(SECRET);
 
     const minimal = event();
-    await sink.publish(minimal);
+    await sink.on(minimal);
     expect(Object.keys(JSON.parse(rx.hits[1].body) as object).sort()).to.deep.equal(Object.keys(minimal).sort());
   });
 
@@ -199,7 +244,7 @@ describe('WebhookAuthnEventSink', function () {
       const rx = await listen((_req, res) => void res.writeHead(500).end('boom'));
       const { sink, warn } = sinkFor([target(rx.url)]);
 
-      await sink.publish(event());
+      await sink.on(event());
 
       expect(rx.hits).to.have.length(1);
       expect(warn.callCount).to.equal(1);
@@ -211,7 +256,7 @@ describe('WebhookAuthnEventSink', function () {
       const { sink, warn } = sinkFor([target(rx.url, { timeoutMs: 100 })]);
 
       const started = Date.now();
-      await sink.publish(event());
+      await sink.on(event());
 
       expect(Date.now() - started).to.be.lessThan(3000);
       expect(warn.callCount).to.equal(1);
@@ -225,7 +270,7 @@ describe('WebhookAuthnEventSink', function () {
       open.splice(open.indexOf(rx), 1);
       const { sink, warn } = sinkFor([target(url)]);
 
-      await sink.publish(event());
+      await sink.on(event());
 
       expect(warn.callCount).to.equal(1);
     });
@@ -235,7 +280,7 @@ describe('WebhookAuthnEventSink', function () {
       const rx = await listen((_req, res) => void res.writeHead(302, { location: elsewhere.url }).end());
       const { sink, warn } = sinkFor([target(rx.url)]);
 
-      await sink.publish(event());
+      await sink.on(event());
 
       expect(elsewhere.hits).to.have.length(0);
       expect(warn.callCount).to.equal(1);
@@ -245,7 +290,7 @@ describe('WebhookAuthnEventSink', function () {
       const rx = await listen((_req, res) => void res.writeHead(500).end());
       const { sink, warn } = sinkFor([target(`${rx.url}?token=url-token-value`)]);
 
-      await sink.publish(event());
+      await sink.on(event());
 
       expect(logged(warn)).to.not.contain('url-token-value');
     });
@@ -255,7 +300,7 @@ describe('WebhookAuthnEventSink', function () {
       const good = await listen();
       const { sink, warn } = sinkFor([target(bad.url), target(good.url)]);
 
-      await sink.publish(event());
+      await sink.on(event());
 
       expect(good.hits).to.have.length(1);
       expect(warn.callCount).to.equal(1);
@@ -264,7 +309,7 @@ describe('WebhookAuthnEventSink', function () {
     it('never throws into publish for a malformed URL or an unusable secret', async () => {
       const { sink, warn } = sinkFor([target('not a url'), target('http://127.0.0.1:1/hook', { secret: { secret: '' } })]);
 
-      await sink.publish(event());
+      await sink.on(event());
 
       expect(warn.callCount).to.equal(2);
     });

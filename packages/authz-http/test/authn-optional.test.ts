@@ -5,10 +5,10 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
-import { AuthnEventSink } from '@spinajs/authn/contracts';
+import { AuthnEventListener } from '@spinajs/authn/contracts';
 
 import * as root from '../src/index.js';
-import { SseSessionEndSink } from '../src/authn/index.js';
+import { SseSessionEndListener } from '../src/authn/index.js';
 
 const PKG_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const SRC = join(PKG_ROOT, 'src');
@@ -50,8 +50,8 @@ describe('@spinajs/authn is an optional peer of authz-http', () => {
   });
 
   it('serves the session-end sink from @spinajs/authz-http/authn, not from the root entry', () => {
-    expect(root).to.not.have.property('SseSessionEndSink');
-    expect(SseSessionEndSink.prototype).to.be.instanceOf(AuthnEventSink);
+    expect(root).to.not.have.property('SseSessionEndListener');
+    expect(SseSessionEndListener.prototype).to.be.instanceOf(AuthnEventListener);
   });
 
   it('the root entry registers no authn sink; its bootstrapper loads the subpath when @spinajs/authn is installed', function () {
@@ -60,7 +60,7 @@ describe('@spinajs/authn is an optional peer of authz-http', () => {
     delete env.NODE_OPTIONS;
     const body = `const { DI } = await import('@spinajs/di');
       const http = await import('@spinajs/authz-http');
-      const registered = () => DI.RootContainer.hasRegisteredType('AuthnEventSink', 'SseSessionEndSink');
+      const registered = () => DI.RootContainer.hasRegisteredType('AuthnEventListener', 'SseSessionEndListener');
       const before = registered();
       await new http.AuthzHttpAuthnBootstrapper().bootstrap();
       console.log(JSON.stringify({ before, after: registered() }));`;

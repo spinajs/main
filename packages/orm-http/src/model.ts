@@ -1,6 +1,6 @@
-import { IModelDescriptor, ModelBase, OrmException, SelectQueryBuilder, createQuery } from '@spinajs/orm';
-import './builders.js';
-import { IColumnFilter, IFilterRequest, FilterableLogicalOperators } from './interfaces.js';
+import { IColumnDescriptor, IModelDescriptor, ModelBase, OrmException, SelectQueryBuilder, columnToSchema, createQuery, extractModelDescriptor } from '@spinajs/orm';
+import { MAX_FILTERS } from './builders.js';
+import { IColumnFilter, IFilterRequest, FilterableLogicalOperators, FilterableOperators } from './interfaces.js';
 
 /** Bound to each model class by the orm, so `this` is the class. */
 const staticMixins = <M>(mixins: M & ThisType<typeof ModelBase>): M => mixins;
@@ -27,6 +27,7 @@ export const MODEL_STATIC_MIXINS = staticMixins({
         column: key,
         operators: val.operators,
         query: val.query,
+        value: val.value,
       };
     });
   },
@@ -42,11 +43,141 @@ export const MODEL_STATIC_MIXINS = staticMixins({
       return {};
     }
 
-    return filterSchemaFor(
-      [...modelDescriptor.FilterableColumns.entries()].map(([column, val]: [string, IColumnFilter<unknown>]) => ({ column, operators: val.operators })),
-    );
+    return modelFilterSchema(modelDescriptor);
   },
 });
+
+type FilterColumn = Pick<IColumnFilter<unknown>, 'column' | 'operators' | 'query' | 'value'>;
+
+type OperatorGroup = 'scalar' | 'text' | 'list' | 'pair' | 'valueless';
+
+/** The value shape of every filter operator; a Record, so a new operator does not compile until it has a group. */
+export const FILTER_OPERATOR_GROUPS: Record<FilterableOperators, OperatorGroup> = {
+  eq: 'scalar',
+  neq: 'scalar',
+  gt: 'scalar',
+  gte: 'scalar',
+  lt: 'scalar',
+  lte: 'scalar',
+  like: 'text',
+  'b-like': 'text',
+  'e-like': 'text',
+  regexp: 'text',
+  in: 'list',
+  nin: 'list',
+  'in-set': 'list',
+  'nin-set': 'list',
+  between: 'pair',
+  notbetween: 'pair',
+  isnull: 'valueless',
+  notnull: 'valueless',
+  exists: 'valueless',
+  'n-exists': 'valueless',
+};
+
+// Written as what is NOT accepted: a union `type` would make ajv's strict mode warn on every compile, and an `anyOf` of
+// single types would coerce the value in its first branch. Neither `array` nor `object` is a coercion target.
+const ANY_SCALAR = { not: { anyOf: [{ type: 'array' }, { type: 'object' }] } };
+
+// What a custom query function or a filter-only column may receive: their value shape is up to the column's code.
+const ANY_VALUE = { not: { type: 'object' } };
+
+// Checked before the typed schema, which would coerce null into 0, false or "" and compare with that.
+function nonNull(scalar: object): object {
+  return { allOf: [{ not: { const: null } }, scalar] };
+}
+
+function groupValueSchema(group: OperatorGroup, scalar: object): object | undefined {
+  switch (group) {
+    case 'scalar':
+      return nonNull(scalar);
+    case 'text':
+      return { type: 'string' };
+    case 'list':
+      return { type: 'array', minItems: 1, items: nonNull(scalar) };
+    case 'pair':
+      return { type: 'array', minItems: 2, maxItems: 2, items: nonNull(scalar) };
+    case 'valueless':
+      return undefined;
+  }
+}
+
+/** The descriptor that owns `column`: the model's own, or for `Relation.Column` the related model's. */
+function owningDescriptor(model: IModelDescriptor, column: string): [IModelDescriptor | undefined, string] {
+  const dot = column.indexOf('.');
+  if (dot === -1) {
+    return [model, column];
+  }
+
+  const target = model.Relations?.get(column.slice(0, dot))?.TargetModel;
+  return [(target && extractModelDescriptor(target)) || undefined, column.slice(dot + 1)];
+}
+
+/** The part of a column's model schema that says what one filter value may be. */
+function columnScalarSchema(owner: IModelDescriptor, col: IColumnDescriptor): object {
+  const converter = owner.Converters?.get(col.Name);
+  const full = columnToSchema(col, {}, converter?.Class, converter?.Options);
+  const single = full.type === 'array' && full.items ? full.items : full;
+
+  if (typeof single.type !== 'string' || single.type === 'object' || single.type === 'array') {
+    return ANY_SCALAR;
+  }
+
+  const scalar: Record<string, unknown> = { type: single.type };
+  if (single.format) scalar.format = single.format;
+  if (single.enum) scalar.enum = single.enum;
+  return scalar;
+}
+
+/** The scalar schema of one filter value, or `undefined` when the column takes any value shape. */
+function filterScalarSchema(filter: FilterColumn, model?: IModelDescriptor): object | undefined {
+  if (filter.value) {
+    return filter.value;
+  }
+  if (filter.query) {
+    return undefined;
+  }
+  if (!model) {
+    return ANY_SCALAR;
+  }
+
+  const [owner, name] = owningDescriptor(model, filter.column!);
+  const col = owner?.Columns?.find((c) => c.Name === name);
+  if (col?.Virtual) {
+    return undefined;
+  }
+
+  return owner && col?.Type ? columnScalarSchema(owner, col) : ANY_SCALAR;
+}
+
+/**
+ * One `if`/`then` per column and operator group. `Value` sits only in the `then`, so the validator looks at it -
+ * and, with `coerceTypes`, converts it in place - only for the condition's own column and operator. Next to the
+ * column leaves of an `anyOf` it would be coerced by every leaf tried before the matching one: `"05"` for a string
+ * column reached the query as `"5"` once an integer column came first.
+ */
+function valueRules(filter: FilterColumn, model?: IModelDescriptor): object[] {
+  const column = { const: filter.column };
+  const scalar = filterScalarSchema(filter, model);
+
+  if (scalar === undefined) {
+    return [{ if: { required: ['Column'], properties: { Column: column } }, then: { properties: { Value: ANY_VALUE } } }];
+  }
+
+  const byGroup = new Map<OperatorGroup, FilterableOperators[]>();
+  for (const operator of filter.operators) {
+    const group = FILTER_OPERATOR_GROUPS[operator];
+    byGroup.set(group, [...(byGroup.get(group) ?? []), operator]);
+  }
+
+  return [...byGroup.entries()].flatMap(([group, operators]) => {
+    const value = groupValueSchema(group, scalar);
+    if (!value) {
+      return [];
+    }
+    return [{ if: { required: ['Column', 'Operator'], properties: { Column: column, Operator: { enum: operators } } }, then: { required: ['Value'], properties: { Value: value } } }];
+  });
+}
 
 /**
  * JSON schema of a filter request over the given columns: a flat list of conditions, each of
@@ -57,24 +188,27 @@ export const MODEL_STATIC_MIXINS = staticMixins({
  * express that. One level deep is deliberate. It covers the case, and an unbounded schema would
  * let a client nest arbitrarily far - the builder walks whatever arrives, so the depth is a cost
  * someone else pays.
+ *
+ * Each value is checked against its operator and column: see {@link FILTER_OPERATOR_GROUPS}. With `model`, a column
+ * without an explicit `value` schema takes its type from the model's column.
  */
-export function filterSchemaFor(columns: Pick<IColumnFilter<unknown>, 'column' | 'operators'>[]) {
+export function filterSchemaFor(columns: FilterColumn[], model?: IModelDescriptor) {
   const logicalOperator = {
     type: 'string',
     enum: [FilterableLogicalOperators.And, FilterableLogicalOperators.Or],
   };
 
-  // Value is intentionally NOT required: valueless operators (isnull/notnull/exists/n-exists)
-  // carry no value.
   const leaf = columns.map(({ column, operators }) => ({
     type: 'object',
     required: ['Column', 'Operator'],
     properties: {
       Column: { const: column },
-      Value: { type: ['string', 'integer', 'array', 'boolean'] },
       Operator: { type: 'string', enum: operators },
     },
   }));
+
+  const rules = columns.flatMap((c) => valueRules(c, model));
+  const withRules = rules.length > 0 ? { allOf: rules } : {};
 
   const group = {
     type: 'object',
@@ -83,7 +217,7 @@ export function filterSchemaFor(columns: Pick<IColumnFilter<unknown>, 'column' |
       op: logicalOperator,
       filters: {
         type: 'array',
-        items: { type: 'object', anyOf: leaf },
+        items: { type: 'object', anyOf: leaf, ...withRules },
       },
     },
   };
@@ -94,11 +228,36 @@ export function filterSchemaFor(columns: Pick<IColumnFilter<unknown>, 'column' |
       op: logicalOperator,
       filters: {
         type: 'array',
+        maxItems: MAX_FILTERS,
         items: {
           type: 'object',
           anyOf: [...leaf, group],
+          ...withRules,
         },
       },
     },
   };
+}
+
+/**
+ * The validator compiles a schema once per object identity, so a schema rebuilt per request is compiled per request
+ * ( and kept in its cache for good ). Rebuilt only when the orm has read the model's columns again.
+ */
+const MODEL_FILTER_SCHEMAS = new WeakMap<IModelDescriptor, { columns: unknown[]; schema: object }>();
+
+function modelFilterSchema(model: IModelDescriptor): object {
+  const keys = [...model.FilterableColumns!.keys()];
+  const columns = [model.Columns, ...keys.map((k) => owningDescriptor(model, k)[0]?.Columns)];
+
+  const cached = MODEL_FILTER_SCHEMAS.get(model);
+  if (cached && cached.columns.length === columns.length && cached.columns.every((c, i) => c === columns[i])) {
+    return cached.schema;
+  }
+
+  const schema = filterSchemaFor(
+    [...model.FilterableColumns!.entries()].map(([column, val]) => ({ column, operators: val.operators, query: val.query, value: val.value })),
+    model,
+  );
+  MODEL_FILTER_SCHEMAS.set(model, { columns, schema });
+  return schema;
 }

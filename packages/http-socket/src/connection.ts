@@ -4,6 +4,7 @@ import { DisconnectNotice, EventFrame, SYSTEM_EVENTS, SocketException, WIRE_EVEN
 import { assertPushName } from './push-name.js';
 import type { RealIp } from '@spinajs/http';
 import { ISocketAuthState, ISocketClientState, ISocketHandshake } from './interfaces.js';
+import { connectionContextOf } from './connection-context.js';
 
 export function parseCookies(header: string | undefined): Record<string, string> {
   const cookies = Object.create(null) as Record<string, string>;
@@ -131,6 +132,11 @@ export class SocketConnection<D extends Record<string, unknown> = Record<string,
   /** App data bag. Kept in `socket.data`, which connection state recovery restores after a short drop. */
   public get data(): D {
     return this.socket.data.app as D;
+  }
+
+  /** The keys the handshake's SocketConnectionContext contributors set; part of every call's store. */
+  public get context(): Readonly<Record<string, unknown>> {
+    return connectionContextOf(this.socket);
   }
 
   public get rooms(): ReadonlySet<string> {

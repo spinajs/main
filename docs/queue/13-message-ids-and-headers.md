@@ -1,6 +1,6 @@
 # Message ids and headers
 
-Every message `QueueService.emit()` sends carries a `MessageId`, and any message can carry `Headers`. The id names one message across retries, redeliveries and transports, so logs and broker tools can follow it. Only jobs are deduplicated today, by `JobId` (`queue.deduplicate`, see [Job tracking](03-job-tracking.md)); an event delivered twice is handled twice. Headers carry metadata outside the message's own fields: a trace context, a tenant, or the retry bookkeeping a transport writes.
+Every message `QueueService.emit()` sends carries a `MessageId`, and any message can carry `Headers`. The id names one message across retries, redeliveries and transports, so logs and broker tools can follow it. Jobs are deduplicated by `JobId` (`queue.deduplicate`, see [Job tracking](03-job-tracking.md)); events by `MessageId` per named subscription only with `queue.deduplicateEvents` ([Event deduplication](12-event-deduplication.md)), and otherwise an event delivered twice is handled twice. Headers carry metadata outside the message's own fields: a trace context, a tenant, or the retry bookkeeping a transport writes.
 
 ## How it works
 
@@ -34,7 +34,7 @@ The tenant header is as trustworthy as the broker: whoever can publish to it, or
 `RetryCount`, `Error` and `OriginalDestination` belong to the transport: on publish, AMQP and STOMP drop them from `Headers`, so a received message emitted again does not carry a stale retry count. `readQueueHeaders(raw)` picks the standard headers out of a broker's raw headers as strings, and `withoutTransportHeaders(headers)` drops the transport's own; a custom transport calls them on receipt and on publish.
 
 ```ts sample
-import { QueueEvent, Event, QueueHeaders } from '@spinajs/queue';
+import { QueueEvent, Event } from '@spinajs/queue';
 
 @Event()
 export class OrderPlaced extends QueueEvent {
@@ -42,10 +42,27 @@ export class OrderPlaced extends QueueEvent {
 }
 
 // a deterministic id: both emits of one order carry the same MessageId in logs and broker tools
-export async function placeOrder(orderId: number, traceparent: string) {
-  await OrderPlaced.emit({ OrderId: orderId, MessageId: `order-placed:${orderId}`, Headers: { [QueueHeaders.TraceParent]: traceparent } });
+export async function placeOrder(orderId: number, tenant: string) {
+  await OrderPlaced.emit({ OrderId: orderId, MessageId: `order-placed:${orderId}`, Headers: { 'x-tenant': tenant } });
 }
 ```
+
+## Trace headers
+
+`traceparent` and `tracestate` are standard headers, so every transport carries them: AMQP and STOMP as broker headers, the others in the JSON body with the rest of `Headers`.
+
+- `QueueService.emit()` publishes under a PRODUCER span `publish <MessageName>`, a child of the span active when you call it, and writes that span's `traceparent` (and `tracestate`, when the trace has one) into `Headers`. A message received and emitted again carries the trace it came from; `emit()` drops those trace headers (and `baggage`) and writes the new ones, and keeps every other header. With tracing not started the span has no ids and the headers you set stay as they are.
+- `consume()` handles each delivery under a CONSUMER span `process <MessageName>`. For an ordinary message it is a child of the `publish` span, so one request and the work it queued share one trace.
+- A delayed, repeating or cron message (`ScheduleCron` set, or `ScheduleDelay`, `SchedulePeriod` or `ScheduleRepeat` above 0, see `isScheduledDelivery()`) is delivered long after the request that scheduled it, or again and again. Each of its deliveries is the root of a new trace, with a link to the `publish` span, so the scheduling trace neither stays open nor grows without end. The rule reads the message, not the broker: on a transport that ignores the schedule (AMQP today, SQS until it sends a delay) the delivery arrives at once and is still a linked root.
+- A missing or malformed `traceparent` never fails a delivery: the `process` span starts a new trace.
+- A redelivery of a failed job is an ordinary delivery: a child of the original `publish` span.
+
+| Span | Kind | `messaging.operation.type` | `messaging.operation.name` |
+| --- | --- | --- | --- |
+| `publish <MessageName>` | PRODUCER | `send` | `publish` |
+| `process <MessageName>` | CONSUMER | `process` | `process` |
+
+Both spans carry `messaging.system: 'spinajs'` (one emit may reach several transports), `messaging.destination.name` (the message name, since one emit may go to several connections and channels) and `messaging.message.id`. A failed publish or handler sets `error.type` and an ERROR status to the error's class name, never its message: a handler's error may embed the payload or a statement's parameters. The message is in the log line that carries the same trace id.
 
 ## Testing with the memory transport
 
@@ -63,11 +80,12 @@ queue: {
 | `options.broker` | `'default'` | Clients that name the same broker share subscribers. `MemoryBroker.drop(name)` forgets one |
 | `options.deferred` | `false` | `false`: an event reaches every subscriber of the broker during `emit()`; a job is only recorded, and `deliver(message)` hands it to this client's subscribers. `true`: `emit()` only queues, `deliverAll()` delivers |
 
-With `deferred: true` the client behaves like a broker that you drive by hand, with no timers:
+With `deferred: true` the client behaves like a broker that you drive by hand. It starts no timers and takes time from the injected `Clock` (`@spinajs/durable`); register a `FakeClock` to move it:
 
-- `published` lists every message the client accepted, in order. Nothing removes an entry. A subscriber receives a copy whose `Headers` also carry `x-spinajs-message-id`, as on AMQP and STOMP.
-- `deliverAll()` delivers the queued messages in publish order, by channel. An event goes to every subscription on its channel, a job to the first one. A job waits in its queue until a consumer subscribes; an event nobody listens to is dropped.
-- A message is settled only after its callback resolved. One whose callback rejected stays queued for the next `deliverAll()`: an event goes again to the subscriptions that rejected it, a job to whoever consumes its channel by then. Messages published during a `deliverAll()` wait for the next call.
+- `published` lists every message the client accepted, in order. Nothing removes an entry. A subscriber receives a copy whose `Headers` also carry `x-spinajs-message-id`, as on AMQP and STOMP, and, on a retried copy, the headers of the [delivery decision](11-delivery-contract.md).
+- `deliverAll()` delivers the queued messages that are due, in publish order, by channel. An event goes to every subscription on its channel, except that subscriptions sharing a `subscriptionId` compete for one copy, as consumers of one durable queue do. A job goes to the first subscription. A job waits in its queue until a consumer subscribes; an event nobody listens to is dropped.
+- `wireCopy(message)` returns the copy a broker round trip makes: emit it, or `deliver()` it, to hand the client the same message again.
+- A message is settled only after its callback resolved. When the callback rejects, deferred mode executes the delivery decision on the injected `Clock`: a failed event is dropped unless its route says `onEventFailure: 'retry'`, and a failed job is retried `RetryCount` times (or the route's `maxRetries`) and then dead-lettered into `deadLettered`. A retry is due once its delay has passed, and goes to the subscription that failed for an event, to whoever consumes the channel by then for a job. A rejection with `crash: true` leaves the delivery queued as it was. Messages published during a `deliverAll()` wait for the next call.
 
 A transport package proves its semantics by running the conformance cases against its own harness:
 
@@ -83,4 +101,4 @@ describeQueueTransportConformance('MyTransport', async () => ({
 }));
 ```
 
-The suite reads its channels from the client's `defaultQueueChannel` and `defaultTopicChannel`. It covers an ack on success and a `MessageId` and `Headers` round trip. Retry and dead-letter cases are not in the suite yet.
+The suite reads its channels from the client's `defaultQueueChannel`, `defaultTopicChannel` and `defaultQueueDeadLetterChannel`. Besides an ack on success and a `MessageId` and `Headers` round trip, it covers retries, dead letters, delays and dropped events; [Testing a transport](11-delivery-contract.md#testing-a-transport) lists the cases and the routing a harness passes.

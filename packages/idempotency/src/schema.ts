@@ -14,7 +14,7 @@ export const IDEMPOTENCY_CONFIGURATION_SCHEMA = {
     store: { type: 'string', minLength: 1, default: 'OrmIdempotencyStore', description: 'Class name of the IdempotencyStore' },
     lease: { anyOf: [DURATION, MILLISECONDS], default: '30s', description: 'How long a claim holds without a renewal: a duration or milliseconds' },
     sweepBatch: { type: 'integer', minimum: 1, default: 500, description: 'Rows one sweep deletes at most' },
-    sweepEvery: { ...DURATION, default: '5m', description: 'Reserved for the pending builtin idempotency.sweep schedule; nothing in this release reads it' },
+    sweepEvery: { ...DURATION, default: '5m', description: 'Interval of the builtin idempotency.sweep schedule that @spinajs/idempotency-scheduler registers' },
   },
 };
 

@@ -3,9 +3,12 @@ import type { IdempotencyScope } from './interfaces.js';
 
 const sha256 = (data: string | Uint8Array): string => createHash('sha256').update(data).digest('hex');
 
-/** sha256 of a JSON array, not of a concatenation: 'ab' + 'c' and 'a' + 'bc' must stay two keys. */
+/**
+ * sha256 of a JSON array, not of a concatenation: 'ab' + 'c' and 'a' + 'bc' must stay two keys. The parts come after the
+ * key, so a scope without any keeps the key it had before parts existed.
+ */
 export function idempotencyKey(scope: IdempotencyScope, key: string): string {
-  return sha256(JSON.stringify([scope.namespace, scope.principal ?? null, key]));
+  return sha256(JSON.stringify([scope.namespace, scope.principal ?? null, key, ...(scope.parts ?? [])]));
 }
 
 export function fingerprintOf(data: string | Uint8Array): string {
