@@ -416,7 +416,7 @@ describe('history writes', function () {
           expect(await changes('d8')).to.deep.eq([['insert', []], ['update', ['native']]]);
         });
 
-        it('compares as text a declared JSON column whose text holds a number a double cannot hold', async () => {
+        it("compares as text a declared JSON column whose text holds a number with more than 15 significant digits or outside the double's normal range", async () => {
           await Doc.insert({ id: 'd9', typed: '{"n":12345678901234567891}' });
           await Doc.update({ typed: '{"n":12345678901234567892}' }).where('id', 'd9');
           await Doc.update({ typed: '{"a":1e400}' }).where('id', 'd9');

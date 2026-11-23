@@ -64,7 +64,7 @@ describe('history encoding', () => {
     expect(historyEntryOf(s, { id: '1', before: { id: 1, note: '{"a":1,"b":2}' }, after: { id: 1, note: '{"b":2,"a":1}' } })?.data.changed).to.deep.eq(['note']);
   });
 
-  it('reads the text of a JSON column as text when it holds a number a double cannot hold', () => {
+  it("reads the text of a JSON column as text when it holds a number with more than 15 significant digits or outside the double's normal range", () => {
     const s = spec({ json: new Set(['body']) });
     const changed = (before: string, after: string): readonly string[] | undefined => historyEntryOf(s, { id: '1', before: { id: 1, body: before }, after: { id: 1, body: after } })?.data.changed;
     expect(changed('{"n":12345678901234567891}', '{"n":12345678901234567892}')).to.deep.eq(['body']);
