@@ -4,8 +4,9 @@ import 'mocha';
 import { AuditConfigError, AuditWriteFailed } from '@spinajs/audit';
 import { MemoryAuditStore } from '@spinajs/audit/testing';
 import { rowsOf } from '@spinajs/audit-orm';
-import { Archived, Column, Hidden,InsertBehaviour, InsertQueryBuilder, Json, SoftDelete, Uuid, createQuery } from '@spinajs/orm';
-import { HistoryConfigError, HistoryWriteError, LOST_SUBJECT_ID, registerHistory, toHistoryValue } from '../src/index.js';
+import { Archived, Column, Hidden, InsertBehaviour, InsertQueryBuilder, Json, JsonValueConverter, SoftDelete, Uuid, createQuery, extractDecoratorPropertyDescriptor } from '@spinajs/orm';
+import type { IModelDescriptor } from '@spinajs/orm';
+import { HistoryConfigError, HistoryWriteError, LOST_SUBJECT_ID, historySpecOf, registerHistory, toHistoryValue } from '../src/index.js';
 import { who } from './support/audit.js';
 import { HistoryDb, applyDecorator } from './support/db.js';
 
@@ -14,6 +15,12 @@ const expect = chai.expect;
 const TRACE = '4bf92f3577b34da6a3ce929d0e0e4736';
 
 type Row = Record<string, unknown>;
+
+class DocJsonConverter extends JsonValueConverter {}
+const DocJson = (): unknown =>
+  extractDecoratorPropertyDescriptor((model: IModelDescriptor, _: unknown, column: string) => {
+    model.Converters.set(column, { Class: DocJsonConverter });
+  });
 
 const keyChange = (entity: string): string => `orm-history: an update of ${entity} writes its primary key id; history is keyed by it, delete and insert the row instead`;
 const UNKNOWN_KEYS_REFUSED = 'orm-history: an insert of auto did not report the keys it wrote, so its history cannot be recorded; insert one row at a time or supply the keys';
@@ -334,11 +341,13 @@ describe('history writes', function () {
             {
               name: 'Doc',
               table: 'doc',
-              columns: { label: 'TEXT', big: 'TEXT', body: 'JSON', at: 'DATETIME', typed: 'TEXT' },
+              columns: { label: 'TEXT', big: 'TEXT', body: 'JSON', at: 'DATETIME', typed: 'TEXT', native: 'TEXT', sub: 'TEXT' },
               decorate: (c, p) => {
                 registerHistory(c);
                 applyDecorator(Json(), p, 'body');
                 applyDecorator(Column({ family: 'json' }), p, 'typed');
+                applyDecorator(Column({ nativeType: 'jsonb' }), p, 'native');
+                applyDecorator(DocJson(), p, 'sub');
               },
             },
             dialect,
@@ -396,6 +405,29 @@ describe('history writes', function () {
           await Doc.insert({ id: 'd6', typed: '{"a":1,"b":2}' });
           await Doc.update({ typed: '{ "b": 2, "a": 1 }' }).where('id', 'd6');
           expect(await changes('d6')).to.deep.eq([['insert', []]]);
+        });
+
+        it('declares JSON a column whose @Column nativeType is jsonb, and one a subclass of JsonValueConverter converts', async () => {
+          expect(historySpecOf(Doc)?.json).to.deep.eq(new Set(['body', 'sub', 'typed', 'native']));
+
+          await Doc.insert({ id: 'd8', native: '{"a":1,"b":2}' });
+          await Doc.update({ native: '{ "b": 2, "a": 1 }' }).where('id', 'd8');
+          await Doc.update({ native: '{"a":1,"b":3}' }).where('id', 'd8');
+          expect(await changes('d8')).to.deep.eq([['insert', []], ['update', ['native']]]);
+        });
+
+        it('compares as text a declared JSON column whose text holds a number a double cannot hold', async () => {
+          await Doc.insert({ id: 'd9', typed: '{"n":12345678901234567891}' });
+          await Doc.update({ typed: '{"n":12345678901234567892}' }).where('id', 'd9');
+          await Doc.update({ typed: '{"a":1e400}' }).where('id', 'd9');
+          await Doc.update({ typed: '{"a":null}' }).where('id', 'd9');
+          expect(await changes('d9')).to.deep.eq([['insert', []], ['update', ['typed']], ['update', ['typed']], ['update', ['typed']]]);
+        });
+
+        it('records nothing for a reordered declared JSON column that holds ordinary numbers', async () => {
+          await Doc.insert({ id: 'd10', typed: '{"a":1.5,"b":-20,"c":1e3,"d":123456789012345}' });
+          await Doc.update({ typed: '{"d":123456789012345,"c":1000,"b":-20,"a":1.50}' }).where('id', 'd10');
+          expect(await changes('d10')).to.deep.eq([['insert', []]]);
         });
 
         it('compares text that is not JSON in a declared JSON column as text', async () => {

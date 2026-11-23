@@ -38,8 +38,26 @@ function parsedJson(text: string): unknown {
   }
 }
 
-// sqlite and MSSQL hand a JSON column over as its text, where PostgreSQL and MySQL parse it.
+// A string, or a number outside strings in group 1.
+const JSON_TOKEN = /"(?:[^"\\]|\\.)*"|(-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)/g;
+const MIN_NORMAL_DOUBLE = 2 ** -1022;
+
+// Fifteen significant digits always survive a double in its normal range. A false positive only keeps the text comparison.
+function lossyNumber(token: string): boolean {
+  const n = Number(token);
+  const digits = token
+    .replace(/[eE].*$/, '')
+    .replace(/[-.]/g, '')
+    .replace(/^0+|0+$/g, '');
+  return !Number.isFinite(n) || digits.length > 15 || (digits !== '' && Math.abs(n) < MIN_NORMAL_DOUBLE);
+}
+
+const holdsLossyNumber = (text: string): boolean => [...text.matchAll(JSON_TOKEN)].some(([, number]) => number !== undefined && lossyNumber(number));
+
+// sqlite and MSSQL hand a JSON column over as its text, where PostgreSQL and MySQL parse it. Parsing merges numbers a
+// double cannot tell apart (beyond 2^53, 1e400 and null), so such text keeps the text comparison.
 function sameJsonText(a: string, b: string): boolean {
+  if (holdsLossyNumber(a) || holdsLossyNumber(b)) return false;
   const x = parsedJson(a);
   const y = parsedJson(b);
   return x !== undefined && y !== undefined && canonicalJson(x) === canonicalJson(y);
