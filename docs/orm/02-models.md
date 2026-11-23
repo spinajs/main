@@ -495,6 +495,47 @@ counts per connection: a history longer than `limit` (at most 1000) is paged per
 server-side reads with no authorization scoping of their own: an application that exposes them decides who may call them.
 Retention applies per trail, and each trail owns its table.
 
+### Members a package adds to a model
+
+`extendModel(model, name, { onModel, onRow })` puts a member on one model class (`onModel`, called with the class as
+`this`) and on its rows (`onRow`, called with the row as `this`). Subclasses inherit it; other models do not get it.
+The member is not enumerable, a second `extendModel` of the same name replaces it, and `unextendModel(model, name)`
+removes it again. A name the model already has at run time, its own or inherited (`where`, `update`, a method of its
+own), is refused with `ExtensionMethodCollision` and nothing is installed. A column or field of the same name is not
+refused, but it shadows the row member: columns are own properties of a hydrated row, not on its prototype chain.
+
+`extendModel` installs the member at run time only. Its typing is written on the model: an interface merged with the
+class for the rows, and a `declare static` line for the class.
+
+```ts sample
+import { Model, ModelBase, Primary, extendModel } from '@spinajs/orm';
+
+interface Labelled {
+  label(): string;
+}
+
+@Model('tickets')
+export class Ticket extends ModelBase<Ticket> {
+  declare static label: Labelled['label'];
+
+  @Primary()
+  public Id: number;
+}
+
+export interface Ticket extends Labelled {}
+
+extendModel(Ticket, 'label', {
+  onModel: () => 'tickets',
+  onRow(this: ModelBase): string {
+    return `ticket ${String(this.PrimaryKeyValue)}`;
+  },
+});
+
+export const both = `${Ticket.label()} / ${new Ticket().label()}`;
+```
+
+Applications rarely call it themselves; a package's decorator does, on the models marked with it.
+
 ## Column SQL specs, indexes and partial models
 
 A plain class field is a column. `@Column(spec)` adds what the SQL type is, for the manifest and `migrate-diff`;
