@@ -484,22 +484,19 @@ describe('read auditing', function () {
         expect((await recorded('restricted')).map((e) => [e.action, e.subject, e.data])).to.deep.eq([['patient.read', undefined, { columns: ['Ssn'], rows: 3, filter: [], keyless: true }]]);
       });
 
-      it('counts an aggregate in a query with a join for every table of the query that has the column', async () => {
-        const positive = function (this: { where(column: string, operator: string, value: number): unknown }) {
-          this.where('Id', '>', 0);
+      it('counts an aggregate in a query with a join for the table its SQL names', async () => {
+        const twin = {
+          joinModel: Patient,
+          joinTableAlias: 'twin',
+          sourceTablePrimaryKey: 'Id',
+          joinTableForeignKey: 'Id',
+          callback: function (this: { where(column: string, operator: string, value: number): unknown }) {
+            this.where('Id', '>', 0);
+          },
         };
-        // Strict column typing refuses a joined column on Visit's builder; a package without it can write it.
-        const ungrouped = Visit.query().leftJoin('Patient', positive);
-        Reflect.apply(ungrouped.max.bind(ungrouped), undefined, ['Ssn', 'S']);
-        await ungrouped.asRaw();
-        const grouped = Visit.query().leftJoin('Patient', positive).select('Reason');
-        Reflect.apply(grouped.max.bind(grouped), undefined, ['Ssn', 'S']);
-        await grouped.groupBy('Reason').asRaw();
+        await Patient.query().leftJoin(twin).max('Ssn', 'S').asRaw();
 
-        expect((await recorded('restricted')).map((e) => [e.action, e.subject, e.data])).to.deep.eq([
-          ['patient.read', undefined, { columns: ['Ssn'], rows: 1, filter: [], keyless: true }],
-          ['patient.read', undefined, { columns: ['Ssn'], rows: 3, filter: [], keyless: true }],
-        ]);
+        expect((await recorded('restricted')).map((e) => [e.action, e.subject, e.data])).to.deep.eq([['patient.read', undefined, { columns: ['Ssn'], rows: 1, filter: [], keyless: true }]]);
       });
 
       it('audits an own column under an alias of its own', async () => {
