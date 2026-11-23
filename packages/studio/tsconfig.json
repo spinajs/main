@@ -18,6 +18,7 @@
     { "path": "../http/tsconfig.json" },
     { "path": "../log/tsconfig.json" },
     { "path": "../manifest/tsconfig.json" },
+    { "path": "../testing/tsconfig.json" },
     { "path": "../tracing/tsconfig.json" }
   ]
 }

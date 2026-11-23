@@ -23,6 +23,7 @@ const probes = new Map<StudioFeature, FeatureProbe>([
     const targets = c.get(Configuration)?.get<unknown>('logger.targets');
     return Array.isArray(targets) && targets.some((t: unknown) => typeof t === 'object' && t !== null && 'type' in t && t.type === 'StudioLogTarget');
   }],
+  ['di', () => true],
   ['authz', (c) => c.hasRegistered(AuthzDomains)],
   ['telemetry', registered('TelemetryStore')],
   ['scheduler', registered('SchedulerService')],

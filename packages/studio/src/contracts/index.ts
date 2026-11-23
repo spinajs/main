@@ -1,4 +1,5 @@
 // Types only: `@spinajs/studio/contracts` is what the Studio UI compiles against.
+import type { ServiceEntry, SourceRef } from '@spinajs/manifest';
 
 export type StudioSource = 'manifest' | 'runtime' | 'merged';
 
@@ -94,3 +95,13 @@ export interface TraceQuery {
   limit?: number;
   cursor?: string;
 }
+
+/** `group` is the package that registers the node, known from the manifest only. */
+export interface GraphNode { id: string; label: string; kind: string; group?: string; attributes: Record<string, string | number | boolean> }
+export interface GraphEdge { id: string; source: string; target: string; kind: string; label?: string }
+/** Every Studio graph endpoint answers this; `truncated` is true when a limit cut nodes. */
+export interface StudioGraph { source: StudioSource; nodes: GraphNode[]; edges: GraphEdge[]; truncated: boolean }
+export interface DiInjection { token: string; kind: 'ctor' | 'property' | 'lazy'; optional: boolean; array: boolean; mapped?: boolean; property?: string }
+export interface DiImplementation { name: string; kind: string; lifetime: string; instantiated: boolean; async: boolean; injects: DiInjection[]; error?: string }
+/** `GET /_studio/api/di/services/:id` */
+export interface DiServiceDetail { token: string; source: StudioSource; implementations: DiImplementation[]; injectedBy: { token: string; kind: string }[]; manifest: ServiceEntry[]; sourceRef?: SourceRef; runtime?: { resolving: boolean } }
