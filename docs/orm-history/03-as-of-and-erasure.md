@@ -62,15 +62,18 @@ A model that needs a retention of its own names a trail that has it.
 
 `Model.history().forget(id)` and `row.history().forget()` erase a row's history for a data subject's right to erasure. They are redaction, not deletion:
 
-- The payload of every event of the subject `{ type: <entity>, id }` is blanked in every source of the trail: `forget` runs `audit().trail(name).forget({ type: <entity>, id })` without a `source` ([Which connections](../audit/08-erasure.md#which-connections)). On a table trail that is the trail table on every connection that holds it: the model's connection, where the row's entries are, and the trail's own `connection`, where other producers record in the confirmed or deferred mode, among them. Each event's `data_hash` stays, so a seal over it still verifies.
+- The payload of every event of the subject `{ type: <entity>, id }` is blanked on two connections: the model's, where the row's entries are, and the trail's own `connection`, where other producers record in the confirmed or deferred mode. `forget` runs `audit().trail(name).forget({ type: <entity>, id }, source)` once for each ([Which connections](../audit/08-erasure.md#which-connections)), and once only when the trail's `connection` names the model's connection (`default`, an alias). Each event's `data_hash` stays, so a seal over it still verifies.
 - The entries are still listed, with `redacted: true`, `before: null`, `after: null` and `changed: []`. Their `seq`, `at`, `op`, `actor`, `onBehalfOf` and `traceId` stay.
-- The trail records an `erasure` event (`kind: 'custom'`, `action: 'erasure'`, `data: { redacted: <count> }`) beside the events it redacted. On a table trail that is one per connection, with that connection's count: on the trail's own `connection`, also when nothing was blanked there, and on every other connection where the subject has an event. It is not an entry of the row.
-- It returns the number of events it redacted over every source. Events of that subject that other producers recorded in the same trail (reads, actions) are redacted and counted too.
+- The trail records an `erasure` event (`kind: 'custom'`, `action: 'erasure'`, `data: { redacted: <count> }`) on each of the two connections, with that connection's count, also when nothing was blanked there: one record when they are the same connection. It is not an entry of the row.
+- It returns the number of events it redacted on both. Events of that subject that other producers recorded there (reads, actions) are redacted and counted too.
 - `asOf` then answers `redacted` where it answered `present`, and still `absent` after a delete.
 
-Reads keep covering the model's connection only. An error of the trail's `forget` reaches the caller as it is: a trail that cannot be read from the application (`LogAuditStore`, a shipping trail without a reader) refuses it with `AuditNotSupported`, and a connection the trail table cannot be looked for on fails it with `AuditWriteFailed` before anything is erased.
+A subject has no connection in it. Another model on a third connection that holds the trail's table, with a table of the same name or the same `entity`, records its rows under the same subject: `forget` leaves those alone, and that model's `history().of(id)` still shows them.
+
+`audit().trail(name).forget(subject)` without a `source` is the sweep: it blanks the subject on every connection that holds the trail's table, so also the rows of such a model that share the id.
 
 ```ts sample
+import { audit } from '@spinajs/audit';
 import { historyOf } from '@spinajs/orm-history';
 import type { ModelBase } from '@spinajs/orm';
 import type { Constructor } from '@spinajs/di';
@@ -78,6 +81,12 @@ import type { Constructor } from '@spinajs/di';
 export async function forgetRow(model: Constructor<ModelBase>, id: number): Promise<number> {
   return historyOf(model).forget(id);
 }
+
+export async function forgetEverywhere(entity: string, id: string): Promise<number> {
+  return audit().trail('history').forget({ type: entity, id });
+}
 ```
+
+Reads keep covering the model's connection only. An error of the trail's `forget` reaches the caller as it is: a trail that cannot be read from the application (`LogAuditStore`, a shipping trail without a reader) refuses it with `AuditNotSupported`, with nothing touched. When the second connection fails after the first was erased, the call rejects with that error and the first stays blanked and recorded; calling `forget` again is safe, since events already blank are not blanked or counted again. When the model's connection and the trail's own are two connections on one shared PGlite instance (`Options.Shared`), call `forget` outside a transaction on either: the erasure on the other waits for that transaction to end.
 
 What is blanked, kept and never blanked, erasure on a shipping trail and how `verify` reads redactions are the trail's: see [Erasure](../audit/08-erasure.md). `forget` does not delete the row, and does not erase copies outside the trail (logs, backups).
