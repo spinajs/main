@@ -154,6 +154,18 @@ describe('queue outbox: emit spans', function () {
     expect(broker.sent).to.have.length(1);
     expect(idsOf(broker.sent[0].message.Headers?.traceparent)).to.deep.equal(idsOf(publish));
   });
+
+  it("traces an emit outside a transaction under mode 'always' as create <Name>, since it writes a row", async () => {
+    const env = await bootOutbox({ outbox: { mode: 'always' } });
+    await env.queue.emit(new OrderPlaced({ OrderId: '12' }));
+
+    const [create] = producers();
+    expect(producers().map((s) => s.name)).to.deep.equal(['create OrderPlaced']);
+    expect(create.attributes).to.include({ 'messaging.operation.type': 'create', 'messaging.operation.name': 'create' });
+    const [row] = await outboxRows(env.orders);
+    expect(idsOf(row.TraceParent)).to.deep.equal(idsOf(create));
+    expect(broker.sent).to.deep.equal([]);
+  });
 });
 
 describe('queue outbox: emit while tracing is not started', function () {
