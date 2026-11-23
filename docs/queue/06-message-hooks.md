@@ -45,7 +45,7 @@ sequenceDiagram
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
-| Message hook | `QueueMessageHook`, a list resolved with `Array.ofType(QueueMessageHook)` on every emit and handle; each hook is a singleton | none: with no hooks, messages pass unchanged | `AuthzQueueHook` (`@spinajs/authz-queue`): stamps the current principal as `Initiator` and runs the handler as the initiator, as `SYSTEM`, or unattended, from `@Job({ runAs })` | `@Injectable(QueueMessageHook)` on your class, or `DI.register(MyHook).as(QueueMessageHook)`. Remove one with `DI.unregister(TheirHook)`. Extend a shipped hook by subclassing it and registering the subclass instead |
+| Message hook | `QueueMessageHook`, a list resolved with `Array.ofType(QueueMessageHook)` on every emit and handle; each hook is a singleton | none: with no hooks, messages pass unchanged | `AuthzQueueHook` (`@spinajs/authz-queue`): stamps the current principal as `Initiator` and runs the handler as the initiator, as `SYSTEM`, or unattended, from `@Job({ runAs })`, order `0`. `TenantQueueHook` (`@spinajs/tenancy/queue`): carries the tenant scope in the `x-spinajs-tenant` header and runs the handler in it, from `@Job({ tenancy })`, order `-100` | `@Injectable(QueueMessageHook)` on your class, or `DI.register(MyHook).as(QueueMessageHook)`. Remove one with `DI.unregister(TheirHook)`. Extend a shipped hook by subclassing it and registering the subclass instead |
 
 ### Message hook: custom implementation
 
@@ -158,7 +158,7 @@ export class SlowHandlerHook extends QueueMessageHook {
   }
 }
 
-// guard first: it runs before any other hook's beforeEmit
+// registered first, so it runs first among hooks of the same order
 DI.register(MaintenanceGuardHook).as(QueueMessageHook);
 DI.register(SlowHandlerHook).as(QueueMessageHook);
 ```
@@ -169,3 +169,4 @@ DI.register(SlowHandlerHook).as(QueueMessageHook);
 - [Job tracking](03-job-tracking.md): how `Initiator` becomes the row owner.
 - [Tracking hooks](07-tracking-hooks.md): the other hook, around the queue's own database queries.
 - [Multiple implementations](../di/06-multiple-implementations.md): `Array.ofType` and registration order.
+- [Queue tenant scope](../tenancy/01-queue-tenant-scope.md): the hook that carries the tenant with a message.
