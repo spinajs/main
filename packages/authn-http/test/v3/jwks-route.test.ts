@@ -2,7 +2,8 @@ import 'mocha';
 import { expect } from 'chai';
 import { Bootstrapper, DI } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
-import { Orm } from '@spinajs/orm';
+import { Orm, OrmMigrationGuard, OrmMigrator } from '@spinajs/orm';
+import { migrateTestDatabase } from '@spinajs/orm/testing';
 import { BaseController, Controllers, HttpServer } from '@spinajs/http';
 import { fsService } from '@spinajs/fs';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
@@ -78,7 +79,7 @@ describe('GET /.well-known/jwks.json', function () {
 
     await DI.resolve(Configuration);
     await DI.resolve(fsService);
-    await DI.resolve(Orm);
+    await migrateTestDatabase();
     await DI.resolve(Controllers);
     await startHttpServer();
   });
@@ -89,6 +90,8 @@ describe('GET /.well-known/jwks.json', function () {
     DI.uncache(JwksRouteConfiguration);
     DI.uncache(Configuration);
     DI.uncache(Orm);
+    DI.uncache(OrmMigrator);
+    DI.uncache(OrmMigrationGuard);
   });
 
   describe('without a JwsSigner', () => {

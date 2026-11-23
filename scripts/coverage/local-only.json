@@ -6,7 +6,6 @@
     "fs-s3",
     "orm-mssql",
     "orm-mysql",
-    "queue-amqp-transport",
-    "queue-sqs-transport"
+    "queue-amqp-transport"
   ]
 }

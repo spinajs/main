@@ -1,11 +1,10 @@
 // app-basic for fixtures/next-app/scripts/e2e.mjs: prints `{ api, counter }` on stdout once it listens, and serves the
 // number of requests per `METHOD path` it has received at `counter`.
-import type express from 'express';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { AccessPolicy, PrincipalMiddleware } from '@spinajs/authz-http';
 import { fsService } from '@spinajs/fs';
-import { BaseController, Controllers, HttpServer, ServerMiddleware, type Request } from '@spinajs/http';
+import { BaseController, Controllers, HttpServer, ServerMiddleware, type IMiddlewareContext } from '@spinajs/http';
 import { Intl } from '@spinajs/intl';
 import { createTestApp } from '@spinajs/testing';
 import { HealthController } from '../../../compiler/test/fixtures/app-basic/src/controllers/HealthController.js';
@@ -20,16 +19,9 @@ class CountRequests extends ServerMiddleware {
     this.Order = 0;
   }
 
-  public before() {
-    return (req: Request, _res: express.Response, next: express.NextFunction) => {
-      const key = `${req.method} ${req.path}`;
-      counts[key] = (counts[key] ?? 0) + 1;
-      next();
-    };
-  }
-
-  public after() {
-    return null;
+  public onBefore({ req }: IMiddlewareContext): void {
+    const key = `${req.method} ${req.path}`;
+    counts[key] = (counts[key] ?? 0) + 1;
   }
 }
 

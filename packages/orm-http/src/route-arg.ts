@@ -18,6 +18,8 @@ function parseJson(value: string, field: string): unknown {
   }
 }
 
+const COLUMN_LIST_SCHEMAS = new WeakMap<IColumnFilter<unknown>[], object>();
+
 @Injectable()
 @Inject(Container)
 export class FilterModelRouteArg extends RouteArgs {
@@ -51,7 +53,14 @@ export class FilterModelRouteArg extends RouteArgs {
       // get orm model schema
       rParam.Schema = (param.Options as any).filterSchema();
     } else {
-      rParam.Schema = filterSchemaFor(param.Options as IColumnFilter<unknown>[]);
+      const columns = param.Options as IColumnFilter<unknown>[];
+      // one object per route, so the validator compiles it once
+      let schema = COLUMN_LIST_SCHEMAS.get(columns);
+      if (!schema) {
+        schema = filterSchemaFor(columns);
+        COLUMN_LIST_SCHEMAS.set(columns, schema);
+      }
+      rParam.Schema = schema;
     }
 
     let parsed: unknown = filter;

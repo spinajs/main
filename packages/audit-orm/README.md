@@ -1,0 +1,122 @@
+# `@spinajs/audit-orm`
+
+The database side of `@spinajs/audit`:
+
+- `TableAuditStore`: a trail in a table (`audit_<trail>` by default, `audit_event` for `default`), written inside the audited transaction or on the trail's connection. Each trail owns its table: a trail of a table store whose table another such trail uses is refused with `AuditConfigError` (on write, read and retention; the other trails keep working), whatever their connections, because a trail table can hold events on any connection. A trail you add gets `audit_<trail>` unless it names a `table`; migrate that table.
+- `AuditTrailTableMigration`: creates a trail table; the package migrates `audit_event` on the default connection. For another table or connection, extend it, override `table()` and add `@Migration(connection)`.
+- `TableAuditReader`, `pruneAudit()` and `@spinajs/audit-orm/scheduler` (`AuditRetentionTask`). Retention applies per trail, to the trail's own table; a trail or connection that fails is reported after the others were pruned.
+- `Model.audit()` and `row.audit()`: the `default` trail unless named; when the model's connection is not the trail's, both are read and merged by time. They apply no authorization scoping: the application decides who may call them. A producer that writes events about rows names them with `auditSubjectType(model)` and `auditSubjectId(key)` (composite keys as their escaped parts joined with `:`, binary keys as hex), passing the key as the loaded model holds it, after its converters, so these reads find them.
+
+## Confirmed writes inside a transaction
+
+Whether a confirmed event survives the rollback of a transaction open on the connection it is written to depends on the driver. This holds for `TableAuditStore` and for `OutboxAuditStore`, whose buffer row is written the same way. On a pooled driver (Postgres, MySQL, MSSQL) it is written on a connection of its own and is kept when the caller's transaction rolls back. On a driver that serves one transaction at a time (sqlite, PGlite: `supportedFeatures().concurrentTransactions` is `false`) it joins the caller's open transaction, because written apart it would wait for that transaction to end: there it is **not** kept when the transaction rolls back. So on such a driver, record the audit of a refused or failed action after the transaction that is rolled back, not inside it. The same holds for events a producer records inside the transaction, such as a read audited by `@AuditReads`: they are lost with its rollback too, so on sqlite and PGlite "no row is disclosed without a record" does not hold for reads made inside a transaction that rolls back.
+
+A joined write is tried once, without the trail's retries and without a deadline, inside a savepoint; joined writes of one transaction run one after another. When one fails, the caller's transaction stays usable, a `reject` trail throws `AuditWriteFailed` for the caller to decide, and a `continue` trail logs the loss. The caller must await `record` inside its transaction: a joined write left running may land after the transaction has ended. So await several `record` calls there with `Promise.allSettled`, never `Promise.all`: when one rejects, `Promise.all` returns while the writes queued behind it still run, after the transaction ended, outside it or in another caller's transaction. A nested `driver.transaction()` running in parallel with a `record` in the same transaction interleaves its savepoints with the write's: the ORM runs savepoints of one transaction one after another only when they are awaited in turn.
+
+A confirmed write that is not joined and cannot finish fails at `audit.confirmTimeoutMs` (default 10000 ms): `AuditWriteFailed` on a `reject` trail, a logged loss on a `continue` trail. That is the case for connections that share one PGlite instance (`Options.Shared`): they are not detected as one connection, so a confirmed write to one of them while another holds a transaction waits for it and fails at the deadline.
+
+## Shipping
+
+A trail with `store: 'OutboxAuditStore'` buffers its events in `audit_outbox` (declare `AuditOutboxTableMigration` on every connection that buffers); `shipAudit()` hands them to the trail's `sink`, at least once, and `auditBacklog()` reports what is pending. Events of one trail are shipped in `seq` order among the rows the shipper can see, not in commit order.
+
+`AuditShipTask` runs every 10 seconds on the leader once `@spinajs/audit-orm/scheduler` is imported; `scheduler.schedules['audit.ship'].enabled: false` turns it off. A delivery that takes longer than `audit.ship.deliverTimeoutMs` (default 30000, at most 120000) fails and its events stay buffered; no batch starts after `audit.ship.runBudgetMs` (default 300000), and a run refuses the two when together they exceed the schedule's `timeout` of 10 minutes. A run the budget stops logs the trails and connections it left buffered and returns `stoppedEarly: true`; the next run starts at the trail and connection the budget stopped before it shipped anything, or after the one it interrupted; a run narrowed by `trail` or `connection` leaves that order alone. One failing sink or connection fails the whole run, so `pauseAfterFailures` on `audit.ship` pauses shipping for every trail.
+
+Call `forget` on a shipping trail outside a transaction. Inside one, the buffer of the transaction's connection is blanked in that transaction while the destination is redacted at once: a rollback restores the buffered payloads, which are then shipped, and on sqlite and PGlite also drops the `erasure` event. Without a `source`, `forget` reads every connection that buffers, so it waits for a connection that shares one PGlite instance with an open transaction.
+
+## Queue shipping
+
+**Trust boundary.** The consumer stores every well-formed `AuditBatchRecorded` message as genuine audit events, with the publisher's `id`, `source`, `actor` and `at`: whoever can publish to the route can add, backdate or misfile events in the archive, and a seal (`integrity: 'sealed'`) proves only that nothing changed after archiving. Make the route writable by the shipping applications only.
+
+**Signed batches** (off by default). `audit.queue.signing: { keyId, secret }` in a shipping application adds `KeyId` and `Sig` (base64url HMAC-SHA256 of the canonical JSON of `{ trail, source, events }`) to every message. `audit.queue.verify: { required?, keys: { <source>: [{ id, secret }] } }` in the receiving service checks them before any event is read: a message of a source without keys, under an unlisted key id, with a wrong signature, or, with `required: true`, unsigned, stores nothing, is logged once on `audit-queue` and fails with a `PermanentJobFailure`. Several keys per source allow rotation. A stolen key forges events of its own source, and through an `erasure` record (`custom`/`erasure`) blanks the payloads of that subject's events in every source, which `verify` reports as explained. Without `audit.queue.verify` nothing is checked.
+
+**Erasure window.** Events still buffered in a shipping application or in flight in the broker when `forget` runs arrive with their payload. The consumer blanks them on arrival, after storing a batch, and keeps their `data_hash`:
+- an arriving event is blanked when its subject has an `erasure` event at or after the arriving event's `at`, in the archive or still in the receiving service's own `audit_outbox` (two selects per batch); newer events of the subject and erasure records keep their payload;
+- an arriving `erasure` event, which a shipping application with a `reader` records after redacting the archive, blanks the archived events of its subject with `at` at or before its own, in every source, erasure records excepted: events in flight when it ran reach the archive before it.
+
+What it does not cover: an erasure issued in a shipping application without a `reader` (refused there). Issue `forget` in the receiving service.
+
+`@spinajs/audit-orm/queue` ships a trail through `@spinajs/queue`, an optional peer: install it and import the subpath; the package root imports nothing of it.
+
+The shipping application names `sink: 'QueueAuditSink'`. Each batch is published as `AuditBatchRecorded` events, persistent, split so that no message exceeds `audit.queue.maxMessageBytes` (default 200000, at least 1024; keep it under the broker's own limit); an event that cannot fit a message alone fails the delivery before anything is published. Route `AuditBatchRecorded` to a real connection (`queue.routing.AuditBatchRecorded`): a route to the black-hole connection, the shipped default, is refused. The sink returns when the transport's `emit` returns: the AMQP transport waits for the publisher confirm and the SQS transport for the `SendMessage` response; on a transport that does not confirm, delivery is at most once from the broker on. On AMQP an event goes to a topic: bind the receiving service's durable subscription before shipping starts, or the broker drops what nobody listens to.
+
+The receiving service calls `consumeAuditBatches(subscriptionId?)` once at startup. It subscribes durably (`'audit-archive'` by default) and stores each batch through `ArchiveAuditSink`, so the service configures a trail of the same name with `archiveConnection` and an archive table migrated there, for example `{ store: 'OutboxAuditStore', sink: 'ArchiveAuditSink', reader: 'ArchiveAuditReader', archiveConnection: 'audit', table: 'audit_shipped' }`; its own events, such as the `erasure` record of `forget`, are then buffered and archived beside the shipped ones, so it declares `AuditOutboxTableMigration` too. A redelivered or duplicated message stores each event once (by `id`); a message whose events cannot be read, or a batch of a trail the service does not configure, fails the callback and is left to the transport's redelivery and dead-letter rules.
+
+The archive files events under `source`, the name of the shipping application's ORM connection that buffered them (its driver name, never an alias such as `default`). The receiving service maps `default` and its trail's `connection` to its own driver names, so its reads without a `source` find none of the shipped events: pass `source`, the shipping connection's name, to `of`, `byActor`, `since` and the other reads. Order by time (`ArchiveAuditReader.list(trail, filter, 'at')`), not by `seq`: the archive's `seq` is arrival order, which across a queue (competing consumers, an SQS standard queue, a redelivered part) is not shipping order. Retention and `forget` without a `source` cover every source of the archive: `forget(subject)` redacts that subject key for every shipping application, so applications that share an archive use subject keys unique among them, or callers pass `source`.
+
+A message is refused whole when an event is not what the sink writes: `at` must be the `toISOString()` text and at most 5 minutes ahead of the receiving service's clock, every string field must fit its column (`AUDIT_WIDTHS`), and an optional field is a string or absent. A refused message, a batch of a trail the service does not configure or a `Source` over 64 characters fails on every redelivery: configure a dead-letter queue for `AuditBatchRecorded`. The error names the first refused event and field (`audit: malformed AuditBatchRecorded message: event <id>: <field> ...`). Keep the clocks of the shipping applications within 5 minutes of the receiving service's: a message from a clock further ahead is refused until this clock catches up, so it is delayed or, past the queue's maximum receive count, moved to the dead-letter queue. When a release adds an event kind or outcome, upgrade the receiving service before the shipping applications.
+
+## Sealed trails
+
+A trail with `integrity: 'sealed'` is hashed in `seq` order into chained seals in `audit_seal` (`AuditSealTask`, `sealAudit()`). Without a key it detects an edit, deletion, reordering or insertion in a sealed range made by anyone **without** write access to `audit_seal`; anyone who holds the application's database credentials, or reaches its connection through SQL injection, can rewrite the trail and its seals together. With `audit.seal.keys` the seals are HMACs (the first key signs, every listed key verifies; `audit.seal.keylessUpTo` names where a chain sealed before the keys stops being keyless), which nobody without the key can make: a rewrite fails verification where no sealer runs over it afterwards. On the live system the sealer still re-signs whatever follows the last seal, so a database writer who deletes the seals after a kept one and edits the events behind it gets that history signed again; only a head pinned after the edit shows it. Neither a keyless nor a keyed chain shows the newest seals deleted together with their events, and only a head hash kept outside the database catches that: the sealer logs the head (`toSeq`, `hash`, and the key id) at info level after every seal, so ship that log line to an external, append-only log and compare against it. The unsealed tail (up to about two minutes) is not protected at all.
+
+An erasure (`forget`) blanks a payload and keeps its `data_hash`, so the seal still matches. A payload an attacker blanks the same way looks exactly alike in the trail. An `erasure` record of the subject tells them apart only while the trail table is writable by the application alone: anyone who can append to it can blank a payload and append a matching record, which the sealer then seals like any other row. Against such a writer only an erasure log kept outside the database helps, or a head pinned before the blanking.
+
+`spinajs audit:verify <trail>` checks every connection that holds the trail table, or the one `--source` names, and prints one report per connection. It exits with 1 when any connection is tampered, else with 3 when one could not be verified (its error is printed and the others still run), else with 2 when one is suspect, else with 0. Suspect means rows no seal covers (a transaction that outlived `audit.seal.settleSeconds` looks like an insertion), payloads blanked with no sealed or fresh `erasure` record of their subject, seals pruned earlier than this application's `retentionDays` explains (also after `retentionDays` was raised or retention switched off, or a direct prune), or unsealed rows older than the sealing window (a stopped sealer, a backlog over `audit.seal.maxSeals`, a leader change, or deleted seals). Age is measured by the event's `at`, so these also read as suspect for up to one sealing window after the rows land: an archive receiving a shipping backlog after an outage, a deferred write retried late, and a caller-supplied `at` in the past. Verify assumes `AuditSealTask`'s default 60-second period; a slower `scheduler.schedules` entry for `audit.seal` makes the tail read as suspect for longer, and an `erasure` record still in the tail then stops explaining its blanked payloads before it is sealed. A payload the queue consumer blanked because of an erasure still in the receiving service's own buffer reads as suspect until that erasure is shipped and sealed. Archive rows carry `at` from the shipping applications' clocks, so verify allows them the consumer's 5 minutes of skew.
+An erasure (`forget`) blanks a payload and keeps its `data_hash`, so the seal still matches. A payload an attacker blanks the same way looks exactly alike in the trail: only an `erasure` event of that subject tells a lawful erasure apart.
+`AuditShipTask` runs every 10 seconds on the leader once `@spinajs/audit-orm/scheduler` is imported; `scheduler.schedules['audit.ship'].enabled: false` turns it off. A delivery that takes longer than `audit.ship.deliverTimeoutMs` (default 30000) fails and its events stay buffered. One failing sink or connection fails the whole run, so `pauseAfterFailures` on `audit.ship` pauses shipping for every trail.
+## Read auditing
+
+`@AuditReads({ trail, mode, columns, onFailure })` on a model records who read it. `mode: 'row'` (default) writes one
+`read` event per returned row, `mode: 'query'` one per statement with the row count and the filter columns (never
+their values). `columns` limits auditing to selects that return one of them. The record is written, confirmed, before
+the rows are returned; when it cannot be written after the trail's retries the select rejects with `AuditWriteFailed`,
+unless the rule says `onFailure: 'continue'` (the default is `'reject'`). `registerAuditReads(Model, options)` declares
+the same for a model of another package. A model takes one rule: a second `@AuditReads` or `registerAuditReads` for a
+class of that name throws `AuditConfigError` and leaves the first in force.
+
+What it sees: every select through a query builder that carries a model, hydrated or `asRaw()`, streamed (one write
+per batch, before the batch is yielded), and the columns of an audited model that a `populate()` (of any relation
+type, or through a relation's accessor) or a `join()` brings into a select of another model. A rule applies to the
+model's subclasses and to every model of its table on its connection. Column names match without regard to case, as
+sqlite and MySQL resolve them; the ORM quotes every identifier, so Postgres only knows the declared spelling.
+
+Each selected column belongs to the table its table alias names: the queried table, or a join of the query under the
+alias the join is declared with (a populated belongsTo or many-to-many relation is such a join). A column under an
+alias no join names counts for every audited table of the connection with a column of that name, `*` there for every
+audited table. A raw or `CASE` select expression counts for every audited column of every table in the query; next to
+a `CASE` column, such as authz-orm's `withAccess()` and `withFields()` add, rows are still named by their key, but the
+event lists every audited column of those tables, selected or not. A raw join leaves the queried table without an
+alias, so an unqualified column next to one counts for every audited table of the connection with a column of that
+name, as an aggregate there does. An
+aggregate over an audited column (`min`, `max`, `sum`, `avg`, `count(column)`) discloses it for the queried table,
+whose alias its SQL names; without that alias, in a query with a join, it counts for every table of the query with a
+column of that name. `count(*)` and aggregates over other columns do not.
+
+Where no row can be named (no primary key in the result, an aggregate, `groupBy`), a row-mode rule writes one event
+per statement in the query-mode shape with `keyless: true`. So does a select where another column returns under the
+key's name, or with a raw select column, whose name the builder cannot read. A binary key is written as hex.
+
+`mode: 'query'` without `columns` records every select of the model, `count()` and `exists()` included, with the
+columns it disclosed (none for those two). `mode: 'row'` records nothing for `count(*)`, `exists()` or a select that
+returns the key alone (`select('Id').where(...)`): they return a number or the keys, nothing else of the model.
+
+What it does not see:
+
+- raw SQL (`driver.execute()`, a `RawQuery` statement or join) and `driver.select()` without a model;
+- a sub-select inside a raw select expression, which is raw SQL too: a raw expression counts for the tables of the
+  query only, so `Visit.query().select(RawQuery.create('(SELECT Ssn FROM patient WHERE patient.Id =
+  visit.patient_id) AS s'))` records nothing about `patient`;
+- what a filter reveals without selecting the column: a `where`, a `whereIn` or `whereExists` sub-select, a join
+  condition or an `ORDER BY` on an audited column (`where('Ssn', '111')` tells whether that value exists);
+- data the application already holds: rows loaded before, kept in memory or in a cache, and handed out again.
+
+Limits a reader of the trail must know:
+
+- a raw select column (`select(RawQuery.create(...))`) makes the row-mode events of its statement keyless: its output
+  name cannot be read, so it could shadow the key, and the statement is recorded without naming rows;
+- `mode: 'query'` with `columns` records only the selects that return one of them; every select of the model is
+  recorded only by a query-mode rule without `columns`;
+- a column under an alias no join of the query names is treated as widely as it could reach: it counts for every
+  audited table of the connection with a column of that name, and `*` there for every audited table.
+
+`paginate()` over-records: the one row it fetches beyond the page, to know whether a next page exists, is recorded.
+
+Row mode needs a primary key: declaring it on a model without one fails where the rule is declared. It writes one
+event per row per select, so give a list endpoint `columns` or `mode: 'query'`.
+
+A read inside a transaction: on a pooled driver (Postgres, MySQL) the record is written on another connection and
+stays when the caller rolls back. On a single-connection driver (sqlite, PGlite) whose trail table is on that same
+connection, the record joins the open transaction, also one the ORM opened itself (the reload of
+`save({ reload: true })`, relations loaded there, authz-orm's update and delete checks). It is tried once, commits with
+that transaction and rolls back with it: there a read inside a transaction that rolls back leaves no record. Every other
+confirmed record has a deadline, `audit.confirmTimeoutMs` (10 s by default); past it a `reject` rule fails the select.

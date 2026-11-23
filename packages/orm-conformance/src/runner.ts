@@ -24,11 +24,11 @@ function conformanceConfiguration(target: ConformanceTarget): Class<Configuratio
     public async resolve(): Promise<void> {
       await super.resolve();
       this.set('logger', SILENT);
-      // The fixture tables are created after the boot, case by case.
+      // The fixture tables are created after the boot, case by case; no migration runs, so the boot check is off.
       this.set('db', {
         DefaultConnection: CONFORMANCE_CONNECTION,
         StrictTableCheck: false,
-        Connections: [{ ...target.connection, Name: CONFORMANCE_CONNECTION, Migration: { OnStartup: false } }],
+        Connections: [{ ...target.connection, Name: CONFORMANCE_CONNECTION, Migration: { Check: 'off' } }],
       });
     }
   };

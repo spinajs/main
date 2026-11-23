@@ -8,7 +8,8 @@ import { NonRetryableError } from '@spinajs/durable';
 import { QueueJob, Job, QueueService, JobModel, QueueClient, IQueueMessage, IQueueJob, QueueMessage, IJobFailureContext, PermanentJobFailure, isJob } from './../src/index.js';
 import { MemoryBroker, MemoryQueueClient } from './../src/testing/index.js';
 import '@spinajs/orm-sqlite';
-import { MigrationTransactionMode, Orm } from '@spinajs/orm';
+import { MigrationTransactionMode } from '@spinajs/orm';
+import { migrateTestDatabase } from '@spinajs/orm/testing';
 
 chai.use(chaiAsPromised);
 
@@ -63,7 +64,6 @@ class TrackingConnectionConf extends FrameworkConfiguration {
             Filename: ':memory:',
             Name: 'queue',
             Migration: {
-              OnStartup: true,
               Table: 'orm_migrations',
               Transaction: {
                 Mode: MigrationTransactionMode.PerMigration,
@@ -173,7 +173,7 @@ describe('queue tracking (producer generates JobId, consumer find-or-create)', f
     DI.register(TrackingConnectionConf).as(Configuration);
 
     await DI.resolve(Configuration);
-    await (await DI.resolve(Orm)).Migrator.ready();
+    await migrateTestDatabase();
   });
 
   afterEach(async () => {
@@ -382,7 +382,7 @@ describe('queue dedup OFF ( queue.deduplicate: false )', function () {
     DI.register(TrackingConnectionConf).as(Configuration);
 
     await DI.resolve(Configuration);
-    await (await DI.resolve(Orm)).Migrator.ready();
+    await migrateTestDatabase();
   });
 
   afterEach(async () => {

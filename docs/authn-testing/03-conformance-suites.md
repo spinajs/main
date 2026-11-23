@@ -56,7 +56,7 @@ Each case passes the strategy a context from `clock.ctx()` with `purpose` `'logi
 | `sameId()` | no | Other credentials with the same stable id as `valid()`; non-interactive strategies |
 | `secretsOf(c)` | yes | The secret parts of `c` (password, token, JWS, signature) that must never appear in a key |
 | `sessions` | yes | `{ count(): Promise<number> }` over the sessions in the strategy's container |
-| `events` | yes | An `EventsPort` (`all()`, `clear()`), for example a `RecordingEventSink` |
+| `events` | yes | An `EventsPort` (`all()`, `clear()`), for example a `RecordingEventListener` |
 | `dispose()` | no | Releases what the factory made |
 
 ### Options
@@ -183,7 +183,7 @@ import 'mocha';
 import { randomUUID } from 'node:crypto';
 import { AuthenticationStrategy } from '@spinajs/authn/contracts';
 import type { AuthnContext, Credentials, IdentityRef, StrategyOutcome, ThrottleKey } from '@spinajs/authn/contracts';
-import { FakeIdentityStore, MemorySessionIssuer, RecordingEventSink, runStrategyConformance } from '@spinajs/authn-testing';
+import { FakeIdentityStore, MemorySessionIssuer, RecordingEventListener, runStrategyConformance } from '@spinajs/authn-testing';
 import type { StrategySubject } from '@spinajs/authn-testing';
 
 class KioskPinStrategy extends AuthenticationStrategy {
@@ -230,7 +230,7 @@ async function kioskSubject(): Promise<StrategySubject> {
     unknown: async () => pin(`${randomUUID()}@example.test`, '00000000'),
     secretsOf: (c) => [String((c as { pin?: unknown }).pin)],
     sessions: { count: async () => (await sessions.storage.storedKeys()).length },
-    events: new RecordingEventSink(),
+    events: new RecordingEventListener(),
   };
 }
 

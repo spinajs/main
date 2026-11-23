@@ -5,7 +5,7 @@ import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import type { Class } from '@spinajs/di';
 import { InvalidArgument } from '@spinajs/exceptions';
 import '@spinajs/log';
-import { BelongsTo, Connection, HasMany, Migration, Model, ModelBase, Orm, OrmDriver, OrmMigration, Primary, Relation, SingleRelation, UnitOfWork, type IDriverOptions } from '@spinajs/orm';
+import { BelongsTo, Connection, HasMany, Migration, Model, ModelBase, OrmDriver, OrmMigration, Primary, Relation, SingleRelation, UnitOfWork, type IDriverOptions } from '@spinajs/orm';
 import { createTestApp, type TestApp } from '@spinajs/testing';
 
 import { createTestDatabase, defineFactory, factory, type TestDatabase } from '../src/index.js';
@@ -80,7 +80,8 @@ describe('model factories', function () {
 
   beforeEach(async () => {
     db = await createTestDatabase();
-    app = await createTestApp({ configuration: appConfiguration(db.config), resolve: [Orm] });
+    app = await createTestApp({ configuration: appConfiguration(db.config) });
+    await db.migrate(app.container);
   });
 
   afterEach(async () => {

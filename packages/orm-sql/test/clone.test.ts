@@ -5,7 +5,9 @@ import 'mocha';
 // Registers the concrete logger. Without it every `@Logger` field resolves the abstract
 // `Log` from log-common and the first `Log.trace()` in Orm.resolve() throws.
 import '@spinajs/log';
-import { SelectQueryBuilder, Orm } from '@spinajs/orm';
+import { SelectQueryBuilder, Orm, WhereBuilder, WhereQueryStatement } from '@spinajs/orm';
+import type { IWhereBuilder } from '@spinajs/orm';
+import { Lazy } from '@spinajs/util';
 import { DI } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
 import { ConnectionConf, FakeSqliteDriver } from './fixture.js';
@@ -223,5 +225,38 @@ describe('Query builder clone() statement rebinding', () => {
 
     expect(sql(query.clone())).to.equal('SELECT * FROM `users` WHERE `id` = ? OR `id` = ?');
     expect(sql(query.clone())).to.equal(sql(query));
+  });
+
+  describe('a group of statements adopted from another builder', () => {
+    function groupedInto(target: SelectQueryBuilder, source: SelectQueryBuilder) {
+      const group = new WhereBuilder<unknown>(target as unknown as WhereBuilder<unknown>).adopt(source.Statements.splice(0));
+      target.Statements.push(target.Container.resolve(WhereQueryStatement, [group, false]));
+      return target;
+    }
+
+    it('a clone keeps the adopted statements reading the builder they were built on', () => {
+      const orders = sqb().select('*').from('orders').where('total', 10).orWhere('total', 20);
+      const query = groupedInto(sqb().select('*').from('items').setAlias('i'), orders);
+      // assigned after the group was built, as populate() does: the adopted statements read it lazily
+      orders.setAlias('o');
+
+      expect(sql(query)).to.equal('SELECT `i`.* FROM `items` as `i` WHERE ( `o`.`total` = ? OR `o`.`total` = ? )');
+      expect(sql(query.clone())).to.equal(sql(query));
+    });
+
+    it('a clone keeps an adopted Lazy where evaluated against the builder it was built on', () => {
+      const orders = sqb()
+        .select('*')
+        .from('orders')
+        .setAlias('o')
+        .where(
+          new Lazy(function (this: IWhereBuilder<unknown>) {
+            this.where('total', 10);
+          }),
+        );
+      const query = groupedInto(sqb().select('*').from('items').setAlias('i'), orders);
+
+      expect(sql(query.clone())).to.equal('SELECT `i`.* FROM `items` as `i` WHERE ( `o`.`total` = ? )');
+    });
   });
 });

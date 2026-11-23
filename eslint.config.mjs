@@ -19,7 +19,7 @@ export default defineConfig(
       // The Next.js fixture's build output and generated client.
       'fixtures/*/.next/**',
       'fixtures/*/generated/**',
-      // A Vite + ckit app: its @coderush/* imports only resolve where ckit is linked; its own typecheck covers it.
+      // A Vite + ckit app: its @coderush/* imports only resolve where ckit is linked; packages/studio-ui/eslint.config.mjs lints it there.
       'packages/studio-ui/**',
       // Their tsconfig.json does not include test/, so the typed rules have no program for it.
       'packages/{di,exceptions,fs-onedrive,orm-threading,session-provider-redis,templates-csv,threading,util}/test/**',
@@ -65,7 +65,7 @@ export default defineConfig(
   },
   {
     // The O6 strict packages. typed-sql checks only files with an app.manifest.json between them and their package.json, which a library has not, so this is inert until one is built (A15).
-    files: ['packages/{scheduler,authz-rbac,authn-orm,upload,users,users-http,teams,authn-token,session-provider-db,authz-orm,authz-rebac,authn-webauthn,email-verification-orm,orm-http,orm-threading}/src/**/*.ts'],
+    files: ['packages/{scheduler,authz-rbac,authn-orm,upload,users,users-http,teams,authn-token,session-provider-db,authz-orm,authz-rebac,authn-webauthn,email-verification-orm,orm-http,orm-threading,audit-orm}/src/**/*.ts'],
     plugins: { '@spinajs/orm': orm },
     rules: { '@spinajs/orm/typed-sql': 'error' },
   },
@@ -85,4 +85,38 @@ export default defineConfig(
       'max-nested-callbacks': ['error', 3],
     },
   },
+  {
+    files: ['packages/*/src/**/*.ts'],
+    // the test-support packages' database helpers: what they ship is the test database a test asks for
+    ignores: ['packages/testing-orm/src/database.ts', 'packages/simulation/src/env.ts'],
+    rules: ormTestingBan(),
+  },
+  {
+    files: ['packages/orm/src/**/*.ts'],
+    ignores: ['packages/orm/src/testing/**'],
+    rules: ormTestingBan(String.raw`^(\.\.?\/)+testing(\/|$)`),
+  },
 );
+
+/**
+ * Keeps `@spinajs/orm/testing` out of shipped code. A module name only known at runtime escapes it; the helper's
+ * production refusal is the backstop.
+ */
+function ormTestingBan(...extra) {
+  const message = 'Test helper: applications migrate with `npx spinajs migrate-up`.';
+  // the bare subpath is a `paths` entry, so the patterns leave it out rather than report it twice
+  const deep = [String.raw`^@spinajs\/orm\/testing\/`, String.raw`^@spinajs\/orm\/lib\/([\w-]+\/)?testing(\/|$)`, String.raw`(^|\/)orm\/src\/testing(\/|$)`, ...extra];
+  const literal = `/${[String.raw`^@spinajs\/orm\/testing$`, ...deep].join('|')}/`;
+
+  return {
+    'no-restricted-imports': ['error', { paths: [{ name: '@spinajs/orm/testing', message }], patterns: [{ regex: deep.join('|'), message }] }],
+    'no-restricted-syntax': [
+      'error',
+      {
+        // import(), require(), createRequire(...)(), and TypeScript's import x = require()
+        selector: `:matches(ImportExpression[source.value=${literal}], CallExpression[arguments.0.value=${literal}], TSExternalModuleReference[expression.value=${literal}])`,
+        message,
+      },
+    ],
+  };
+}

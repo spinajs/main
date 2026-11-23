@@ -10,16 +10,17 @@ import { Bootstrapper, DI } from '@spinajs/di';
 import type { Class, IContainer } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
 import { AuthenticationFailed, Forbidden } from '@spinajs/exceptions';
-import { Orm, OrmMigrator } from '@spinajs/orm';
+import { Orm, OrmMigrationGuard, OrmMigrator } from '@spinajs/orm';
+import { migrateTestDatabase } from '@spinajs/orm/testing';
 import { BaseController, BasePolicy, Controllers, HttpServer, ServerMiddleware } from '@spinajs/http';
 import type { IController, IRoute, IRouteParameter, Request } from '@spinajs/http';
 import { fsService } from '@spinajs/fs';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
-import { AuthenticationStrategy, AuthnEventSink, AuthnThrottle, IMPERSONATION_BLOCK, IdentityStore, ImpersonationGuard, MfaEnrolmentMismatch, MfaPolicy, MfaStep, MfaStepNotListed, PasswordCredentialStore, PrincipalFactory, SessionIssuer } from '@spinajs/authn';
+import { AuthenticationStrategy, AuthnEventListener, AuthnThrottle, IMPERSONATION_BLOCK, IdentityStore, ImpersonationGuard, MfaEnrolmentMismatch, MfaPolicy, MfaStep, MfaStepNotListed, PasswordCredentialStore, PrincipalFactory, SessionIssuer } from '@spinajs/authn';
 import type { AuthnFacts, IdentityRef, Principal, StrategyOutcome } from '@spinajs/authn';
 import { DefaultSessionIssuer, MemorySessionStore, appEnvOf, sessionCookieName } from '@spinajs/authn-session';
 import type { ISessionCookieConfig } from '@spinajs/authn-session';
-import { EnrolledMfaPolicy, FakeIdentityStore, FakeImpersonationGuard, FakeMfaStep, FakeStrategy, MemoryPasswordCredentialStore, RecordingEventSink, RecordingPrincipalFactory, RecordingThrottle, fakeHash } from '@spinajs/authn-testing';
+import { EnrolledMfaPolicy, FakeIdentityStore, FakeImpersonationGuard, FakeMfaStep, FakeStrategy, MemoryPasswordCredentialStore, RecordingEventListener, RecordingPrincipalFactory, RecordingThrottle, fakeHash } from '@spinajs/authn-testing';
 
 import * as barrel from '../../src/index.js';
 import * as v3 from '../../src/v3/index.js';
@@ -77,7 +78,7 @@ interface Suite {
   step: FakeMfaStep;
   tokens: Map<string, StrategyOutcome>;
   passwordStrategy: FakeStrategy;
-  events: RecordingEventSink;
+  events: RecordingEventListener;
 }
 
 async function buildSuite(): Promise<Suite> {
@@ -93,7 +94,7 @@ async function buildSuite(): Promise<Suite> {
   Object.defineProperty(issuer, 'PendingTtlSeconds', { value: 300 });
   Object.defineProperty(issuer, 'Container', { value: child });
   const throttle = new RecordingThrottle();
-  const events = new RecordingEventSink();
+  const events = new RecordingEventListener();
   const step = new FakeMfaStep({ name: 'totp' });
   const tokens = new Map<string, StrategyOutcome>();
   const passwordStrategy = FakeStrategy.password({ identities, passwords, name: 'local' });
@@ -115,8 +116,8 @@ async function buildSuite(): Promise<Suite> {
   bind(child, AuthenticationStrategy, 'PolicySuiteTokenStrategy', tokenStrategy);
   bind(child, MfaPolicy, 'PolicySuiteMfaPolicy', new EnrolledMfaPolicy([step]));
   bind(child, MfaStep, 'PolicySuiteMfaStep', step);
-  // Before anything resolves the child's AuthnAudit, which reads its sinks once.
-  bind(child, AuthnEventSink, 'PolicySuiteEventSink', events);
+  // Before anything resolves the child's AuthnAudit, which reads its listeners once.
+  bind(child, AuthnEventListener, 'PolicySuiteEventSink', events);
   // The scanned 3.0 controllers cache a root MfaSatisfied, which reads the root's MfaPolicy; the suite needs its own.
   child.register(MfaSatisfied).asSelf();
   await registerAuthnHttpV3(child);
@@ -207,7 +208,7 @@ describe('3.0 authn policies and route args', function () {
 
     const config = await DI.resolve(Configuration);
     await DI.resolve(fsService);
-    await (await DI.resolve(Orm)).Migrator.ready();
+    await migrateTestDatabase();
 
     s = await buildSuite();
     authnInChild = buildAuthnMiddlewareIn(s.child);
@@ -240,6 +241,7 @@ describe('3.0 authn policies and route args', function () {
     DI.uncache(Configuration);
     DI.uncache(Orm);
     DI.uncache(OrmMigrator);
+    DI.uncache(OrmMigrationGuard);
   });
 
   describe('exports', () => {

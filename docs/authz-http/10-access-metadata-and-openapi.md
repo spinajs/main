@@ -36,7 +36,7 @@
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
-| Access descriptor | metadata `ACCESS_DESCRIPTOR` on the controller prototype; no DI | written by the decorators | `TelemetryAccessPolicy` (`@spinajs/telemetry`) builds one by hand for a rule read from configuration | Write a descriptor on a holder object with `Reflect.defineMetadata(ACCESS_DESCRIPTOR, descriptor, holder)` and pass the holder to `AccessPolicy.execute()` as the controller. |
+| Access descriptor | metadata `ACCESS_DESCRIPTOR` on the controller prototype; no DI | written by the decorators | `SlotAccessPolicy` ([Slot access policies](12-slot-access-policy.md)), inherited by `TelemetryAccessPolicy` and `StudioAccessPolicy`, builds one by hand for a rule read from configuration | Write a descriptor on a holder object with `Reflect.defineMetadata(ACCESS_DESCRIPTOR, descriptor, holder)` and pass the holder to `AccessPolicy.execute()` as the controller. |
 | `swaggerAccess(controller, method)` | exported function | | http-swagger's own reader | Call it to build your own API listings. |
 
 ## Important behaviour
@@ -51,7 +51,7 @@ When the http server starts listening, `UnguardedRoutesReport` lists every regis
 
 | Key | Type | Default | Allowed values | Meaning |
 | --- | --- | --- | --- | --- |
-| `authz.http.unguardedRoutes` | `string` | `'warn'` | `'warn'`, `'throw'`, `'off'` | `'warn'` logs each route once as `Controller.method`. `'throw'` stops the http server with an `AuthzConfigError` that names every such route. `'off'` skips the check. |
+| `authz.http.unguardedRoutes` | `string` | `'warn'` | `'warn'`, `'throw'`, `'off'` | `'warn'` logs each route once as `Controller.method`. `'throw'` stops the http server with an `AuthzConfigError` that names every such route, sets exit code 1 and emits `authz.boot.failed` ([Principal resolution](03-principal-resolution.md#how-it-works)). `'off'` skips the check. |
 
 The report runs before the root authz domain boots, on the controllers registered at that moment. The edit-time twin is the [`require-access`](../eslint-plugin-authz/04-require-access.md) lint rule.
 

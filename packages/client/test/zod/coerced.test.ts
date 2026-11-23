@@ -9,6 +9,8 @@ import { clearLoaded, loadZod, manifestWith, route, schemaIn, type SafeParse } f
 
 const cap = (name: string): string => name.charAt(0).toUpperCase() + name.slice(1);
 
+const DEEP = { type: 'object', properties: { n: { type: 'number' } }, required: ['n'] };
+
 const object = (properties: Record<string, unknown>, extra: Record<string, unknown> = {}) => ({ type: 'object', properties, additionalProperties: false, ...extra });
 
 // Each field gets its own one-field root too, so a value that only that field decides is checked on its own.
@@ -23,13 +25,44 @@ const FIELDS: Record<string, unknown> = {
   oneRef: { oneOf: [{ $ref: 'test/Page' }, { type: 'string', maxLength: 0 }] },
   unique: { type: 'array', items: { type: 'number' }, uniqueItems: true },
   nestedRef: { anyOf: [{ $ref: 'test/Nested' }, { type: 'string', pattern: '^0' }] },
+  // Ajv leaves a coerced infinity in the data whatever a branch says, and the fixed server then refuses the whole value.
+  notNum: { type: 'string', not: { type: 'number' } },
+  oneOfNum: { oneOf: [{ type: 'string' }, { type: 'number' }] },
+  anyOfNum: { anyOf: [{ type: 'number' }, { type: 'string' }] },
+  anyOfOnly: { anyOf: [{ type: 'number' }, { type: 'boolean' }] },
+  ifNum: { if: { type: 'number' }, then: { minimum: -1000 } },
+  ifEmptyThen: { if: { type: 'number' }, then: {} },
+  notRef: { not: { $ref: 'test/Page' } },
+  mergeNot: { not: { $merge: { source: DEEP, with: { minProperties: 1 } } } },
+  patchNot: { not: { $patch: { source: DEEP, with: [{ op: 'add', path: '/minProperties', value: 1 }] } } },
+  mergeAnyOf: { anyOf: [{ $merge: { source: DEEP, with: { minProperties: 2 } } }, { type: 'string' }] },
+  // A coercion deep in a branch stays in the data as well, and a failing member leaves what it coerced.
+  notDeep: { not: DEEP },
+  anyOfFailDeep: { anyOf: [{ ...DEEP, minProperties: 3 }, { type: 'object' }] },
+  anyOfNested: { anyOf: [{ anyOf: [{ ...DEEP, minProperties: 3 }] }, { type: 'string' }] },
+  ifDeep: { if: DEEP, then: { minProperties: 1 } },
+  oneOfDeep: { oneOf: [DEEP, { type: 'string' }] },
+  itemsNot: { not: { type: 'array', items: { type: 'number' }, minItems: 1 } },
+  tupleNot: { not: { type: 'array', items: [{ type: 'string' }, { type: 'number' }], additionalItems: { type: 'integer' }, minItems: 1 } },
+  addlNot: { not: { type: 'object', additionalProperties: { type: 'number' }, minProperties: 1 } },
+  patNot: { not: { type: 'object', patternProperties: { '^n': { type: 'number' } }, minProperties: 1 } },
+  depNot: { not: { type: 'object', dependencies: { a: { properties: { n: { type: 'number' } } } } } },
+  containsNot: { not: { type: 'array', contains: { type: 'number' } } },
+  compiledRef: { anyOf: [{ $ref: 'test/NumC' }, { type: 'string' }] },
+  inlineRef: { anyOf: [{ $ref: 'test/NumI' }, { type: 'string' }] },
+  propsAfter: { type: 'object', not: { properties: { n: { type: 'number' } } }, properties: { n: { type: 'string' } } },
+  recursiveNot: { $ref: 'test/Chain' },
 };
 
 // Values as a query string carries them; the non-finite ones are refused by the fixed server only.
-const VALUES: unknown[] = ['', '0', '05', 0, '1', 1, '5', 5, '12', 12, null, 'null', false, 'false', true, 'true', [null], ['0'], ['5'], ['1', 1], [], 'a', 'b', ['a'], {}, [1, '1'], [1, 2]];
+const VALUES: unknown[] = ['', '0', '05', 0, '1', 1, '5', 5, '12', 12, null, 'null', false, 'false', true, 'true', [null], ['0'], ['5'], ['1', 1], [], 'a', 'b', ['a'], {}, [1, '1'], [1, 2], 'Infinity', '-Infinity', '1e400', ['Infinity'], ' 1e400 ', { n: 'Infinity' }, { n: '1e400', x: 1 }, { n: 'Infinity', a: 1 }, { next: { n: 'Infinity' } }, { stop: 'Infinity' }, ['x', 'Infinity'], ['a', 'Infinity', 'Infinity'], { x: 'Infinity' }, { x1: 'Infinity' }, { n1: 'Infinity' }];
 
 const EXTRA: Record<string, unknown> = {
   'test/Page': { type: 'integer', minimum: 1 },
+  'test/NumC': { type: 'number', anyOf: [{ $ref: 'test/Pos' }] },
+  'test/NumI': { type: 'number', minimum: -5 },
+  'test/Pos': { type: 'number', minimum: -1000000000 },
+  'test/Chain': { type: 'object', properties: { next: { $ref: 'test/Chain' }, n: { type: 'number' } }, not: { required: ['stop'], properties: { stop: { type: 'number' } } } },
   'test/Big': { type: 'integer', minimum: 10 },
   // Ajv compiles a target that holds a $ref apart: its coercion does not reach the branch after it.
   'test/Nested': { type: 'integer', minimum: 10, not: { $ref: 'test/Zero' } },
@@ -112,7 +145,7 @@ describe('emitZod: coerced variants, scalar arguments and defaults', function ()
       });
 
       it('checks query, path, header and cookie values against <Name>Coerced, a JSON-shaped query too', () => {
-        const server = validatorFor(manifest, false);
+        const server = validatorFor(manifest);
         const coerced = [{ page: '2', flag: 'true', ids: '5', q: '', nested: { n: '1' } }, { page: ['3'] }, { flag: 0, q: null }];
         for (const value of coerced) {
           expect(routes().items.list.query.safeParse(value).success, JSON.stringify(value)).to.equal(true);
@@ -131,7 +164,7 @@ describe('emitZod: coerced variants, scalar arguments and defaults', function ()
       // anyOf with { type: 'null' } coerces '', 0 and false to null, and a failing branch leaves the value it coerced.
       for (const name of Object.keys(FIELDS)) {
         it(`answers as the server for ${name}: ${JSON.stringify(FIELDS[name])}`, () => {
-          const server = validatorFor(manifest, false);
+          const server = validatorFor(manifest);
           const schema = routes().items.fields[name];
           for (const v of VALUES) {
             const verdict = serverAccepts(server, `test/Field${cap(name)}`, { coerce: true }, { v });
@@ -146,7 +179,7 @@ describe('emitZod: coerced variants, scalar arguments and defaults', function ()
         for (const value of [{ atLeast: '0' }, { both: { a: 'x' } }]) {
           expect(() => query.safeParse(value)).to.not.throw();
           expect(query.safeParse(value).success, JSON.stringify(value)).to.equal(false);
-          expect(serverAccepts(validatorFor(manifest, false), 'test/Query', { coerce: true }, value)).to.equal(false);
+          expect(serverAccepts(validatorFor(manifest), 'test/Query', { coerce: true }, value)).to.equal(false);
         }
       });
 
@@ -172,7 +205,7 @@ describe('emitZod: coerced variants, scalar arguments and defaults', function ()
 
       it('keeps a whole query root open', () => {
         expect(routes().items.search.all.safeParse({ page: '2', other: 'x' }).success).to.equal(true);
-        expect(serverAccepts(validatorFor(manifest, false), 'test/Query', { coerce: true, openRoot: true }, { page: '2', other: 'x' })).to.equal(true);
+        expect(serverAccepts(validatorFor(manifest), 'test/Query', { coerce: true, openRoot: true }, { page: '2', other: 'x' })).to.equal(true);
       });
 
       it('converts a scalar argument by its runtime type first, as RouteArgs does', () => {
@@ -220,7 +253,7 @@ describe('emitZod: coerced variants, scalar arguments and defaults', function ()
         const { contents } = emitZod(buildClientModel(nested), { mini });
         const outer = ((await loadZod(contents)).routeSchemas as Record<string, Record<string, Record<string, SafeParse>>>).items.outer.outer;
         expect(outer.safeParse({ login: { n: '1' } }).success).to.equal(true);
-        expect(serverAccepts(validatorFor(nested, false), 'test/Outer', { coerce: true }, { login: { n: '1' } })).to.equal(true);
+        expect(serverAccepts(validatorFor(nested), 'test/Outer', { coerce: true }, { login: { n: '1' } })).to.equal(true);
       });
     });
   }
