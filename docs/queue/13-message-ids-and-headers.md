@@ -52,17 +52,19 @@ export async function placeOrder(orderId: number, tenant: string) {
 `traceparent` and `tracestate` are standard headers, so every transport carries them: AMQP and STOMP as broker headers, the others in the JSON body with the rest of `Headers`.
 
 - `QueueService.emit()` publishes under a PRODUCER span `publish <MessageName>`, a child of the span active when you call it, and writes that span's `traceparent` (and `tracestate`, when the trace has one) into `Headers`. A message received and emitted again carries the trace it came from; `emit()` drops those trace headers (and `baggage`) and writes the new ones, and keeps every other header. With tracing not started the span has no ids and the headers you set stay as they are.
-- `consume()` handles each delivery under a CONSUMER span `process <MessageName>`. For an ordinary message it is a child of the `publish` span, so one request and the work it queued share one trace.
-- A delayed, repeating or cron message (`ScheduleCron` set, or `ScheduleDelay`, `SchedulePeriod` or `ScheduleRepeat` above 0, see `isScheduledDelivery()`) is delivered long after the request that scheduled it, or again and again. Each of its deliveries is the root of a new trace, with a link to the `publish` span, so the scheduling trace neither stays open nor grows without end. The rule reads the message, not the broker: on a transport that ignores the schedule (AMQP today, SQS until it sends a delay) the delivery arrives at once and is still a linked root.
+- An `emit()` that only writes an [outbox](10-outbox.md#tracing) row sends nothing: its PRODUCER span is named `create <MessageName>` instead, and the row carries that span's `traceparent`. The relay publishes the row later under no span of its own, so the `process` span of a relayed message is a child of the `create` span.
+- `consume()` handles each delivery under a CONSUMER span `process <MessageName>`. For an ordinary message it is a child of the `publish` (or `create`) span, so one request and the work it queued share one trace.
+- A delayed, repeating or cron message (`ScheduleCron` set, or `ScheduleDelay`, `SchedulePeriod` or `ScheduleRepeat` above 0, see `isScheduledDelivery()`) is delivered long after the request that scheduled it, or again and again. Each of its deliveries is the root of a new trace, with a link to the `publish` (or `create`) span, so the scheduling trace neither stays open nor grows without end. The rule reads the message, not the broker: on a transport that ignores the schedule (AMQP today, SQS until it sends a delay) the delivery arrives at once and is still a linked root.
 - A missing or malformed `traceparent` never fails a delivery: the `process` span starts a new trace.
-- A redelivery of a failed job is an ordinary delivery: a child of the original `publish` span.
+- A redelivery of a failed job is an ordinary delivery: a child of the original `publish` (or `create`) span.
 
 | Span | Kind | `messaging.operation.type` | `messaging.operation.name` |
 | --- | --- | --- | --- |
 | `publish <MessageName>` | PRODUCER | `send` | `publish` |
+| `create <MessageName>` | PRODUCER | `create` | `create` |
 | `process <MessageName>` | CONSUMER | `process` | `process` |
 
-Both spans carry `messaging.system: 'spinajs'` (one emit may reach several transports), `messaging.destination.name` (the message name, since one emit may go to several connections and channels) and `messaging.message.id`. A failed publish or handler sets `error.type` and an ERROR status to the error's class name, never its message: a handler's error may embed the payload or a statement's parameters. The message is in the log line that carries the same trace id.
+All three spans carry `messaging.system: 'spinajs'` (one emit may reach several transports), `messaging.destination.name` (the message name, since one emit may go to several connections and channels) and `messaging.message.id`. A failed publish or handler sets `error.type` and an ERROR status to the error's class name, never its message: a handler's error may embed the payload or a statement's parameters. The message is in the log line that carries the same trace id.
 
 ## Testing with the memory transport
 

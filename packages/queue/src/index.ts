@@ -15,7 +15,7 @@ import { OutboxWriter } from './outbox/writer.js';
 import { CLAIM_FAILURE_REDELIVERY_MS, RedeliverLater } from './redeliver.js';
 import { isCrash } from './crash.js';
 import { context } from '@opentelemetry/api';
-import { withConsumerSpan, withProducerSpan } from './tracing.js';
+import { markOutboxCreate, withConsumerSpan, withProducerSpan } from './tracing.js';
 
 export * from './BlackHoleQueueClient.js';
 export * from './crash.js';
@@ -129,11 +129,12 @@ export class DefaultQueueService extends QueueService {
     // generate only; the consumer writes the row
     const jobId = isJob(event) ? (event.JobId = event.JobId ?? event.MessageId) : undefined;
 
-    await withProducerSpan(event, context.active(), async () => {
+    await withProducerSpan(event, context.active(), async (span) => {
       // a misrouted message must fail the caller, not wait in the outbox
       this.connectionsFor(event);
       const target = await this.Outbox.enlistOn(event);
       if (target) {
+        markOutboxCreate(span, event);
         await target.driver.afterCommit(() => this.Relay?.nudge(target.connection));
         return;
       }
