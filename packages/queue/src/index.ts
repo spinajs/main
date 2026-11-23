@@ -14,7 +14,6 @@ import { OutboxRelay } from './outbox/relay.js';
 import { OutboxWriter } from './outbox/writer.js';
 import { CLAIM_FAILURE_REDELIVERY_MS, RedeliverLater } from './redeliver.js';
 import { isCrash } from './crash.js';
-import { RedeliverLater } from './redeliver.js';
 import { context } from '@opentelemetry/api';
 import { withConsumerSpan, withProducerSpan } from './tracing.js';
 

@@ -422,7 +422,7 @@ describe('queue tracking on a transport that executes the delivery decision', fu
     DI.register(TrackingConnectionConf).as(Configuration);
 
     await DI.resolve(Configuration);
-    await (await DI.resolve(Orm)).Migrator.ready();
+    await migrateTestDatabase();
   });
 
   afterEach(async () => {
