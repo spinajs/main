@@ -78,9 +78,9 @@ a `CASE` column, such as authz-orm's `withAccess()` and `withFields()` add, rows
 event lists every audited column of those tables, selected or not. A raw join leaves the queried table without an
 alias, so an unqualified column next to one counts for every audited table of the connection with a column of that
 name, as an aggregate there does. An
-aggregate over an audited column (`min`, `max`, `sum`, `avg`, `count(column)`) discloses it, in a query with a join
-for every table of the query with a column of that name, since its SQL names no table; `count(*)` and aggregates over
-other columns do not.
+aggregate over an audited column (`min`, `max`, `sum`, `avg`, `count(column)`) discloses it for the queried table,
+whose alias its SQL names; without that alias, in a query with a join, it counts for every table of the query with a
+column of that name. `count(*)` and aggregates over other columns do not.
 
 Where no row can be named (no primary key in the result, an aggregate, `groupBy`), a row-mode rule writes one event
 per statement in the query-mode shape with `keyless: true`. So does a select where another column returns under the
