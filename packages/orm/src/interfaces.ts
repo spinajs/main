@@ -1947,6 +1947,11 @@ export abstract class ModelMiddleware {
   abstract onSelect(model: ModelBase): Promise<void>;
 }
 
+function notConverting(converter: ValueConverter, method: 'toDB' | 'fromDB'): MethodNotImplemented {
+  const name = converter.constructor.name;
+  return new MethodNotImplemented(`${name}.${method}() is not implemented: ${name} converts nothing itself; extend the driver's implementation of its base class instead, or implement both toDB() and fromDB()`);
+}
+
 export class ValueConverter implements IValueConverter {
   /**
    * Converts value to database type
@@ -1954,7 +1959,7 @@ export class ValueConverter implements IValueConverter {
    * @param value - value to convert
    */
   public toDB(_value: any, _model: ModelBase<any>, _column: IColumnDescriptor, _options?: any, _dehydrateOptions?: IDehydrateOptions): any {
-    throw new MethodNotImplemented();
+    throw notConverting(this, 'toDB');
   }
 
   /**
@@ -1963,7 +1968,7 @@ export class ValueConverter implements IValueConverter {
    * @param value - value to convert
    */
   public fromDB(_value: any, _rawData?: any, _options?: any): any {
-    throw new MethodNotImplemented();
+    throw notConverting(this, 'fromDB');
   }
 }
 
