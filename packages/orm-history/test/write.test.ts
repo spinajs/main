@@ -487,6 +487,21 @@ describe('history writes', function () {
         expect(db.warnings()).to.deep.eq(['orm-history: an insert of wide wrote a primary key id that has no text (bytes, a date or a number that is not a safe integer), so its history is missing; history needs a string or integer key']);
       });
 
+      it('marks the entity lost before the entries of the same insert, so a row it recorded is present as of its insert', async () => {
+        const Wide = await define();
+        await Wide.insert([
+          { id: 1, v: 'a' },
+          { id: UNSAFE, v: 'b' },
+        ]);
+        const [inserted] = await Wide.history().of(1);
+        const at = await Wide.history().asOf(1, inserted.at);
+        expect(at.state === 'present' && at.seq).to.eq(inserted.seq);
+        expect((await db.rows('orm_history', 'sqlite')).map((r) => [r.action, r.subject_id])).to.deep.eq([
+          ['lost', LOST_SUBJECT_ID],
+          ['insert', '1'],
+        ]);
+      });
+
       it('fails with onUnknownKeys: throw', async () => {
         db.config.set('audit.data.onUnknownKeys', 'throw');
         try {
