@@ -55,6 +55,29 @@ describe('extendModel', () => {
     expect('nameOf' in Again.prototype).to.eq(false);
   });
 
+  it('adds a member through an abstract model class for its concrete subclasses and their rows, and removes it again', () => {
+    abstract class Shared extends ModelBase {
+      declare static nameOf: Named['nameOf'];
+      declare nameOf: Named['nameOf'];
+    }
+    @Model('model_extension_concrete')
+    class Concrete extends Shared {}
+
+    extendModel(Shared, 'nameOf', {
+      onModel(this: Constructor<ModelBase>): string {
+        return this.name;
+      },
+      onRow(this: ModelBase): string {
+        return `row of ${this.constructor.name}`;
+      },
+    });
+    expect(Concrete.nameOf()).to.eq('Concrete');
+    expect(new Concrete().nameOf()).to.eq('row of Concrete');
+
+    unextendModel(Shared, 'nameOf');
+    expect(['nameOf' in Shared, 'nameOf' in Concrete, 'nameOf' in Concrete.prototype]).to.deep.eq([false, false, false]);
+  });
+
   it('refuses a name the model already has, on either side, and installs nothing then', () => {
     @Model('model_extension_own')
     class Own extends ModelBase {

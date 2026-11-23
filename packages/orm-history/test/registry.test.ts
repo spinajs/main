@@ -97,6 +97,28 @@ describe('history spec of a model', () => {
     expect(() => historySpecOf(PlainLedger)).to.throw(HistoryConfigError, '@History on PlainLedger: needs a single-column primary key, it has 0');
   });
 
+  it('tracks a concrete subclass of a marked abstract base with the base options under its own table', () => {
+    @History({ trail: 'tenants', exclude: ['secret'] })
+    abstract class TenantModel<M> extends ModelBase<M> implements TrackedRow {
+      declare static history: TrackedModel['history'];
+      declare history: TrackedRow['history'];
+    }
+    class Branch extends TenantModel<Branch> {}
+    keyed(Branch);
+    expect(historyModels()).to.include(TenantModel);
+    expect(historySpecOf(Branch)).to.include({ model: Branch, entity: 'branch', pk: 'id', trail: 'tenants' });
+    expect(historySpecOf(Branch)?.exclude).to.deep.eq(new Set(['secret']));
+  });
+
+  it('refuses the marked abstract base itself as a class without a key', () => {
+    @History()
+    abstract class Unkeyed<M> extends ModelBase<M> implements TrackedRow {
+      declare static history: TrackedModel['history'];
+      declare history: TrackedRow['history'];
+    }
+    expect(() => historySpecOf(Unkeyed)).to.throw(HistoryConfigError, '@History on Unkeyed: needs a single-column primary key, it has 0');
+  });
+
   it('refuses a key that @Uuid() stores as bytes', () => {
     class Device extends ModelBase {}
     keyed(Device);

@@ -2,7 +2,7 @@
 
 Row history of SpinaJS ORM models, recorded as `data` events in an audit trail of `@spinajs/audit`:
 
-- `@History(options?)` and `registerHistory(Model, options?)`: track a model's whole row or a list of its columns, in the trail `history` or one the options name; `@History(false)` opts a model and its subclasses out.
+- `@History(options?)` and `registerHistory(Model, options?)`: track a model's whole row or a list of its columns, in the trail `history` or one the options name; `@History(false)` opts a model and its subclasses out. The mark can sit on an abstract base class and covers its concrete subclasses.
 - `audit.data.rules`: track models by class name, or every model, without a decorator. The package registers the schema of the `audit.data` section.
 - `HistorySpecs`: which models are tracked and how, resolved at a model's first write.
 - `toHistoryValue()` and `historyEntryOf()`: the encoding of a captured row change as a history entry.

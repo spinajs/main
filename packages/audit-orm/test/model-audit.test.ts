@@ -216,6 +216,33 @@ describe('Model.audit() and row.audit()', function () {
     expect(await Credit.audit().since(0)).to.deep.eq([]);
   });
 
+  it('gives the concrete subclasses of a marked abstract base and their rows the members, each reading its own table', async () => {
+    @Auditable()
+    abstract class Shared<M> extends ModelBase<M> implements AuditableRow {
+      declare static audit: AuditableModel['audit'];
+      declare audit: AuditableRow['audit'];
+
+      @Primary()
+      public id: string;
+    }
+    @Connection('sqlite')
+    @Model('audit_tenant_note')
+    class Note extends Shared<Note> {}
+    await audit().record({ kind: 'action', action: 'note.read', subject: { type: 'audit_tenant_note', id: 'n1' } }, { mode: 'confirmed' });
+
+    expect(Note.audit).to.eq(Shared.audit);
+    expect((await Note.audit().of('n1')).map((e) => e.action)).to.deep.eq(['note.read']);
+    expect((await new Note({ id: 'n1' }).audit().entries()).map((e) => e.action)).to.deep.eq(['note.read']);
+    expect(() => Shared.audit()).to.throw(AuditConfigError, 'audit: Shared is not an ORM model with a table');
+  });
+
+  it('refuses the mark on an abstract class that does not declare the members', () => {
+    // @ts-expect-error @Auditable() needs the row interface (or a declare line) and `declare static audit` on an abstract class too
+    @Auditable()
+    abstract class Undeclared extends ModelBase<Undeclared> {}
+    expect(Undeclared).to.be.a('function');
+  });
+
   it('takes the members back when the mark is taken back, and gives them again on a new mark', () => {
     class Later extends ModelBase<Later> {}
     const members = (): boolean[] => ['audit' in Later, 'audit' in Later.prototype];

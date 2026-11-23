@@ -1,7 +1,7 @@
 import * as chai from 'chai';
 import 'mocha';
-import { ExtensionMethodCollision, ModelBase } from '@spinajs/orm';
-import { History, registerHistory } from '../src/index.js';
+import { ExtensionMethodCollision, Model, ModelBase } from '@spinajs/orm';
+import { History, HistoryConfigError, registerHistory } from '../src/index.js';
 import type { TrackedModel, TrackedRow } from '../src/index.js';
 
 const expect = chai.expect;
@@ -41,6 +41,27 @@ describe('history members of a marked model', () => {
     // @ts-expect-error @History() needs `declare static history` and `declare history` on the class
     @History()
     class Undeclared extends ModelBase<Undeclared> {}
+    expect(Undeclared).to.be.a('function');
+    registerHistory(Undeclared, false);
+  });
+
+  it('gives the concrete subclasses of a marked abstract base and their rows the members', () => {
+    @History()
+    abstract class Shared<M> extends ModelBase<M> implements TrackedRow {
+      declare static history: TrackedModel['history'];
+      declare history: TrackedRow['history'];
+    }
+    @Model('history_concrete')
+    class Concrete extends Shared<Concrete> {}
+    expect(Concrete.history).to.eq(Shared.history).and.to.be.a('function');
+    expect(new Concrete().history).to.be.a('function');
+    expect(() => Shared.history()).to.throw(HistoryConfigError, '@History on Shared: needs a single-column primary key, it has 0');
+  });
+
+  it('refuses the mark on an abstract class that does not declare the members', () => {
+    // @ts-expect-error @History() needs `declare static history` and `declare history` on an abstract class too
+    @History()
+    abstract class Undeclared extends ModelBase<Undeclared> {}
     expect(Undeclared).to.be.a('function');
     registerHistory(Undeclared, false);
   });

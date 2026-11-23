@@ -444,10 +444,16 @@ export async function issueToken(userId: number) {
 ### Shared audit columns through inheritance
 
 ```ts sample
+import { Auditable } from '@spinajs/audit-orm';
+import type { AuditableModel, AuditableRow } from '@spinajs/audit-orm';
 import { Connection, CreatedAt, Model, ModelBase, Primary, UpdatedAt } from '@spinajs/orm';
 import { DateTime } from 'luxon';
 
+@Auditable()
 export abstract class AuditedModel<M> extends ModelBase<M> {
+  declare static audit: AuditableModel['audit'];
+  declare audit: AuditableRow['audit'];
+
   @CreatedAt()
   public CreatedAt: DateTime;
 
@@ -475,7 +481,8 @@ export class Supplier extends AuditedModel<Supplier> {
 ```
 
 `Customer` and `Supplier` each get their own descriptor with both timestamps and their own key.
-Neither writes into `AuditedModel`'s descriptor.
+Neither writes into `AuditedModel`'s descriptor. The `@Auditable()` mark of the abstract base covers both:
+`Customer.audit()` and `Supplier.audit()` each read the events of their own table.
 
 ### History of a model
 
@@ -586,6 +593,7 @@ Retention applies per trail, and each trail owns its table.
 
 `extendModel(model, name, { onModel, onRow })` puts a member on one model class (`onModel`, called with the class as
 `this`) and on its rows (`onRow`, called with the row as `this`). Subclasses inherit it; other models do not get it.
+`model` can be an abstract class: its concrete subclasses and their rows then have the member.
 The member is not enumerable, a second `extendModel` of the same name replaces it, and `unextendModel(model, name)`
 removes it again. A name the model already has at run time, its own or inherited (`where`, `update`, a method of its
 own), is refused with `ExtensionMethodCollision` and nothing is installed. A column or field of the same name is not
