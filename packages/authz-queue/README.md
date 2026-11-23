@@ -2,7 +2,7 @@
 
 Queue integration for SpinaJS authorization.
 
-Importing the package registers `AuthzQueueHook` as a `QueueMessageHook` of `@spinajs/queue`.
+Importing the package registers `AuthzQueueHook` as a `QueueMessageHook` of `@spinajs/queue`, with order `-50`: after `@spinajs/tenancy/queue` (`-100`) and before hooks of the default order `0`, so their `aroundHandle()` sees the job's principal and their `beforeEmit()` runs before it stamps `Initiator`.
 
 - On emit it writes `message.Initiator` (`{ type, id, ceiling? }`) from the principal in the current async context. Nothing is written when there is none (unattended), and an `Initiator` the caller set is removed.
 - A handler runs as `UNATTENDED` unless its job says otherwise. Every check it makes is denied.
