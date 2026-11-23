@@ -1,6 +1,29 @@
 import type { Permission } from './permission.js';
 import type { ResourceRef } from './principal.js';
 import type { DecisionReadSet } from './tap.js';
+import type { AuthzService } from './service.js';
+
+/** What a replay needs of a principal to narrow like the engine did; never its attributes or authn. */
+export interface PrincipalFactsRecord {
+  type: string;
+  id: string;
+  ceiling?: { roles?: string[]; permissions?: string[]; resources?: Array<{ type: string; id?: string }>; expiresAt?: string };
+  onBehalfOf?: PrincipalFactsRecord;
+  delegation?: 'intersect' | 'inherit';
+  /** principalKey() of each companion. */
+  companions?: string[];
+}
+
+/**
+ * The read set in the tagged form `inputsHash` hashed, so a stored copy re-hashes to it: `undefined` is `"<undefined>"`,
+ * a non-finite number `"<number:NaN>"`, a bigint `"<bigint>"` (its value is not kept), a Date its ISO string, a cycle
+ * `"<cycle>"`. A string equal to a tag reads the same as the value it stands for.
+ */
+export interface CapturedInputs extends DecisionReadSet {
+  /** The exact strings `inputsHash` hashed for the principal and the actor. */
+  principalState: string | null;
+  actorState: string | null;
+}
 
 /** One logged decision (G13); `inputsHash` lets a replay prove it saw the same inputs (G14). */
 export interface DecisionRecord {
@@ -24,8 +47,17 @@ export interface DecisionRecord {
   modelVersions: Record<string, string>;
   /** SHA-256 (hex) of the canonical inputs the decision read. */
   inputsHash: string;
+  /**
+   * Authorization facts of the principal and actor, without attributes and authn. Absent on records logged before they
+   * existed, and when a principal's facts exceed 4 KB, form a delegation cycle or hold a malformed field.
+   */
+  facts?: { principal: PrincipalFactsRecord; actor?: PrincipalFactsRecord };
+  /** Wall clock when the tap recorded (ISO); `at` may be the caller's `env.now`. Replay's T. */
+  loggedAt?: string;
+  /** The engine's `meta.durationMs`: how long before `loggedAt` the decision's reads may have happened. */
+  durationMs?: number;
   /** Only with `authz.decisionLog.captureInputs`. */
-  inputs?: DecisionReadSet;
+  inputs?: CapturedInputs;
 }
 
 /** Where decision records go; writes are batched and a failed write never fails a check. */
@@ -39,6 +71,8 @@ export abstract class DecisionLog {
  */
 export abstract class PolicyHashSource {
   public abstract policyHash(domain: string): string | undefined;
+  /** Awaited by the host once a domain with a decision log has booted, before its service resolves. */
+  public prepare?(domain: string, service: AuthzService): Promise<void>;
 }
 
 /** The trace a decision is made in; telemetry registers one so records carry trace ids and spans the decision id. */

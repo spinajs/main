@@ -1,15 +1,13 @@
-import { companionHeader, manifestHashCheck } from '../companion.js';
+import { companionHeader, manifestHashCheck, siblingSpecifier, type SiblingImports } from '../companion.js';
 import type { ClientModel } from '../model.js';
 import { literal } from '../ts-type.js';
 import { clientShapeHash } from './shape-hash.js';
 import { DEFAULT_KEY_PREFIX, hookRoutes, varsParameter, type HookRoute } from './shared.js';
 
-export interface KeysOptions {
+export interface KeysOptions extends SiblingImports {
   keyPrefix?: string;
   /** Import path of the runtime, default `@spinajs/client/runtime`. */
   moduleName?: string;
-  /** File name of the client without extension, default `client`. */
-  basename?: string;
   /** The routes from `hookRoutes`, when the caller has built them already. */
   hookRoutes?: HookRoute[];
 }
@@ -46,7 +44,7 @@ export function emitKeys(model: ClientModel, options: KeysOptions = {}): string 
   const lines = [
     companionHeader('keys', model),
     `import type { ProblemError } from '${options.moduleName ?? '@spinajs/client/runtime'}';`,
-    `import type { ${[...typeImports(hooks), 'manifestHash'].join(', ')} } from './${options.basename ?? 'client'}.js';`,
+    `import type { ${[...typeImports(hooks), 'manifestHash'].join(', ')} } from '${siblingSpecifier(options)}';`,
     '',
     ...manifestHashCheck(model),
     '',

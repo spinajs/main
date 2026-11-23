@@ -53,8 +53,8 @@ Runnable, self-contained examples live in [examples/](examples/) — see
 1. **Provide a db connection.** The source loads last and reads the
    `db.Connections` that an earlier source (a config file, usually) produced.
 2. **Create the table.** Run the bundled migration — it creates the
-   `configuration` table on the default connection (eg. set
-   `Migration: { OnStartup: true }` on the connection).
+   `configuration` table on the default connection (apply it
+   with `npx spinajs migrate-up`; the app refuses to boot until then).
 3. **Load.** On `Configuration.load()` the source reads every row whose
    `Exposed` flag is set and merges it into the config under its `Slug`.
 4. **Expose & watch (optional).** `@Config` properties marked `expose: true` are
@@ -80,9 +80,10 @@ This package writes to the database **only once the `configuration` table is rea
 The bootstrapper does no db work when it runs; it hooks DI's resolve events and
 defers everything until then:
 
-- `di.resolved.Orm`, when the table exists: the `Orm` resolves after its
-  `Migration.OnStartup` migrations, which include the bundled one, and a
-  database migrated by `migrate-up` has it already.
+- `di.resolved.Orm`, when the table exists: the `Orm` resolves only once its migrations,
+  the bundled one included, are applied by `migrate-up`. With the connection's
+  `Migration.Check` set to `warn` or `off`, or in a migration tool's `Orm`,
+  the table may be missing and nothing is written.
 
 The first such event **(1)** inserts every exposed `@Config` option into the
 table (InsertOrIgnore) and **(2)** starts the watch timer. `@Config` properties

@@ -1,14 +1,15 @@
 # Span processors
 
-`OtelTracing.start( processorOverride )` takes any OpenTelemetry `SpanProcessor` and uses it instead of the default OTLP batch export. Use it to capture spans in memory in tests, print them in development, send them to several backends, or drop noisy spans before export.
+`OtelTracing.start( processorOverride )` takes any OpenTelemetry `SpanProcessor` and attaches it to the shared provider of `@spinajs/tracing` instead of the default OTLP batch export. Use it to capture spans in memory in tests, print them in development, send them to several backends, or drop noisy spans before export.
 
 ## How it works
 
-1. `start(processorOverride?)` returns at once when `otel.enabled` is `false` or a provider exists. The override is then ignored.
+1. `start(processorOverride?)` returns at once when `otel.enabled` is `false` or the export is already attached. The override is then ignored.
 2. Without an override, the processor is `new BatchSpanProcessor(new OTLPTraceExporter({ url: otel.endpoint }))`.
-3. With an override, that processor is the provider's **only** processor: nothing goes to `otel.endpoint` unless the override sends it there.
-4. `NodeTracerProvider` calls `onStart(span, parentContext)` when a recording span starts and `onEnd(span)` when it ends.
-5. `OtelTracing.flush()` calls the processor's `forceFlush()`; `OtelTracing.dispose()` calls its `shutdown()` through the provider.
+3. `start()` adds the processor to the hub of `@spinajs/tracing` with `tracingState().hub.add(processor)`, which returns the detach function. Under an external SDK, or with `tracing.enabled: false`, there is no hub: `start()` warns and the processor is never called.
+4. With an override, nothing goes to `otel.endpoint` unless the override sends it there. The other processors on the hub (eg. a test collector) still get every span.
+5. The hub calls `onStart(span, parentContext)` when a recording span starts and `onEnd(span)` when it ends, on every attached processor. A processor that throws is logged through the OpenTelemetry `diag` logger and the others still run.
+6. `OtelTracing.flush()` calls the processor's `forceFlush()`; `OtelTracing.dispose()` calls the detach function, which takes the processor off the hub, then calls its `forceFlush()` and `shutdown()`.
 
 ## The `SpanProcessor` contract
 
@@ -19,8 +20,8 @@
 | `onStart(span: Span, parentContext: Context)` | When a recording span starts | The span is still writable: add attributes here |
 | `onEnding?(span: Span)` | Optional, experimental in the SDK | Before the span becomes read-only |
 | `onEnd(span: ReadableSpan)` | When a recording span ends | Export or forward it; it is read-only now |
-| `forceFlush(): Promise<void>` | `OtelTracing.flush()`, provider shutdown | Export everything buffered |
-| `shutdown(): Promise<void>` | `OtelTracing.dispose()` | Flush and release resources |
+| `forceFlush(): Promise<void>` | `OtelTracing.flush()`, detach | Export everything buffered |
+| `shutdown(): Promise<void>` | `OtelTracing.dispose()`, after the detach flush | Flush and release resources |
 
 Shipped processors and exporters from `@opentelemetry/sdk-trace-base`:
 
@@ -37,7 +38,7 @@ Shipped processors and exporters from `@opentelemetry/sdk-trace-base`:
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
-| Span processor | Not in DI: the `processorOverride` argument of `OtelTracing.start()`, held by the provider until `dispose()` | `BatchSpanProcessor` over `OTLPTraceExporter({ url: otel.endpoint })` | `SimpleSpanProcessor`, `NoopSpanProcessor`, any exporter, your own `SpanProcessor` | Pass it to the first `start()` call. To pick it in DI instead, override `start()` in an `OtelTracing` subclass; see [Customizing the tracing service](04-customizing-the-tracing-service.md) |
+| Span processor | Not in DI: the `processorOverride` argument of `OtelTracing.start()`, held by the hub of `@spinajs/tracing` until `dispose()` | `BatchSpanProcessor` over `OTLPTraceExporter({ url: otel.endpoint })` | `SimpleSpanProcessor`, `NoopSpanProcessor`, any exporter, your own `SpanProcessor` | Pass it to the first `start()` call. To pick it in DI instead, override `start()` in an `OtelTracing` subclass; see [Customizing the tracing service](04-customizing-the-tracing-service.md) |
 
 ### Span processor: custom implementation
 
@@ -87,10 +88,11 @@ export async function startWithConsoleCopy(): Promise<void> {
 ## Important behaviour
 
 - **The override replaces the OTLP export.** Wrap a `BatchSpanProcessor(new OTLPTraceExporter(...))` in your processor when you still want spans at `otel.endpoint`.
-- **Only the first effective `start()` uses the override.** A second call while a provider exists returns without looking at its argument.
+- **Only the first effective `start()` uses the override.** A second call while the export is attached returns without looking at its argument.
+- **More processors without `OtelTracing`.** `tracingState().hub?.add(processor)` from `@spinajs/tracing` attaches any processor next to the OTLP export and returns the function that detaches it.
 - **`otel.enabled: false` ignores the override too.** Tests that pass an in-memory processor set `otel.enabled` to `true` first.
 - **`onStart` and `onEnd` are synchronous and on the hot path.** They run inside every `startSpan()` and `end()` call; keep them cheap and never throw.
-- **Only recording spans reach the processor.** With no provider (tracing disabled), no processor method runs.
+- **Only recording spans reach the processor.** While the hub has no processor (the default id-only mode) or tracing is disabled, spans do not record and no processor method runs.
 - `SimpleSpanProcessor` exports as each span ends but does not wait for the export; still `await tracing.flush()` before asserting on network exporters.
 
 ## Best practices

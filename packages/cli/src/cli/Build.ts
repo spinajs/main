@@ -1,4 +1,4 @@
-import { existsSync, realpathSync, rmSync } from 'node:fs';
+import { existsSync, readFileSync, realpathSync, rmSync } from 'node:fs';
 import { basename, dirname, join, relative, resolve, sep } from 'node:path';
 import { Configuration, defaultMigrationDirs } from '@spinajs/configuration';
 import { Autoinject } from '@spinajs/di';
@@ -6,6 +6,8 @@ import { publishedManifest, validateManifest } from '@spinajs/manifest';
 import type { Manifest } from '@spinajs/manifest';
 import { InvalidOperation } from '@spinajs/exceptions';
 import { CliCommand, Command, Option } from '../index.js';
+import { loadIr } from './AuthzExport.js';
+import type { AuthzIrModule } from './AuthzExport.js';
 
 interface BuildOptions {
   tsconfig: string;
@@ -13,6 +15,7 @@ interface BuildOptions {
   schemas?: boolean;
   failOnWarning?: boolean;
   allowNoDirs?: boolean;
+  authzIr?: string;
 }
 
 const NO_DIRS_FIX = "Compile the app's config, run the build from the folder the app runs from with the --app, --apppath, --config-path and --env it runs with, or pass --allow-no-dirs for an app that declares no dirs";
@@ -30,8 +33,31 @@ const dirOf = (dir: string): string => (resolve(dir).split(sep).includes('node_m
 
 const entriesOf = (m: Manifest): number => m.controllers.length + m.socketControllers.length + m.schedules.length + m.commands.length + m.migrations.length;
 
+const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value);
+const hasExactKeys = (value: Record<string, unknown>, required: string[], optional: string[] = []): boolean => required.every((k) => Object.hasOwn(value, k)) && Object.keys(value).every((k) => required.includes(k) || optional.includes(k));
+
+const COMBINE_ALGORITHMS = ['deny-overrides', 'permit-overrides', 'first-applicable'];
+
+function isCombineEntry(value: unknown): boolean {
+  if (!isRecord(value) || !hasExactKeys(value, ['algorithm'], ['models'])) return false;
+  const { algorithm, models } = value;
+  const known = (typeof algorithm === 'string' && COMBINE_ALGORITHMS.includes(algorithm)) || (isRecord(algorithm) && hasExactKeys(algorithm, ['opaque']) && typeof algorithm.opaque === 'string');
+  return known && (models === undefined || (Array.isArray(models) && models.every((m) => typeof m === 'string')));
+}
+
+const isCombine = (value: unknown): boolean => isRecord(value) && hasExactKeys(value, ['default'], ['types']) && isCombineEntry(value.default) && (value.types === undefined || (isRecord(value.types) && Object.values(value.types).every(isCombineEntry)));
+
+const isPrincipal = (value: unknown): boolean => isRecord(value) && hasExactKeys(value, ['ceiling', 'delegation', 'ancestry', 'roles']) && typeof value.ceiling === 'boolean' && typeof value.delegation === 'boolean' && typeof value.ancestry === 'string' && isRecord(value.roles);
+
+/** The top level of `PolicyIR`, which `validateIR` assumes: it checks references only, so an extra key or a wrong `version` would be hashed and recorded. */
+function isPolicyIRShape(value: unknown): boolean {
+  if (!isRecord(value) || !hasExactKeys(value, ['version', 'types', 'permissions', 'caveats', 'combine', 'principal', 'opaque'])) return false;
+  return value.version === 1 && isRecord(value.types) && isRecord(value.permissions) && isRecord(value.caveats) && Array.isArray(value.opaque) && isCombine(value.combine) && isPrincipal(value.principal);
+}
+
 type Compiler = typeof import('@spinajs/compiler');
 type AppDirs = import('@spinajs/compiler').AppDirs;
+type ManifestPolicy = import('@spinajs/compiler').ManifestPolicy;
 
 @Command('build', 'Analyze the application and write app.manifest.json')
 @Option('--tsconfig <path>', false, 'tsconfig of the application; its directory is the application root', 'tsconfig.json')
@@ -40,6 +66,7 @@ type AppDirs = import('@spinajs/compiler').AppDirs;
 @Option('--no-schemas', false, 'skip schema derivation')
 @Option('--fail-on-warning', false, 'exit with code 1 when the analyzer reports a warning')
 @Option('--allow-no-dirs', false, 'build an app whose system.dirs name none of its folders: nothing loads from the manifest, its classes run only if something registers them')
+@Option('--authz-ir <path>', false, 'policy IR written by authz:compile, recorded in the authz section of the manifest; relative to the application root', 'authz.ir.json')
 export class Build extends CliCommand {
   /** Absent only for a command built by hand, which filters nothing. */
   @Autoinject(Configuration)
@@ -52,6 +79,20 @@ export class Build extends CliCommand {
   // Optional peer, loaded lazily: the compiler pulls in the TypeScript compiler API.
   protected importCompiler(): Promise<Compiler> {
     return import('@spinajs/compiler');
+  }
+
+  // Optional peer, loaded only when the app has the file.
+  protected importIr(): Promise<AuthzIrModule> {
+    return loadIr();
+  }
+
+  private async loadIrForBuild(): Promise<AuthzIrModule> {
+    try {
+      return await this.importIr();
+    } catch (e) {
+      if (e instanceof Error && isRecord(e.cause) && e.cause.code === 'ERR_MODULE_NOT_FOUND') throw new Error('install @spinajs/authz-ir so that spinajs build can record the policy IR', { cause: e });
+      throw e;
+    }
   }
 
   private async loadCompiler(): Promise<Compiler> {
@@ -72,9 +113,12 @@ export class Build extends CliCommand {
     const tsconfig = physical(resolve(options.tsconfig));
     const appRoot = dirname(tsconfig);
     const cwdWarnings = this.cwdWarnings(appRoot);
+    const policyPath = resolve(appRoot, options.authzIr ?? 'authz.ir.json');
+    const policy = await this.policy(policyPath);
+    const policyFile = relative(appRoot, policyPath).replaceAll(sep, '/');
     let built: Awaited<ReturnType<Compiler['buildAppManifest']>>;
     try {
-      built = await buildAppManifest({ tsconfig, appRoot, out: resolve(options.out), schemaDerivation: options.schemas !== false, buildEnv: this.Config?.get<string | undefined>('process.env.APP_ENV', undefined), globalRouteMiddlewares: this.Config?.get<unknown>('http.routes.middlewares', undefined), ...this.appDirs(options) });
+      built = await buildAppManifest({ tsconfig, appRoot, out: resolve(options.out), schemaDerivation: options.schemas !== false, buildEnv: this.Config?.get<string | undefined>('process.env.APP_ENV', undefined), globalRouteMiddlewares: this.Config?.get<unknown>('http.routes.middlewares', undefined), ...this.appDirs(options), ...(policy ? { policy } : {}), policyFile });
     } catch (e) {
       if (!(e instanceof NoAppDirs)) throw e;
       this.write([...cwdWarnings, `error CMP007 - ${e.message}. ${NO_DIRS_FIX}`, ''].join('\n'));
@@ -98,6 +142,22 @@ export class Build extends CliCommand {
     this.write([...cwdWarnings, ...lines, ...this.summaryTable(manifest, counts), `manifest written to ${written}`, ''].join('\n'));
 
     if (counts.error > 0 || (options.failOnWarning === true && counts.warning > 0)) process.exitCode = 1;
+  }
+
+  /** `authz.ir.json` as the manifest records it: recomputed from the file, never copied. Undefined when the app has none. */
+  private async policy(file: string): Promise<ManifestPolicy | undefined> {
+    if (!existsSync(file)) return undefined;
+    try {
+      const parsed: unknown = JSON.parse(readFileSync(file, 'utf8'));
+      if (!isPolicyIRShape(parsed)) return { problem: 'not a policy IR' };
+      const ir = await this.loadIrForBuild();
+      // Below the top level validateIR still expects schema-valid input: a malformed type or binding throws, and the catch reports it.
+      const invalid = ir.validateIR(parsed);
+      if (invalid.length > 0) return { problem: `invalid IR: ${invalid.map((d) => d.code).join(', ')}` };
+      return { ir: ir.canonicalize(parsed), policyHash: ir.policyHash(parsed) };
+    } catch (e) {
+      return { problem: e instanceof Error ? e.message : String(e) };
+    }
   }
 
   // Not refused: an app that runs from its build folder gets the right dirs here, and only here.

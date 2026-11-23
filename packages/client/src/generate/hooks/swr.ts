@@ -1,12 +1,9 @@
-import { companionHeader, manifestHashCheck } from '../companion.js';
+import { arrowTypeParameter, companionHeader, manifestHashCheck, siblingSpecifier, type SiblingImports } from '../companion.js';
 import type { ClientModel } from '../model.js';
 import { withUseClient } from './directive.js';
 import { typeNames, type HookRoute, type InfiniteHook } from './shared.js';
 
-export interface SwrOptions {
-  /** File name of the client without extension, default `client`. */
-  basename?: string;
-}
+export type SwrOptions = SiblingImports;
 
 const MUTATION_KEY = 'readonly unknown[]';
 
@@ -45,8 +42,8 @@ const INFINITE_CONFIG = [
   "export type InfiniteConfig<Data> = Omit<SWRInfiniteConfiguration<Data, AppClientError>, 'parallel'>;",
 ];
 
-const PAGES: Record<InfiniteHook['kind'], string[]> = {
-  offset: [
+const PAGES: Record<InfiniteHook['kind'], (typeParameter: string) => string[]> = {
+  offset: (typeParameter) => [
     '',
     '/** Page keys of an offset route: page `first + index`, until a page comes back empty or the items seen reach `total`. */',
     'const offsetPages = <K extends readonly unknown[]>(key: K | null, first: number) => {',
@@ -63,9 +60,9 @@ const PAGES: Record<InfiniteHook['kind'], string[]> = {
     '};',
     '',
     '// An empty reply (an optional page left out) is an empty page, which ends the page keys.',
-    'const emptyOffset = <T>(page: T): T => page ?? ({ items: [], total: 0 } as unknown as T);',
+    `const emptyOffset = ${typeParameter}(page: T): T => page ?? ({ items: [], total: 0 } as unknown as T);`,
   ],
-  cursor: [
+  cursor: (typeParameter) => [
     '',
     '/** Page keys of a cursor route: the first page under `null`, each next one under the cursor the page before returned. */',
     'const cursorPages =',
@@ -77,7 +74,7 @@ const PAGES: Record<InfiniteHook['kind'], string[]> = {
     '  };',
     '',
     '// An empty reply (an optional page left out) is an empty page, which ends the page keys.',
-    'const emptyCursor = <T>(page: T): T => page ?? ({ items: [], next: null } as unknown as T);',
+    `const emptyCursor = ${typeParameter}(page: T): T => page ?? ({ items: [], next: null } as unknown as T);`,
   ],
 };
 
@@ -105,7 +102,7 @@ const isVoid = (hook: HookRoute) => hook.route.returns === 'void';
 // As in the React Query hooks, an empty reply resolves to `null`, so it is told apart from data not loaded yet.
 const queryData = (hook: HookRoute) => (isVoid(hook) ? 'null' : hook.route.returns);
 
-const NULL_IF_EMPTY = ['', '// The client resolves a 204 reply to undefined, which SWR would show as data not loaded yet.', 'const nullIfEmpty = <T>(data: T): T => data ?? (null as T);'];
+const nullIfEmptyHelper = (typeParameter: string) => ['', '// The client resolves a 204 reply to undefined, which SWR would show as data not loaded yet.', `const nullIfEmpty = ${typeParameter}(data: T): T => data ?? (null as T);`];
 
 function queryHook(hook: HookRoute): string[] {
   const data = queryData(hook);
@@ -160,7 +157,7 @@ function infiniteImports(hooks: HookRoute[], mutations: boolean): string[] {
   return importLine('useSWRInfinite', [mutations && 'unstable_serialize as infiniteKey', 'type SWRInfiniteConfiguration', 'type SWRInfiniteResponse'], 'swr/infinite');
 }
 
-function imports(hooks: HookRoute[], base: string): string[] {
+function imports(hooks: HookRoute[], options: SiblingImports): string[] {
   const queries = hooks.some((h) => h.route.kind === 'query');
   const mutations = hooks.some((h) => h.route.kind !== 'query');
   const any = queries || mutations;
@@ -168,28 +165,27 @@ function imports(hooks: HookRoute[], base: string): string[] {
     ...importLine(queries && 'useSWR', [mutations && 'unstable_serialize', mutations && 'useSWRConfig', queries && 'type SWRConfiguration', queries && 'type SWRResponse'], 'swr'),
     ...infiniteImports(hooks, mutations),
     ...importLine(mutations && 'useSWRMutation', [mutations && 'type SWRMutationConfiguration', mutations && 'type SWRMutationResponse'], 'swr/mutation'),
-    ...importLine(false, [any && 'appKeys', any && 'type AppClientError'], `./${base}.keys.js`),
-    ...importLine(false, [any && 'useAppClient'], `./${base}.react.js`),
-    `import type { ${[...typeNames(hooks), 'manifestHash'].join(', ')} } from './${base}.js';`,
+    ...importLine(false, [any && 'appKeys', any && 'type AppClientError'], siblingSpecifier(options, '.keys')),
+    ...importLine(false, [any && 'useAppClient'], siblingSpecifier(options, '.react')),
+    `import type { ${[...typeNames(hooks), 'manifestHash'].join(', ')} } from '${siblingSpecifier(options)}';`,
   ];
 }
 
 /** `client.swr.ts`: a `useSWR` hook per query route and a `useSWRMutation` hook per mutation route. */
 export function emitSwr(model: ClientModel, hooks: HookRoute[], options: SwrOptions = {}): string {
-  const base = options.basename ?? 'client';
   const mutations = hooks.some((h) => h.route.kind !== 'query');
   const infinite = hooks.flatMap((h) => (h.infinite ? [h.infinite] : []));
   const kinds = (['offset', 'cursor'] as const).filter((kind) => infinite.some((i) => i.kind === kind));
   const lines = [
     companionHeader('swr', model),
-    ...imports(hooks, base),
+    ...imports(hooks, options),
     '',
     ...manifestHashCheck(model),
     '',
     ...(mutations ? HELPERS : []),
-    ...(hooks.some((h) => h.route.kind === 'query' && !isVoid(h)) ? NULL_IF_EMPTY : []),
+    ...(hooks.some((h) => h.route.kind === 'query' && !isVoid(h)) ? nullIfEmptyHelper(arrowTypeParameter(options)) : []),
     ...(kinds.length > 0 ? INFINITE_CONFIG : []),
-    ...kinds.flatMap((kind) => PAGES[kind]),
+    ...kinds.flatMap((kind) => PAGES[kind](arrowTypeParameter(options))),
     ...(infinite.length > 0 && mutations ? REVALIDATE : []),
     ...hooks.flatMap((h) => {
       if (h.route.kind !== 'query') return ['', ...mutationHook(h, infinite.length > 0)];

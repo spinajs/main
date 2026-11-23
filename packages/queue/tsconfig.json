@@ -18,13 +18,22 @@
       "path": "../di/tsconfig.json"
     },
     {
+      "path": "../durable/tsconfig.json"
+    },
+    {
       "path": "../exceptions/tsconfig.json"
+    },
+    {
+      "path": "../idempotency/tsconfig.json"
     },
     {
       "path": "../log/tsconfig.json"
     },
     {
       "path": "../orm/tsconfig.json"
+    },
+    {
+      "path": "../tracing/tsconfig.json"
     }
   ]
 }

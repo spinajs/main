@@ -58,7 +58,7 @@ Start with [Roles and permissions](03-roles-and-permissions.md), then [Assigning
    };
    ```
 
-2. Wire the model at boot (next section) and run the migrations of [Database storage](02-database-storage.md#migrations).
+2. Wire the model at boot (next section) and apply the migrations of [Database storage](02-database-storage.md#migrations) with [`npx spinajs migrate-up`](../orm/10-migrations.md#deploying-migrations); the app refuses to boot until they are applied.
 3. Assign the role, and check:
 
    ```ts

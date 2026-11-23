@@ -2,8 +2,23 @@ import type { Class, Constructor, IContainer } from '@spinajs/di';
 import { InvalidArgument } from '@spinajs/exceptions';
 import type { QueryBuilder } from './builders/base.js';
 import type { OrmDriver } from './driver.js';
+import type { IRelationDescriptor } from './interfaces.js';
 import type { ModelBase } from './model.js';
 import type { IOrmRelation } from './relations.js';
+
+/**
+ * How a builder's content reaches the database. `own`: built as a statement of its own. `merged`: never sent; folded
+ * into the builder its relation was populated on (`parent`), a many-to-many junction query (`junction`) or a join
+ * (`join`). `recursive`: sent as a recursive CTE whose WHERE picks the start rows only, not the rows the recursion adds.
+ *
+ * `own` is not a promise that query middlewares see the builder: one that is used as a sub-query (`whereExist`,
+ * `whereIn`) is compiled into the outer statement and still reads `own`.
+ */
+export type BuilderExecution =
+  | { readonly kind: 'own' }
+  | { readonly kind: 'merged'; readonly into: 'parent' | 'junction'; readonly relation: IRelationDescriptor }
+  | { readonly kind: 'merged'; readonly into: 'join' }
+  | { readonly kind: 'recursive'; readonly relation: IRelationDescriptor };
 
 /** What a query extension method reads from its builder through `state()`. */
 export interface BuilderState {
@@ -12,6 +27,7 @@ export interface BuilderState {
   container: IContainer;
   owner: IOrmRelation | undefined;
   connection: OrmDriver;
+  execution: BuilderExecution;
 }
 
 /**
@@ -26,9 +42,11 @@ export abstract class QueryExtension {
   public abstract readonly name: string;
   public abstract readonly methods: Record<string, (this: QueryBuilder, ...args: any[]) => unknown>;
   public onClone?(source: QueryBuilder, clone: QueryBuilder): void;
+  /** `source` is being folded into `target` and will not run on its own. Synchronous; a throw refuses the query. */
+  public onMerge?(source: QueryBuilder, target: QueryBuilder): void;
 }
 
-/** Methods for `SelectQueryBuilder`; `onClone` runs when a select builder is cloned. */
+/** Methods for `SelectQueryBuilder`; `onClone` runs when a select builder is cloned, `onMerge` when one is folded into another. */
 export abstract class SelectQueryExtension extends QueryExtension {}
 /** Methods for `InsertQueryBuilder`. */
 export abstract class InsertQueryExtension extends QueryExtension {}
@@ -45,6 +63,7 @@ export interface QueryExtensionDefinition {
   target: QueryTarget;
   methods: QueryExtension['methods'];
   onClone?(source: QueryBuilder, clone: QueryBuilder): void;
+  onMerge?(source: QueryBuilder, target: QueryBuilder): void;
 }
 
 const BASES: Record<QueryTarget, abstract new () => QueryExtension> = {
@@ -67,6 +86,10 @@ export function defineQueryExtension(def: QueryExtensionDefinition): Class<Query
 
     public onClone(source: QueryBuilder, clone: QueryBuilder): void {
       def.onClone?.(source, clone);
+    }
+
+    public onMerge(source: QueryBuilder, target: QueryBuilder): void {
+      def.onMerge?.(source, target);
     }
   }
 

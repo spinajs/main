@@ -10,7 +10,7 @@ API tokens and JWT bearer authentication for SpinaJS 3.0, behind the
   stored, and the plaintext is returned once, at create. Every token has an
   expiry. Kinds: `pat`, `service` and `agent` (an agent acts for its owner,
   narrowed by its scope). `create` and `revoke` publish `token.create` and
-  `token.revoke` to every `AuthnEventSink`; `validate` publishes nothing.
+  `token.revoke` to every `AuthnEventListener`; `validate` publishes nothing.
 - `TokenStrategy`: the `AuthenticationStrategy` for API tokens. It checks the
   token, the owner's status (`IdentityStore.status`, on every use) and the
   profile, and stamps `LastUsedAt` at most once per
