@@ -508,6 +508,51 @@ describe('write capture on sqlite', function () {
       expect((await rows<{ Name: string }>('cap_member')).map((r) => r.Name)).to.deep.eq(['one', 'two']);
     });
 
+    it('refuses an upsert after it ran when its conflict values then reach more rows than db.WriteCapture.MaxRows', async () => {
+      const driver = db().Connections.get('sqlite')!;
+      // Id 1 and Email 'x' reach the two existing rows before the statement; the row it inserts is the third after it.
+      const upsert = (id: number) =>
+        createQuery(CapMember, InsertQueryBuilder)
+          .query.values([
+            { Id: 1, Email: 'x', Name: 'new' },
+            { Id: id, Email: `e${id}`, Name: 'new' },
+          ])
+          .orIgnore();
+      const refusal = 'write capture: an insert of CapMember reaches 3 rows, above db.WriteCapture.MaxRows (2); narrow the statement or raise the limit';
+      const ids = async () => (await rows<{ Id: number }>('cap_member')).map((r) => r.Id);
+      const config = await DI.resolve(Configuration);
+      config.set('db.WriteCapture.MaxRows', 2);
+      try {
+        await expect(upsert(3)).to.be.rejectedWith(WriteCaptureLimitExceeded, refusal);
+        expect(await ids()).to.deep.eq([1, 2]);
+
+        await driver.transaction(async () => {
+          await expect(upsert(4)).to.be.rejectedWith(WriteCaptureLimitExceeded, refusal);
+        });
+        expect(await ids()).to.deep.eq([1, 2, 4]);
+
+        fixture.transactional = false;
+        await expect(upsert(5)).to.be.rejectedWith(WriteCaptureLimitExceeded, refusal);
+        expect(await ids()).to.deep.eq([1, 2, 4, 5]);
+      } finally {
+        config.set('db.WriteCapture.MaxRows', 0);
+      }
+
+      expect(fixture.writes).to.deep.eq([]);
+    });
+
+    it('refuses a delete above db.WriteCapture.MaxRows', async () => {
+      const config = await DI.resolve(Configuration);
+      config.set('db.WriteCapture.MaxRows', 1);
+      try {
+        await expect(createQuery(CapMember, DeleteQueryBuilder).query.where('Id', '>', 0)).to.be.rejectedWith(WriteCaptureLimitExceeded, 'write capture: a delete of CapMember reaches 2 rows, above db.WriteCapture.MaxRows (1); narrow the statement or raise the limit');
+      } finally {
+        config.set('db.WriteCapture.MaxRows', 0);
+      }
+
+      expect(await rows('cap_member')).to.have.length(2);
+    });
+
     it('reports an upsert whose unique value has no key text (a date) as unknown', async () => {
       const { query } = createQuery(CapMember, InsertQueryBuilder);
       await query.values({ Email: new Date(Date.UTC(2026, 0, 1)), Name: 'd' }).orIgnore();

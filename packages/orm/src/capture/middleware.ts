@@ -156,8 +156,10 @@ function everyRowConflicts(query: InsertQueryBuilder, columns: readonly string[]
   return query.Values.every((_, i) => values.some((v) => captureKeyText(v.at(i)) !== undefined));
 }
 
+const STATEMENT_PHRASES: Readonly<Record<WriteStatement['kind'], string>> = { insert: 'an insert', update: 'an update', delete: 'a delete' };
+
 function refuseAbove(plan: Plan, rows: number, max: number): void {
-  if (rows > max) throw new WriteCaptureLimitExceeded(`write capture: an ${plan.statement.kind} of ${plan.statement.model.name} reaches ${rows} rows, above db.WriteCapture.MaxRows (${max}); narrow the statement or raise the limit`);
+  if (rows > max) throw new WriteCaptureLimitExceeded(`write capture: ${STATEMENT_PHRASES[plan.statement.kind]} of ${plan.statement.model.name} reaches ${rows} rows, above db.WriteCapture.MaxRows (${max}); narrow the statement or raise the limit`);
 }
 
 async function targetRows(query: QueryBuilder, plan: Plan, conflict: readonly string[] | undefined): Promise<Reads> {

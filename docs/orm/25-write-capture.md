@@ -75,6 +75,12 @@ The before and after reads are raw `driver.select()` statements, which never lea
 
 `db.WriteCapture.MaxRows` (default `0`, no limit) refuses a captured statement that reaches more rows, before it runs, with `WriteCaptureLimitExceeded`. For an update or delete the rows are those the key select finds, those whose key has no key text included, and the key select reads at most `MaxRows + 1` keys, so the count in the message stops there; for an insert they are the rows it supplies, whatever their keys, and for an upsert also the rows its conflict values reach, those whose key has no key text included.
 
+An upsert is also refused after it ran, when the read after it finds more rows by its conflict values than the limit (a row it inserted can be one more than the read before it found). The write has then reached the database without any observer seeing it:
+
+- in the capture's own transaction (opened when an interested observer asks for one and the caller has none) the refusal rolls it back;
+- in a caller's transaction only the caller's rollback undoes it, and a caller that catches `WriteCaptureLimitExceeded` and commits keeps it;
+- without any transaction it has already committed.
+
 ```json
 { "db": { "WriteCapture": { "MaxRows": 10000 } } }
 ```
