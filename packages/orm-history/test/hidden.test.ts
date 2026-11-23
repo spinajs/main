@@ -1,7 +1,8 @@
 import * as chai from 'chai';
 import 'mocha';
-import { Hidden } from '@spinajs/orm';
-import { registerHistory } from '../src/index.js';
+import { DI } from '@spinajs/di';
+import { Hidden, Orm } from '@spinajs/orm';
+import { historySpecOf, registerHistory } from '../src/index.js';
 import type { HistoryOptions } from '../src/index.js';
 import { HistoryDb, applyDecorator } from './support/db.js';
 import type { ColumnType, Dialect, ModelSpec, TrackedClass } from './support/db.js';
@@ -89,6 +90,33 @@ describe('history masks a @Hidden() column whichever model of the table declares
         await User.insert({ id: 'u1', name: 'a', twoFactorSecret: 'secret-1' });
 
         expect(await recorded()).to.deep.eq([{ after: { id: 'u1', name: 'a', twoFactorSecret: 'secret-1' } }]);
+      });
+
+      // `default` names the sqlite connection only.
+      for (const connection of dialect === 'sqlite' ? [HistoryDb.aliasOf(dialect), 'default'] : [HistoryDb.aliasOf(dialect)]) {
+        it(`masks a column a class on the table hides that declares the connection as ${connection}`, async () => {
+          const Member = await db.define({ name: 'Member', table: 'members', columns: COLUMNS, decorate: (c) => registerHistory(c) }, dialect);
+          await db.define({ name: 'Profile', table: 'members', existingTable: true, connection, columns: {}, decorate: hideSecret }, dialect);
+          await Member.insert({ id: 'm1', name: 'a', twoFactorSecret: 'secret-1' });
+
+          expect(await recorded()).to.deep.eq([{ after: { id: 'm1', name: 'a' } }]);
+        });
+      }
+
+      it('masks a column another class hides in a spec first asked for before the Orm resolved', async () => {
+        const User = await user();
+        await adminUser(User);
+        const orm = DI.get(Orm);
+        DI.RootContainer.Cache.remove(Orm);
+        try {
+          expect(DI.get(Orm)).to.eq(undefined);
+          expect(historySpecOf(User)?.masked).to.deep.eq(new Set());
+        } finally {
+          DI.RootContainer.Cache.add(Orm, orm);
+        }
+        await User.insert({ id: 'u1', name: 'a', twoFactorSecret: 'secret-1' });
+
+        expect(await recorded()).to.deep.eq([{ after: { id: 'u1', name: 'a' } }]);
       });
 
       it("stores a column a subclass hides with hidden: 'record' on the tracked base", async () => {

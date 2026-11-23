@@ -43,6 +43,8 @@ export interface ModelSpec {
   readonly abstractBase?: abstract new () => ModelBase;
   /** Maps onto a table an earlier `define` created, without extending its class; `columns` and `autoIncrement` are ignored. */
   readonly existingTable?: boolean;
+  /** The connection name the class declares instead of the dialect's; it must name the dialect's driver (`HistoryDb.aliasOf`, `default`). */
+  readonly connection?: string;
 }
 
 interface Defined {
@@ -96,9 +98,10 @@ export class HistoryDb {
   static async open(): Promise<HistoryDb> {
     const pglite = await createTestDatabase({ connection: 'pglite', migrate: false });
     const connections: unknown[] = [{ Driver: 'orm-driver-sqlite', Name: 'sqlite', Filename: ':memory:' }, pglite.config];
+    const aliases = Object.fromEntries(DIALECTS.map((d) => [HistoryDb.aliasOf(d), d]));
     let app: TestApp | undefined;
     try {
-      app = await createTestApp({ config: { logger: LOGGER, db: { DefaultConnection: 'sqlite', StrictTableCheck: false, Connections: connections }, audit: AUDIT } });
+      app = await createTestApp({ config: { logger: LOGGER, db: { DefaultConnection: 'sqlite', StrictTableCheck: false, Connections: connections, Aliases: aliases }, audit: AUDIT } });
       // v4 refuses Migration.OnStartup; the migrations registered on `default` (this package's among them) apply here.
       const { orm } = await migrateTestDatabase(app.container);
       return new HistoryDb(app, orm, pglite);
@@ -112,6 +115,11 @@ export class HistoryDb {
 
   static dialects(): readonly Dialect[] {
     return DIALECTS;
+  }
+
+  /** A connection alias configured for the connection of `dialect`. */
+  static aliasOf(dialect: Dialect): string {
+    return `${dialect}-alias`;
   }
 
   get config(): Configuration {
@@ -163,7 +171,7 @@ export class HistoryDb {
     const model = { [spec.name]: class extends Base {} }[spec.name] as TrackedClass;
     if (!spec.base && !spec.abstractBase) for (const column of spec.primary ?? ['id']) applyDecorator(Primary(), model.prototype, column);
     spec.decorate(model, model.prototype);
-    applyDecorator(Connection(dialect), model);
+    applyDecorator(Connection(spec.connection ?? dialect), model);
     applyDecorator(Model(spec.table), model);
 
     const ownsTable = !spec.base && !spec.existingTable;

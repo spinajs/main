@@ -171,7 +171,8 @@ export class HistorySpecs {
     const hit = this.resolved.get(model);
     if (hit !== undefined && hit.own === own && hit.rules === rules) return hit.spec;
     const spec = own === undefined ? this.ruled(model, rules) : buildSpec(model, own);
-    this.resolved.set(model, { own, rules, spec });
+    // Without a resolved Orm only the model's own @Hidden() columns are masked, so that spec is built again at next use.
+    if (spec === undefined || DI.get(Orm)) this.resolved.set(model, { own, rules, spec });
     return spec;
   }
 
