@@ -22,9 +22,7 @@ const inputOf = (spec: HistorySpec, entry: PendingEntry, at: Date): AuditInput =
 
 const lostInputOf = (spec: HistorySpec, at: Date, reason = 'unknown_keys'): AuditInput => ({ kind: 'data', action: 'lost', subject: { type: spec.entity, id: LOST_SUBJECT_ID }, data: { reason }, at });
 
-// A plain insert is read back by the text of its keys, and the capture leaves out a row whose key has none (bytes, a
-// date, a number that is not a safe integer) without a sign; an upsert may write fewer rows than it names.
-const dropsRows = (write: CapturedWrite): boolean => write.kind === 'insert' && !(write.query.Ignore === true || write.query.Replace || write.query.Update) && write.rows.length < write.query.Values.length;
+const statementOf = (write: CapturedWrite): string => (write.kind === 'delete' ? 'a delete' : `an ${write.kind}`);
 
 // The record joins the write's transaction, where a failed statement cannot be skipped on every dialect,
 // so the trail's own onFailure is not consulted.
@@ -64,11 +62,11 @@ export class HistoryObserver extends WriteObserver {
     if (write.kind === 'update' && write.rows.some((r) => r.before !== undefined && r.after === undefined)) {
       throw new HistoryWriteError(`orm-history: an update of ${spec.entity} writes its primary key ${spec.pk}; history is keyed by it, delete and insert the row instead`);
     }
-    const keyless = dropsRows(write);
+    const keyless = write.keylessRows > 0;
     if (keyless && this.OnUnknownKeys === 'throw') {
-      throw new HistoryWriteError(`orm-history: an insert of ${spec.entity} wrote a primary key ${spec.pk} that has no text (bytes, a date or a number that is not a safe integer), so its history cannot be recorded; history needs a string or integer key`);
+      throw new HistoryWriteError(`orm-history: ${statementOf(write)} of ${spec.entity} reached a primary key ${spec.pk} that has no text (bytes, a date or a number that is not a safe integer), so its history cannot be recorded; history needs a string or integer key`);
     }
-    // The marker goes first: asOf reads only the markers after a row's last entry, and the rows this insert did
+    // The marker goes first: asOf reads only the markers after a row's last entry, and the rows this statement did
     // record are known.
     const inputs = [
       ...(keyless ? [lostInputOf(spec, at, 'keys_without_text')] : []),
@@ -80,7 +78,8 @@ export class HistoryObserver extends WriteObserver {
     if (inputs.length > 0) await record(spec, write, inputs);
     if (!keyless || this.warnedKeyless.has(spec.model)) return;
     this.warnedKeyless.add(spec.model);
-    this.Log.warn({ entity: spec.entity, pk: spec.pk }, 'orm-history: an insert of ${entity} wrote a primary key ${pk} that has no text (bytes, a date or a number that is not a safe integer), so its history is missing; history needs a string or integer key');
+    // The log quotes a field value with spaces, so the statement goes into the message itself.
+    this.Log.warn({ entity: spec.entity, pk: spec.pk }, `orm-history: ${statementOf(write)} of \${entity} reached a primary key \${pk} that has no text (bytes, a date or a number that is not a safe integer), so its history is missing; history needs a string or integer key`);
   }
 
   private async unknownKeys(spec: HistorySpec, write: CapturedWrite, at: Date): Promise<void> {

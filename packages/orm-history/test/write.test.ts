@@ -4,7 +4,7 @@ import 'mocha';
 import { AuditConfigError, AuditWriteFailed } from '@spinajs/audit';
 import { MemoryAuditStore } from '@spinajs/audit/testing';
 import { rowsOf } from '@spinajs/audit-orm';
-import { Archived, Column, Hidden, InsertBehaviour, InsertQueryBuilder, Json, JsonValueConverter, SoftDelete, Uuid, createQuery, extractDecoratorPropertyDescriptor } from '@spinajs/orm';
+import { Archived, Column, DeleteQueryBuilder, Hidden, InsertBehaviour, InsertQueryBuilder, Json, JsonValueConverter, SoftDelete, Uuid, createQuery, extractDecoratorPropertyDescriptor } from '@spinajs/orm';
 import type { IModelDescriptor } from '@spinajs/orm';
 import { HistoryConfigError, HistoryWriteError, LOST_SUBJECT_ID, historySpecOf, registerHistory, toHistoryValue } from '../src/index.js';
 import { who } from './support/audit.js';
@@ -539,10 +539,14 @@ describe('history writes', function () {
       expect(db.warnings()).to.deep.eq(['orm-history: Device matches audit.data.rules but its primary key id is stored as bytes by @Uuid(), so it is not tracked']);
     });
 
-    describe('an insert whose key has no text', () => {
+    describe('a write whose key has no text', () => {
       // Above 2^53 a JS number is not a safe integer; sqlite stores this one exactly.
       const UNSAFE = 2 ** 53 + 2;
       const define = () => db.define({ name: 'Wide', table: 'wide', autoIncrement: true, columns: { v: 'TEXT' }, decorate: (c) => registerHistory(c) }, 'sqlite');
+      const keyless = (statement: string, entity: string, outcome: string): string =>
+        `orm-history: ${statement} of ${entity} reached a primary key id that has no text (bytes, a date or a number that is not a safe integer), so its history ${outcome}; history needs a string or integer key`;
+      const MISSING = 'is missing';
+      const REFUSED = 'cannot be recorded';
 
       it('marks the entity lost and warns once per model', async () => {
         const Wide = await define();
@@ -553,7 +557,7 @@ describe('history writes', function () {
           ['lost', LOST_SUBJECT_ID, { reason: 'keys_without_text' }],
           ['lost', LOST_SUBJECT_ID, { reason: 'keys_without_text' }],
         ]);
-        expect(db.warnings()).to.deep.eq(['orm-history: an insert of wide wrote a primary key id that has no text (bytes, a date or a number that is not a safe integer), so its history is missing; history needs a string or integer key']);
+        expect(db.warnings()).to.deep.eq([keyless('an insert', 'wide', MISSING)]);
       });
 
       it('marks the entity lost before the entries of the same insert, so a row it recorded is present as of its insert', async () => {
@@ -577,11 +581,148 @@ describe('history writes', function () {
           const Wide = await define();
           expect(await rejection(Wide.insert({ id: UNSAFE, v: 'a' })))
             .to.be.instanceOf(HistoryWriteError)
-            .and.have.property('message', 'orm-history: an insert of wide wrote a primary key id that has no text (bytes, a date or a number that is not a safe integer), so its history cannot be recorded; history needs a string or integer key');
+            .and.have.property('message', keyless('an insert', 'wide', REFUSED));
           expect(await db.rows('wide', 'sqlite')).to.have.length(0);
         } finally {
           db.config.set('audit.data.onUnknownKeys', 'warn');
         }
+      });
+
+      describe('stored as bytes', () => {
+        const one = Buffer.from([1]);
+        const two = Buffer.from([2]);
+        // A TEXT column of sqlite keeps a bound Buffer as bytes.
+        const defineKeyed = async () => {
+          const Keyed = await db.define({ name: 'Keyed', table: 'keyed', columns: { email: 'TEXT', v: 'TEXT' }, decorate: (c) => registerHistory(c) }, 'sqlite');
+          await db.driver('sqlite').schema().raw('CREATE UNIQUE INDEX keyed_email ON keyed (email)');
+          return Keyed;
+        };
+        // Written past the capture, so the setup records nothing and warns about nothing.
+        const seed = async (rows: Row[]) => {
+          for (const row of rows) await db.driver('sqlite').insert().into('keyed').values(row);
+        };
+        const history = async () => (await db.rows('orm_history', 'sqlite')).map((r) => [r.action, r.subject_id, JSON.parse(String(r.data)) as unknown]);
+        const lost = ['lost', LOST_SUBJECT_ID, { reason: 'keys_without_text' }];
+        const names = async () => (await db.rows('keyed', 'sqlite')).map((r) => r.v);
+
+        it('marks the entity lost for an update and a delete, and warns once per model', async () => {
+          const Keyed = await defineKeyed();
+          await seed([
+            { id: one, email: 'a', v: 'one' },
+            { id: two, email: 'b', v: 'two' },
+          ]);
+
+          await Keyed.update({ v: 'x' }).where('email', 'a');
+          await createQuery(Keyed, DeleteQueryBuilder).query.where('email', 'b');
+
+          expect(await history()).to.deep.eq([lost, lost]);
+          expect(await names()).to.deep.eq(['x']);
+          expect(db.warnings()).to.deep.eq([keyless('an update', 'keyed', MISSING)]);
+        });
+
+        it('names a delete in its warning', async () => {
+          const Keyed = await defineKeyed();
+          await seed([{ id: one, email: 'a', v: 'one' }]);
+
+          await createQuery(Keyed, DeleteQueryBuilder).query.where('email', 'a');
+
+          expect(await history()).to.deep.eq([lost]);
+          expect(db.warnings()).to.deep.eq([keyless('a delete', 'keyed', MISSING)]);
+        });
+
+        it('fails an update and a delete with onUnknownKeys: throw and leaves the row unchanged', async () => {
+          const Keyed = await defineKeyed();
+          await seed([{ id: one, email: 'a', v: 'one' }]);
+          db.config.set('audit.data.onUnknownKeys', 'throw');
+          try {
+            expect(await rejection(Keyed.update({ v: 'x' }).where('email', 'a')))
+              .to.be.instanceOf(HistoryWriteError)
+              .and.have.property('message', keyless('an update', 'keyed', REFUSED));
+            expect(await rejection(createQuery(Keyed, DeleteQueryBuilder).query.where('email', 'a')))
+              .to.be.instanceOf(HistoryWriteError)
+              .and.have.property('message', keyless('a delete', 'keyed', REFUSED));
+          } finally {
+            db.config.set('audit.data.onUnknownKeys', 'warn');
+          }
+          expect(await names()).to.deep.eq(['one']);
+          expect(await history()).to.deep.eq([]);
+        });
+
+        it('marks the entity lost for an upsert that reaches the row through another unique column', async () => {
+          const Keyed = await defineKeyed();
+          await seed([{ id: one, email: 'a', v: 'one' }]);
+
+          await createQuery(Keyed, InsertQueryBuilder)
+            .query.values([
+              { id: 'k', email: 'a', v: 'new' },
+              { id: 'n', email: 'z', v: 'other' },
+            ])
+            .onDuplicate('email')
+            .update(['v']);
+
+          expect(await history()).to.deep.eq([lost, ['insert', 'n', { after: { id: 'n', email: 'z', v: 'other' } }]]);
+          // sqlite orders bytes after text.
+          expect(await names()).to.deep.eq(['other', 'new']);
+          expect(db.warnings()).to.deep.eq([keyless('an insert', 'keyed', MISSING)]);
+        });
+
+        it('fails such an upsert with onUnknownKeys: throw', async () => {
+          const Keyed = await defineKeyed();
+          await seed([{ id: one, email: 'a', v: 'one' }]);
+          db.config.set('audit.data.onUnknownKeys', 'throw');
+          try {
+            const upsert = createQuery(Keyed, InsertQueryBuilder).query.values({ id: 'k', email: 'a', v: 'new' }).onDuplicate('email').update(['v']);
+            expect(await rejection(upsert))
+              .to.be.instanceOf(HistoryWriteError)
+              .and.have.property('message', keyless('an insert', 'keyed', REFUSED));
+          } finally {
+            db.config.set('audit.data.onUnknownKeys', 'warn');
+          }
+          expect(await names()).to.deep.eq(['one']);
+        });
+
+        it('leaves an upsert that supplies such a key to the unknown keys, with one marker', async () => {
+          const Keyed = await defineKeyed();
+
+          await createQuery(Keyed, InsertQueryBuilder).query.values({ id: one, email: 'a', v: 'one' }).orIgnore();
+
+          expect(await history()).to.deep.eq([['lost', LOST_SUBJECT_ID, { reason: 'unknown_keys' }]]);
+          expect(await names()).to.deep.eq(['one']);
+        });
+
+        it('marks the entity lost before the entry of the row with text that the same update reached, so that row is present as of it', async () => {
+          const Keyed = await defineKeyed();
+          await seed([
+            { id: one, email: 'a', v: 'one' },
+            { id: 'k', email: 'b', v: 'two' },
+          ]);
+
+          await Keyed.update({ v: 'x' }).whereIn('email', ['a', 'b']);
+
+          expect((await history()).map(([action, id]) => [action, id])).to.deep.eq([
+            ['lost', LOST_SUBJECT_ID],
+            ['update', 'k'],
+          ]);
+          const [updated] = await Keyed.history().of('k');
+          const at = await Keyed.history().asOf('k', updated.at);
+          expect(at.state === 'present' && at.seq).to.eq(updated.seq);
+        });
+
+        it('records no marker for writes that reach only keys with text', async () => {
+          const Keyed = await defineKeyed();
+          await Keyed.insert({ id: 'k', email: 'a', v: 'one' });
+          await Keyed.update({ v: 'x' }).where('id', 'k');
+          await createQuery(Keyed, InsertQueryBuilder).query.values({ id: 'n', email: 'a', v: 'y' }).onDuplicate('email').update(['v']);
+          await createQuery(Keyed, DeleteQueryBuilder).query.where('id', 'k');
+
+          expect((await history()).map(([action, id]) => [action, id])).to.deep.eq([
+            ['insert', 'k'],
+            ['update', 'k'],
+            ['update', 'k'],
+            ['delete', 'k'],
+          ]);
+          expect(db.warnings()).to.deep.eq([]);
+        });
       });
     });
   });
