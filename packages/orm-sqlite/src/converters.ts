@@ -27,11 +27,11 @@ export class SqliteModelToSqlConverter extends ModelToSqlConverter {
     // user_sessions.UserId) would otherwise never be serialized at all, breaking
     // INSERTs that hit its NOT NULL constraint. So only skip FK columns that an
     // actual relation manages; serialize unrelated FK columns like normal ones.
-    const relationForeignKeys = new Set(relArr.map((r) => r.ForeignKey));
+    const managedForeignKeys = new Set(relArr.map((r) => r.ForeignKey));
 
     // `Virtual` entries are filter-only properties with no column behind them, `@Ignore()` ones are
     // not persisted - neither is ever written.
-    model.ModelDescriptor!.Columns?.filter((x) => !x.Virtual && !x.Ignore && (!x.IsForeignKey || !relationForeignKeys.has(x.Name))).forEach((c) => {
+    model.ModelDescriptor!.Columns?.filter((x) => !x.Virtual && !x.Ignore && (!x.IsForeignKey || !managedForeignKeys.has(x.Name))).forEach((c) => {
       const val = (model as any)[c.Name];
       if (!c.PrimaryKey && !c.Nullable && (val === null || val === undefined || val === '')) {
         throw new OrmException(`Field ${c.Name} cannot be null`);
