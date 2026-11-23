@@ -5,7 +5,6 @@
 History records what the write capture of `@spinajs/orm` sees: statements built on a tracked model ([What the capture does not see](../orm/25-write-capture.md#what-the-capture-does-not-see)). Not recorded:
 
 - Raw SQL, `RawQuery`, `TRUNCATE` (also `Model.truncate()`, which is built on the model), and builders without a model (`driver.insert()`, `driver.update()`, `driver.del()`).
-- The orphan deletes of a relation's `sync()`, which run without a model: a one-to-many `sync()` deletes the child rows that left the relation, a many-to-many `sync()` the junction rows. A `@SoftDelete` child of a one-to-many relation is soft-deleted through its model instead, and recorded as `soft_delete`. When those rows are tracked, delete them through their model or the unit of work.
 - Rows the database changes by itself (`ON DELETE CASCADE`, triggers) and writes of other services to the same database.
 - Relations other than their foreign-key columns: a row's entry holds its own columns only.
 

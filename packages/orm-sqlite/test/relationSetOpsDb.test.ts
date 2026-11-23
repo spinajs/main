@@ -4,13 +4,33 @@ import { DI } from '@spinajs/di';
 import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 import 'mocha';
-import { bootUow, registerUowConnection, rows, UowOrder, UowOrderTag, UowTag } from './uowFixture.js';
+import { DeleteQueryBuilder, InsertQueryBuilder, QueryMiddleware, SelectQueryBuilder, UpdateQueryBuilder, extractModelDescriptor } from '@spinajs/orm';
+import type { QueryBuilder } from '@spinajs/orm';
+import { bootUow, registerUowConnection, rows, UowOrder, UowOrderItem, UowOrderTag, UowTag } from './uowFixture.js';
 import { SdOwner } from './models/sd/SdOwner.js';
 import { SdItem } from './models/sd/SdItem.js';
 import './migrations/SdMigration_2026_08_03_00_00_00.js';
 
 const expect = chai.expect;
 chai.use(chaiAsPromised);
+
+const statements = { recording: false, seen: [] as string[] };
+
+function verbOf(query: QueryBuilder): string {
+  if (query instanceof SelectQueryBuilder) return 'select';
+  if (query instanceof InsertQueryBuilder) return 'insert';
+  if (query instanceof UpdateQueryBuilder) return 'update';
+  return query instanceof DeleteQueryBuilder ? 'delete' : query.constructor.name;
+}
+
+/** Every statement a write runs, with the model it was built on. */
+class StatementRecorder extends QueryMiddleware {
+  afterQueryCreation(): void {}
+
+  beforeQueryExecution(query: QueryBuilder): void {
+    if (statements.recording) statements.seen.push(`${verbOf(query)} ${query.Model?.name ?? 'no model'}`);
+  }
+}
 
 describe('Relation set operations against the database', function () {
   this.timeout(10000);
@@ -73,6 +93,28 @@ describe('Relation set operations against the database', function () {
       expect(links.map((l: any) => l.tag_id).sort()).to.deep.eq([1, 2]);
     });
 
+    it('counts junction rows that the soft-delete or archive filter of the junction model hides as links', async () => {
+      await seededOrder();
+      await UowOrderTag.update({ Note: 'hidden' }).where('Id', '>', 0);
+      const descriptor = extractModelDescriptor(UowOrderTag)!;
+      // Not populated, so the list holds no junction rows of its own and relies on the select of existing links.
+      const order = await UowOrder.where({ Id: 1 }).first();
+      order.Tags.push(...(await UowTag.where('Id', '>', 0)));
+
+      for (const marker of [{ SoftDelete: { DeletedAt: 'Note' } }, { Archived: { ArchivedAt: 'Note' } }]) {
+        const saved = { SoftDelete: descriptor.SoftDelete, Archived: descriptor.Archived };
+        Object.assign(descriptor, marker);
+        try {
+          await order.Tags.sync();
+        } finally {
+          Object.assign(descriptor, saved);
+        }
+
+        const links = await rows<{ tag_id: number; Note: string | null }>('uow_order_tag');
+        expect(links.map((l) => [l.tag_id, l.Note]), Object.keys(marker)[0]).to.deep.eq([[1, 'hidden'], [2, 'hidden']]);
+      }
+    });
+
     it('persists an unsaved target model before writing its junction row', async () => {
       await seededOrder();
 
@@ -88,6 +130,52 @@ describe('Relation set operations against the database', function () {
       const links = await rows('uow_order_tag');
       expect(links.map((l: any) => l.tag_id).sort()).to.deep.eq([1, 2, green.Id].sort());
       expect(links.every((l: any) => l.tag_id !== null && l.tag_id !== undefined)).to.be.true;
+    });
+  });
+
+  describe('statements of sync() and update()', () => {
+    before(() => DI.register(StatementRecorder).as(QueryMiddleware));
+    after(() => DI.unregister(StatementRecorder));
+
+    async function recorded(write: () => Promise<void>): Promise<string[]> {
+      statements.recording = true;
+      statements.seen = [];
+      try {
+        await write();
+      } finally {
+        statements.recording = false;
+      }
+      return statements.seen;
+    }
+
+    it('builds every statement of a one-to-many sync() and update() on the target model', async () => {
+      await UowOrder.insert({ Total: 10 });
+      await UowOrderItem.insert({ Sku: 'A', Qty: 1, order_id: 1 });
+      await UowOrderItem.insert({ Sku: 'B', Qty: 2, order_id: 1 });
+      const order = await UowOrder.where({ Id: 1 }).populate('Items').first();
+
+      order.Items.remove((i) => i.Sku === 'B');
+      order.Items.push(new UowOrderItem({ Sku: 'C', Qty: 3 }));
+      expect(await recorded(() => order.Items.sync())).to.deep.eq(['insert UowOrderItem', 'delete UowOrderItem']);
+
+      order.Items.push(new UowOrderItem({ Sku: 'D', Qty: 4 }));
+      expect(await recorded(() => order.Items.update())).to.deep.eq(['insert UowOrderItem']);
+
+      expect((await rows<{ Sku: string }>('uow_order_item')).map((r) => r.Sku)).to.deep.eq(['A', 'C', 'D']);
+    });
+
+    it('builds every statement of a many-to-many sync() and update() on the junction or the target model', async () => {
+      await seededOrder();
+      const order = await UowOrder.where({ Id: 1 }).populate('Tags').first();
+
+      order.Tags.remove((t) => t.Name === 'blue');
+      order.Tags.push(new UowTag({ Name: 'green' }));
+      expect(await recorded(() => order.Tags.sync())).to.deep.eq(['select UowOrderTag', 'insert UowTag', 'insert UowOrderTag', 'delete UowOrderTag']);
+
+      order.Tags.push(new UowTag({ Name: 'black' }));
+      expect(await recorded(() => order.Tags.update())).to.deep.eq(['select UowOrderTag', 'insert UowTag', 'insert UowOrderTag']);
+
+      expect((await rows<{ tag_id: number }>('uow_order_tag')).map((l) => l.tag_id)).to.deep.eq([1, 3, 4]);
     });
   });
 

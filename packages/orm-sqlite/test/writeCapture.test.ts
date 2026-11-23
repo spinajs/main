@@ -9,7 +9,7 @@ import { Connection, DeleteQueryBuilder, InsertBehaviour, InsertQueryBuilder, Mo
 import type { CaptureInterest, CapturedWrite, WriteStatement } from '@spinajs/orm';
 import { Configuration } from '@spinajs/configuration';
 import { db } from './common.js';
-import { bootUow, captureStatements, registerUowConnection, rows, UowClient, UowTag } from './uowFixture.js';
+import { bootUow, captureStatements, registerUowConnection, rows, UowClient, UowOrder, UowOrderItem, UowOrderTag, UowTag } from './uowFixture.js';
 
 chai.use(chaiAsPromised);
 const expect = chai.expect;
@@ -114,7 +114,19 @@ class FixtureObserver extends WriteObserver {
   }
 }
 
-const selectsOn = (statements: { context: QueryContext; expression: string }[], table: string) => statements.filter((s) => s.context === QueryContext.Select && s.expression.includes(table)).length;
+const relationWrites: CapturedWrite[] = [];
+
+class RelationObserver extends WriteObserver {
+  interest({ model }: WriteStatement): CaptureInterest | undefined {
+    return model === UowOrderItem || model === UowOrderTag ? { columns: '*', transactional: true } : undefined;
+  }
+
+  async observe(write: CapturedWrite): Promise<void> {
+    relationWrites.push(write);
+  }
+}
+
+const selectsOn =(statements: { context: QueryContext; expression: string }[], table: string) => statements.filter((s) => s.context === QueryContext.Select && s.expression.includes(table)).length;
 
 describe('write capture on sqlite', function () {
   // Each test boots the ORM again, which takes several seconds on a loaded machine.
@@ -727,6 +739,48 @@ describe('write capture on sqlite', function () {
 
         expect(fixture.writes.map((w) => [w.unknownKeys, w.keylessRows, w.rows])).to.deep.eq([[true, 0, []]]);
       });
+    });
+  });
+
+  describe("on a relation's sync()", () => {
+    before(() => DI.register(RelationObserver).as(WriteObserver));
+
+    after(() => DI.unregister(RelationObserver));
+
+    beforeEach(() => {
+      relationWrites.length = 0;
+    });
+
+    const deletes = () => relationWrites.filter((w) => w.kind === 'delete');
+
+    it('hands the orphan delete of a one-to-many sync the removed child', async () => {
+      await UowOrder.insert({ Total: 10 });
+      await UowOrderItem.insert({ Sku: 'A', Qty: 1, order_id: 1 });
+      await UowOrderItem.insert({ Sku: 'B', Qty: 2, order_id: 1 });
+      const order = await UowOrder.where({ Id: 1 }).populate('Items').first();
+      relationWrites.length = 0;
+
+      order.Items.remove((i) => i.Sku === 'B');
+      await order.Items.sync();
+
+      expect(deletes().map((w) => [w.model.name, w.rows])).to.deep.eq([['UowOrderItem', [{ id: '2', before: { Id: 2, Sku: 'B', Qty: 2, order_id: 1 }, after: undefined }]]]);
+      expect((await rows<{ Sku: string }>('uow_order_item')).map((r) => r.Sku)).to.deep.eq(['A']);
+    });
+
+    it('hands the orphan delete of a many-to-many sync the removed junction rows', async () => {
+      await UowOrder.insert({ Total: 10 });
+      await UowTag.insert({ Name: 'red' });
+      await UowTag.insert({ Name: 'blue' });
+      await UowOrderTag.insert({ order_id: 1, tag_id: 1 });
+      await UowOrderTag.insert({ order_id: 1, tag_id: 2 });
+      const order = await UowOrder.where({ Id: 1 }).populate('Tags').first();
+      relationWrites.length = 0;
+
+      order.Tags.remove((t) => t.Name === 'blue');
+      await order.Tags.sync();
+
+      expect(deletes().map((w) => [w.model.name, w.rows])).to.deep.eq([['UowOrderTag', [{ id: '2', before: { Id: 2, order_id: 1, tag_id: 2, Note: null }, after: undefined }]]]);
+      expect((await rows<{ tag_id: number }>('uow_order_tag')).map((r) => r.tag_id)).to.deep.eq([1]);
     });
   });
 });

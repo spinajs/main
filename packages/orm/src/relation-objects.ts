@@ -2,9 +2,10 @@
 import { InsertBehaviour } from './interfaces.js';
 import type { IRelationDescriptor, IModelDescriptor, ForwardRefFunction, IRelation, ISelectQueryBuilder, QueryScope } from './interfaces.js';
 import { DI, NewInstance } from '@spinajs/di';
-import type { Constructor } from '@spinajs/di';
+import type { Class, Constructor, ResolveResult } from '@spinajs/di';
 import { DateTime } from 'luxon';
-import { createQuery, SelectQueryBuilder, UpdateQueryBuilder } from './builders.js';
+import { createQuery, DeleteQueryBuilder, SelectQueryBuilder, UpdateQueryBuilder } from './builders.js';
+import type { QueryBuilder } from './builders.js';
 import type { ModelBase } from './model.js';
 import type { Orm } from './orm.js';
 import _ from 'lodash';
@@ -502,6 +503,11 @@ export class ManyToManyRelationList<T extends ModelBase, O extends ModelBase> ex
     return this.junctions.get(member) as J | undefined;
   }
 
+  /** A statement on the junction model, kept on this relation's connection so it joins the transaction of `sync()` / `update()`. */
+  protected junctionQuery<B extends QueryBuilder>(builder: Class<B>): ResolveResult<B> {
+    return createQuery(this.Relation.JunctionModel!, builder, true, this.Driver).query;
+  }
+
 
   /**
   * Deletes from db data that are not in relation
@@ -516,11 +522,7 @@ export class ManyToManyRelationList<T extends ModelBase, O extends ModelBase> ex
       throw new OrmException(`many-to-many relation ${this.Relation.Name} targets ${this.TargetModelDescriptor!.Name}, which has a composite primary key; a junction table carries one foreign key column per side and cannot address it`);
     }
 
-    const query = this.Driver.del().from(this.junctionModelDescriptor!.TableName).where(this.Relation.JunctionModelSourceModelFKey_Name!, this.OwnerJoinValue);
-
-    if (this.Driver.Options.Database) {
-      query.database(this.Driver.Options.Database);
-    }
+    const query = this.junctionQuery(DeleteQueryBuilder<unknown>).where(this.Relation.JunctionModelSourceModelFKey_Name!, this.OwnerJoinValue);
 
     // if we have data in relation, we need to exclude them from delete query.
     // Explicit null/undefined checks — a primary key of 0 or '' is a real key, and dropping
@@ -586,10 +588,8 @@ export class ManyToManyRelationList<T extends ModelBase, O extends ModelBase> ex
   protected async _update() {
     const sourceModelRelation = this.junctionRelationFor(this.Owner.constructor as Constructor<ModelBase>);
 
-    const existingQuery = this.Driver.select().from(this.junctionModelDescriptor!.TableName).where(this.Relation.JunctionModelSourceModelFKey_Name!, this.OwnerJoinValue);
-    if (this.Driver.Options.Database) {
-      existingQuery.database(this.Driver.Options.Database);
-    }
+    // Soft-deleted and archived junction rows count as links too, so they are not inserted a second time.
+    const existingQuery = this.junctionQuery(SelectQueryBuilder<unknown>).withDeleted().withArchived().onPrimary().where(this.Relation.JunctionModelSourceModelFKey_Name!, this.OwnerJoinValue);
     const existingRows = (await existingQuery.asRaw<any[]>()) ?? [];
     const linked = new Set(existingRows.map((r) => r[this.Relation.JunctionModelTargetModelFKey_Name!]).filter((v) => v !== null && v !== undefined));
 
@@ -677,11 +677,7 @@ export class OneToManyRelationList<T extends ModelBase, O extends ModelBase> ext
       return;
     }
 
-    const query = this.Driver.del().from(this.TargetModelDescriptor!.TableName).where(this.Relation.ForeignKey, this.OwnerJoinValue);
-
-    if (this.Driver.Options.Database) {
-      query.database(this.Driver.Options.Database);
-    }
+    const query = createQuery(this.Relation.TargetModel, DeleteQueryBuilder<unknown>).query.where(this.Relation.ForeignKey, this.OwnerJoinValue);
 
     // if we have data in relation, we need to exclude them from the delete query
     if (toKeep.length !== 0 && keys.length !== 0) {
