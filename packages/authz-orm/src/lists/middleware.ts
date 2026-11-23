@@ -1,15 +1,17 @@
 import { AccessDenied, AuthzConfigError, FALSE, authz, authzStorage, currentPrincipal } from '@spinajs/authz';
 import type { AuthzService, Decision, DenyReason, Permission, Principal, ResourceType } from '@spinajs/authz';
 import { Injectable } from '@spinajs/di';
-import { DeleteQueryBuilder, QueryMiddleware, SelectQueryBuilder, UpdateQueryBuilder, WhereBuilder, captureReadScope, createQuery, relationSyncOf } from '@spinajs/orm';
+import { QueryMiddleware, SelectQueryBuilder, WhereBuilder, captureReadScope, createQuery, relationSyncOf } from '@spinajs/orm';
 import type { IQueryStatement, IWhereBuilder, QueryBuilder } from '@spinajs/orm';
 
-import { auditUnscoped, ormDomain } from '../host.js';
+import { auditUnscoped, ormDomain, ormLog } from '../host.js';
 import { marksOf } from '../marker.js';
 import type { AccessMarks } from '../marker.js';
 import type { PlanRow } from '../plan/index.js';
 import { entryOf, nameOf } from '../registry.js';
 import type { ResourceEntry } from '../registry.js';
+import { isUpdateOrDelete } from '../sync-statement.js';
+import type { SyncStatement } from '../sync-statement.js';
 import { AccessFieldMiddleware, accessColumn, accessField } from './access-field.js';
 import { applyWithin, planFilter } from './render.js';
 import { RowFieldsMiddleware, fieldConditions, fieldsColumn } from './row-fields.js';
@@ -18,8 +20,23 @@ import { planRow } from './row.js';
 type Where = IWhereBuilder<unknown>;
 type Statements = { _statements: IQueryStatement[] };
 type Filter = (where: Where) => void;
-type SyncStatement = UpdateQueryBuilder<unknown> | DeleteQueryBuilder<unknown>;
 type Sync = NonNullable<ReturnType<typeof relationSyncOf>>;
+
+interface ListFilters {
+  readonly filters: Filter[];
+  /** The plan of `.accessible()` added a filter, as opposed to `.within()` alone. */
+  readonly byPlan: boolean;
+}
+
+/** A filtered sync() statement, checked after it ran. */
+interface SyncCheck {
+  readonly statement: SyncStatement;
+  readonly sync: Sync;
+  readonly run: ListRun;
+  readonly byPlan: boolean;
+  /** The statement's own conditions, without the filters. */
+  readonly conditions: readonly IQueryStatement[];
+}
 
 function denied(domain: string, principal: Principal, permission: Permission, type: ResourceType, reason: DenyReason): Decision {
   return Object.freeze({ allowed: false, permission, resource: Object.freeze({ type }), principal: Object.freeze({ type: principal.type, id: principal.id }), residual: FALSE, fields: Object.freeze({ read: Object.freeze([]), write: Object.freeze([]) }), roles: Object.freeze({}), reason, domain });
@@ -66,28 +83,29 @@ function restrictAll(query: QueryBuilder, filters: readonly Filter[]): void {
 
 /** The update or delete a relation list's sync() built itself, undefined for any other builder. */
 function syncOf(query: QueryBuilder): { readonly statement: SyncStatement; readonly sync: Sync } | undefined {
-  if (!(query instanceof UpdateQueryBuilder || query instanceof DeleteQueryBuilder)) return undefined;
+  if (!isUpdateOrDelete(query)) return undefined;
   const sync = relationSyncOf(query);
   return sync === undefined ? undefined : { statement: query, sync };
 }
 
+function cloneInto(parent: QueryBuilder, statement: IQueryStatement): IQueryStatement {
+  const c = statement.clone(parent);
+  c.Boolean = statement.Boolean;
+  return c;
+}
+
 /**
- * The rows `query` reaches with `filters` added, counted as the write capture reads a write's keys: as SYSTEM, so no
- * guard or list fires on the count, soft-deleted and archived rows included, on the statement's connection and so in
- * its transaction.
+ * The rows `conditions` reach in the model of `query`, counted as the write capture reads a write's keys: as SYSTEM,
+ * so no guard or list fires on the count, soft-deleted and archived rows included, on the statement's connection and
+ * so in its transaction, with these conditions only (none a middleware added to the select at creation).
  */
-function reach(query: SyncStatement, filters: readonly Filter[]): Promise<number> {
+function reached(query: SyncStatement, conditions: readonly IQueryStatement[]): Promise<number> {
   const model = query.Model;
   if (!model) throw new AuthzConfigError('authz-orm: a sync() statement without a model cannot be counted');
   return captureReadScope().run(async () => {
     const { query: select } = createQuery(model, SelectQueryBuilder, true, query.Driver);
     select.withDeleted().withArchived().onPrimary();
-    for (const s of query.Statements) {
-      const c = s.clone(select);
-      c.Boolean = s.Boolean;
-      select.Statements.push(c);
-    }
-    if (filters.length > 0) restrictAll(select, filters);
+    select.Statements.splice(0, select.Statements.length, ...conditions.map((s) => cloneInto(select, s)));
     return select.selectCount();
   });
 }
@@ -105,6 +123,8 @@ export interface ListRun {
 export class AccessListMiddleware extends QueryMiddleware {
   public order = 100;
 
+  private readonly syncChecks = new WeakMap<QueryBuilder, SyncCheck>();
+
   afterQueryCreation(_query: QueryBuilder): void {}
 
   async beforeQueryExecution(query: QueryBuilder): Promise<void> {
@@ -119,19 +139,33 @@ export class AccessListMiddleware extends QueryMiddleware {
     const run: ListRun = { domain, principal, service: authz(domain), entry, marks };
     const row = planRow(query, entry);
     const sync = syncOf(query);
-    const filters = await this.filters(run, row, sync !== undefined);
-    if (sync !== undefined && filters.length > 0) await this.refuseNarrowedSync(sync.statement, sync.sync, run, filters);
+    const { filters, byPlan } = await this.filters(run, row, sync !== undefined);
     // Every condition is compiled before the first change to the query.
     const access = marks.withAccess !== undefined && query instanceof SelectQueryBuilder ? await this.accessConditions(query, run, row) : undefined;
     const fields = query instanceof SelectQueryBuilder ? await this.fieldConditions(query, run, row) : undefined;
+    if (sync !== undefined && filters.length > 0) this.syncChecks.set(query, { ...sync, run, byPlan, conditions: sync.statement.Statements.map((s) => cloneInto(query, s)) });
     // One restrict: the caller's where becomes one group, ANDed with the plan and every .within().
     if (filters.length > 0) restrictAll(query, filters);
     if (access !== undefined) this.withAccess(query as SelectQueryBuilder, run, access);
     if (fields !== undefined) this.withFields(query as SelectQueryBuilder, fields);
   }
 
+  /**
+   * A filtered sync() statement must have reached every row of its own conditions: the delete removed them, and the
+   * soft-delete stamp's `whereNull(<deleted_at>)` no longer matches the rows it stamped. A row still reached was kept
+   * by a filter, or was changed or inserted by another transaction before the count; either way the sync() would be
+   * partial, so it is refused and its transaction rolls back.
+   */
+  async afterQueryExecution(query: QueryBuilder): Promise<void> {
+    const check = this.syncChecks.get(query);
+    if (check === undefined) return;
+    this.syncChecks.delete(query);
+    const left = await reached(check.statement, check.conditions);
+    if (left > 0) this.refusePartialSync(check, left);
+  }
+
   /** The plan of `.accessible()` and every `.within()`; inside a sync() a `none` plan is AccessDenied whatever `onNone` says. */
-  protected async filters(run: ListRun, row: PlanRow, inSync: boolean): Promise<Filter[]> {
+  protected async filters(run: ListRun, row: PlanRow, inSync: boolean): Promise<ListFilters> {
     const { marks } = run;
     const filters: Filter[] = [];
     if (marks.accessible !== undefined) {
@@ -141,24 +175,23 @@ export class AccessListMiddleware extends QueryMiddleware {
         filters.push((where) => where.where(false));
       } else if (filter.kind === 'where') filters.push(filter.apply);
     }
+    const byPlan = filters.length > 0;
     for (const refs of marks.within ?? []) filters.push((where) => applyWithin(where, refs, row));
-    return filters;
+    return { filters, byPlan };
   }
 
   /**
-   * A sync() statement the filters would narrow leaves the rows they drop behind without a sign, so it is refused
-   * instead: two counts of the statement's own conditions, without and with the filters.
+   * With a plan filter the refusal is the standard AccessDenied, whose message can reach a 403 body, so what was left
+   * goes to the log only. Without one, the application's own `.within()` narrowed the sync(): a configuration error.
    */
-  protected async refuseNarrowedSync(query: SyncStatement, sync: Sync, run: ListRun, filters: readonly Filter[]): Promise<void> {
-    const total = await reach(query, []);
-    if (total === 0) return;
-    const reached = await reach(query, filters);
-    if (reached >= total) return;
-    const what = `sync() of ${nameOf(sync.owner)}.${sync.relation} reaches ${total} ${nameOf(query.Model)} rows and`;
+  protected refusePartialSync(check: SyncCheck, left: number): never {
+    const { run, sync } = check;
+    const owner = nameOf(sync.owner);
+    const model = nameOf(check.statement.Model);
     const permission = run.marks.accessible;
-    if (permission === undefined) throw new AuthzConfigError(`authz-orm: ${what} .within() keeps ${reached} of them; a sync() is never partial`);
-    const by = run.marks.within === undefined ? permission : `${permission} with .within()`;
-    throw new AccessDenied(denied(run.domain, run.principal, permission, run.entry.type, { code: 'no_access' }), `Access denied: ${permission} on ${run.entry.type}: ${what} ${by} allows ${reached} of them; a sync() is never partial`);
+    if (!check.byPlan || permission === undefined) throw new AuthzConfigError(`authz-orm: .within() left ${model} rows behind in sync() of ${owner}.${sync.relation}; a sync() is never partial`);
+    ormLog().warn({ owner, relation: sync.relation, model, permission, left }, 'authz-orm: sync() of ${owner}.${relation} under ${permission} left ${left} ${model} rows behind; refused with AccessDenied and rolled back');
+    throw new AccessDenied(denied(run.domain, run.principal, permission, run.entry.type, { code: 'no_access' }));
   }
 
   /** `.withFields(p)`, or `.accessible(p)` under a `fields: 'filter-rows'` route (AuthzRowFields): one condition per plan atom. */
