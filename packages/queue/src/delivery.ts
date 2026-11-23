@@ -68,8 +68,8 @@ export const isNonRetryableFailure = (error: unknown): boolean => isPermanentJob
 
 /**
  * The one retry / dead-letter / drop rule every transport executes. `attempt` is the received copy's `x-retry-count`.
- * Only a `RedeliverLater` itself bypasses the retry count: the queue throws one for an in-flight duplicate only, and a
- * handler's own failure, an `IdempotencyInFlight` included, goes through the policy.
+ * Only a `RedeliverLater` itself bypasses the retry count: the queue throws one for an in-flight duplicate, or a claim that
+ * failed before the handler ran, and a handler's own failure, an `IdempotencyInFlight` included, goes through the policy.
  */
 export function decideDelivery(message: IQueueMessage, attempt: number, error: unknown, policy: DeliveryPolicy): DeliveryDecision {
   if (isCrash(error)) {
