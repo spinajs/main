@@ -200,3 +200,5 @@ When rows stay `pending` and nothing publishes them:
 ## Tracing
 
 `TraceParent` holds the `traceparent` header the message carried when it was emitted, if it had the W3C version-00 shape (`00-<trace id>-<span id>-<flags>`); otherwise it is NULL.
+
+An `emit()` that writes a row sends nothing, so it is traced as a PRODUCER span `create <MessageName>` (`messaging.operation.type` and `messaging.operation.name` both `create`), not `publish`. With tracing started, the row's headers, and so `TraceParent`, carry that span's context. The relay publishes the row later with those headers as they are and opens no span of its own, so the consumer's `process` span is a child of the `create` span. See [Trace headers](13-message-ids-and-headers.md#trace-headers).
