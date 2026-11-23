@@ -21,6 +21,7 @@ export const STUDIO_CONFIGURATION_SCHEMA = {
       properties: {
         traces: { ...positive, default: 1000 },
         spansPerTrace: { ...positive, default: 2000 },
+        traceBytes: { ...positive, default: 67108864 },
         logs: { ...positive, default: 5000 },
         slowQueries: { ...positive, default: 200 },
       },

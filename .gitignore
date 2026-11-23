@@ -130,7 +130,6 @@ graphify-out/
 !/docs/authz-rebac/
 !/docs/authz-testing/
 !/docs/authz-verify/
-!/docs/authz-workflow/
 !/docs/cli/
 !/docs/client/
 !/docs/codemods/
@@ -204,7 +203,6 @@ graphify-out/
 !/docs/session-provider-redis/
 !/docs/simulation/
 !/docs/studio/
-!/docs/studio-ui/
 !/docs/teams/
 !/docs/teams-http/
 !/docs/telemetry/
@@ -233,7 +231,6 @@ graphify-out/
 !/docs/util/
 !/docs/validation/
 !/docs/workflow/
-!/docs/workflow-http/
 # docs-packages-end
 # Release upgrade guides ( not a package docs folder )
 !/docs/upgrading/
