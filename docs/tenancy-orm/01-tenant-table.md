@@ -26,6 +26,9 @@ connection unless the application maps it:
 | `settings` | `text` | JSON object |
 | `created_at`, `updated_at` | `datetime` | |
 
+The index `tenants_state` covers `state`. `TENANTS_TABLE` and `TENANCY_CONNECTION` export the table name and the
+connection alias.
+
 `id`, `slug` and `domains` compare case-sensitively on every database. Importing `@spinajs/tenancy-orm` registers the model and
 the migration, so the table is created with the application's other migrations, also when the registry in use is
 another one.
@@ -52,6 +55,16 @@ that does not parse fails the lookup. `admitTenant` of `@spinajs/tenancy` then r
 
 These statements run in any tenant scope, and with none: the tenant table is where a scope is looked up.
 
+`toTenantRecord(row)` is the conversion the registry uses, with the same checks, for code that reads `TenantModel`
+rows itself.
+
+## Services and extension points
+
+| Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
+| --- | --- | --- | --- | --- |
+| `DbTenantRegistry` | `TenantRegistry`, `@Injectable` at import; chosen by `tenancy.registry` | `ConfigTenantRegistry` of `@spinajs/tenancy` | `DbTenantRegistry` | Set `tenancy.registry: 'DbTenantRegistry'`; subclass it to override `byDomain(domain)` or `pageSize` (200) |
+| `TenantStateService` | `TenantStateService`, `@Injectable()` | itself | none | Subclass and register with `DI.register(MyStates).as(TenantStateService)`; `current(id)` reads the row |
+
 ## States
 
 ```
@@ -67,6 +80,9 @@ const states = await DI.resolve(TenantStateService);
 await states.transition('t1', 'suspended');
 ```
 
+`nextStates(from)` lists the states a tenant may move to, `canTransition(from, to)` checks one step, and
+`isTenantState(value)` checks a value.
+
 `transition` throws `TenantUnavailable` for an unknown tenant, `InvalidOperation` for a step the machine does not have,
 and `ConcurrencyConflict` when the tenant left its state while the call was running: the update names the old state in
 its condition, so of two concurrent moves from one state only one changes the row. A row the registry cannot read is still moved,
@@ -77,3 +93,8 @@ back, after it dropped the tenant from the cache.
 `transition` drops the tenant from that cache, so the replica that made the change sees it at once; other replicas see
 it when their entry expires. A row changed past the service is seen after the same delay, or at once after
 `(await tenantRegistry()).invalidate(id)`.
+
+## Related
+
+- [Tenant models](02-tenant-models.md): confine the rows of the tenants this table lists.
+- [`@spinajs/orm`](../orm/01-connections.md): the migration and the `db.Aliases` mapping of the `tenancy` connection.
