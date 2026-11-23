@@ -182,7 +182,7 @@ Relation (list) methods, from `IRelation` and the abstract `Relation` class:
   - The junction select and delete run on the relation's connection and are qualified with the database of the junction model's own connection (its `Options.Database`).
   - A tracked model records a `delete` history entry for each orphan. Inside a tenant, the select and the orphan delete of a tenant model are confined to the tenant scope.
   - Read auditing sees the junction select when the junction model is audited.
-  - When the junction model of a many-to-many list is an `@AccessResource`, `@spinajs/authz-orm`'s [runtime guard](../authz-orm/07-runtime-guard.md) flags the junction select: `AuthzConfigError` in the test env, a warning in development, unless the call runs under `authz().runAs(SYSTEM, reason, fn)` or in a route marked `@Unscoped(reason)`.
+  - On an `@AccessResource` target or junction model, `@spinajs/authz-orm`'s [runtime guard](../authz-orm/07-runtime-guard.md#a-relation-lists-sync) checks the statements that remove orphans: mark them in the `sync()` callback, or run the call as `SYSTEM`.
   - A write-capture observer interested in a junction or target model with a composite primary key makes the orphan delete throw `write capture: <Model> needs a single-column primary key, it has <n>`, like every other write of that model.
   - The select of existing links still counts soft-deleted and archived junction rows.
 - `ManyToManyRelationList.sync()` skips members that already have a junction row, so repeated calls do not duplicate links.

@@ -1,18 +1,41 @@
 # The runtime guard
 
-`AccessGuardMiddleware` catches a multi-row select of an `@AccessResource` model that nobody authorized. In the `test` env it throws, so CI fails; in `development` it warns once per call site; in production it is off.
+`AccessGuardMiddleware` catches a multi-row select of an `@AccessResource` model that nobody authorized, and the update or delete a relation list's `sync()` builds on one. In the `test` env it throws, so CI fails; in `development` it warns once per call site; in production it is off.
 
 It only reads the builder. It never adds a filter: a flagged query still runs unfiltered where the guard is off. Pair it with the ESLint rule of `@spinajs/eslint-plugin-authz`, which flags the same at edit time.
 
 ## How it works
 
 1. `afterQueryCreation(query)` runs when a select builder of an `@AccessResource` model is created. In `warn` mode only, it records the call site: the first stack frame outside `di`, `util`, `orm`, any `orm-<name>` package, `authz` and `authz-orm` (their `src` or `lib` folders).
-2. `beforeQueryExecution(query)` lets the query through when any of these holds:
+2. `beforeQueryExecution(query)` lets a select through when any of these holds:
    - the builder is marked `.accessible(permission)` or `.unscoped(reason)`;
    - the current principal is `SYSTEM` (inside `authz().runAs(SYSTEM, reason, fn)`);
    - the request runs a route marked `@Unscoped(reason)` (authz-http stores the reason in the authz request storage);
-   - the query is a single-object load (see below).
+   - the query is a single-object load (see below);
+   - the query is the many-to-many select of existing links that a relation list's `sync()` or `update()` runs ([`relationSyncOf(query)`](../orm/05-query-builder.md#statements-of-a-relation-lists-sync-and-update) answers for it). Its rows never reach the caller.
 3. Otherwise `guardMode()` decides: `throw` raises `AuthzConfigError` (`a select of <Model> (@AccessResource '<type>') runs without .accessible(permission), .unscoped(reason) or runAs(SYSTEM)`), `warn` logs the same once per call site, `off` does nothing.
+4. An update or delete is checked only when `relationSyncOf(query)` answers for it: the one-to-many orphan delete (the soft-delete stamp for a `@SoftDelete` target) and the many-to-many orphan delete of junction rows. On an `@AccessResource` model it passes on the same marks, `SYSTEM` and route `@Unscoped`; there is no single-object exemption. Otherwise `throw` raises `AuthzConfigError` (`sync() of <Owner>.<relation> writes <Model> (@AccessResource '<type>') without .accessible(permission), .unscoped(reason) or runAs(SYSTEM)`) before the statement runs, inside the transaction of `sync()`, so nothing of that call is written, its inserts included. `warn` logs the same once per call site, `off` does nothing.
+
+### A relation list's `sync()`
+
+Mark the statements `sync()` builds through its callback, or run it as `SYSTEM`:
+
+```ts
+// nothing authorized, Comment is @AccessResource
+await post.Comments.sync();
+// test: AuthzConfigError   dev: warning   production: runs
+
+// authorized: the callback marks every write statement sync() builds
+await post.Comments.sync(function () {
+  this.accessible('comment:delete');
+});
+// a row sync() must write that the caller may not touch: AccessDenied, the whole sync rolls back
+
+// background job
+await authz().runAs(SYSTEM, 'nightly import', () => post.Comments.sync());
+```
+
+`.accessible(permission)` in the `sync()` callback refuses instead of narrowing ([Access lists](01-access-lists.md#important-behaviour)).
 
 ### Single-object loads
 
@@ -47,11 +70,14 @@ The guard has no `authz.orm` keys. It reads the app env; `authz.audit.unscoped` 
 
 ## Important behaviour
 
-- **Selects only.** Updates and deletes are not guarded; mark them with `.accessible()` yourself.
+- **Selects, and the write statements of a relation's `sync()`.** Updates and deletes the application builds itself (`Task.update(...)`, `Task.destroy(...)`) are not guarded; mark them with `.accessible()` yourself.
+- **Only `@AccessResource` models are guarded in a `sync()`.** A one-to-many target or a many-to-many junction model that is not an `@AccessResource` is never flagged; authorize the owner with `authz().assert()` before the call.
+- **The inserts of a `sync()` are not covered.** Access lists filter rows that exist; the rows `sync()` inserts or upserts pass neither the guard nor `.accessible()`.
 - **`.within()` and `.withAccess()` alone do not satisfy it.** `.within()` narrows and `.withAccess()` annotates; neither authorizes.
 - **hasMany relations are selects too.** A hasMany `populate()` of an `@AccessResource` model builds its own select; call `.accessible()` in the populate callback. A belongsTo or many-to-many populate runs no select of its own and a `@Recursive` one would filter its root rows only, so `.accessible()` in their callbacks throws `AuthzConfigError` ([Access lists](01-access-lists.md#important-behaviour)).
-- **A many-to-many `sync()` or `update()` selects its junction model.** When the junction model is an `@AccessResource`, that select of existing links is flagged like any other: `AuthzConfigError` in the `test` env, a warning in development. The select is internal to the relation, so it cannot be marked `.accessible()` or `.unscoped()`; run the call under `authz().runAs(SYSTEM, reason, fn)` or in a route marked `@Unscoped(reason)`.
-- **The call site is taken only in `warn` mode.** In `throw` and `off` mode no stack is captured.
+- **The select of existing links is not flagged.** A many-to-many `sync()` or `update()` reads its junction rows to tell existing links from missing ones; the guard lets that read through, so `update()` of a list with an `@AccessResource` junction model needs no mark.
+- **The call site is taken only in `warn` mode.** In `throw` and `off` mode no stack is captured. For a select it is taken when the builder is created; for a `sync()` statement it is taken when the guard is about to warn, from the async stack, which holds the app's `async` function that awaited `sync()`.
+- **Behind a queue of outermost transactions the app's line is lost.** SQLite runs one outermost transaction at a time through a queue whose `.then()` ends the async stack, so a `sync()` that opens its own transaction there has no app frame on it: the warning names `unknown call site` and comes once per owner and relation instead of once per line. A `sync()` inside the app's own transaction (a savepoint), and drivers that run transactions concurrently, keep the app's line.
 - **Plain models are ignored.** A select of a model without `@AccessResource` is never flagged.
 
 ## Best practices

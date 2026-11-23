@@ -98,6 +98,12 @@ restrict(query, (where) => {
 ## Important behaviour
 
 - **No permit at all is a 403.** A `none` plan throws `AccessDenied` (H16), never an empty list, unless the call says `{ onNone: 'empty' }`. A permission without `list: true` throws `AuthzConfigError`.
+- **In a `sync()` callback, `.accessible()` refuses instead of narrowing.** A narrowed orphan delete would leave rows behind without a sign. On the update or delete a relation list's `sync()` builds itself ([The runtime guard](07-runtime-guard.md#a-relation-lists-sync)):
+  - a plan that allows every row runs the statement as it is;
+  - a `none` plan is `AccessDenied`, with `{ onNone: 'empty' }` too;
+  - a plan that narrows costs two counts of the statement's own conditions, without and with the plan, run as `SYSTEM` in the statement's transaction. When the plan reaches fewer rows, `AccessDenied` (`Access denied: <permission> on <type>: sync() of <Owner>.<relation> reaches <n> <Model> rows and <permission> allows <m> of them; a sync() is never partial`) rejects `sync()` before the statement runs, and its transaction rolls back the inserts of the same call;
+  - `.within()` there is counted the same way; without `.accessible()` its refusal is `AuthzConfigError` (`… and .within() keeps <m> of them; a sync() is never partial`);
+  - `.unscoped(reason)` runs the statement unfiltered and writes its `unscoped` audit entry.
 - **The query changes all at once or not at all.** Every condition, the `.withAccess()` ones included, is compiled in a detached group first. A compiler that throws `AuthzConfigError` leaves the builder as the caller wrote it.
 - **A term must add a condition.** A compiler that adds nothing, or only empty nested groups, fails the query with `AuthzConfigError`: such a group compiles to no condition and would keep every row. `WhereBuilder.hasCondition()` looks through nested groups.
 - **Deny terms are negated with `whereNot()`.** The deny group compiles to `NOT ( … )`. A `NULL` inside it makes the negation `NULL`, which keeps no row.
