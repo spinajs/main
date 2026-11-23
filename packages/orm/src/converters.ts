@@ -100,16 +100,24 @@ export class JsonValueConverter extends ValueConverter {
     return JSON.stringify(value);
   }
 
+  /**
+   * A driver may hand over a value it parsed already ( postgres json / jsonb ), so a value that is not a
+   * string, or a string that is not JSON text, is that value itself.
+   */
   public fromDB(value: any): any {
     if (value === null || value === undefined) {
       return null;
     }
 
-    if (_.isObject(value) || _.isArray(value)) {
+    if (typeof value !== 'string') {
       return value;
     }
 
-    return JSON.parse(value);
+    try {
+      return JSON.parse(value);
+    } catch {
+      return value;
+    }
   }
 }
 
