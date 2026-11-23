@@ -18,13 +18,21 @@ const overdue = await Invoice.where('status', 'overdue').acrossTenants('nightly 
 ```
 
 In the callback of a relation list's `sync()`, `this.acrossTenants(reason)` widens the statement that removes the
-orphans (the junction rows of a many-to-many list, so its junction model must be a tenant model) to every tenant;
-without it that statement stays in the current tenant:
+orphans to every tenant; without it that statement stays in the current tenant:
 
 ```ts
 await invoice.Lines.sync(function () {
   this.acrossTenants('merge of duplicate tenants');
 });
+```
+
+For a many-to-many list that statement is the junction delete, so the junction model must be a tenant model, and it is
+the only statement the call widens: `sync()` first reads the existing links in the current scope, and the callback
+cannot reach that read. The call therefore needs a tenant scope and a connection without tenant settings. Otherwise run
+the whole `sync()` inside `runAcrossTenants(reason, fn)`:
+
+```ts
+await runAcrossTenants('merge of duplicate tenants', () => invoice.Tags.sync());
 ```
 
 ## Services and extension points
@@ -38,7 +46,7 @@ await invoice.Lines.sync(function () {
 `TenantQueryMethods` is the type of the added method. The package augments `ISelectQueryBuilder`, `SelectQueryBuilder`,
 `IUpdateQueryBuilder`, `UpdateQueryBuilder`, `IDeleteQueryBuilder`, `DeleteQueryBuilder` and
 `IRelationSyncStatement` (the `this` of a `sync()` callback) of `@spinajs/orm`; `.acrossTenants()` returns the same
-builder type (`SameQuery`).
+builder type (`SameQuery`), and `this`'s type for the callback's statement.
 
 `acrossTenantsReason(builder)` returns the reason a builder carries, or `undefined`. It also reads the mark through an
 execution copy made from the marked builder, such as a page of `stream()`, and ignores a mark set on a class prototype.
@@ -46,7 +54,11 @@ execution copy made from the marked builder, such as a page of `stream()`, and i
 ## Important behaviour
 
 - The reason is required and must not be blank.
-- It works inside a tenant and with no scope, and widens that one statement only.
+- On a select, update or delete builder it works inside a tenant and with no scope, and widens that one statement only.
+- In the `sync()` of a many-to-many list only the junction delete is widened. The read of existing links before it
+  runs in the current scope: with no scope it throws `TenantRequired`, and on a connection with tenant settings it pins
+  the tenant, so the widened delete throws `TenantSwitchDenied`. There, run the whole `sync()` inside
+  `runAcrossTenants(reason, fn)`.
 - A clone of a marked select carries the mark (`TenantSelectExtension.onClone`).
 - A to-one populate is part of the statement and is widened with it.
 - A to-many populate runs as a statement of its own in the scope around it: inside a tenant, the other tenants' rows
