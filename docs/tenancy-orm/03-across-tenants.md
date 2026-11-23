@@ -35,6 +35,10 @@ the whole `sync()` inside `runAcrossTenants(reason, fn)`:
 await runAcrossTenants('merge of duplicate tenants', () => invoice.Tags.sync());
 ```
 
+Both forms only remove links. A member with no link row in the scope of that read makes `sync()` throw and roll back,
+because `sync()` writes the new junction row without its tenant column: inside a tenant that includes a member linked
+only in another tenant, inside `runAcrossTenants` a member linked in no tenant.
+
 ## Services and extension points
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
