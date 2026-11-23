@@ -11,8 +11,9 @@ import { QueryMiddleware } from '../interfaces.js';
 import { sqlDialectOf } from '../sql-dialect.js';
 import { WriteObserver } from './contracts.js';
 import type { CaptureInterest, CapturedRow, RowChange, WriteStatement } from './contracts.js';
-import { captureKeyText, insertedKeys, lockedReads, upsertKeys, writeTargetKeys } from './keys.js';
-import { readRows } from './read.js';
+import { captureKeyText, countKeyless, insertedKeyTexts, lockedReads, upsertKeys, writeTargetKeyTexts } from './keys.js';
+import { keylessRead, mergeReads, noReads, readRows } from './read.js';
+import type { Reads } from './read.js';
 
 interface Watch {
   readonly observer: WriteObserver;
@@ -29,7 +30,7 @@ interface Plan {
 
 interface Pending {
   readonly plan: Plan;
-  readonly before: ReadonlyMap<string, CapturedRow>;
+  readonly before: Reads;
   /** An upsert's conflict columns, empty for any other statement; undefined when the rows of the upsert cannot be known. */
   readonly conflict: readonly string[] | undefined;
 }
@@ -141,12 +142,11 @@ async function conflictColumns(query: InsertQueryBuilder, plan: Plan): Promise<s
 }
 
 /** The rows holding a value the upsert supplies for one of its conflict columns: the rows it may update or replace. */
-async function conflictingRows(query: InsertQueryBuilder, plan: Plan, columns: readonly string[]): Promise<Map<string, CapturedRow>> {
-  const out = new Map<string, CapturedRow>();
-  for (const column of columns) {
-    for (const [key, row] of await readRows(query.Driver, plan.statement.model, plan.table, plan.pk, plan.columns, upsertKeys(query, column), column)) out.set(key, row);
-  }
-  refuseAbove(plan, out.size, maxRows());
+async function conflictingRows(query: InsertQueryBuilder, plan: Plan, columns: readonly string[]): Promise<Reads> {
+  const reads: Reads[] = [];
+  for (const column of columns) reads.push(await readRows(query.Driver, plan.statement.model, plan.table, plan.pk, plan.columns, upsertKeys(query, column), column));
+  const out = mergeReads(reads);
+  refuseAbove(plan, out.rows.size, maxRows());
   return out;
 }
 
@@ -160,31 +160,32 @@ function refuseAbove(plan: Plan, rows: number, max: number): void {
   if (rows > max) throw new WriteCaptureLimitExceeded(`write capture: an ${plan.statement.kind} of ${plan.statement.model.name} reaches ${rows} rows, above db.WriteCapture.MaxRows (${max}); narrow the statement or raise the limit`);
 }
 
-async function targetRows(query: QueryBuilder, plan: Plan, conflict: readonly string[] | undefined): Promise<Map<string, CapturedRow>> {
+async function targetRows(query: QueryBuilder, plan: Plan, conflict: readonly string[] | undefined): Promise<Reads> {
   const max = maxRows();
   if (query instanceof InsertQueryBuilder) {
     refuseAbove(plan, query.Values.length, max);
-    return conflict && conflict.length > 0 ? conflictingRows(query, plan, conflict) : new Map<string, CapturedRow>();
+    return conflict && conflict.length > 0 ? conflictingRows(query, plan, conflict) : noReads();
   }
   // One key above the limit is enough to refuse, so a runaway statement never loads all of its keys.
-  const keys = query instanceof UpdateQueryBuilder || query instanceof DeleteQueryBuilder ? await writeTargetKeys(query, plan.pk, max === Infinity ? undefined : max + 1) : [];
-  refuseAbove(plan, keys.length, max);
-  return readRows(query.Driver, plan.statement.model, plan.table, plan.pk, plan.columns, keys, plan.pk, lockedReads(query.Driver));
+  const target = query instanceof UpdateQueryBuilder || query instanceof DeleteQueryBuilder ? await writeTargetKeyTexts(query, plan.pk, max === Infinity ? undefined : max + 1) : { keys: [], keyless: [] };
+  refuseAbove(plan, target.keys.length, max);
+  const rows = await readRows(query.Driver, plan.statement.model, plan.table, plan.pk, plan.columns, target.keys, plan.pk, lockedReads(query.Driver));
+  return mergeReads([keylessRead(target.keyless), rows]);
 }
 
 /** Undefined when the rows an insert wrote cannot be known. */
-async function rowsAfter(query: QueryBuilder, { plan, before, conflict }: Pending, result: unknown): Promise<ReadonlyMap<string, CapturedRow> | undefined> {
-  const byBeforeKeys = () => readRows(query.Driver, plan.statement.model, plan.table, plan.pk, plan.columns, [...before.keys()]);
-  if (!(query instanceof InsertQueryBuilder)) return allDeleted(plan, before, result) ? new Map<string, CapturedRow>() : byBeforeKeys();
+async function rowsAfter(query: QueryBuilder, { plan, before, conflict }: Pending, result: unknown): Promise<Reads | undefined> {
+  const byBeforeKeys = () => readRows(query.Driver, plan.statement.model, plan.table, plan.pk, plan.columns, [...before.rows.keys()]);
+  if (!(query instanceof InsertQueryBuilder)) return allDeleted(plan, before.rows, result) ? noReads() : byBeforeKeys();
   if (conflict === undefined) return undefined;
   const upsert = conflict.length > 0;
   // A row found before is read again by its key too: an update of its conflict column would hide it from the values.
-  const conflicting = upsert ? new Map([...(await byBeforeKeys()), ...(await conflictingRows(query, plan, conflict))]) : new Map<string, CapturedRow>();
+  const conflicting = upsert ? mergeReads([await byBeforeKeys(), await conflictingRows(query, plan, conflict)]) : noReads();
   if (upsert && everyRowConflicts(query, conflict)) return conflicting;
-  const keys = insertedKeys(query, result, plan.pk);
+  const keys = insertedKeyTexts(query, result, plan.pk);
   if (keys === undefined) return undefined;
-  const inserted = await readRows(query.Driver, plan.statement.model, plan.table, plan.pk, plan.columns, keys.filter((k) => !conflicting.has(k)));
-  return new Map([...conflicting, ...inserted]);
+  const inserted = await readRows(query.Driver, plan.statement.model, plan.table, plan.pk, plan.columns, keys.keys.filter((k) => !conflicting.rows.has(k)));
+  return mergeReads([conflicting, keylessRead(keys.keyless), inserted]);
 }
 
 function rowsAffected(result: unknown): unknown {
@@ -224,12 +225,14 @@ export class WriteCaptureMiddleware extends QueryMiddleware {
     this.pending.delete(query);
     const { plan, before } = pending;
     const after = await rowsAfter(query, pending, result);
-    const changes = after === undefined ? [] : changesOf(before, after);
+    const changes = after === undefined ? [] : changesOf(before.rows, after.rows);
+    const keylessRows = after === undefined ? 0 : countKeyless([...before.keyless, ...after.keyless]);
     for (const { observer, interest } of plan.watches) {
       await observer.observe({
         ...plan.statement,
         driver: query.Driver,
         unknownKeys: after === undefined,
+        keylessRows,
         rows: changes.map((c) => ({ id: c.id, before: project(c.before, plan.pk, interest.columns), after: project(c.after, plan.pk, interest.columns) })),
       });
     }

@@ -1,3 +1,5 @@
+import { isDeepStrictEqual } from 'node:util';
+
 import { DI } from '@spinajs/di';
 import { InvalidArgument, NotSupported } from '@spinajs/exceptions';
 
@@ -27,7 +29,37 @@ export function captureKeyText(value: unknown): string | undefined {
   return undefined;
 }
 
-const uniqueKeys = (values: readonly unknown[]): string[] => [...new Set(values.map(captureKeyText).filter((v): v is string => v !== undefined))];
+/** Key values as their distinct texts, and the values among them that have no text. */
+export interface KeyTexts {
+  readonly keys: string[];
+  readonly keyless: unknown[];
+}
+
+export function keyTexts(values: readonly unknown[]): KeyTexts {
+  const keys = new Set<string>();
+  const keyless: unknown[] = [];
+  for (const value of values) {
+    const key = captureKeyText(value);
+    if (key === undefined) keyless.push(value);
+    else keys.add(key);
+  }
+  return { keys: [...keys], keyless };
+}
+
+/**
+ * The rows behind the keyless key values of several reads of one statement. One read meets a row once, so values are
+ * compared only with those of earlier reads, by value, as the key has no text to compare.
+ */
+export function countKeyless(reads: readonly (readonly unknown[])[]): number {
+  let met: readonly unknown[] = [];
+  for (const values of reads) {
+    const earlier = met;
+    met = met.concat(values.filter((v) => !earlier.some((e) => isDeepStrictEqual(e, v))));
+  }
+  return met.length;
+}
+
+const uniqueKeys = (values: readonly unknown[]): string[] => keyTexts(values).keys;
 
 const isRow = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null;
 
@@ -54,6 +86,10 @@ export const lockedReads = (driver: OrmDriver): boolean => driver.CurrentTransac
  * `limit`, at most that many keys are read.
  */
 export async function writeTargetKeys(query: UpdateQueryBuilder<unknown> | DeleteQueryBuilder<unknown>, pk: string, limit?: number): Promise<string[]> {
+  return (await writeTargetKeyTexts(query, pk, limit)).keys;
+}
+
+export async function writeTargetKeyTexts(query: UpdateQueryBuilder<unknown> | DeleteQueryBuilder<unknown>, pk: string, limit?: number): Promise<KeyTexts> {
   const model = query.Model;
   if (!model) throw new InvalidArgument('write capture: the keys of a write are read through its model, and this query has none');
   return captureReadScope().run(async () => {
@@ -70,7 +106,7 @@ export async function writeTargetKeys(query: UpdateQueryBuilder<unknown> | Delet
     select.columns([pk]);
     if (limit !== undefined) select.take(limit);
     const rows = await select.asRaw<Record<string, unknown>[]>();
-    return uniqueKeys(rows.map((r) => columnValue(r, pk)));
+    return keyTexts(rows.map((r) => columnValue(r, pk)));
   });
 }
 
@@ -93,15 +129,20 @@ function insertResultOf(result: unknown): InsertResult {
 
 /** The keys an insert wrote, read the way ModelBase.insert backfills them; undefined when they cannot be known. */
 export function insertedKeys(query: InsertQueryBuilder, result: unknown, pk: string): string[] | undefined {
+  return insertedKeyTexts(query, result, pk)?.keys;
+}
+
+export function insertedKeyTexts(query: InsertQueryBuilder, result: unknown, pk: string): KeyTexts | undefined {
   const rows = query.Values.length;
-  if (rows === 0) return [];
+  if (rows === 0) return { keys: [], keyless: [] };
   const supplied = query.getColumnValues(pk);
-  if (supplied.length === rows && supplied.every((v) => v !== null && v !== undefined)) return uniqueKeys(supplied);
+  if (supplied.length === rows && supplied.every((v) => v !== null && v !== undefined)) return keyTexts(supplied);
   const r = insertResultOf(result);
   const returning = Array.isArray(r.Returning) ? r.Returning.filter(isRow) : [];
   const returned = returning.map((x) => columnValue(x, pk));
-  if (returned.length === rows && returned.every((v) => v !== undefined && v !== null)) return uniqueKeys(returned);
-  return keysFromLastInsertId(query, r, supplied);
+  if (returned.length === rows && returned.every((v) => v !== undefined && v !== null)) return keyTexts(returned);
+  const keys = keysFromLastInsertId(query, r, supplied);
+  return keys && { keys, keyless: [] };
 }
 
 function keysFromLastInsertId(query: InsertQueryBuilder, r: InsertResult, supplied: readonly unknown[]): string[] | undefined {

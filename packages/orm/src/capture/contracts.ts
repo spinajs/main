@@ -34,6 +34,8 @@ export type CapturedWrite = WriteStatement & {
   readonly rows: readonly RowChange[];
   /** An insert whose keys the driver did not report; `rows` is then empty. */
   readonly unknownKeys: boolean;
+  /** Rows the statement reached or wrote whose primary key value has no text, so they are missing from `rows`. */
+  readonly keylessRows: number;
 };
 
 export abstract class WriteObserver {

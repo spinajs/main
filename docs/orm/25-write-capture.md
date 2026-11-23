@@ -36,6 +36,8 @@ export class InvoiceStatusLog extends WriteObserver {
 
 `CapturedWrite` is the `WriteStatement` plus the driver the statement ran on (inside its transaction when one is open) and `rows`: one `RowChange` per row the statement reached, unchanged rows included. A `RowChange` has the primary key as text (`id`), `before` (undefined when the row did not exist) and `after` (undefined when the row is gone), each projected to the columns the observer asked for plus the primary key. `columns: '*'` reads the whole row.
 
+A row whose primary key value has no key text (bytes, a date, a number that is not a safe integer; see `captureKeyText` below) cannot be given an `id`, so it is not in `rows`. `keylessRows` counts such rows, once per statement: those the key select of an update or delete finds, those an insert supplies or the driver reports, and those the reads of an upsert find. It is `0` when every row has a key with text, and when `unknownKeys` is true (an insert whose keys the driver did not report, or an upsert whose rows cannot be found, see below). An observer that must see every row refuses a write with `keylessRows > 0` or records that rows are missing.
+
 The optional `prepare(statement)` gets the same `WriteStatement` and runs before any capture read, inside the transaction; throwing from it aborts the statement. Throwing from `observe()` rejects the write and rolls it back inside a transaction; without one the statement has already committed (see [Concurrent writers](#concurrent-writers)).
 
 ## What is read, and when
@@ -54,7 +56,7 @@ The before and after reads are raw selects on the statement's own connection, so
 
 The key select runs through `CaptureReadScope`. By default it runs as it is; `@spinajs/authz-orm` registers a scope that runs it as `SYSTEM`, so row-level filters do not hide rows the write reaches. `captureReadScope()` returns the registered scope.
 
-The helpers the middleware uses are exported for observers and tests: `writeTargetKeys(query, pk)`, `upsertKeys(query, pk)`, `insertedKeys(query, result, pk)` and `captureKeyText(value)`, which turns a key into the text `RowChange.id` holds (strings, safe integers and bigints; anything else has no key text).
+The helpers the middleware uses are exported for observers and tests: `writeTargetKeys(query, pk)`, `upsertKeys(query, pk)`, `insertedKeys(query, result, pk)` and `captureKeyText(value)`, which turns a key into the text `RowChange.id` holds (strings, safe integers and bigints; anything else has no key text, and a row with such a key counts in `keylessRows` instead).
 
 ## Concurrent writers
 
@@ -79,6 +81,7 @@ The before and after reads are raw `driver.select()` statements, which never lea
 
 - The model needs a single-column primary key. A captured write of a model with a composite key fails with `write capture: <Model> needs a single-column primary key, it has <n>`.
 - An insert whose keys the driver does not report (a multi-row insert without `RETURNING` on SQLite or MSSQL, an insert split into several statements, an insert builder made without `ModelBase.insert`) reaches the observers with `unknownKeys: true` and no rows. What to do then is the observer's decision.
+- A row whose primary key value has no key text (a `BLOB` key, a date) is not in `rows`; the statement reaches the observers with it counted in `keylessRows`.
 - An update that writes the primary key reaches the observers with `after: undefined` for the old key, as if the row were gone, and the row under its new key is not reported. An observer that keys its records by the primary key refuses such updates itself.
 - The key select copies the where clauses the statement has when the capture runs (order 91): those from its creation and from middlewares of a lower order. Restrictions a later middleware adds (the authz access lists, order 100) and the `LIMIT` of a delete are not in it, so it may find rows the statement leaves alone. They reach the observers as unchanged rows and count against `MaxRows`, and a delete then reads them again after the statement.
 - A soft delete of a `@SoftDelete` model is an update of its deleted-at column and reaches the observers as one.
