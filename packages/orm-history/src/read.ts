@@ -96,7 +96,11 @@ function modelHistory(model: ModelBaseClass, spec: HistorySpec | undefined): Mod
     },
     byActor: async (actor, q) => listed((query) => trail().byActor(actor, query), { ...windowOf(spec, q, q?.afterSeq), subjectType: spec.entity }, q),
     asOf: async (id, at) => asOfFrom(trail(), spec, sourceOf(spec), keyOf(id), at),
-    forget: async (id) => trail().forget({ type: spec.entity, id: keyOf(id) }, sourceOf(spec)),
+    // Every source of the trail, not the model's connection only; a model the ORM has not loaded is refused as the reads refuse it.
+    forget: async (id) => {
+      sourceOf(spec);
+      return trail().forget({ type: spec.entity, id: keyOf(id) });
+    },
   };
 }
 

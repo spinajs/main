@@ -86,7 +86,14 @@ const LOGGER = {
     { name: 'orm-history', level: 'warn', target: 'Memory' },
   ],
 };
-const AUDIT = { trails: { recorded: { store: 'MemoryAuditStore' }, logged: { store: 'LogAuditStore' } } };
+const trailOn = (dialect: Dialect): string => `history-${dialect}`;
+const AUDIT = {
+  trails: {
+    recorded: { store: 'MemoryAuditStore' },
+    logged: { store: 'LogAuditStore' },
+    ...Object.fromEntries(DIALECTS.map((d) => [trailOn(d), { table: `history_${d}`, connection: d }])),
+  },
+};
 
 /** One ORM over sqlite `:memory:` (the default connection, migrated when opened) and PGlite, with tracked models defined per test. */
 export class HistoryDb {
@@ -115,6 +122,11 @@ export class HistoryDb {
 
   static dialects(): readonly Dialect[] {
     return DIALECTS;
+  }
+
+  /** A table trail whose own connection is the one of `dialect`; its table, `history_<dialect>`, is not created. */
+  static trailOn(dialect: Dialect): string {
+    return trailOn(dialect);
   }
 
   /** A connection alias configured for the connection of `dialect`. */

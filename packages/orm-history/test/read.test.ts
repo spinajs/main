@@ -95,10 +95,11 @@ describe('history reads', function () {
         expect(left.map((e) => [e.op, e.redacted, e.before, e.after, e.changed])).to.deep.eq([['insert', true, null, null, []], ['update', true, null, null, []]]);
         expect((await Invoice.history().of('r6'))[0].redacted).to.eq(false);
 
-        // On the model's connection, the source that was redacted; the trail's own connection is `default`, sqlite here.
+        // Beside the entries, on the model's connection. The trail's own connection, `default` (sqlite here), is erased
+        // too and records what it blanked there.
         const recorded = await erasures(dialect);
         expect(recorded.map((r) => [r.kind, r.subject_type, r.subject_id, JSON.parse(String(r.data)) as unknown])).to.deep.eq([['custom', 'invoice', 'r4', { redacted: 2 }]]);
-        if (dialect !== 'sqlite') expect(await erasures('sqlite')).to.deep.eq([]);
+        if (dialect !== 'sqlite') expect((await erasures('sqlite')).map((r) => [r.subject_id, JSON.parse(String(r.data)) as unknown])).to.deep.eq([['r4', { redacted: 0 }]]);
       });
 
       it('windows a row and the entity by time and by seq', async () => {

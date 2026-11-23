@@ -70,7 +70,7 @@ export async function changesOf(member: Member) {
 | `since(seq, query?)` | | The entries of the model's rows after `seq`, for a consumer that follows the changes, and the entity's `lost` markers. |
 | `byActor(actor, query?)` | | The entries of the model's rows whose `actor` is that principal key (`user:42`), and the entity's `lost` markers recorded under that actor. |
 | `asOf(id, at)` | `asOf(at)` | The row's state at an instant; see [As-of and erasure](03-as-of-and-erasure.md). |
-| `forget(id)` | `forget()` | Erases the row's payloads and returns how many entries it redacted; see [As-of and erasure](03-as-of-and-erasure.md). |
+| `forget(id)` | `forget()` | Erases the row's payloads in every source of the trail and returns how many events it redacted; see [As-of and erasure](03-as-of-and-erasure.md). |
 
 `since` and `byActor` list the entity's `lost` markers (`op: 'lost'`, `id: '*'`, see [Inserts whose keys are not reported](01-tracking-models.md#inserts-whose-keys-are-not-reported)) beside the row entries: skip them, or pass `ops`.
 
