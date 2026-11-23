@@ -117,13 +117,21 @@ export class JsonValueConverter extends ValueConverter {
  * UUid converter to & from db as binary
  */
 export class UuidConverter extends ValueConverter {
-  public toDB(value: string) {
-    const buffer = Buffer.alloc(16);
-
+  /** 16 bytes are already the database form ( a key read back raw, a value copied from a row ) and are returned as they are. */
+  public toDB(value: string | Uint8Array) {
     if (!value) {
       return null;
     }
 
+    if (typeof value !== 'string') {
+      if (value.length === 16) {
+        return value;
+      }
+
+      throw new InvalidArgument(`a uuid in database form is 16 bytes, got ${value.length}`);
+    }
+
+    const buffer = Buffer.alloc(16);
     buffer.write(value.replace(/-/g, ''), 'hex');
 
     return buffer;

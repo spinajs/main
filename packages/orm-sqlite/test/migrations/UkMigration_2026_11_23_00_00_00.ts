@@ -1,4 +1,4 @@
-import { OrmMigration, OrmDriver, Migration } from '@spinajs/orm';
+import { OrmMigration, OrmDriver, Migration, RawQuery } from '@spinajs/orm';
 
 @Migration('sqlite')
 export class UkMigration_2026_11_23_00_00_00 extends OrmMigration {
@@ -20,6 +20,17 @@ export class UkMigration_2026_11_23_00_00_00 extends OrmMigration {
     });
 
     await connection.schema().createTable('uk_note', (table) => {
+      table.int('Id').primaryKey().autoIncrement().unique();
+      table.string('Text');
+      table.uuid('tag_id');
+    });
+
+    await connection.schema().createTable('uk_gen_tag', (table) => {
+      table.uuid('Id').primaryKey().unique().default().raw(RawQuery.create('randomblob(16)'));
+      table.string('Name');
+    });
+
+    await connection.schema().createTable('uk_gen_note', (table) => {
       table.int('Id').primaryKey().autoIncrement().unique();
       table.string('Text');
       table.uuid('tag_id');

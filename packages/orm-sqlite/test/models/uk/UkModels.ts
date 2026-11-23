@@ -30,6 +30,35 @@ export class UkNote extends ModelBase {
   public Tag: SingleRelation<UkTag>;
 }
 
+// The database generates the key (DEFAULT randomblob(16)), so save() reads it back raw through RETURNING.
+@Connection('sqlite')
+@Model('uk_gen_tag')
+export class UkGenTag extends ModelBase {
+  @Primary()
+  @Uuid()
+  public Id: string;
+
+  public Name: string;
+
+  @HasMany('UkGenNote', { foreignKey: 'tag_id', primaryKey: 'Id' })
+  public Notes: Relation<UkGenNote, UkGenTag>;
+}
+
+@Connection('sqlite')
+@Model('uk_gen_note')
+export class UkGenNote extends ModelBase {
+  @Primary()
+  public Id: number;
+
+  public Text: string;
+
+  @Uuid()
+  public tag_id: string;
+
+  @BelongsTo(UkGenTag, 'tag_id', 'Id')
+  public Tag: SingleRelation<UkGenTag>;
+}
+
 @Connection('sqlite')
 @Model('uk_order_tag')
 export class UkOrderTag extends ModelBase {

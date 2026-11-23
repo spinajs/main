@@ -3,7 +3,7 @@ import * as chai from 'chai';
 import 'mocha';
 import { extractModelDescriptor } from '@spinajs/orm';
 import { bootUow, registerUowConnection, rows } from './uowFixture.js';
-import { UkNote, UkOrder, UkOrderTag, UkTag } from './models/uk/UkModels.js';
+import { UkGenNote, UkGenTag, UkNote, UkOrder, UkOrderTag, UkTag } from './models/uk/UkModels.js';
 import './migrations/UkMigration_2026_11_23_00_00_00.js';
 
 const expect = chai.expect;
@@ -128,6 +128,32 @@ describe('foreign keys written from a relation pass the column converter', funct
       expect(Buffer.isBuffer(key)).to.be.true;
       expect(textOf(key)).to.eq(b);
       await expectFoundThroughKey();
+    });
+  });
+
+  describe('a key already in the database form', () => {
+    it('insert() of a child whose relation-managed key is assigned as bytes writes those bytes', async () => {
+      const tagRow = (await rows<{ Id: Buffer }>('uk_tag')).find((row) => textOf(row.Id) === b)!;
+      const note = Object.assign(new UkNote({ Text: 'note' }), { tag_id: tagRow.Id });
+
+      await note.insert();
+
+      const [stored] = await rows<{ tag_id: unknown }>('uk_note');
+      expect(stored.tag_id).to.deep.eq(tagRow.Id);
+      expect((await UkNote.where('tag_id', b)).map((n) => n.Text)).to.deep.eq(['note']);
+    });
+
+    it('save() of a parent whose key the database generates writes the key of its new child as the same bytes', async () => {
+      const tag = new UkGenTag({ Name: 'generated' });
+      tag.Notes.push(new UkGenNote({ Text: 'note' }));
+
+      await tag.save();
+
+      const [tagRow] = await rows<{ Id: unknown }>('uk_gen_tag');
+      const [noteRow] = await rows<{ tag_id: unknown }>('uk_gen_note');
+      expect(Buffer.isBuffer(tagRow.Id) && tagRow.Id.length, 'generated key').to.eq(16);
+      expect(noteRow.tag_id).to.deep.eq(tagRow.Id);
+      expect((await UkGenNote.where('tag_id', textOf(tagRow.Id))).map((n) => n.Text)).to.deep.eq(['note']);
     });
   });
 });
