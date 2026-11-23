@@ -87,15 +87,18 @@ async function listed(read: Page, query: AuditQuery, q: HistoryQuery | undefined
 
 /**
  * The model's connection and the trail's own, not every connection that holds the trail table: a subject carries no
- * connection, so a model of the same entity on another connection has its own rows under the same ids.
+ * connection, so a model of the same entity on a third connection has its own rows under the same ids. One of the same
+ * entity on the trail's own connection is erased with it.
  */
 async function forgetOn(trail: AuditTrail, spec: HistorySpec, subject: AuditSubject): Promise<number> {
   const source = sourceOf(spec);
   const own = trail.config.connection;
-  const redacted = await trail.forget(subject, source);
   // By driver: the trail's `default` or an alias of the model's connection is that connection, erased and recorded once.
   const same = DI.get(Orm)?.Connections.get(own) === extractModelDescriptor(spec.model)?.Driver;
-  return same ? redacted : redacted + (await trail.forget(subject, own));
+  // The trail's own first: a trail table missing there fails the call before anything is erased, while the model's
+  // connection holds the table by construction.
+  const elsewhere = same ? 0 : await trail.forget(subject, own);
+  return elsewhere + (await trail.forget(subject, source));
 }
 
 function modelHistory(model: ModelBaseClass, spec: HistorySpec | undefined): ModelHistory {

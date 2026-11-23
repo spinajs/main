@@ -103,12 +103,59 @@ describe("forget erases a row on the model's connection and the trail's own", fu
         expect(await erasures('spare')).to.deep.eq([['r1', { redacted: 1 }]]);
       });
 
+      it("rejects with the model's connection untouched when the trail's own connection has no trail table", async () => {
+        await table.down(db.driver(elsewhere));
+
+        let failure: unknown;
+        await Invoice.history()
+          .forget('r1')
+          .catch((err: unknown) => (failure = err));
+
+        expect(failure).to.be.instanceOf(Error).with.property('message').that.includes(trailConfig(trail).table);
+        expect((await subjectRows(dialect, 'r1')).map((r) => [r.action, r.data === ''])).to.deep.eq([
+          ['insert', false],
+          ['update', false],
+        ]);
+        expect(await erasures(dialect)).to.deep.eq([]);
+      });
+
       it('answers redacted as of an instant after the erasure', async () => {
         await Invoice.history().forget('r1');
         const [, update] = await Invoice.history().of('r1');
 
         expect(await Invoice.history().asOf('r1', new Date(Date.now() + 1000))).to.deep.eq({ state: 'redacted', seq: update.seq });
         expect((await Invoice.history().asOf('r2', new Date(Date.now() + 1000))).state).to.eq('present');
+      });
+    });
+
+    describe(`${dialect}: a model that declares an alias of the trail's connection`, () => {
+      const trail = HistoryDb.trailOn(dialect);
+      let table: TrailTable;
+
+      beforeEach(async () => {
+        table = new TrailTable(trailConfig(trail).table);
+        await table.down(db.driver(dialect));
+        await table.up(db.driver(dialect));
+      });
+
+      afterEach(async () => {
+        await db.clear();
+        await table.down(db.driver(dialect));
+      });
+
+      it('erases and records once, and counts each event once', async () => {
+        const Invoice = await db.define(
+          { name: 'Invoice', table: 'invoice', columns: { status: 'TEXT' }, connection: HistoryDb.aliasOf(dialect), decorate: (c) => registerHistory(c, { trail }) },
+          dialect,
+        );
+        await Invoice.insert({ id: 'r1', status: 'a' });
+        await Invoice.update({ status: 'b' }).where('id', 'r1');
+        await audit().record({ kind: 'action', action: 'export', subject: { type: 'invoice', id: 'r1' }, data: { to: 'crm' } }, { trail, onFailure: 'reject' });
+
+        expect(await Invoice.history().forget('r1')).to.eq(3);
+
+        const rows = rowsOf(await db.driver(dialect).select().from(trailConfig(trail).table).orderBy('seq'));
+        expect(rows.filter((r) => r.action === 'erasure').map((r) => [r.subject_id, JSON.parse(String(r.data)) as unknown])).to.deep.eq([['r1', { redacted: 3 }]]);
       });
     });
   }
