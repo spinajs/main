@@ -1,5 +1,6 @@
 export { HistoryConfigError, HistoryWriteError } from './errors.js';
 export type { AsOf, HistoryEntry, HistoryOp, HistoryQuery, ModelHistory, RowHistory, TrackedModel, TrackedRow } from './types.js';
+// The bare imports register with DI and the configuration schema; nothing else loads observer.js and read.js.
 import './rules.js';
 export { History, historyOf, registerHistory } from './registry.js';
 export type { HistoryOptions } from './registry.js';
