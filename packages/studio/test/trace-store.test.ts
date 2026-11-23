@@ -95,6 +95,20 @@ describe('TraceStore', () => {
     expect(s.list({}).items[0]).to.include({ rootName: 'GET /orders', rootKind: 'server', complete: false, spanCount: 1 });
   });
 
+  it('cuts the name of an open root at 2 KiB', () => {
+    const { store: s, processor } = store();
+    processor.onStart(fakeSpan({ trace: 'l', id: '1', name: 'x'.repeat(3000) }), NO_PARENT);
+    expect(Buffer.byteLength(s.list({}).items[0].rootName)).to.be.at.most(MAX_ATTRIBUTE_BYTES + Buffer.byteLength('…'));
+  });
+
+  it('charges a root that arrives past spansPerTrace to the byte budget', () => {
+    const { store: s, processor } = store({ spansPerTrace: 1, maxBytes: 1500 });
+    run(processor, { trace: 'a', id: '2', parent: '1' });
+    run(processor, { trace: 'a', id: '1', attributes: { note: 'x'.repeat(1000) } });
+    run(processor, { trace: 'b', id: '3' });
+    expect(s.list({}).items.map((t) => t.traceId)).to.deep.eq([traceIdOf('b')]);
+  });
+
   it('treats a span with a remote parent as the local root', () => {
     const { store: s, processor } = store();
     run(processor, { trace: 'x', id: '1', parent: '9', remoteParent: true, name: 'GET /remote', kind: SpanKind.SERVER });

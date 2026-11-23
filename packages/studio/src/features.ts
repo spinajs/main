@@ -19,6 +19,10 @@ const probes = new Map<StudioFeature, FeatureProbe>([
     if ((c.get(TraceStore)?.size ?? 0) > 0) return true;
     return tracingState().owner === 'spinajs' && c.get(Configuration)?.get<string>('tracing.sampler.type') !== 'never';
   }],
+  ['logs', (c) => {
+    const targets = c.get(Configuration)?.get<unknown>('logger.targets');
+    return Array.isArray(targets) && targets.some((t: unknown) => typeof t === 'object' && t !== null && 'type' in t && t.type === 'StudioLogTarget');
+  }],
   ['authz', (c) => c.hasRegistered(AuthzDomains)],
   ['telemetry', registered('TelemetryStore')],
   ['scheduler', registered('SchedulerService')],
