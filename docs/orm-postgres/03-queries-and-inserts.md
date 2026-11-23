@@ -80,7 +80,7 @@ When `onDuplicate()` is called without columns on a model query, the conflict ta
 | `BIGINT`, `COUNT(*)` in a raw select | string, e.g. `'42'` | `bigint: { type: 'string' }` |
 | `INTEGER`, `SMALLINT`, `REAL`, `DOUBLE PRECISION` | number | |
 | `BOOLEAN` | boolean | |
-| `JSONB` | parsed value; `PostgresJsonValueConverter` keeps a JSON string value a string | |
+| `JSONB` | parsed value; `JsonValueConverter`, which `PostgresJsonValueConverter` extends, keeps a JSON string value a string unless it is JSON text itself (`"123"` reads as `123`) | |
 | `TIMESTAMPTZ`, `TIMESTAMP`, `DATE` | `Date` (`TIMESTAMP` read as UTC, `DATE` at UTC midnight) | `timestamptz: { type: 'string', format: 'date-time' }` |
 | `BYTEA` | `Buffer` | |
 
