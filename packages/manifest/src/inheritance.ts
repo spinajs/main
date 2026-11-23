@@ -1,9 +1,9 @@
 import { configuredMountPath, controllerMountPath, routeFullPath, servedPath } from './route-path.js';
 import type { ControllerEntry, ParamEntry, PolicyRef, RouteEntry, SocketControllerEntry, SourceRef } from './types.js';
+import { IDEMPOTENCY_MIDDLEWARE, idempotencyOf } from './route-idempotency.js';
 
 const ACCESS_POLICY = 'AccessPolicy';
 const FIELDS_MIDDLEWARE = 'AuthzFieldsMiddleware';
-const IDEMPOTENCY_MIDDLEWARE = 'IdempotencyMiddleware';
 
 /** What a subclass declares on a method it redeclares; `route` is set when the method carries a verb decorator. */
 export interface RouteOverride {
@@ -29,8 +29,9 @@ export function inheritPolicies(inherited: PolicyRef[][], own: PolicyRef[][]): P
 }
 
 // `@Idempotent` replaces the route's existing IdempotencyMiddleware in place rather than nesting a second gate (http decorators.ts).
+// Of stacked own ones the top is applied last, so it is the one that stays.
 function replaceIdempotency(inherited: RouteEntry['middlewares'], own: RouteEntry['middlewares']): RouteEntry['middlewares'] {
-  const ownGate = own.findLast((m) => m.type === IDEMPOTENCY_MIDDLEWARE);
+  const ownGate = own.find((m) => m.type === IDEMPOTENCY_MIDDLEWARE);
   const at = inherited.findIndex((m) => m.type === IDEMPOTENCY_MIDDLEWARE);
   if (!ownGate || at < 0) return [...inherited, ...own];
   return [...inherited.map((m, i) => (i === at ? ownGate : m)), ...own.filter((m) => m.type !== IDEMPOTENCY_MIDDLEWARE)];
@@ -67,6 +68,12 @@ function inheritedPagination(inherited: RouteEntry, declared: RouteEntry | undef
   return pagination ? { pagination } : {};
 }
 
+/** Without an own gate the inherited value stays, through `...rest` of `overriddenRoute`. */
+function ownIdempotency(override: RouteOverride): Pick<RouteEntry, 'idempotency'> {
+  const idempotency = idempotencyOf(override.middlewares);
+  return idempotency ? { idempotency } : {};
+}
+
 function overriddenRoute(inherited: RouteEntry, override: RouteOverride): RouteEntry {
   const declared = override.route;
   const access = override.access ?? inherited.access;
@@ -85,6 +92,7 @@ function overriddenRoute(inherited: RouteEntry, override: RouteOverride): RouteE
     ...(access ? { access } : {}),
     ...(override.allowAnonymous || inherited.allowAnonymous ? { allowAnonymous: true } : {}),
     ...(reason !== undefined ? { public: reason } : {}),
+    ...ownIdempotency(override),
     ...(doc ? { doc } : {}),
     source: override.source,
   };

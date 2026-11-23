@@ -12,7 +12,6 @@
     { "path": "../authz-http/tsconfig.json" },
     { "path": "../authz-testing/tsconfig.json" },
     { "path": "../configuration/tsconfig.json" },
-    { "path": "../configuration-common/tsconfig.json" },
     { "path": "../di/tsconfig.json" },
     { "path": "../exceptions/tsconfig.json" },
     { "path": "../fs/tsconfig.json" },

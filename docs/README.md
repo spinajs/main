@@ -34,7 +34,9 @@ One folder per package under `docs/`. Each package page lists its features and l
 | [`@spinajs/hooks`](hooks/README.md) | Action hooks |
 | [`@spinajs/util`](util/README.md) | Shared utilities |
 | [`@spinajs/threading`](threading/README.md) | Mutex, critical section, rate limit |
+| [`@spinajs/tenancy`](tenancy/README.md) | Tenant scope, tenant registry, entering a tenant, running code for every tenant |
 | [`@spinajs/idempotency`](idempotency/README.md) | Run a call once per key, replay its reply, take over a dead replica's claim |
+| [`@spinajs/idempotency-scheduler`](idempotency-scheduler/README.md) | The builtin `idempotency.sweep` schedule: deletes expired idempotency replies and abandoned claims |
 | [`@spinajs/intl`](intl/README.md) | Translations |
 | [`@spinajs/internal-logger`](internal-logger/README.md) | Logger for code that runs before the real one |
 
@@ -43,6 +45,7 @@ One folder per package under `docs/`. Each package page lists its features and l
 | Package | What it covers |
 | --- | --- |
 | [`@spinajs/http`](http/README.md) | HTTP server, controllers, [route arguments](http/04-route-arguments.md), [error handling](http/11-error-handling.md) |
+| [`@spinajs/audit-http`](audit-http/01-audit.md) | The `Audit` route middleware: an audit trail event per request |
 | [`@spinajs/http-swagger`](http-swagger/README.md) | Runtime OpenAPI document and Swagger UI |
 | [`@spinajs/http-bot`](http-bot/README.md) | Bot verification |
 | [`@spinajs/http-lazy-file-uploader`](http-lazy-file-uploader/README.md) | Deferred file copy |
@@ -52,6 +55,7 @@ One folder per package under `docs/`. Each package page lists its features and l
 | [`@spinajs/http-socket-client`](http-socket-client/README.md) | Socket client |
 | [`@spinajs/http-socket-example`](http-socket-example/README.md) | A runnable notes server and client, with a bundle recipe |
 | [`@spinajs/intl-http`](intl-http/README.md) | Per-request language |
+| [`@spinajs/tenancy-http`](tenancy-http/README.md) | Tenant of a request or socket connection, `TenantMiddleware`, tenant route decorators |
 
 ## Data and storage
 
@@ -80,6 +84,13 @@ One folder per package under `docs/`. Each package page lists its features and l
 | [`authz-http`](authz-http/README.md), [`authz-http-admin`](authz-http-admin/README.md), [`authz-orm`](authz-orm/README.md), [`authz-fs`](authz-fs/README.md), [`authz-queue`](authz-queue/README.md), [`authz-testing`](authz-testing/README.md), [`authz-convert`](authz-convert/README.md), [`eslint-plugin-authz`](eslint-plugin-authz/README.md) | Integrations, tooling and the 2.x converter |
 | [`users`](users/README.md), [`users-http`](users-http/README.md), [`teams`](teams/README.md), [`teams-http`](teams-http/README.md) | User accounts, teams and groups |
 
+## Audit trail
+
+| Package | What it covers |
+| --- | --- |
+| [`@spinajs/audit`](audit/README.md) | One event shape, named trails, write modes, masking, reading and erasure; [limits](audit/09-limits.md) |
+| [`@spinajs/audit-orm`](audit/01-trails-and-guarantees.md#tables) | Trail tables, `Model.audit()`, retention, [shipping](audit/06-shipping.md), [sealing and `spinajs audit:verify`](audit/07-integrity-and-verification.md) |
+
 ## Messaging, email and templates
 
 | Package | What it covers |
@@ -98,4 +109,6 @@ One folder per package under `docs/`. Each package page lists its features and l
 | --- | --- |
 | [`@spinajs/log`](log/README.md), [`log-common`](log-common/README.md), [`log-otlp`](log-otlp/README.md), [`log-source-graphana-loki`](log-source-graphana-loki/README.md) | Logging and targets |
 | [`@spinajs/telemetry`](telemetry/README.md), [`telemetry-common`](telemetry-common/README.md), [`telemetry-otel`](telemetry-otel/README.md) | Metrics and tracing |
+| [`@spinajs/tracing`](tracing/README.md) | OpenTelemetry bootstrap; span attribute keys |
+| [`@spinajs/tenancy-tracing`](tenancy-tracing/README.md) | The tenant of the current scope on every span |
 | [`@spinajs/electron`](electron/README.md) | Services in the Electron main process |

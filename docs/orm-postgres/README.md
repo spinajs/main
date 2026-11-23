@@ -2,7 +2,7 @@
 
 The PostgreSQL driver for the SpinaJS ORM. `PostgresOrmDriver` extends `SqlDriver` from [`@spinajs/orm-sql`](../orm-sql/README.md), sends statements through a [`pg`](https://node-postgres.com/) connection pool, and registers the compilers and quoters that spell SQL the PostgreSQL way.
 
-It does **not** pass driver options through to `pg`: of `db.Connections[].Options` it reads only `Schema`. TLS, `application_name` and session settings come from the `PG*` environment variables or from a driver subclass. It does **not** support scheduled events, `CREATE TABLE ... LIKE` or trigger-based table history.
+It does **not** pass driver options through to `pg`: of `db.Connections[].Options` it reads only `Schema`. TLS, `application_name` and session settings come from the `PG*` environment variables or from a driver subclass. It does **not** support scheduled events or `CREATE TABLE ... LIKE`.
 
 ## Install
 
@@ -51,7 +51,6 @@ export class AppConfiguration extends FrameworkConfiguration {
             Database: 'shop',
             Options: { Schema: 'public' },
             Pool: { Min: 2, Max: 20 },
-            Migration: { OnStartup: true },
           },
         ],
       },
@@ -60,7 +59,7 @@ export class AppConfiguration extends FrameworkConfiguration {
 }
 
 export async function countOpenOrders(): Promise<number> {
-  // applies the Migration.OnStartup migrations on the first resolve
+  // fails on pending migrations: run `npx spinajs migrate-up` first
   const orm = await DI.resolve(Orm);
   const driver = orm.Connections.get('main')!;
 
@@ -87,7 +86,7 @@ export async function countOpenOrders(): Promise<number> {
 | `DROP INDEX` | `DROP INDEX i ON t` | `DROP INDEX "i"` |
 | `exact()` column | `utf8mb4_bin` | `COLLATE "C"` |
 | `CREATE DATABASE IF NOT EXISTS` | supported | throws `NotSupported` |
-| `CREATE EVENT`, table history, `CREATE TABLE ... LIKE` | MySQL syntax | not available |
+| `CREATE EVENT`, `CREATE TABLE ... LIKE` | MySQL syntax | not available |
 | `DECIMAL` / `NUMERIC` / `BIGINT` read back | driver-dependent | strings |
 | `whereIn()` over 1000 values | `IN (?,...)` | `= ANY(?)`, one array binding |
 | `driver.now()` | dialect-specific | `CURRENT_TIMESTAMP` (transaction start) |

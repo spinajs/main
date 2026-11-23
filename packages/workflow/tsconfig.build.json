@@ -16,6 +16,7 @@
     { "path": "../orm/tsconfig.build.json" },
     { "path": "../queue/tsconfig.build.json" },
     { "path": "../reflection/tsconfig.build.json" },
-    { "path": "../durable/tsconfig.build.json" }
+    { "path": "../durable/tsconfig.build.json" },
+    { "path": "../tracing/tsconfig.build.json" }
   ]
 }

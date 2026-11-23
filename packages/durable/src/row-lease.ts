@@ -39,14 +39,18 @@ export class RowLease {
 
   /** Claims a free row (no owner, or `until < now`); `extraWhere` adds equality conditions (`null` means IS NULL). */
   public async claim(target: RowLeaseTarget, owner: string, ttlMs: number, now: number, extraWhere: Record<string, unknown> = {}): Promise<{ epoch: number } | null> {
-    const c = this.columns;
-    const rows = (await onPrimary(this.driver.select().from(target.table).columns([c.epoch]).where(target.key))) as Array<Record<string, unknown>>;
+    const rows = (await onPrimary(this.driver.select().from(target.table).columns([this.columns.epoch]).where(target.key))) as Array<Record<string, unknown>>;
     if (rows.length !== 1) return null;
-    const observed = Number(rows[0][c.epoch]);
+    return this.claimObserved(target, owner, ttlMs, now, Number(rows[0][this.columns.epoch]), extraWhere);
+  }
 
-    // Compare-and-set on the observed epoch rather than increment-then-read-back: a read after the UPDATE can
-    // see a later claim by the same owner string (a replica id) and hand both callers one epoch. A stale
-    // observation only makes this claim lose.
+  /**
+   * `claim` from an epoch the caller already read (a batch scan). Compare-and-set on the observed epoch rather than
+   * increment-then-read-back: a read after the UPDATE can see a later claim by the same owner string and hand both
+   * callers one epoch. A stale observation only makes this claim lose.
+   */
+  public async claimObserved(target: RowLeaseTarget, owner: string, ttlMs: number, now: number, observed: number, extraWhere: Record<string, unknown> = {}): Promise<{ epoch: number } | null> {
+    const c = this.columns;
     const r = await this.driver
       .update()
       .in(target.table)

@@ -132,6 +132,24 @@ describe('SpanProcessorHub', () => {
     expect(order).to.deep.eq(['onEnding', 'onEnd']);
     expect(seen).to.eq('yes');
   });
+
+  it('starts a span in its enrichers before its other processors, whatever the order they were added in', () => {
+    const order: string[] = [];
+    const named = (name: string): SpanProcessor => ({ ...collecting([]), onStart: () => order.push(name) });
+    const hub = new SpanProcessorHub();
+    hub.add(named('sink'));
+    hub.add(named('enricher'), { enricher: true });
+    new BasicTracerProvider({ sampler: new AlwaysOnSampler(), spanProcessors: [hub] }).getTracer('hub-test').startSpan('order').end();
+    expect(order).to.deep.eq(['enricher', 'sink']);
+  });
+
+  it('detaches an enricher like any other processor', async () => {
+    const hub = new SpanProcessorHub();
+    const detach = hub.add(collecting([]), { enricher: true });
+    expect(hub.size).to.eq(1);
+    await detach();
+    expect(hub.size).to.eq(0);
+  });
 });
 
 describe('HubSampler', () => {
@@ -140,6 +158,18 @@ describe('HubSampler', () => {
   it('answers NOT_RECORD while the hub is empty and the delegate otherwise', async () => {
     const hub = new SpanProcessorHub();
     const sampler = new HubSampler(hub, new AlwaysOnSampler());
+    expect(decide(sampler)).to.eq(SamplingDecision.NOT_RECORD);
+
+    const detach = hub.add(new SimpleSpanProcessor(new InMemorySpanExporter()));
+    expect(decide(sampler)).to.eq(SamplingDecision.RECORD_AND_SAMPLED);
+    await detach();
+    expect(decide(sampler)).to.eq(SamplingDecision.NOT_RECORD);
+  });
+
+  it('keeps answering NOT_RECORD while only enrichers are attached', async () => {
+    const hub = new SpanProcessorHub();
+    const sampler = new HubSampler(hub, new AlwaysOnSampler());
+    hub.add(collecting([]), { enricher: true });
     expect(decide(sampler)).to.eq(SamplingDecision.NOT_RECORD);
 
     const detach = hub.add(new SimpleSpanProcessor(new InMemorySpanExporter()));

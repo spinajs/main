@@ -43,9 +43,10 @@ export async function skewedDbClock(): Promise<number> {
 
 ## `RowLease`
 
-A row is claimable when its owner column is `NULL` or its expiry is in the past. `claim()` reads the current epoch on the primary, then runs one compare-and-set `UPDATE` conditioned on that epoch; `renew()` and `release()` are one conditional `UPDATE` each. The affected-row count says whether this owner won.
+A row is claimable when its owner column is `NULL` or its expiry is in the past. `claim()` reads the current epoch on the primary, then runs, through `claimObserved()`, one compare-and-set `UPDATE` conditioned on that epoch; `renew()` and `release()` are one conditional `UPDATE` each. The affected-row count says whether this owner won.
 
 - `claim(target, owner, ttlMs, now, extraWhere?)` takes a free row, sets the owner and `now + ttlMs`, increments the epoch and returns the new epoch, or `null` when the row is held or missing. `extraWhere` adds equality conditions (`null` means `IS NULL`).
+- `claimObserved(target, owner, ttlMs, now, observed, extraWhere?)` is `claim` for a caller that already read the row's epoch (a batch scan): it skips the read and loses when the epoch has moved.
 - `renew(target, owner, epoch, ttlMs, now)` extends the expiry while this owner still holds this epoch.
 - `release(target, owner, epoch)` clears the owner and the expiry and keeps the epoch.
 - `fenced(target, owner, epoch)` returns the equality conditions (key, owner, epoch) for a write that must commit only while this owner holds this epoch. After another owner's claim such a write affects 0 rows.

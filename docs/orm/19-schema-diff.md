@@ -20,7 +20,7 @@ A model declares the columns the app uses; the table may have more (a column ano
 | Family (`integer`, `text`, `datetime`, …) | every declared column | integer → bigint is safe; any other change is `DESTRUCTIVE` |
 | Length | explicit `@Column({ length })` | only where the driver reports lengths (postgres, mssql); sqlite and mysql report none, so `MIG003` |
 | Nullability | explicit `@Column` | never for sqlite booleans, which sqlite always creates `NOT NULL` |
-| Indexes, unique columns | `@Index`, `@Column({ unique })` | needs the driver's `tableIndexes()`, otherwise `MIG003` |
+| Indexes, unique columns | `@Index`, `@Column({ unique })` | needs the driver's `tableIndexes()`, otherwise `MIG003`; an expression or prefix index (`lower(email)`, MySQL `email(10)`) is not compared: it is listed as `MIG007` (info), never counts as a declared index and is never dropped, and a declared index whose name it holds is not added |
 | Foreign keys | `@BelongsTo` with a foreign key | created with a new table only; one missing on an existing table is `MIG005` |
 | Defaults, primary keys | not compared | emitted when a table or column is created |
 
