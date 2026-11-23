@@ -77,7 +77,7 @@ describe('Authorizer spans', () => {
 
     const [span] = spans.byName('authz.check');
     expect(span.status.code).to.equal(SpanStatusCode.ERROR);
-    expect(span.events.map((e) => e.name)).to.deep.equal(['exception']);
+    expect(span.events).to.deep.equal([]);
   });
 
   it('nests the check under an explain span', async () => {

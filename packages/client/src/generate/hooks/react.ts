@@ -1,13 +1,13 @@
-import { companionHeader, manifestHashCheck } from '../companion.js';
+import { companionHeader, manifestHashCheck, siblingSpecifier, type SiblingImports } from '../companion.js';
 import type { ClientModel } from '../model.js';
 import { withUseClient } from './directive.js';
 
 /** `client.react.ts`: the client context both hook libraries read. Plain `.ts` with `createElement`, so apps need no JSX setting. */
-export function emitReactContext(model: ClientModel, options: { basename?: string } = {}): string {
+export function emitReactContext(model: ClientModel, options: SiblingImports = {}): string {
   const lines = [
     companionHeader('react', model),
     "import { createContext, createElement, useContext, type ReactElement, type ReactNode } from 'react';",
-    `import type { AppClient, manifestHash } from './${options.basename ?? 'client'}.js';`,
+    `import type { AppClient, manifestHash } from '${siblingSpecifier(options)}';`,
     '',
     ...manifestHashCheck(model),
     '',

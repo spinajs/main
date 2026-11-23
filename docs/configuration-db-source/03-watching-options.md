@@ -9,7 +9,7 @@ An exposed option with `exposeOptions.watch: true` is polled from the `configura
 3. The timer is armed only when the watched set is not empty. The first late registration with `watch: true` arms an idle timer.
 4. Each tick calls `refreshWatched()`: `DbConfig.select().whereIn('Slug', watchedSlugs)`, through `asSystem()` when [authz guarding](06-running-under-authz.md) is on.
 5. Rows whose `Exposed` flag is cleared are skipped. For each other row, `isConfigValueEqual(configuration.get(row.Slug), row.Value)` compares the values. `DateTime` values compare by instant, arrays and objects deeply.
-6. A changed value is written with `Configuration.set(row.Slug, row.Value)`. `Value` is already typed: the model's `@DbConfigValue` converter ran when the row was hydrated.
+6. A changed value is written with `Configuration.set(row.Slug, row.Value)`. `Value` is already typed: the model's `@DbConfigValue` converter ran when the row was hydrated. A value the configuration refuses is skipped and the poll goes on with the next row; that row is not tried again until its `Value` changes.
 7. The next tick is scheduled only after this one settles, so a slow query never overlaps the next. Database errors are logged as `Failed to refresh watched config values from db` and the timer keeps going.
 8. `di.dispose` stops the timer.
 
@@ -39,7 +39,7 @@ DI.register({ value: 30_000 }).asValue('__config_watch_interval__');
 - **The interval is fixed at startup.** Changing `__config_watch_interval__` after the exposed options were swept into the table does nothing until the next process start.
 - **One query per tick.** All watched slugs are read with a single `WHERE Slug IN (...)` query.
 - **Hidden rows are not polled into the config.** A watched row with `Exposed` = `0` is skipped until the flag is set again.
-- **No schema validation.** A polled value is set as-is; configuration schemas are not re-checked.
+- **Polled values are validated.** `Configuration.set()` checks a polled value against the configuration schemas of its module. A refused value is not applied: the option keeps its previous value, and the other rows of the same poll are still applied. The refusal is logged once per slug and cause as `Watched config value <slug> from db was refused, the previous value stays`, next to the `Invalid configuration at ...` line `Configuration` logs. The refused row is tried again only when its `Value` changes, so later ticks log nothing and correcting the row in the database is enough. A schema that would accept the same value, registered after the refusal, takes effect only once the row is written again.
 - **One configuration is updated.** The poll writes into the `Configuration` of the container that resolved the `Orm`.
 - **Changes are eventually visible.** A change shows up after at most one interval plus the query time.
 

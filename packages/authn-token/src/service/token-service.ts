@@ -352,9 +352,28 @@ export class DbTokenService extends TokenService {
     await token.insert();
 
     const record = this.recordOf(token, owner);
-    await this.publish(ctx, now, 'token.create', owner, { token: record.id, kind: record.kind });
+    await this.announceCreated(ctx, now, owner, record);
 
     return { ok: true, plaintext: generated.Plaintext, record };
+  }
+
+  /**
+   * Publishes `token.create`. When a blocking listener stops it, the row is revoked before the failure goes on: nobody
+   * received the plaintext, and no live token outlives a creation that could not be recorded.
+   */
+  protected async announceCreated(ctx: AuthnContext, now: number, owner: IdentityRef, record: TokenRecord): Promise<void> {
+    const data = { token: record.id, kind: record.kind };
+    try {
+      await this.publish(ctx, now, 'token.create', owner, data);
+    } catch (err) {
+      // A failed revocation must not replace the 503: no client holds the token, which lives until it expires.
+      await this.revokeRow(record.id, now).catch((revokeErr: unknown) =>
+        this.Log.warn({ token: record.id, errorClass: revokeErr instanceof Error ? revokeErr.name : typeof revokeErr }, 'authn-token: token ${token}, whose token.create was stopped, could not be revoked (${errorClass})'),
+      );
+      // A failure event is never stopped.
+      await (this.Auditor ?? this.Audit).publishIn({ ...ctx, now: new Date(now) }, { type: 'token.create', outcome: 'failure', reason: 'listener_failed', identity: { type: owner.type, id: owner.id }, data });
+      throw err;
+    }
   }
 
   public async list(owner: IdentityRef): Promise<readonly TokenRecord[]> {
@@ -858,7 +877,7 @@ export class DbTokenService extends TokenService {
   }
 
   /** Revokes the live token `id`, of the owner's row when `rowId` is given; null when this call revoked nothing. */
-  private async revokeRow(id: string, now: number, rowId?: number): Promise<AccessToken | null> {
+  protected async revokeRow(id: string, now: number, rowId?: number): Promise<AccessToken | null> {
     const query = AccessToken.where('Uuid', id).whereNull('RevokedAt');
     if (rowId !== undefined) {
       query.where('user_id', rowId);

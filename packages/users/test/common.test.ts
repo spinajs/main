@@ -241,7 +241,6 @@ export class TestConfiguration extends FrameworkConfiguration {
             Filename: ':memory:',
             Name: 'queue',
             Migration: {
-              OnStartup: true,
               Table: 'orm_migrations',
               Transaction: {
                 Mode: MigrationTransactionMode.PerMigration,
@@ -258,7 +257,6 @@ export class TestConfiguration extends FrameworkConfiguration {
             Name: 'sqlite',
             Migration: {
               Table: 'orm_migrations',
-              OnStartup: true,
             },
           },
         ],

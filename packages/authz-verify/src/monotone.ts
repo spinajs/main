@@ -1,7 +1,7 @@
 import type { PolicyIR, RelationName, TypeName } from '@spinajs/authz-ir';
 import type { Permission } from '@spinajs/authz';
 
-import { ACCEPT, RewriteAutomaton, holderKey, letterKey } from './graph.js';
+import { ACCEPT, ANYONE, RewriteAutomaton, holderKey, isAccepting, letterKey } from './graph.js';
 import type { Edge, HolderRef } from './graph.js';
 import { confirm, matchesHolder, opaqueOf } from './verdict.js';
 import type { Verdict } from './verdict.js';
@@ -75,8 +75,8 @@ export function explore(a: RewriteAutomaton, start: string, keep: (h: HolderRef)
     for (const e of a.edges(n.state)) {
       monotone &&= !e.conditional;
       const next = follow(n, e);
-      if (e.to === ACCEPT) {
-        const holder = a.holder(next.read!, e.letter?.wildcard === true);
+      if (isAccepting(e.to)) {
+        const holder: HolderRef = e.to === ANYONE ? { kind: 'anyone', type: e.type, relation: e.relation } : a.holder(next.read!, e.letter?.wildcard === true);
         const key = `${holderKey(holder)}|${next.conditional}`;
         if (keep(holder) && !accepted.has(key)) accepted.set(key, { holder, conditional: next.conditional, edges: pathOf(next) });
       } else if (!seen.has(nodeKey(next))) {
@@ -138,8 +138,13 @@ function closure(m: RewriteAutomaton, states: Iterable<string>): Set<string> {
 function step(m: RewriteAutomaton, states: ReadonlySet<string>, letter: string): Set<string> {
   const next: string[] = [];
   for (const s of states) for (const e of m.edges(s)) if (e.letter !== undefined && letterKey(e.letter) === letter) next.push(e.to);
+  // Whoever is allowed without a tuple stays allowed when the other path reads more of them.
+  if (states.has(ANYONE)) next.push(ANYONE);
   return closure(m, next);
 }
+
+/** `b` allows whoever a path ending in `end` allows: anyone covers every principal, a named principal only itself. */
+const covers = (b: ReadonlySet<string>, end: string): boolean => b.has(ANYONE) || (end === ACCEPT && b.has(ACCEPT));
 
 function edgesOf(p: Pair, last: Edge): Edge[] {
   const out = [last];
@@ -160,8 +165,8 @@ export function difference(m: RewriteAutomaton, a: string, b: string | undefined
     const p = queue[i];
     for (const e of m.edges(p.a)) {
       const b2 = e.letter === undefined ? p.b : step(m, p.b, letterKey(e.letter));
-      if (e.to === ACCEPT) {
-        if (!b2.has(ACCEPT)) return edgesOf(p, e);
+      if (isAccepting(e.to)) {
+        if (!covers(b2, e.to)) return edgesOf(p, e);
         continue;
       }
       const next = { a: e.to, b: b2, prev: p, edge: e };

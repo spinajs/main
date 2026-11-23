@@ -13,14 +13,14 @@ import { BaseController, Controllers, HttpServer } from '@spinajs/http';
 import { FILE_PROVIDER_INSTANCES, fsService } from '@spinajs/fs';
 import type { fs } from '@spinajs/fs';
 import { MemoryTarget } from '@spinajs/log';
-import { AuthenticationStrategy, AuthnEventSink, AuthnResponseExtension, AuthnThrottle, IdentityStore, ImpersonationGuard, PasswordCredentialStore, PrincipalFactory, RoleSource } from '@spinajs/authn/contracts';
+import { AuthenticationStrategy, AuthnEventListener, AuthnResponseExtension, AuthnThrottle, IdentityStore, ImpersonationGuard, PasswordCredentialStore, PrincipalFactory, RoleSource } from '@spinajs/authn/contracts';
 import type { Ceiling, IdentityRef, Principal, SessionHandle } from '@spinajs/authn/contracts';
 import type {} from '@spinajs/authn/hooks';
 import { appEnvOf, sessionCookieName } from '@spinajs/authn-session';
 import { ActionHook } from '@spinajs/hooks';
 import type { ActionPattern, BeforeContext } from '@spinajs/hooks';
 import type { ISessionCookieConfig } from '@spinajs/authn-session';
-import { FakeIdentityStore, FakeImpersonationGuard, FakeImpersonationStartHook, FakeMfaStep, FakeRoleSource, FakeStrategy, MemoryPasswordCredentialStore, RecordingEventSink, RecordingPrincipalFactory, RecordingThrottle, fakeHash } from '@spinajs/authn-testing';
+import { FakeIdentityStore, FakeImpersonationGuard, FakeImpersonationStartHook, FakeMfaStep, FakeRoleSource, FakeStrategy, MemoryPasswordCredentialStore, RecordingEventListener, RecordingPrincipalFactory, RecordingThrottle, fakeHash } from '@spinajs/authn-testing';
 
 import { AUTHN_HTTP_RATE_LIMITS, AUTHN_HTTP_SESSION_RATE_LIMITS } from '../../src/rate-limit-config.js';
 import { registerAuthnHttpV3 } from '../../src/v3/register.js';
@@ -136,7 +136,7 @@ export const codeStrategy = new FakeStrategy({
     return id && c.code === KIT_CODE ? { ok: true, identity: id, method: 'email-code', assurance: 'aal1' } : { ok: false, reason: 'invalid_credentials' };
   },
 });
-export const events = new RecordingEventSink();
+export const events = new RecordingEventListener();
 
 /** The instances the registrations below answer with; the behaviour harness swaps in a fresh set per case. */
 export interface AppFakes {
@@ -149,7 +149,7 @@ export interface AppFakes {
   principals: RecordingPrincipalFactory;
   passwordStrategy: FakeStrategy;
   tokenStrategy: FakeStrategy;
-  events: RecordingEventSink;
+  events: RecordingEventListener;
 }
 
 const shared: AppFakes = { identities, passwords, throttle, step, guard, roles, principals, passwordStrategy, tokenStrategy, events };
@@ -180,8 +180,8 @@ async function wire(): Promise<void> {
   bind(PasswordCredentialStore, 'V3AppPasswordStore', () => current.passwords);
   bind(PrincipalFactory, 'V3AppPrincipalFactory', () => current.principals);
   bind(AuthnThrottle, 'V3AppThrottle', () => current.throttle);
-  // Before anything resolves AuthnAudit, which reads its sinks once.
-  bind(AuthnEventSink, 'V3AppEventSink', () => current.events);
+  // Before anything resolves AuthnAudit, which reads its listeners once.
+  bind(AuthnEventListener, 'V3AppEventSink', () => current.events);
   bind(AuthenticationStrategy, 'V3AppPasswordStrategy', () => current.passwordStrategy);
   bind(AuthenticationStrategy, 'V3AppTokenStrategy', () => current.tokenStrategy);
   bind(AuthenticationStrategy, 'V3AppCodeStrategy', () => codeStrategy);

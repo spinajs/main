@@ -83,7 +83,7 @@ With `@spinajs/authn-http` loaded, the same flow runs over `POST user/mfa` and `
 
 ## Related packages
 
-- [`@spinajs/authn`](../authn/README.md): the `MfaStep` and `MfaPolicy` contracts, `AuthnService.completeMfa`, fresh auth, the `mfa` throttle and the audit sinks this package uses.
+- [`@spinajs/authn`](../authn/README.md): the `MfaStep` and `MfaPolicy` contracts, `AuthnService.completeMfa`, fresh auth, the `mfa` throttle and the audit listeners this package publishes to.
 - [`@spinajs/authn-orm`](../authn-orm/README.md): `DbMfaStore` and the `authn_mfa` and `authn_recovery_code` tables behind `DbMfaSecretStore`, and the MFA cipher; see its [MFA store](../authn-orm/05-mfa-store.md).
 - [`@spinajs/authn-http`](../authn-http/README.md): the `user/mfa*` enrolment routes and the `auth/mfa/verify` and `auth/mfa/recovery` login routes.
 - [`@spinajs/authn-local`](../authn-local/README.md): the password login that leaves a pending session when TOTP is required.

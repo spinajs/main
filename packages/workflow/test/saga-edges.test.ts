@@ -3,7 +3,7 @@ import { expect } from 'chai';
 import { DI } from '@spinajs/di';
 import { NonRetryableError } from '@spinajs/durable';
 import type { FakeClock } from '@spinajs/durable/testing';
-import { Workflow, WorkflowDefinition, WorkflowService, type CompensationContext, type WorkflowContext, type WorkflowEngine } from '../src/index.js';
+import { branchId, Workflow, WorkflowDefinition, WorkflowService, type CompensationContext, type WorkflowContext, type WorkflowEngine } from '../src/index.js';
 import { engine } from './support/engine.js';
 import { bootTestEnv, disposeTestEnv, waitFor } from './support/env.js';
 import { TestCrash } from './support/faults.js';
@@ -156,8 +156,8 @@ describe('saga compensation: incomplete collections, bounds and late steps', () 
 
   async function seedMoved(id: string, over: Record<string, unknown> = {}): Promise<void> {
     await seedInstance(id, { Workflow: 'edge-moved', ...over });
-    await seedStep(id, 1, 'step:pack#1', { Meta: { after: 0, order: 1 } });
-    await seedStep(id, 2, 'step:charge#1', { Result: 'ch-1', ResultStored: true, Meta: { compensate: true, after: 1, order: 2 } });
+    await seedStep(id, 1, 'step:pack#1', { Meta: { after: 0, order: 1, call: 1 } });
+    await seedStep(id, 2, 'step:charge#1', { Result: 'ch-1', ResultStored: true, Meta: { compensate: true, after: 1, order: 2, call: 2 } });
   }
 
   beforeEach(async () => {
@@ -192,7 +192,7 @@ describe('saga compensation: incomplete collections, bounds and late steps', () 
     await boot({ compensateOnCancel: true });
     const { id } = await service.start('edge-nondurable', null);
     const tick = r1.tick();
-    await waitFor(async () => (await stepsOf(id)).some((s) => s.Key === 'step:b2#1'));
+    await waitFor(async () => (await stepsOf(id)).some((s) => s.Key === `step:b2#1@${branchId('', 'step:b1#1')}`));
     await r1.stop();
     await tick;
     await service.cancel(id);
@@ -263,8 +263,8 @@ describe('saga compensation: incomplete collections, bounds and late steps', () 
 
   it('a pass whose replay cannot reach a compensable step refuses to compensate the rest', async () => {
     await seedInstance('t7', { Workflow: 'edge-marker', Status: 'compensating', Reason: 'error', Error: { name: 'NonRetryableError', message: 'no courier', step: 'ship' } });
-    await seedStep('t7', 2, 'step:charge#1', { Result: 'ch-1', ResultStored: true, Meta: { compensate: true, after: 0, order: 1 } });
-    await seedStep('t7', 3, 'step:ship#1', { Status: 'failed', Error: { name: 'NonRetryableError', message: 'no courier' }, Meta: { after: 1, order: 2 } });
+    await seedStep('t7', 2, 'step:charge#1', { Result: 'ch-1', ResultStored: true, Meta: { compensate: true, after: 0, order: 1, call: 2 } });
+    await seedStep('t7', 3, 'step:ship#1', { Status: 'failed', Error: { name: 'NonRetryableError', message: 'no courier' }, Meta: { after: 1, order: 2, call: 3 } });
     await r1.tick();
     const row = await instance('t7');
     expect(pick(row, 'Status', 'Reason')).to.deep.equal({ Status: 'failed', Reason: 'compensation-failed' });

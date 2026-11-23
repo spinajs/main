@@ -1,6 +1,6 @@
 import { isAbstractClass } from './abstract.js';
 import ts from 'typescript';
-import { configuredMountPath, controllerMountPath, DECORATED_PARAM_KIND, routeFullPath, servedPath } from '@spinajs/manifest';
+import { configuredMountPath, controllerMountPath, DECORATED_PARAM_KIND, idempotencyOf, routeFullPath, servedPath } from '@spinajs/manifest';
 import type { ControllerEntry, ParamEntry, RouteEntry, RouteOverride, RoutePagination, TypeRef } from '@spinajs/manifest';
 import type { Extractor, ExtractorContext } from '../context.js';
 import { globalRef } from '../runtime-ref.js';
@@ -129,14 +129,16 @@ function routeOf(m: ts.MethodDeclaration, mountPath: string, className: string, 
   const { access, allowAnonymous } = accessOf(m, ctx);
   const doc = routeDocWithDeprecation(m, ctx, classDeprecated);
   const reason = publicOf(m, ctx);
+  const middlewares = middlewaresOf(m, ctx);
+  const idempotency = idempotencyOf(middlewares);
   const fullPath = servedPath(routeFullPath(mountPath, path, handler));
   const params = paramsOf(m, fullPath, `${className}.${handler}`, ctx);
   const abstract = ts.isClassDeclaration(m.parent) && isAbstractClass(m.parent);
   const pagination = sig && declaredPaginationOf(m, sig, params, { owner: className, handler, abstract }, ctx);
   return {
     method: ROUTE_METHODS[dec.name], path, handler, fullPath, params,
-    returnType, ...(pagination ? { pagination } : {}), policies: policyGroupsOf(m, ctx, 'route'), middlewares: middlewaresOf(m, ctx),
-    ...(access ? { access } : {}), ...(allowAnonymous ? { allowAnonymous } : {}), ...(reason ? { public: reason } : {}), ...(doc ? { doc } : {}),
+    returnType, ...(pagination ? { pagination } : {}), policies: policyGroupsOf(m, ctx, 'route'), middlewares,
+    ...(access ? { access } : {}), ...(allowAnonymous ? { allowAnonymous } : {}), ...(reason ? { public: reason } : {}), ...(idempotency ? { idempotency } : {}), ...(doc ? { doc } : {}),
     source: ctx.sourceRef(m),
   };
 }

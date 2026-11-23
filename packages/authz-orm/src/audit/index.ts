@@ -3,6 +3,7 @@
 export { DbDecisionAudit } from './db-audit.js';
 export { AUDIT_CONNECTION, AUDIT_TABLE, AuthzAuditEntry } from './model.js';
 export { AuthzAudit_2026_10_01_00_00_00 } from './AuthzAudit_2026_10_01_00_00_00.js';
-export { DbDecisionLog } from './db-decision-log.js';
+export { DbDecisionLog, readDecisionRecord } from './db-decision-log.js';
 export { AuthzDecisionLogEntry, DECISION_LOG_TABLE } from './decision-log-model.js';
 export { AuthzDecisionLog_2026_11_04_00_00_00 } from './AuthzDecisionLog_2026_11_04_00_00_00.js';
+export { AuthzDecisionLogFacts_2026_11_06_00_00_00 } from './AuthzDecisionLogFacts_2026_11_06_00_00_00.js';

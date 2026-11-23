@@ -121,7 +121,7 @@ export class DbAssignmentStore extends withDbRbacStore(AdminAssignmentStore) {
 
     await bumpVersion(tx, this.domain(), where);
     const assignment = rowToAssignment(row);
-    await this.logChanges([{ kind: 'assignment', op: existing ? 'put' : 'add', key: assignment.id, payload: assignment, actor: principalKey(actor) }]);
+    await this.logChanges([{ kind: 'assignment', op: existing ? 'put' : 'add', key: assignment.id, payload: assignment, ...(existing ? { before: rowToAssignment(existing) } : {}), actor: principalKey(actor) }]);
     return assignment;
   }
 
@@ -143,7 +143,7 @@ export class DbAssignmentStore extends withDbRbacStore(AdminAssignmentStore) {
     const row = await requireRow(id);
     await AssignmentRecord.update({ tags: text }).where('id', id);
     await bumpVersion(tx, this.domain(), where);
-    return this.logPut(rowToAssignment({ ...row, tags: text }));
+    return this.logPut(row, { tags: text });
   }
 
   /** Adds tags (`assignment.addTags`); returns the updated assignment. */
@@ -170,7 +170,7 @@ export class DbAssignmentStore extends withDbRbacStore(AdminAssignmentStore) {
     const row = await requireRow(id);
     if (Object.keys(change).length > 0) await AssignmentRecord.update(recordValues<AssignmentRecord>(change)).where('id', id);
     await bumpVersion(tx, this.domain(), where);
-    return this.logPut(rowToAssignment({ ...row, ...change }), actor);
+    return this.logPut(row, change, actor);
   }
 
   /** Sets or clears (`null`) the expiry (`assignment.setExpiry`); returns the updated assignment. */
@@ -181,7 +181,7 @@ export class DbAssignmentStore extends withDbRbacStore(AdminAssignmentStore) {
     const expires_at = toDateTime(expiresAt);
     await AssignmentRecord.update(recordValues<AssignmentRecord>({ expires_at })).where('id', id);
     await bumpVersion(tx, this.domain(), where);
-    return this.logPut(rowToAssignment({ ...row, expires_at }));
+    return this.logPut(row, { expires_at });
   }
 
   /** Deletes the rows at `scope` matching `subject` and `role`, expired ones too (`assignment.revokeWhere`); returns them. */
@@ -287,7 +287,7 @@ export class DbAssignmentStore extends withDbRbacStore(AdminAssignmentStore) {
 
       if (RowsAffected > 0) {
         await bumpVersion(tx, this.domain(), where);
-        return this.logPut(rowToAssignment({ ...row, tags }));
+        return this.logPut(row, { tags });
       }
 
       if (attempt >= TAG_RETRIES) {
@@ -316,8 +316,9 @@ export class DbAssignmentStore extends withDbRbacStore(AdminAssignmentStore) {
     return gone;
   }
 
-  private async logPut(assignment: Assignment, actor?: PrincipalRef): Promise<Assignment> {
-    await this.logChanges([{ kind: 'assignment', op: 'put', key: assignment.id, payload: assignment, ...(actor ? { actor: principalKey(actor) } : {}) }]);
+  private async logPut(row: AssignmentRecord, change: Partial<Pick<AssignmentFields, 'tags' | 'expires_at'>>, actor?: PrincipalRef): Promise<Assignment> {
+    const assignment = rowToAssignment({ ...row, ...change });
+    await this.logChanges([{ kind: 'assignment', op: 'put', key: assignment.id, payload: assignment, before: rowToAssignment(row), ...(actor ? { actor: principalKey(actor) } : {}) }]);
     return assignment;
   }
 }

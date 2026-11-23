@@ -2,31 +2,31 @@ import 'mocha';
 import { expect } from 'chai';
 import { InMemorySpanExporter, SimpleSpanProcessor } from '@opentelemetry/sdk-trace-base';
 import { SpanStatusCode } from '@opentelemetry/api';
+import { resetTracing } from '@spinajs/tracing/testing';
 import { OtelTracing } from '../src/tracing.js';
 import { LongSpanRegistry } from '../src/longSpanRegistry.js';
-import { setField } from './tracing.test.js';
-
-const noopLog = { info: () => undefined, warn: () => undefined, error: () => undefined };
+import { setField, silentLog } from './support.js';
 
 function makeRegistry(maxAgeMs = 60_000): { registry: LongSpanRegistry; exporter: InMemorySpanExporter; tracing: OtelTracing } {
   const tracing = new OtelTracing();
   setField(tracing, 'enabled', true);
-  setField(tracing, 'serviceName', 'test');
-  setField(tracing, 'resourceAttributes', {});
   setField(tracing, 'endpoint', 'http://localhost:4318/v1/traces');
-  setField(tracing, 'log', noopLog);
+  setField(tracing, 'log', silentLog);
   const exporter = new InMemorySpanExporter();
+  setField(tracing, 'cfg', { get: (_path: string, fallback: unknown) => fallback });
   tracing.start(new SimpleSpanProcessor(exporter));
 
   const registry = new LongSpanRegistry();
   setField(registry, 'tracing', tracing);
-  setField(registry, 'log', noopLog);
+  setField(registry, 'log', silentLog);
   setField(registry, 'maxAgeMs', maxAgeMs);
   setField(registry, 'sweepIntervalMs', 3_600_000); // manual sweep in tests
   return { registry, exporter, tracing };
 }
 
 describe('LongSpanRegistry', () => {
+  afterEach(() => resetTracing());
+
   it('open + event + close exports one span with events and final attributes', () => {
     const { registry, exporter } = makeRegistry();
     registry.open('txn-1', 'payment.transaction', { 'transaction.id': 'txn-1' });
@@ -89,6 +89,26 @@ describe('LongSpanRegistry', () => {
     const { registry, exporter } = makeRegistry();
     await registry.childSpan(undefined, 'tcp.command', { command: 'refill' }, async () => undefined);
     expect(exporter.getFinishedSpans()).to.have.length(1);
+  });
+
+  it('childSpan marks a failure by the error class and keeps the message off the span', async () => {
+    const { registry, exporter } = makeRegistry();
+    registry.open('txn-1', 'payment.transaction');
+    let thrown: unknown;
+    try {
+      await registry.childSpan('txn-1', 'tcp.command', { command: 'refill' }, async () => {
+        throw new RangeError('secret-binding-42');
+      });
+    } catch (err) {
+      thrown = err;
+    }
+    registry.close('txn-1', 'ok');
+    expect((thrown as Error).message).to.eq('secret-binding-42');
+    const span = exporter.getFinishedSpans().find((s) => s.name === 'tcp.command');
+    expect(span?.status).to.deep.eq({ code: SpanStatusCode.ERROR, message: 'RangeError' });
+    expect(span?.attributes['error.type']).to.eq('RangeError');
+    expect(span?.events).to.deep.eq([]);
+    expect(JSON.stringify([span?.status, span?.attributes, span?.events])).to.not.contain('secret-binding-42');
   });
 
   it('dispose closes all remaining spans', async () => {

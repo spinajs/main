@@ -113,13 +113,13 @@ const orm = await DI.resolve(Orm);
 - **No transactions.** Each statement is a separate IPC call with no connection held open. Do transactional work in a main-process service.
 - **Same connection names.** The renderer must use the main connection names; an unknown name rejects with `connection: <name>`.
 - **Driver errors reject.** A rejected main `executeOnDb()` rejects in the renderer with `callOnOrmConnection() failed, method: executeOnDb, connection: <name>`.
-- **Full `Orm` boot in the renderer, without migrations.** Model registration and migration discovery run in the renderer too. `ElectronRendererOrm` resolves `OrmMigrator` with `MigrateOnStartup: false` first, so the renderer applies no [migration](../orm/10-migrations.md), whatever `Migration.OnStartup` says, and skips the `db.StrictTableCheck` check: the main process applies the migrations.
+- **Full `Orm` boot in the renderer, without the migration check.** Model registration and migration discovery run in the renderer too. `ElectronRendererOrm` resolves `OrmMigrationGuard` disabled first, so the renderer neither checks nor applies [migrations](../orm/10-migrations.md) and skips the `db.StrictTableCheck` check: the main `Orm` is the one that is checked.
 
 ## Best practices
 
 - Keep data access in main-process services and call them with `call`; use the renderer bridge for read-only, ad hoc statements.
 - Pass bindings as `params`, never build SQL from renderer input.
-- Resolve the main `Orm` before opening any window; `callOnOrmConnection` rejects until it is resolved. When main migrates on startup, resolving its `Orm` applies the migrations, so the tables exist before the renderer reads them.
+- Resolve the main `Orm` before opening any window; `callOnOrmConnection` rejects until it is resolved. Resolving it fails until [`npx spinajs migrate-up`](../orm/10-migrations.md#deploying-migrations) has applied the migrations, so the tables exist before the renderer reads them.
 
 ## Patterns and antipatterns
 
