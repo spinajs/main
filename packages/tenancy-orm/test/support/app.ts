@@ -12,10 +12,11 @@ const SILENT = { targets: [{ name: 'Empty', type: 'BlackHoleTarget', layout: '{m
 
 const SQLITE = { Driver: 'orm-driver-sqlite', Filename: ':memory:', Name: 'sqlite', Migration: { Table: 'orm_migrations', Transaction: { Mode: MigrationTransactionMode.PerMigration } } };
 
-/** One ORM over sqlite `:memory:`, migrated by `migrateTestDatabase()`. `tenancy` is the suite's `tenancy` configuration. */
-export async function bootApp(tenancy?: Record<string, unknown>): Promise<TestApp> {
-  const app = await createTestApp({
-    config: { logger: SILENT, db: { DefaultConnection: 'sqlite', Connections: [SQLITE] }, ...(tenancy ? { tenancy } : {}) },
+/** One ORM over sqlite `:memory:`, migrated on startup. `tenancy` is the suite's `tenancy` configuration. */
+export function bootApp(tenancy?: Record<string, unknown>): Promise<TestApp> {
+  return createTestApp({
+    config: { logger: SILENT, db: { DefaultConnection: 'sqlite', Connections: [SQLITE], Aliases: { tenancy: 'default' } }, ...(tenancy ? { tenancy } : {}) },
+    resolve: [Orm],
   });
 
   try {

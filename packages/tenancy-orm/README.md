@@ -9,4 +9,7 @@ Not covered yet: joins and sub-selects you write; the static `Model.populate(rel
 `driver.execute(builder)` / `executeStream(builder)`, which skip the query middlewares; schema builders, a view over a
 tenant table or a table clone with data included.
 
+`DbTenantRegistry` keeps tenants in the `tenants` table on the connection alias `tenancy` (`db.Aliases.tenancy`,
+`default` unless the app maps it elsewhere); `TenantStateService` moves a tenant between its states.
+
 See `docs/tenancy-orm/README.md`.
