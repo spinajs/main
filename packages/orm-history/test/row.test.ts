@@ -1,11 +1,13 @@
 import * as chai from 'chai';
+import chaiAsPromised from 'chai-as-promised';
 import 'mocha';
 import { DI } from '@spinajs/di';
-import { ModelBase } from '@spinajs/orm';
-import { HistoryConfigError, ModelHistorySource, OrmModelHistorySource, historyOf, registerHistory } from '../src/index.js';
-import type { TrackedRow } from '../src/index.js';
+import { ModelBase, Primary } from '@spinajs/orm';
+import { History, HistoryConfigError, ModelHistorySource, OrmModelHistorySource, historyOf, registerHistory } from '../src/index.js';
+import type { TrackedModel, TrackedRow } from '../src/index.js';
 import { HistoryDb } from './support/db.js';
 
+chai.use(chaiAsPromised);
 const expect = chai.expect;
 
 class Loose extends ModelBase {}
@@ -60,6 +62,38 @@ describe('row.history()', function () {
   it('refuses an instance that was never saved and a model that is not tracked', () => {
     expect(() => unsaved(Invoice).history()).to.throw(HistoryConfigError, 'orm-history: this Invoice has no primary key value yet, so it has no history; save it first');
     expect(() => historyOf(Loose)).to.throw(HistoryConfigError, 'orm-history: Loose is not tracked (no @History and no audit.data.rules match)');
+  });
+
+  it('reads the history of a row of a concrete subclass of a marked abstract base that holds the key', async () => {
+    @History()
+    abstract class Shared<M> extends ModelBase<M> implements TrackedRow {
+      declare static history: TrackedModel['history'];
+      declare history: TrackedRow['history'];
+
+      @Primary()
+      public id: string;
+    }
+    const Note = await db.define({ name: 'Note', table: 'tenant_note', columns: { body: 'TEXT' }, abstractBase: Shared, decorate: () => undefined }, 'sqlite');
+    await Note.insert({ id: 'n1', body: 'draft' });
+
+    const row = await Note.get('n1');
+    expect((await row.history().entries()).map((e) => [e.id, e.op])).to.deep.eq([['n1', 'insert']]);
+    expect((await Note.history().of('n1')).map((e) => e.op)).to.deep.eq(['insert']);
+  });
+
+  it('gives the abstract base that holds the key a history that cannot be read', async () => {
+    @History()
+    abstract class Shared<M> extends ModelBase<M> implements TrackedRow {
+      declare static history: TrackedModel['history'];
+      declare history: TrackedRow['history'];
+
+      @Primary()
+      public id: string;
+    }
+    await db.define({ name: 'Note', table: 'tenant_note', columns: {}, abstractBase: Shared, decorate: () => undefined }, 'sqlite');
+
+    const history = Shared.history();
+    await expect(history.of('n1')).to.be.rejectedWith(HistoryConfigError, 'orm-history: Shared has no ORM connection yet (is the ORM booted?)');
   });
 
   it('refuses a subclass that opted out of its marked base, through the member it inherits', async () => {

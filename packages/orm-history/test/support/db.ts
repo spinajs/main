@@ -39,6 +39,8 @@ export interface ModelSpec {
   readonly primary?: readonly string[];
   /** Extends this class and maps onto its table, which then is not created again; `columns` and `autoIncrement` are ignored. */
   readonly base?: TrackedClass;
+  /** Extends this abstract class, which declares the `@Primary()` `id`; the table is created as without `base`. */
+  readonly abstractBase?: abstract new () => ModelBase;
 }
 
 interface Defined {
@@ -155,9 +157,9 @@ export class HistoryDb {
 
   /** Creates the table of `spec` on `dialect` and a model class over it on that connection. */
   async define(spec: ModelSpec, dialect: Dialect): Promise<TrackedClass> {
-    const Base: typeof ModelBase = spec.base ?? ModelBase;
+    const Base: abstract new () => ModelBase = spec.base ?? spec.abstractBase ?? ModelBase;
     const model = { [spec.name]: class extends Base {} }[spec.name] as TrackedClass;
-    if (!spec.base) for (const column of spec.primary ?? ['id']) applyDecorator(Primary(), model.prototype, column);
+    if (!spec.base && !spec.abstractBase) for (const column of spec.primary ?? ['id']) applyDecorator(Primary(), model.prototype, column);
     spec.decorate(model, model.prototype);
     applyDecorator(Connection(dialect), model);
     applyDecorator(Model(spec.table), model);
