@@ -29,8 +29,25 @@ export function toHistoryValue(value: unknown): unknown {
 
 const isObject = (v: unknown): v is object => typeof v === 'object' && v !== null;
 
+// JSON.parse never returns undefined, so it marks text that does not parse.
+function parsedJson(text: string): unknown {
+  try {
+    return JSON.parse(text) as unknown;
+  } catch {
+    return undefined;
+  }
+}
+
+// sqlite and MSSQL hand a JSON column over as its text, where PostgreSQL and MySQL parse it.
+function sameJsonText(a: string, b: string): boolean {
+  const x = parsedJson(a);
+  const y = parsedJson(b);
+  return x !== undefined && y !== undefined && canonicalJson(x) === canonicalJson(y);
+}
+
 // Two values are the same when the store would keep the same text for them; nearly every column decides on the identity check.
-function same(a: unknown, b: unknown): boolean {
+function same(a: unknown, b: unknown, json: boolean): boolean {
+  if (json && typeof a === 'string' && typeof b === 'string' && a !== b) return sameJsonText(a, b);
   const x = toHistoryValue(a);
   const y = toHistoryValue(b);
   return Object.is(x, y) || (isObject(x) && isObject(y) && canonicalJson(x) === canonicalJson(y));
@@ -61,7 +78,7 @@ export function historyEntryOf(spec: HistorySpec, change: RowChange): PendingEnt
   const { id, before, after } = change;
   if (before === undefined) return after === undefined ? undefined : { id, op: 'insert', data: { after: visibleRow(spec, after) } };
   if (after === undefined) return { id, op: 'delete', data: { before: visibleRow(spec, before) } };
-  const changed = [...new Set([...Object.keys(before), ...Object.keys(after)])].filter((c) => !spec.exclude.has(c) && !same(before[c], after[c])).sort();
+  const changed = [...new Set([...Object.keys(before), ...Object.keys(after)])].filter((c) => !spec.exclude.has(c) && !same(before[c], after[c], spec.json.has(c))).sort();
   if (changed.length === 0) return undefined;
   const visible = changed.filter((c) => !spec.masked.has(c));
   return {

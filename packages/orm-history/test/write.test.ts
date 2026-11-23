@@ -4,7 +4,7 @@ import 'mocha';
 import { AuditConfigError, AuditWriteFailed } from '@spinajs/audit';
 import { MemoryAuditStore } from '@spinajs/audit/testing';
 import { rowsOf } from '@spinajs/audit-orm';
-import { Archived, Hidden, InsertBehaviour, InsertQueryBuilder, Json, SoftDelete, Uuid, createQuery } from '@spinajs/orm';
+import { Archived, Column, Hidden,InsertBehaviour, InsertQueryBuilder, Json, SoftDelete, Uuid, createQuery } from '@spinajs/orm';
 import { HistoryConfigError, HistoryWriteError, LOST_SUBJECT_ID, registerHistory, toHistoryValue } from '../src/index.js';
 import { who } from './support/audit.js';
 import { HistoryDb, applyDecorator } from './support/db.js';
@@ -334,10 +334,11 @@ describe('history writes', function () {
             {
               name: 'Doc',
               table: 'doc',
-              columns: { label: 'TEXT', big: 'TEXT', body: 'JSON', at: 'DATETIME' },
+              columns: { label: 'TEXT', big: 'TEXT', body: 'JSON', at: 'DATETIME', typed: 'TEXT' },
               decorate: (c, p) => {
                 registerHistory(c);
                 applyDecorator(Json(), p, 'body');
+                applyDecorator(Column({ family: 'json' }), p, 'typed');
               },
             },
             dialect,
@@ -366,13 +367,42 @@ describe('history writes', function () {
           expect(entries[1].after?.at).to.eq('2026-11-01T12:30:15.250Z');
         });
 
-        it('pins a known limit of sqlite: the same JSON value in another key order is recorded as a change there only', async () => {
+        const changes = async (id: string): Promise<unknown[]> => (await Doc.history().of(id)).map((e) => [e.op, e.changed]);
+
+        it('records no update for an @Json column written again with its keys in another order, and one when a value in it changed', async () => {
           await Doc.insert({ id: 'd3', body: BODY });
           await Doc.update({ body: { a: null, b: [1, { c: 2, d: 'ł' }] } }).where('id', 'd3');
-          // Not a decision: sqlite hands a JSON column over as its text, and history compares text as text. Parsing
-          // the @Json columns before the comparison would remove the sqlite branch.
-          const ops = (await Doc.history().of('d3')).map((e) => [e.op, e.changed]);
-          expect(ops).to.deep.eq(dialect === 'sqlite' ? [['insert', []], ['update', ['body']]] : [['insert', []]]);
+          await Doc.update({ body: { a: null, b: [1, { c: 3, d: 'ł' }] } }).where('id', 'd3');
+          expect(await changes('d3')).to.deep.eq([['insert', []], ['update', ['body']]]);
+        });
+
+        it('names only the other column when an @Json column changed only its key order, and stores the values as the driver reads them', async () => {
+          await Doc.insert({ id: 'd4', label: 'x', body: { a: 1, b: 2 } });
+          await Doc.update({ label: 'y', body: { b: 2, a: 1 } }).where('id', 'd4');
+
+          const [, entry] = await Doc.history().of('d4');
+          const [row] = await db.rows('doc', dialect);
+          expect([entry.changed, entry.before]).to.deep.eq([['label'], { label: 'x' }]);
+          expect(entry.after?.body).to.deep.eq(row.body);
+        });
+
+        it('compares JSON text in a plain text column as text', async () => {
+          await Doc.insert({ id: 'd5', label: '{"a":1,"b":2}' });
+          await Doc.update({ label: '{"b":2,"a":1}' }).where('id', 'd5');
+          expect(await changes('d5')).to.deep.eq([['insert', []], ['update', ['label']]]);
+        });
+
+        it('compares by value the text of a column whose @Column family is json', async () => {
+          await Doc.insert({ id: 'd6', typed: '{"a":1,"b":2}' });
+          await Doc.update({ typed: '{ "b": 2, "a": 1 }' }).where('id', 'd6');
+          expect(await changes('d6')).to.deep.eq([['insert', []]]);
+        });
+
+        it('compares text that is not JSON in a declared JSON column as text', async () => {
+          await Doc.insert({ id: 'd7', typed: '{"a":' });
+          await Doc.update({ typed: '{"a": ' }).where('id', 'd7');
+          await Doc.update({ typed: '{"a": ' }).where('id', 'd7');
+          expect(await changes('d7')).to.deep.eq([['insert', []], ['update', ['typed']]]);
         });
       });
     });

@@ -12,6 +12,7 @@ const spec = (over: Partial<HistorySpec> = {}): HistorySpec => ({
   columns: '*',
   exclude: new Set(),
   masked: new Set(),
+  json: new Set(),
   softDelete: undefined,
   trail: 'history',
   ...over,
@@ -47,6 +48,20 @@ describe('history encoding', () => {
 
   it('reads a JSON value in another key order as unchanged', () => {
     expect(historyEntryOf(spec(), { id: '1', before: { id: 1, body: { a: 1, b: [2] } }, after: { id: 1, body: { b: [2], a: 1 } } })).to.eq(undefined);
+  });
+
+  it('reads the text of a JSON column by value and keeps the text it was handed', () => {
+    const s = spec({ json: new Set(['body']) });
+    expect(historyEntryOf(s, { id: '1', before: { id: 1, body: '{"a":1,"b":[2]}' }, after: { id: 1, body: '{ "b": [2], "a": 1 }' } })).to.eq(undefined);
+    const e = historyEntryOf(s, { id: '1', before: { id: 1, n: 1, body: '{"a":1}' }, after: { id: 1, n: 2, body: '{ "a": 1 }' } });
+    expect(e?.data).to.deep.eq({ before: { n: 1 }, after: { id: 1, n: 2, body: '{ "a": 1 }' }, changed: ['n'] });
+  });
+
+  it('reads text that does not parse, and the text of an undeclared column, as text', () => {
+    const s = spec({ json: new Set(['body']) });
+    expect(historyEntryOf(s, { id: '1', before: { id: 1, body: '{"a":' }, after: { id: 1, body: '{"a": ' } })?.data.changed).to.deep.eq(['body']);
+    expect(historyEntryOf(s, { id: '1', before: { id: 1, body: '{"a":1}' }, after: { id: 1, body: '{"a": ' } })?.data.changed).to.deep.eq(['body']);
+    expect(historyEntryOf(s, { id: '1', before: { id: 1, note: '{"a":1,"b":2}' }, after: { id: 1, note: '{"b":2,"a":1}' } })?.data.changed).to.deep.eq(['note']);
   });
 
   it('writes nothing for an update that changed nothing', () => {
