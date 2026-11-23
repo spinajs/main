@@ -1,4 +1,4 @@
-import { Column, Connection, HasMany, Migration, Model, ModelBase, OrmMigration, Primary, Relation } from '@spinajs/orm';
+import { BelongsTo, Column, Connection, HasMany, Migration, Model, ModelBase, OrmMigration, Primary, Recursive, Relation, SingleRelation } from '@spinajs/orm';
 import type { OrmDriver } from '@spinajs/orm';
 
 import { Tenant } from '../../src/index.js';
@@ -41,6 +41,11 @@ export class Invoice extends ModelBase<Invoice> {
 
   public status: string;
 
+  public carrier_id: number | null;
+
+  @BelongsTo(Carrier, 'carrier_id')
+  public Carrier: SingleRelation<Carrier>;
+
   @HasMany(InvoiceLine, { foreignKey: 'invoice_id', primaryKey: 'Id' })
   public Lines: Relation<InvoiceLine, Invoice>;
 }
@@ -69,6 +74,35 @@ export class Orphan extends ModelBase<Orphan> {
   public label: string;
 }
 
+// Not a tenant model, on a tenant table.
+@Connection('default')
+@Model('invoice')
+export class InvoiceView extends ModelBase<InvoiceView> {
+  @Primary()
+  public Id: number;
+
+  public code: string;
+}
+
+@Connection('default')
+@Model('folder')
+@Tenant()
+export class Folder extends ModelBase<Folder> {
+  @Primary()
+  public Id: number;
+
+  @Column({ family: 'text', length: 64 })
+  public tenant_id: string;
+
+  public name: string;
+
+  public parent_id: number | null;
+
+  @Recursive()
+  @BelongsTo(Folder, 'parent_id')
+  public Parent: SingleRelation<Folder>;
+}
+
 // A subclass of a tenant model with a table of its own.
 @Connection('default')
 @Model('archived_note')
@@ -90,7 +124,7 @@ export class Ledger extends TenantOwned<Ledger> {
   public entry: string;
 }
 
-const TABLES = ['carrier', 'invoice', 'invoice_line', 'note', 'orphan', 'archived_note', 'ledger'];
+const TABLES = ['carrier', 'invoice', 'invoice_line', 'note', 'orphan', 'archived_note', 'ledger', 'folder'];
 
 @Migration('default')
 export class TenancyOrmTest_2026_11_16_00_00_00 extends OrmMigration {
@@ -104,6 +138,7 @@ export class TenancyOrmTest_2026_11_16_00_00_00 extends OrmMigration {
       table.string('tenant_id', 64).notNull();
       table.string('code', 32).notNull();
       table.string('status', 16).notNull();
+      table.int('carrier_id');
     });
     await connection.schema().createTable('invoice_line', (table) => {
       table.int('Id').primaryKey().autoIncrement();
@@ -129,6 +164,12 @@ export class TenancyOrmTest_2026_11_16_00_00_00 extends OrmMigration {
       table.int('Id').primaryKey().autoIncrement();
       table.string('tenant_id', 64).notNull();
       table.string('entry', 32).notNull();
+    });
+    await connection.schema().createTable('folder', (table) => {
+      table.int('Id').primaryKey().autoIncrement();
+      table.string('tenant_id', 64).notNull();
+      table.string('name', 32).notNull();
+      table.int('parent_id');
     });
     await connection.index().table('invoice').name('invoice_tenant').columns(['tenant_id']);
   }
