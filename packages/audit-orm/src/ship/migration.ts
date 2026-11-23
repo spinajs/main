@@ -38,6 +38,7 @@ export class AuditArchiveTableMigration extends OrmMigration {
       auditEventColumns(table);
     });
     await connection.index().table(name).name(`${name}_subject`).columns(['source', 'subject_type', 'subject_id', 'seq']);
+    await connection.index().table(name).name(`${name}_type_seq`).columns(['source', 'subject_type', 'seq']);
     // For lookups across sources: an erasure without a source, and the erasure check of a batch arriving from a queue.
     await connection.index().table(name).name(`${name}_subject_action`).columns(['subject_type', 'subject_id', 'action']);
     await connection.index().table(name).name(`${name}_actor`).columns(['source', 'actor', 'seq']);
