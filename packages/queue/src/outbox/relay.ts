@@ -8,6 +8,7 @@ import { Log, Logger } from '@spinajs/log';
 import { Orm } from '@spinajs/orm';
 import { isCrash } from '../crash.js';
 import { QueueService } from '../interfaces.js';
+import { withRelayPublishSpan } from '../tracing.js';
 import { outboxConfig, outboxRetry, type IQueueOutboxConfig } from './config.js';
 import { inRootContext } from './root-context.js';
 import { hydrateOutboxMessage } from './row.js';
@@ -212,7 +213,9 @@ export class OutboxRelay extends AsyncService implements IInstanceCheck {
     const { row } = claim;
     const published = [...row.PublishedTo];
     try {
-      await (await this.queueService()).publishDirect(hydrateOutboxMessage(row.Message), { skip: row.PublishedTo, published });
+      const queue = await this.queueService();
+      const message = hydrateOutboxMessage(row.Message);
+      await withRelayPublishSpan(message, () => queue.publishDirect(message, { skip: row.PublishedTo, published }));
     } catch (error) {
       if (isCrash(error)) throw error;
       await this.fail(store, claim, published, error);
