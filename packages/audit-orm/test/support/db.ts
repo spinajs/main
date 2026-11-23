@@ -3,8 +3,8 @@ import '@spinajs/orm-mysql';
 import '@spinajs/orm-postgres';
 import '@spinajs/orm-sqlite';
 import { createConnection } from 'node:net';
-import { Orm } from '@spinajs/orm';
-import type { OrmDriver } from '@spinajs/orm';
+import type { Orm, OrmDriver } from '@spinajs/orm';
+import { migrateTestDatabase } from '@spinajs/orm/testing';
 import { createTestApp } from '@spinajs/testing';
 import type { TestApp } from '@spinajs/testing';
 import { createTestDatabase } from '@spinajs/testing-orm';
@@ -64,14 +64,14 @@ export interface TestDbOptions {
   readonly connections?: readonly Record<string, unknown>[];
 }
 
-/** One ORM over sqlite `:memory:` (the default connection, migrated on startup), PGlite, and the Postgres and MySQL servers that answer. */
+/** One ORM over sqlite `:memory:` (the default connection, migrated before the Orm resolves), PGlite, and the Postgres and MySQL servers that answer. */
 export class TestDb {
   private constructor(private readonly app: TestApp, private readonly orm: Orm, private readonly pglite: TestDatabase, private readonly reached: readonly Dialect[]) {}
 
   /** `audit` is the suite's `audit` configuration. */
   static async open(audit: Record<string, unknown> = {}, options: TestDbOptions = {}): Promise<TestDb> {
     const pglite = await createTestDatabase({ connection: 'pglite', migrate: false });
-    const connections: unknown[] = [{ Driver: 'orm-driver-sqlite', Name: 'sqlite', Filename: ':memory:', Migration: { OnStartup: true } }, pglite.config, ...(options.connections ?? [])];
+    const connections: unknown[] = [{ Driver: 'orm-driver-sqlite', Name: 'sqlite', Filename: ':memory:' }, pglite.config, ...(options.connections ?? [])];
     const reached: Dialect[] = ['sqlite', 'pglite'];
     if (await reachable(POSTGRES.Host, POSTGRES.Port)) {
       connections.push(POSTGRES);
@@ -82,8 +82,9 @@ export class TestDb {
       reached.push('mysql');
     }
     try {
-      const app = await createTestApp({ config: { logger: SILENT, db: { DefaultConnection: 'sqlite', StrictTableCheck: false, Connections: connections }, audit }, resolve: [Orm] });
-      return new TestDb(app, await app.resolve(Orm), pglite, reached);
+      const app = await createTestApp({ config: { logger: SILENT, db: { DefaultConnection: 'sqlite', StrictTableCheck: false, Connections: connections }, audit } });
+      const { orm } = await migrateTestDatabase(app.container);
+      return new TestDb(app, orm, pglite, reached);
     } catch (err) {
       await pglite.dispose();
       throw err;

@@ -62,7 +62,7 @@ class ReadsTable extends AuditTrailTableMigration {
   }
 }
 
-const BOOKS = { Driver: 'orm-driver-sqlite', Name: 'books', Filename: ':memory:', Migration: { OnStartup: true } };
+const BOOKS = { Driver: 'orm-driver-sqlite', Name: 'books', Filename: ':memory:' };
 const at = (second: number): Date => new Date(Date.UTC(2026, 10, 16, 10, 0, second));
 
 describe('Model.audit() and row.audit()', function () {
