@@ -36,6 +36,7 @@ declare module '@spinajs/orm' {
     acrossTenants(reason: string): SameQuery<this, T>;
   }
   interface IRelationSyncStatement {
+    /** Runs this one statement over the rows of every tenant. `reason` says why; the manifest lists it. */
     acrossTenants(reason: string): this;
   }
 }
