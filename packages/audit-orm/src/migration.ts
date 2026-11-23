@@ -41,6 +41,7 @@ export class AuditTrailTableMigration extends OrmMigration {
       auditEventColumns(table);
     });
     await connection.index().table(name).name(`${name}_subject`).columns(['subject_type', 'subject_id', 'seq']);
+    await connection.index().table(name).name(`${name}_type_seq`).columns(['subject_type', 'seq']);
     await connection.index().table(name).name(`${name}_actor`).columns(['actor', 'seq']);
     await connection.index().table(name).name(`${name}_trace`).columns(['trace_id']);
     await connection.index().table(name).name(`${name}_at`).columns(['at']);

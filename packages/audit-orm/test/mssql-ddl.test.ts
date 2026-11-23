@@ -33,10 +33,11 @@ describe('audit-orm DDL on mssql', function () {
     expect(ddl).to.contain('CREATE INDEX [audit_outbox_trail] ON [audit_outbox] ([trail],[seq])');
   });
 
-  it('creates the archive with a source column, five indexes and a unique id', async () => {
+  it('creates the archive with a source column, six indexes and a unique id', async () => {
     const ddl = await ddlOf(new AuditArchiveTableMigration());
     expect(ddl).to.contain(`[source] NVARCHAR(64) ${BIN2} NOT NULL`);
     for (const index of ['audit_event_subject', 'audit_event_subject_action', 'audit_event_actor', 'audit_event_trace', 'audit_event_at']) expect(ddl).to.contain(`[${index}]`);
+    expect(ddl).to.contain('CREATE INDEX [audit_event_type_seq] ON [audit_event] ([source],[subject_type],[seq])');
     expect(ddl).to.contain('CREATE UNIQUE INDEX [audit_event_id] ON [audit_event] ([id])');
   });
 
@@ -53,6 +54,7 @@ describe('audit-orm DDL on mssql', function () {
     expect(ddl).to.contain('[at] DATETIMEOFFSET(3) NOT NULL');
     expect(ddl).to.contain(`[data] NVARCHAR(MAX) ${BIN2} NOT NULL`);
     for (const index of ['audit_event_subject', 'audit_event_actor', 'audit_event_trace', 'audit_event_at']) expect(ddl).to.contain(`[${index}]`);
+    expect(ddl).to.contain('CREATE INDEX [audit_event_type_seq] ON [audit_event] ([subject_type],[seq])');
   });
 
   // A default collation folds case, and VARCHAR keeps only code page 1252: 'ABC' would be erased with 'abc'.
