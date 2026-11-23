@@ -310,7 +310,8 @@ describe('audit queue sink', function () {
       const from = (await memory()).published.length;
       await sink().deliver({ trail: 'remote', source: 'app', events: [event(1)] });
       const [sent] = (await memory()).published.slice(from).map(fieldsOf);
-      expect([...sent.keys()].sort()).to.deep.eq(['CreatedAt', 'Events', 'MessageId', 'Name', 'Persistent', 'Source', 'Trail', 'Type']);
+      // Headers is the queue's own field: it carries the traceparent whenever tracing runs, which it does by default.
+      expect([...sent.keys()].filter((k) => k !== 'Headers').sort()).to.deep.eq(['CreatedAt', 'Events', 'MessageId', 'Name', 'Persistent', 'Source', 'Trail', 'Type']);
     });
 
     it('refuses a batch signed with one source key for another source', async () => {
