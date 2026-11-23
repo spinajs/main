@@ -43,10 +43,10 @@ const TRAILS = {
   strict: { store: 'MemoryAuditStore', onFailure: 'reject', retry: { attempts: 2, delay: '1ms' } },
   omitted: { store: 'MemoryAuditStore', omit: ['data.identity'] },
   masked: { store: 'MemoryAuditStore', mask: ['data.identity'] },
-  idHashed: { store: 'MemoryAuditStore', hash: ['data.identity.id'] },
-  allHashed: { store: 'MemoryAuditStore', hash: ['data.*'] },
-  ipHashed: { store: 'MemoryAuditStore', hash: ['data.ip'] },
-  plainLog: { store: 'LogAuditStore', hash: [] },
+  id_hashed: { store: 'MemoryAuditStore', hash: ['data.identity.id'] },
+  all_hashed: { store: 'MemoryAuditStore', hash: ['data.*'] },
+  ip_hashed: { store: 'MemoryAuditStore', hash: ['data.ip'] },
+  plain_log: { store: 'LogAuditStore', hash: [] },
   unstored: { store: 'NoSuchAuditStore' },
   ...PATH_TRAILS,
 };
@@ -172,7 +172,7 @@ describe('AuthnAuditRecorder on audit.authn.trail', function () {
     assert.deepStrictEqual(MemoryAuditStore.events('security'), []);
   });
 
-  for (const trail of ['omitted', 'masked', 'idHashed', 'allHashed']) {
+  for (const trail of ['omitted', 'masked', 'id_hashed', 'all_hashed']) {
     it(`names no subject on a trail that drops the identity (${trail}), so the id is nowhere in clear`, async () => {
       app = await appWith({ trail });
       const recorder = await app.resolve(AuthnAuditRecorder);
@@ -208,19 +208,19 @@ describe('AuthnAuditRecorder on audit.authn.trail', function () {
   });
 
   it('keeps the subject on a trail whose rules leave the identity alone', async () => {
-    app = await appWith({ trail: 'ipHashed' });
+    app = await appWith({ trail: 'ip_hashed' });
     const recorder = await app.resolve(AuthnAuditRecorder);
 
     await recorder.on(event());
     await recorder.flush();
 
-    const [stored] = MemoryAuditStore.events('ipHashed');
+    const [stored] = MemoryAuditStore.events('ip_hashed');
     assert.deepStrictEqual(stored.subject, IDENTITY);
     assert.strictEqual((stored.data as { subjectOmitted?: unknown }).subjectOmitted, undefined);
   });
 
   it('on a log trail with no hash list, still hashes an identity that may be an email and leaves out what the log never carried', async () => {
-    app = await appWith({ trail: 'plainLog' });
+    app = await appWith({ trail: 'plain_log' });
     const lines: Record<string, unknown>[] = [];
     const capture = (fields: Record<string, unknown>): void => void lines.push(fields);
     app.container.register(() => ({ info: capture, warn: capture })).as(Log);
