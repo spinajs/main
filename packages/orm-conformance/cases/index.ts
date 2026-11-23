@@ -15,7 +15,7 @@ import { VERSION_CASES } from './version.case.js';
 import { WHERE_CASES } from './where.case.js';
 import { WRITE_CASES } from './write.case.js';
 
-export const CASES: readonly ConformanceCase[] = [...WHERE_CASES, ...NULL_CASES, ...ORDER_CASES, ...JOIN_CASES, ...POPULATE_CASES, ...AGGREGATE_CASES, ...TYPE_CASES, ...WRITE_CASES, ...INTROSPECTION_CASES, ...EXPRESSION_CASES, ...AGO_CASES, ...AUDIT_CASES];
+export const CASES: readonly ConformanceCase[] = [...WHERE_CASES, ...NULL_CASES, ...ORDER_CASES, ...JOIN_CASES, ...POPULATE_CASES, ...AGGREGATE_CASES, ...TYPE_CASES, ...WRITE_CASES, ...INTROSPECTION_CASES, ...EXPRESSION_CASES, ...AGO_CASES, ...STREAM_CASES, ...KEYSET_CASES, ...VERSION_CASES, ...AUDIT_CASES];
 
 const seen = new Set<string>();
 for (const c of CASES) {
