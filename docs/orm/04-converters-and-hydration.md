@@ -463,7 +463,7 @@ UPDATE product SET attributes = NULL WHERE attributes = '[object Object]';
 
 An empty subclass of a token (`DatetimeValueConverter`, `BooleanValueConverter`, `TimeValueConverter`, `SetValueConverter`) was converted by the driver's implementation of the token. It now throws `MethodNotImplemented` on write, on read and in `new Model(data)`. Extend the driver's implementation instead, or implement both `toDB()` and `fromDB()`.
 
-`JsonValueConverter.fromDB()` returns a string that is not JSON text as it is, where it threw a `SyntaxError`, and reads a string that is itself JSON text (`123`) as its JSON value on every driver, as `@Json()` already did on PostgreSQL.
+`JsonValueConverter.fromDB()` returns a string that is not JSON text as it is, where it threw a `SyntaxError`. A string value written through `@Json()` reads back as written where the driver hands the stored text over (SQLite, MSSQL); where the driver parses JSON itself (PostgreSQL, PGlite, a MySQL `JSON` column) a string that is itself JSON text comes back as its JSON value (`'123'` as `123`), as before.
 
 ## Related
 
