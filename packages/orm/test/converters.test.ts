@@ -1,6 +1,7 @@
-import { UuidConverter, StandardModelToSqlConverter, JsonValueConverter, Int64ValueConverter } from './../src/converters.js';
+import { UuidConverter, StandardModelToSqlConverter, StandardObjectToSqlConverter, JsonValueConverter, Int64ValueConverter } from './../src/converters.js';
 import { InvalidArgument } from '@spinajs/exceptions';
 import { RelationType } from './../src/interfaces.js';
+import type { IModelDescriptor } from './../src/interfaces.js';
 import { OrmException } from './../src/exceptions.js';
 import { ModelBase } from './../src/model.js';
 import * as chai from 'chai';
@@ -174,6 +175,21 @@ describe('Orm converters', () => {
       const result = new StandardModelToSqlConverter().toSql(mockModel(columns, relations, { Id: 1, parent_id: key })) as Record<string, unknown>;
 
       expect(result.parent_id).to.deep.eq(new UuidConverter().toDB(key));
+    });
+
+    it('passes the key of a model under a @BelongsTo property of a plain object through the FK column converter', () => {
+      const key = '0db8f7f5-56cd-4801-ac23-ad6d78bfec3f';
+      const tag = Object.create(ModelBase.prototype) as ModelBase;
+      Object.defineProperty(tag, 'PrimaryKeyValue', { value: key });
+      const descriptor = {
+        Columns: [column('Text'), column('tag_id', { IsForeignKey: true, Converter: new UuidConverter() })],
+        Relations: new Map([['Tag', { Name: 'Tag', ForeignKey: 'tag_id', Type: RelationType.One, PrimaryKey: 'Id', Recursive: false }]]),
+        Converters: new Map(),
+      } as unknown as IModelDescriptor;
+
+      const result = new StandardObjectToSqlConverter().toSql({ Text: 'note', Tag: tag }, descriptor) as Record<string, unknown>;
+
+      expect(result.tag_id).to.deep.eq(new UuidConverter().toDB(key));
     });
 
     it('should throw when an unrelated NOT NULL FK column is null', () => {

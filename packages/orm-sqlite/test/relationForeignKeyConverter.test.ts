@@ -65,6 +65,15 @@ describe('foreign keys written from a relation pass the column converter', funct
 
       expect(await links()).to.deep.eq([[1, a], [2, b]]);
     });
+
+    it('save() of an owner keyed by the converted column writes the junction source key in the same form', async () => {
+      const tag = await UkTag.where({ Id: c }).populate('Orders').first();
+      tag.Orders.push(await UkOrder.where({ Id: 1 }).first());
+
+      await tag.save();
+
+      expect(await links()).to.deep.eq([[1, a], [2, c]]);
+    });
   });
 
   describe('belongsTo', () => {

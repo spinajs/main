@@ -3,6 +3,24 @@ import { ModelBase, Primary, Connection, Model, BelongsTo, HasMany, HasManyToMan
 // Keys stored as 16-byte BLOBs: the value bound to the database differs from the one the model holds.
 
 @Connection('sqlite')
+@Model('uk_order_tag')
+export class UkOrderTag extends ModelBase {
+  @Primary()
+  public Id: number;
+
+  public order_id: number;
+
+  @Uuid()
+  public tag_id: string;
+
+  @BelongsTo('UkOrder', 'order_id', 'Id')
+  public Order: SingleRelation<UkOrder>;
+
+  @BelongsTo('UkTag', 'tag_id', 'Id')
+  public Tag: SingleRelation<UkTag>;
+}
+
+@Connection('sqlite')
 @Model('uk_tag')
 export class UkTag extends ModelBase {
   @Primary({ generated: 'assigned' })
@@ -13,6 +31,14 @@ export class UkTag extends ModelBase {
 
   @HasMany('UkNote', { foreignKey: 'tag_id', primaryKey: 'Id' })
   public Notes: Relation<UkNote, UkTag>;
+
+  @HasManyToMany(UkOrderTag, 'UkOrder', {
+    targetModelPKey: 'Id',
+    sourceModelPKey: 'Id',
+    junctionModelTargetPk: 'order_id',
+    junctionModelSourcePk: 'tag_id',
+  })
+  public Orders: Relation<UkOrder, UkTag>;
 }
 
 @Connection('sqlite')
@@ -57,24 +83,6 @@ export class UkGenNote extends ModelBase {
 
   @BelongsTo(UkGenTag, 'tag_id', 'Id')
   public Tag: SingleRelation<UkGenTag>;
-}
-
-@Connection('sqlite')
-@Model('uk_order_tag')
-export class UkOrderTag extends ModelBase {
-  @Primary()
-  public Id: number;
-
-  public order_id: number;
-
-  @Uuid()
-  public tag_id: string;
-
-  @BelongsTo('UkOrder', 'order_id', 'Id')
-  public Order: SingleRelation<UkOrder>;
-
-  @BelongsTo(UkTag, 'tag_id', 'Id')
-  public Tag: SingleRelation<UkTag>;
 }
 
 @Connection('sqlite')
