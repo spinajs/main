@@ -145,3 +145,42 @@ describe('SqlTimeValueConverter snapshot hooks', () => {
     expect(converter.snapshotEquals(baseline, converter.fromDB('09:30:00'))).to.equal(false);
   });
 });
+
+describe('SqlTimeValueConverter time spans', () => {
+  const converter = new SqlTimeValueConverter();
+  const spans: [string, string][] = [
+    ['02:30', '02:30:00'],
+    ['00:30', '00:30:00'],
+    ['00:00:01', '00:00:01'],
+    ['03:00', '03:00:00'],
+    ['26:15:00', '26:15:00'],
+    ['838:59:59', '838:59:59'],
+  ];
+
+  for (const [span, text] of spans) {
+    it(`writes ${span} and -${span} as each other's negative`, () => {
+      expect(converter.toDB(TimeSpan.parse(span))).to.equal(text);
+      expect(converter.toDB(TimeSpan.parse(`-${span}`))).to.equal(`-${text}`);
+      expect(converter.toDB(`-${span}`)).to.equal(`-${text}`);
+    });
+
+    it(`reads back what it writes for -${span}`, () => {
+      const negative = TimeSpan.parse(`-${span}`)!;
+
+      expect(converter.fromDB(converter.toDB(negative))!.totalMilliseconds).to.equal(negative.totalMilliseconds);
+    });
+  }
+
+  it('writes zero without a sign', () => {
+    expect(converter.toDB(TimeSpan.ZERO)).to.equal('00:00:00');
+  });
+
+  it('reads a negative TIME as the databases return it', () => {
+    const span = -(2 * TimeSpan.MILLIS_PER_HOUR + 30 * TimeSpan.MILLIS_PER_MINUTE);
+
+    expect(converter.fromDB('-02:30:00')!.totalMilliseconds).to.equal(span);
+    expect(converter.fromDB('-02:30:00.250')!.totalMilliseconds).to.equal(span - 250);
+    expect(converter.fromDB('-02:30:00.250000')!.totalMilliseconds).to.equal(span - 250);
+    expect(converter.fromDB('-00:00:01')!.totalMilliseconds).to.equal(-1000);
+  });
+});

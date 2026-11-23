@@ -87,7 +87,8 @@ export class SqlTimeValueConverter extends TimeValueConverter {
     }
 
     // MySQL TIME format supports hours beyond 24 (up to 838:59:59)
-    const totalHours = Math.floor(timeSpan.totalHours);
+    // floor would round -2.5 hours to -3; minutes and seconds already truncate toward zero
+    const totalHours = Math.trunc(timeSpan.totalHours);
     const minutes = timeSpan.minutes;
     const seconds = timeSpan.seconds;
     
