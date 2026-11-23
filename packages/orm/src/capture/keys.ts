@@ -50,7 +50,7 @@ export function keyTexts(values: readonly unknown[]): KeyTexts {
 }
 
 /** Tells keyless values apart without comparing them pairwise; not a key text, so it never reaches `rows`. */
-function keylessIdentity(value: unknown): string | undefined {
+export function keylessIdentity(value: unknown): string | undefined {
   if (Buffer.isBuffer(value)) return `b:${value.toString('hex')}`;
   if (value instanceof Uint8Array) return `u:${Buffer.from(value.buffer, value.byteOffset, value.byteLength).toString('hex')}`;
   if (value instanceof Date) return `d:${String(value.getTime())}`;

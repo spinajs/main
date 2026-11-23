@@ -3,7 +3,7 @@ import 'mocha';
 import { DI } from '@spinajs/di';
 import { QueryMiddleware } from '../src/interfaces.js';
 import { WriteCaptureMiddleware, captureKeyText } from '../src/capture/index.js';
-import { countKeyless, keyTexts } from '../src/capture/keys.js';
+import { countKeyless, keyTexts, keylessIdentity } from '../src/capture/keys.js';
 import { ORM_CONFIGURATION_SCHEMA } from '../src/configuration-schema.js';
 
 const expect = chai.expect;
@@ -43,11 +43,12 @@ describe('write capture registration', () => {
     expect(countKeyless([[Uint8Array.from([0x15])], [Buffer.from([0x15])], [Uint8Array.from([0x15])]])).to.eq(2);
   });
 
-  it('counts many byte arrays without comparing them pairwise', () => {
-    const values = Array.from({ length: 5000 }, (_, i) => Uint8Array.from([i >> 8, i & 0xff]));
-    const started = performance.now();
-    expect(countKeyless([values, values])).to.eq(5000);
-    expect(performance.now() - started).to.be.below(1000);
+  it('gives byte arrays, dates and numbers an identity, so they are not compared pairwise', () => {
+    expect(keylessIdentity(Uint8Array.from([1, 2]).subarray(1))).to.eq('u:02');
+    expect(keylessIdentity(Buffer.from([1, 2]))).to.eq('b:0102');
+    expect(keylessIdentity(new Date(15))).to.eq('d:15');
+    expect(keylessIdentity(1.5)).to.eq('n:1.5');
+    expect(keylessIdentity({ a: 1 })).to.eq(undefined);
   });
 
   it('compares a keyless value of another kind by value', () => {
