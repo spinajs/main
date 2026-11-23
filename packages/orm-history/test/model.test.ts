@@ -1,7 +1,7 @@
 import * as chai from 'chai';
 import 'mocha';
 import { ExtensionMethodCollision, Model, ModelBase } from '@spinajs/orm';
-import { History, HistoryConfigError, registerHistory } from '../src/index.js';
+import { History, HistoryConfigError, historyOf, registerHistory } from '../src/index.js';
 import type { TrackedModel, TrackedRow } from '../src/index.js';
 
 const expect = chai.expect;
@@ -64,6 +64,36 @@ describe('history members of a marked model', () => {
     abstract class Undeclared extends ModelBase<Undeclared> {}
     expect(Undeclared).to.be.a('function');
     registerHistory(Undeclared, false);
+  });
+
+  it('takes an abstract model and a model whose constructor takes parameters, and refuses a function that is not a model class', () => {
+    abstract class Shared extends ModelBase<Shared> {}
+    class Labelled extends ModelBase<Labelled> {
+      constructor(public readonly label: string) {
+        super();
+      }
+    }
+    registerHistory(Shared);
+    registerHistory(Labelled);
+    expect(['history' in Shared, 'history' in Labelled]).to.deep.eq([true, true]);
+    registerHistory(Shared, false);
+    registerHistory(Labelled, false);
+
+    function plain(): void {}
+    const arrow = (): number => 1;
+    // A row's constructor is typed Function.
+    const typedFunction = ModelBase.prototype.constructor;
+    const refused = (): void => {
+      // @ts-expect-error a plain function is not a model class
+      registerHistory(plain);
+      // @ts-expect-error an arrow function is not a model class
+      registerHistory(arrow);
+      // @ts-expect-error nor is a value typed Function
+      registerHistory(typedFunction);
+      // @ts-expect-error historyOf refuses the same
+      historyOf(plain);
+    };
+    expect(refused).to.be.a('function');
   });
 
   it('takes the members back when the mark is taken back', () => {

@@ -593,7 +593,8 @@ Retention applies per trail, and each trail owns its table.
 
 `extendModel(model, name, { onModel, onRow })` puts a member on one model class (`onModel`, called with the class as
 `this`) and on its rows (`onRow`, called with the row as `this`). Subclasses inherit it; other models do not get it.
-`model` can be an abstract class: its concrete subclasses and their rows then have the member.
+`model` is a `ModelBaseClass`, a model class whose constructor may take any parameters, abstract or not; a plain function
+is refused at compile time. On an abstract class, its concrete subclasses and their rows then have the member.
 The member is not enumerable, a second `extendModel` of the same name replaces it, and `unextendModel(model, name)`
 removes it again. A name the model already has at run time, its own or inherited (`where`, `update`, a method of its
 own), is refused with `ExtensionMethodCollision` and nothing is installed. A column or field of the same name is not

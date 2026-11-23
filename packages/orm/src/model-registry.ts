@@ -1,6 +1,7 @@
 import type { ModelBase } from './model.js';
 
-type ModelBaseClass = abstract new (...args: never[]) => ModelBase;
+/** A model class, abstract or not, whatever its constructor takes. */
+export type ModelBaseClass<T extends ModelBase = ModelBase> = abstract new (...args: never[]) => T;
 
 // hydrators.ts recognises model instances through this instead of importing model.ts, which imports the hydrators.
 let modelBase: ModelBaseClass | undefined;

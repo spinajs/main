@@ -1,8 +1,8 @@
 import { AuditConfigError, auditStore, listAudit, trailConfig } from '@spinajs/audit';
 import type { AuditFilter, AuditQuery, StoredAuditEvent, TrailConfig } from '@spinajs/audit';
-import type { Class, Constructor } from '@spinajs/di';
+import type { Constructor } from '@spinajs/di';
 import { extendModel, extractModelDescriptor, unextendModel } from '@spinajs/orm';
-import type { ModelBase, ModelMembers } from '@spinajs/orm';
+import type { ModelBase, ModelBaseClass, ModelMembers } from '@spinajs/orm';
 
 import { auditConnection, findConnection } from './rows.js';
 import { TableAuditReader } from './table-reader.js';
@@ -135,9 +135,9 @@ function rowAudit(row: ModelBase, trail: string | undefined): RowAudit {
 }
 
 /** The audit events about a model's rows, or about one row; works for every model, marked or not. */
-export function auditOf(model: Class<ModelBase>, trail?: string): ModelAudit;
+export function auditOf(model: ModelBaseClass, trail?: string): ModelAudit;
 export function auditOf(row: ModelBase, trail?: string): RowAudit;
-export function auditOf(target: Class<ModelBase> | ModelBase, trail?: string): ModelAudit | RowAudit {
+export function auditOf(target: ModelBaseClass | ModelBase, trail?: string): ModelAudit | RowAudit {
   return typeof target === 'function' ? modelAudit(target, trail) : rowAudit(target, trail);
 }
 
@@ -152,17 +152,17 @@ const MEMBERS: ModelMembers = {
 
 /**
  * Gives a model `audit()`; for a model of another package, whose class cannot carry `@Auditable()`. The member is not typed then; typed code reads the model through `auditOf`.
- * `false` takes the mark back: it removes the `audit()` the mark installed on this class; a member a subclass inherits from a marked base stays.
+ * `false` takes the mark back: it removes the `audit()` the mark installed on this class; a member a subclass inherits from a marked base stays, and keeps reading the subclass's events.
  */
-export function registerAuditable(model: Class<ModelBase>, mark?: false): void {
+export function registerAuditable(model: ModelBaseClass, mark?: false): void {
   if (mark === false) unextendModel(model, 'audit');
   else extendModel(model, 'audit', MEMBERS);
 }
 
 /** Takes the mark back; needs no typing declarations. */
-export function Auditable(mark: false): (target: Class<ModelBase>) => void;
+export function Auditable(mark: false): (target: ModelBaseClass) => void;
 /** `Model.audit(trail?)` and `row.audit(trail?)` on this model. The class declares the typing; the signature refuses one that does not. */
-export function Auditable(): <M extends Class<ModelBase & AuditableRow> & AuditableModel>(target: M) => void;
+export function Auditable(): <M extends ModelBaseClass<ModelBase & AuditableRow> & AuditableModel>(target: M) => void;
 export function Auditable(mark?: false) {
-  return (target: Class<ModelBase>): void => registerAuditable(target, mark);
+  return (target: ModelBaseClass): void => registerAuditable(target, mark);
 }

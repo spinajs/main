@@ -1,5 +1,4 @@
-import type { Class } from '@spinajs/di';
-import type { ModelBase } from '@spinajs/orm';
+import type { ModelBase, ModelBaseClass } from '@spinajs/orm';
 
 const OPS = ['insert', 'update', 'delete', 'soft_delete', 'restore', 'lost'] as const;
 
@@ -79,6 +78,6 @@ export interface TrackedRow {
 
 /** Implemented by `read.ts`; the members `@History()` installs on a model, and `historyOf`, forward to it. */
 export abstract class ModelHistorySource {
-  abstract of(model: Class<ModelBase>): ModelHistory;
+  abstract of(model: ModelBaseClass): ModelHistory;
   abstract ofRow(row: ModelBase): RowHistory;
 }

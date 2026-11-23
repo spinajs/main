@@ -243,6 +243,36 @@ describe('Model.audit() and row.audit()', function () {
     expect(Undeclared).to.be.a('function');
   });
 
+  it('takes an abstract model and a model whose constructor takes parameters, and refuses a function that is not a model class', () => {
+    abstract class Shared extends ModelBase<Shared> {}
+    class Labelled extends ModelBase<Labelled> {
+      constructor(public readonly label: string) {
+        super();
+      }
+    }
+    registerAuditable(Shared);
+    registerAuditable(Labelled);
+    expect(['audit' in Shared, 'audit' in Labelled]).to.deep.eq([true, true]);
+    registerAuditable(Shared, false);
+    registerAuditable(Labelled, false);
+
+    function plain(): void {}
+    const arrow = (): number => 1;
+    // A row's constructor is typed Function.
+    const typedFunction = ModelBase.prototype.constructor;
+    const refused = (): void => {
+      // @ts-expect-error a plain function is not a model class
+      registerAuditable(plain);
+      // @ts-expect-error an arrow function is not a model class
+      registerAuditable(arrow);
+      // @ts-expect-error nor is a value typed Function
+      registerAuditable(typedFunction);
+      // @ts-expect-error auditOf refuses the same
+      auditOf(plain);
+    };
+    expect(refused).to.be.a('function');
+  });
+
   it('takes the members back when the mark is taken back, and gives them again on a new mark', () => {
     class Later extends ModelBase<Later> {}
     const members = (): boolean[] => ['audit' in Later, 'audit' in Later.prototype];

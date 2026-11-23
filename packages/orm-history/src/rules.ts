@@ -1,6 +1,5 @@
 import { registerConfigurationSchemaAtImport } from '@spinajs/configuration';
-import type { Class } from '@spinajs/di';
-import type { ModelBase } from '@spinajs/orm';
+import type { ModelBaseClass } from '@spinajs/orm';
 
 export const DEFAULT_HISTORY_TRAIL = 'history';
 
@@ -41,12 +40,12 @@ export interface DataRule {
 }
 
 /** `model` and its base classes, nearest first. */
-export function* lineageOf(model: Class<ModelBase>): Generator<Class<ModelBase>> {
-  for (let c: unknown = model; typeof c === 'function' && c !== Function.prototype; c = Object.getPrototypeOf(c)) yield c as Class<ModelBase>;
+export function* lineageOf(model: ModelBaseClass): Generator<ModelBaseClass> {
+  for (let c: unknown = model; typeof c === 'function' && c !== Function.prototype; c = Object.getPrototypeOf(c)) yield c as ModelBaseClass;
 }
 
 /** The first rule that names the model or one of its base classes, or matches everything. */
-export function ruleFor(model: Class<ModelBase>, rules: readonly DataRule[]): DataRule | undefined {
+export function ruleFor(model: ModelBaseClass, rules: readonly DataRule[]): DataRule | undefined {
   if (rules.length === 0) return undefined;
   const names = [...lineageOf(model)].map((c) => c.name);
   return rules.find((r) => r.models === '*' || r.models.some((n) => names.includes(n)));

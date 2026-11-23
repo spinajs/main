@@ -2,8 +2,9 @@ import { audit } from '@spinajs/audit';
 import type { AuditQuery, AuditTrail, StoredAuditEvent } from '@spinajs/audit';
 import { auditSubjectId } from '@spinajs/audit-orm';
 import { Autoinject, Injectable } from '@spinajs/di';
-import type { Class, Constructor } from '@spinajs/di';
+import type { Constructor } from '@spinajs/di';
 import { ModelBase, extractModelDescriptor } from '@spinajs/orm';
+import type { ModelBaseClass } from '@spinajs/orm';
 
 import { asOfFrom, assertInstant } from './as-of.js';
 import { HISTORY_OPS } from './encode.js';
@@ -84,7 +85,7 @@ async function listed(read: Page, query: AuditQuery, q: HistoryQuery | undefined
   return names.length === 0 ? [] : matching(read, { ...query, limit: PAGE }, names, limitOf(q), []);
 }
 
-function modelHistory(model: Class<ModelBase>, spec: HistorySpec | undefined): ModelHistory {
+function modelHistory(model: ModelBaseClass, spec: HistorySpec | undefined): ModelHistory {
   if (!spec) throw new HistoryConfigError(`orm-history: ${model.name} is not tracked (no @History and no audit.data.rules match)`);
   const trail = (): AuditTrail => audit().trail(spec.trail);
   return {
@@ -113,7 +114,7 @@ export class OrmModelHistorySource extends ModelHistorySource {
   @Autoinject(HistorySpecs)
   protected Specs: HistorySpecs;
 
-  public of(model: Class<ModelBase>): ModelHistory {
+  public of(model: ModelBaseClass): ModelHistory {
     return modelHistory(model, this.Specs.of(model));
   }
 
