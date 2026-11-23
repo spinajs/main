@@ -10,6 +10,8 @@ import { bootUow, registerUowConnection, rows, UowOrder, UowOrderItem, UowOrderT
 import { SdOwner } from './models/sd/SdOwner.js';
 import { SdItem } from './models/sd/SdItem.js';
 import './migrations/SdMigration_2026_08_03_00_00_00.js';
+import { UkItem, UkOrder, UkOrderTag, UkTag } from './models/uk/UkModels.js';
+import './migrations/UkMigration_2026_11_23_00_00_00.js';
 
 const expect = chai.expect;
 chai.use(chaiAsPromised);
@@ -102,12 +104,15 @@ describe('Relation set operations against the database', function () {
       order.Tags.push(...(await UowTag.where('Id', '>', 0)));
 
       for (const marker of [{ SoftDelete: { DeletedAt: 'Note' } }, { Archived: { ArchivedAt: 'Note' } }]) {
-        const saved = { SoftDelete: descriptor.SoftDelete, Archived: descriptor.Archived };
+        const saved = Object.keys(marker).map((key) => [key, Object.getOwnPropertyDescriptor(descriptor, key)] as const);
         Object.assign(descriptor, marker);
         try {
           await order.Tags.sync();
         } finally {
-          Object.assign(descriptor, saved);
+          for (const [key, property] of saved) {
+            if (property) Object.defineProperty(descriptor, key, property);
+            else Reflect.deleteProperty(descriptor, key);
+          }
         }
 
         const links = await rows<{ tag_id: number; Note: string | null }>('uow_order_tag');
@@ -176,6 +181,47 @@ describe('Relation set operations against the database', function () {
       expect(await recorded(() => order.Tags.update())).to.deep.eq(['select UowOrderTag', 'insert UowTag', 'insert UowOrderTag']);
 
       expect((await rows<{ tag_id: number }>('uow_order_tag')).map((l) => l.tag_id)).to.deep.eq([1, 3, 4]);
+    });
+  });
+
+  describe('sync() of keys that pass a column converter', () => {
+    const [a, b, c] = ['0a5e3c1e-6b1f-4c2a-9d3e-000000000001', '0a5e3c1e-6b1f-4c2a-9d3e-000000000002', '0a5e3c1e-6b1f-4c2a-9d3e-000000000003'];
+    const keyOf = (key: unknown) => extractModelDescriptor(UkTag)!.Columns.find((col) => col.Name === 'Id')!.Converter!.fromDB(key, {}, undefined) as string;
+
+    async function seededUkOrder() {
+      await UkOrder.insert({ Name: 'order' });
+      for (const [Id, Name] of [[a, 'a'], [b, 'b'], [c, 'c']]) {
+        await UkTag.insert({ Id, Name });
+        await UkOrderTag.insert({ order_id: 1, tag_id: Id });
+        await UkItem.insert({ Id, Name, order_id: 1 });
+      }
+    }
+
+    it('keeps the members of a many-to-many sync(), deletes the orphans and links each member once', async () => {
+      await seededUkOrder();
+      // Not populated, so the list holds no junction rows of its own and relies on the select of existing links.
+      const order = await UkOrder.where({ Id: 1 }).first();
+      order.Tags.push(...(await UkTag.query().whereIn('Name', ['a', 'b'])));
+      const links = async () => (await rows<{ Id: number; tag_id: Buffer }>('uk_order_tag')).map((l) => [l.Id, keyOf(l.tag_id)]);
+
+      await order.Tags.sync();
+      expect(await links(), 'sync()').to.deep.eq([[1, a], [2, b]]);
+
+      await order.Tags.sync();
+      await order.Tags.update();
+      expect(await links(), 'sync() and update() again').to.deep.eq([[1, a], [2, b]]);
+    });
+
+    it('keeps the members of a one-to-many sync() and deletes the orphans', async () => {
+      await seededUkOrder();
+      const order = await UkOrder.where({ Id: 1 }).populate('Items').first();
+      order.Items.remove((i) => i.Name === 'c');
+
+      for (const run of ['first', 'second']) {
+        await order.Items.sync();
+        const items = await rows<{ Id: Buffer }>('uk_item');
+        expect(items.map((i) => keyOf(i.Id)).sort(), run).to.deep.eq([a, b]);
+      }
     });
   });
 

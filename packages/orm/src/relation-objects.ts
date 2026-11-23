@@ -14,6 +14,12 @@ import { extractModelDescriptor } from './descriptor.js';
 import { isCompositePk, pkColumns, pkKeyStringFor, pkValueOf, whereNotAnyPk } from './primary-keys.js';
 import { OrmException } from './exceptions.js';
 
+/** A raw row's column value as the hydrator would set it on the model, so it compares with a model's key. */
+function hydratedValue(descriptor: IModelDescriptor, column: string, row: Record<string, unknown>): unknown {
+  const converter = descriptor.Columns.find((c) => c.Name === column)?.Converter;
+  return converter ? converter.fromDB(row[column], row, descriptor.Converters.get(column)?.Options) : row[column];
+}
+
 /**
  * Builds the equality used by every keyed set operation.
  *
@@ -503,11 +509,13 @@ export class ManyToManyRelationList<T extends ModelBase, O extends ModelBase> ex
     return this.junctions.get(member) as J | undefined;
   }
 
-  /** A statement on the junction model, kept on this relation's connection so it joins the transaction of `sync()` / `update()`. */
+  /**
+   * A statement on the junction model, run on this relation's connection so it joins the transaction of `sync()` /
+   * `update()`, and qualified with the database of the junction model's own connection (its `Options.Database`).
+   */
   protected junctionQuery<B extends QueryBuilder>(builder: Class<B>): ResolveResult<B> {
     return createQuery(this.Relation.JunctionModel!, builder, true, this.Driver).query;
   }
-
 
   /**
   * Deletes from db data that are not in relation
@@ -590,8 +598,8 @@ export class ManyToManyRelationList<T extends ModelBase, O extends ModelBase> ex
 
     // Soft-deleted and archived junction rows count as links too, so they are not inserted a second time.
     const existingQuery = this.junctionQuery(SelectQueryBuilder<unknown>).withDeleted().withArchived().onPrimary().where(this.Relation.JunctionModelSourceModelFKey_Name!, this.OwnerJoinValue);
-    const existingRows = (await existingQuery.asRaw<any[]>()) ?? [];
-    const linked = new Set(existingRows.map((r) => r[this.Relation.JunctionModelTargetModelFKey_Name!]).filter((v) => v !== null && v !== undefined));
+    const existingRows = (await existingQuery.asRaw<Record<string, unknown>[]>()) ?? [];
+    const linked = new Set(existingRows.map((r) => hydratedValue(this.junctionModelDescriptor!, this.Relation.JunctionModelTargetModelFKey_Name!, r)).filter((v) => v !== null && v !== undefined));
 
     for (const f of this) {
       if (f.PrimaryKeyValue === null || f.PrimaryKeyValue === undefined) {

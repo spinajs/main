@@ -126,7 +126,7 @@ class RelationObserver extends WriteObserver {
   }
 }
 
-const selectsOn =(statements: { context: QueryContext; expression: string }[], table: string) => statements.filter((s) => s.context === QueryContext.Select && s.expression.includes(table)).length;
+const selectsOn = (statements: { context: QueryContext; expression: string }[], table: string) => statements.filter((s) => s.context === QueryContext.Select && s.expression.includes(table)).length;
 
 describe('write capture on sqlite', function () {
   // Each test boots the ORM again, which takes several seconds on a loaded machine.
