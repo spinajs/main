@@ -2,7 +2,7 @@
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
 import { InvalidArgument, UnexpectedServerError } from '@spinajs/exceptions';
-import { IQueueMessage, PermanentJobFailure, QueueMessageType } from '@spinajs/queue';
+import { IQueueMessage, PermanentJobFailure, QueueEvent, QueueMessageType } from '@spinajs/queue';
 import { DateTime } from 'luxon';
 import * as chai from 'chai';
 import { expect } from 'chai';
@@ -459,7 +459,7 @@ describe('stomp queue transport - unit', function () {
 
       const sub = c.fake.subscriptions.find((s) => s.destination === '/topic/durable');
       expect(sub!.headers['activemq.subscriptionName']).to.eq('sub-1');
-      expect(sub!.headers.id).to.eq('sub-1');
+      expect(sub!.headers.id).to.eq('sub-1@/topic/durable');
     });
   });
 
@@ -965,9 +965,9 @@ describe('stomp queue transport - unit', function () {
       c.unsubscribe('/topic/durable', true);
 
       expect(c.fake.unsubscribed).to.have.length(1);
-      expect(c.fake.unsubscribed[0].id).to.eq('sub-1');
+      expect(c.fake.unsubscribed[0].id).to.eq('sub-1@/topic/durable');
       expect(c.fake.unsubscribed[0].headers['activemq.subscriptionName']).to.eq('sub-1');
-      expect(c.subs.has('/topic/durable')).to.be.false;
+      expect(c.subs.size).to.eq(0);
     });
 
     it('forgets a durable subscription unsubscribed while disconnected and does not replay it', async () => {
@@ -1102,6 +1102,140 @@ describe('stomp queue transport - unit', function () {
       c.fake.onStompError({ headers: { message: 'Broker: localhost - Client: jobs-e already connected from tcp://172.18.0.1:50000' }, body: '' });
 
       await expect(p).to.be.rejectedWith(UnexpectedServerError, /QUEUE_INSTANCE_ID/);
+    });
+  });
+
+  describe('subscription identity', () => {
+    class LedgerEvent extends QueueEvent {}
+    class MailerEvent extends QueueEvent {}
+
+    /** A topic hands every subscription its own copy of a message. */
+    function publishToTopic(c: TestableStompClient, destination: string) {
+      const copies = c.fake.subscriptions.filter((s) => s.destination === destination && !s.unsubscribe.called).map((s) => ({ sub: s, msg: brokerMessage(qMessage()) }));
+      copies.forEach(({ sub, msg }) => sub.callback(msg));
+      return copies.map(({ msg }) => msg);
+    }
+
+    it('keeps two subscription ids on one topic as two broker subscriptions', async () => {
+      const c = await connected();
+      const a = sinon.stub().resolves();
+      const b = sinon.stub().resolves();
+      await c.subscribe('/topic/shared', a, 'sub-a');
+      await c.subscribe('/topic/shared', b, 'sub-b');
+
+      const subs = c.fake.subscriptions.filter((s) => s.destination === '/topic/shared');
+      expect(subs.map((s) => s.id)).to.deep.equal(['sub-a@/topic/shared', 'sub-b@/topic/shared']);
+
+      subs[0].callback(brokerMessage(qMessage()));
+      await tick();
+      expect(a.calledOnce).to.equal(true);
+      expect(b.called).to.equal(false);
+    });
+
+    it('gives every message of a topic to each subscription id, and each copy to its own handler only', async () => {
+      const c = await connected();
+      const a = sinon.stub().resolves();
+      const b = sinon.stub().resolves();
+      await c.subscribe('/topic/shared', a, 'sub-a');
+      await c.subscribe('/topic/shared', b, 'sub-b');
+
+      const copies = [...publishToTopic(c, '/topic/shared'), ...publishToTopic(c, '/topic/shared')];
+      await tick();
+
+      expect([a.callCount, b.callCount]).to.deep.equal([2, 2]);
+      expect(copies.map((m) => m.ack.callCount)).to.deep.equal([1, 1, 1, 1]);
+    });
+
+    it('gives one subscription id on two channels two STOMP subscription ids', async () => {
+      const c = await connected();
+      await c.subscribe('/topic/a', sinon.stub().resolves(), 'billing');
+      await c.subscribe('/topic/b', sinon.stub().resolves(), 'billing');
+      expect(c.fake.subscriptions.map((s) => s.id)).to.deep.equal(['billing@/topic/a', 'billing@/topic/b']);
+    });
+
+    it('subscribes a channel and subscription id once, whoever asks again', async () => {
+      const c = await connected();
+      await c.subscribe('/topic/shared', sinon.stub().resolves(), 'sub-a');
+      await c.subscribe('/topic/shared', sinon.stub().resolves(), 'sub-a');
+      expect(c.fake.subscriptions.filter((s) => s.destination === '/topic/shared')).to.have.length(1);
+    });
+
+    it('keeps one broker subscription for two subscription ids on a queue, so they do not split its messages', async () => {
+      const c = await connected();
+      await c.subscribe('/queue/work', sinon.stub().resolves(), 'sub-a');
+      await c.subscribe('/queue/work', sinon.stub().resolves(), 'sub-b');
+
+      expect(c.fake.subscriptions.filter((s) => s.destination === '/queue/work')).to.have.length(1);
+    });
+
+    it('replays each subscription id after a reconnect and routes its messages to its own handler', async () => {
+      const c = await connected();
+      const a = sinon.stub().resolves();
+      const b = sinon.stub().resolves();
+      await c.subscribe('/topic/shared', a, 'sub-a');
+      await c.subscribe('/topic/shared', b, 'sub-b');
+      c.fake.subscriptions.length = 0;
+
+      c.fake.simulateDrop();
+      c.fake.simulateConnect();
+
+      expect(c.fake.subscriptions.map((s) => s.id)).to.deep.equal(['sub-a@/topic/shared', 'sub-b@/topic/shared']);
+      c.fake.subscriptions[1].callback(brokerMessage(qMessage()));
+      await tick();
+      expect([a.callCount, b.callCount]).to.deep.equal([0, 1]);
+    });
+
+    it('unsubscribes every subscription of a channel', async () => {
+      const c = await connected();
+      await c.subscribe('/topic/shared', sinon.stub().resolves(), 'sub-a');
+      await c.subscribe('/topic/shared', sinon.stub().resolves(), 'sub-b');
+      const subs = c.fake.subscriptions.filter((s) => s.destination === '/topic/shared');
+
+      c.unsubscribe('/topic/shared');
+
+      expect(subs.map((s) => s.unsubscribe.calledOnce)).to.deep.equal([true, true]);
+      expect(c.subs.size).to.equal(0);
+    });
+
+    it('unsubscribes a message class from its own subscription id only', async () => {
+      const c = await connected();
+      const ledger = sinon.stub().resolves();
+      const mailer = sinon.stub().resolves();
+      await c.subscribe(LedgerEvent, ledger, 'ledger');
+      await c.subscribe(MailerEvent, mailer, 'mailer');
+      const subs = c.fake.subscriptions.filter((s) => s.destination === '/topic/default');
+
+      c.unsubscribe(LedgerEvent);
+
+      expect(subs.map((s) => [s.id, s.unsubscribe.called])).to.deep.equal([
+        ['ledger@/topic/default', true],
+        ['mailer@/topic/default', false],
+      ]);
+      publishToTopic(c, '/topic/default');
+      await tick();
+      expect([ledger.called, mailer.calledOnce]).to.deep.equal([false, true]);
+    });
+
+    it('removes only the durable subscription of the channel it is asked for', async () => {
+      const c = await connected();
+      await c.subscribe('/topic/durable', sinon.stub().resolves(), 'sub-1', true);
+      await c.subscribe('/topic/other', sinon.stub().resolves(), 'sub-2', true);
+
+      c.unsubscribe('/topic/durable', true);
+
+      expect(c.fake.unsubscribed).to.deep.equal([{ id: 'sub-1@/topic/durable', headers: { 'activemq.subscriptionName': 'sub-1' } }]);
+      expect([...c.subs.values()].map((d) => d.channel)).to.deep.equal(['/topic/other']);
+    });
+
+    it('leaves no subscription behind after dispose', async () => {
+      const c = await connected();
+      await c.subscribe('/topic/shared', sinon.stub().resolves(), 'sub-a');
+      await c.subscribe('/topic/shared', sinon.stub().resolves(), 'sub-b');
+      await c.subscribe('/queue/work', sinon.stub().resolves());
+
+      await c.dispose();
+
+      expect(c.subs.size).to.equal(0);
     });
   });
 });

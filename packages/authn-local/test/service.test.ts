@@ -5,9 +5,9 @@ import { AUTHN_LOCAL_CONFIGURATION_SCHEMA } from '../src/schema.js';
 import { AuthnAudit } from '@spinajs/authn/audit';
 import { AsyncService, Autoinject, DI } from '@spinajs/di';
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
-import { AuthnEventSink, AuthnThrottle, IdentityStore, PasswordCredentialStore, PasswordService, SecretStore, SessionIssuer, TokenService } from '@spinajs/authn/contracts';
+import { AuthnEventListener, AuthnThrottle, IdentityStore, PasswordCredentialStore, PasswordService, SecretStore, SessionIssuer, TokenService } from '@spinajs/authn/contracts';
 import type { AuthnContext, AuthnEvent, AuthnFacts, IdentityRef, SessionHandle, ThrottleKey } from '@spinajs/authn/contracts';
-import { DEFAULT_THROTTLE, FakeBackoffThrottle, FakeIdentityStore, MemoryPasswordCredentialStore, MemorySecretStore, MemorySessionIssuer, RecordingEventSink } from '@spinajs/authn-testing';
+import { DEFAULT_THROTTLE, FakeBackoffThrottle, FakeIdentityStore, MemoryPasswordCredentialStore, MemorySecretStore, MemorySessionIssuer, RecordingEventListener } from '@spinajs/authn-testing';
 
 import { Argon2PasswordHasher, PasswordHasher } from '../src/hasher.js';
 import { LocalPasswordPolicy, PasswordBlocklist } from '../src/policy.js';
@@ -47,8 +47,8 @@ class CountingThrottle extends FakeBackoffThrottle {
   }
 }
 
-class FailingSink extends AuthnEventSink {
-  public async publish(): Promise<void> {
+class FailingSink extends AuthnEventListener {
+  public async on(): Promise<void> {
     throw new Error('sink is down');
   }
 }
@@ -58,7 +58,7 @@ async function setup(over: Partial<LocalPasswordServiceDeps> = {}) {
   const passwords = new MemoryPasswordCredentialStore();
   const sessions = new MemorySessionIssuer();
   const throttle = new CountingThrottle(DEFAULT_THROTTLE);
-  const events = new RecordingEventSink();
+  const events = new RecordingEventListener();
   const tokens = new RecordingTokenService();
   const hasher = new Argon2PasswordHasher({});
   // As at boot: the hasher makes its dummy hash in resolve() (D4).
@@ -71,7 +71,7 @@ async function setup(over: Partial<LocalPasswordServiceDeps> = {}) {
     sessions,
     throttle,
     tokens,
-    sinks: [events],
+    listeners: [events],
     hasher,
     policy,
     log: recordingLog(warnings),
@@ -348,7 +348,7 @@ describe('LocalPasswordService', function () {
     });
 
     it('a failing sink does not fail the change and is logged', async () => {
-      const { service, warnings, alice, session } = await setup({ sinks: [new FailingSink()] });
+      const { service, warnings, alice, session } = await setup({ listeners: [new FailingSink()] });
       expect((await service.change(alice, OLD, NEW, session, ctx())).status).to.equal('changed');
       expect(warnings.some((w) => w.includes('FailingSink'))).to.equal(true);
     });
@@ -601,7 +601,7 @@ describe('LocalPasswordService DI wiring', function () {
     DI.register(FakeIdentityStore).as(IdentityStore);
     DI.register(MemoryPasswordCredentialStore).as(PasswordCredentialStore);
     DI.register(MemorySessionIssuer).as(SessionIssuer);
-    DI.register(RecordingEventSink).as(AuthnEventSink);
+    DI.register(RecordingEventListener).as(AuthnEventListener);
     DI.register(RecordingTokenService).as(TokenService);
     DI.register(DefaultBackoffThrottle).as(AuthnThrottle);
     DI.register(MemorySecretStore).as(SecretStore);
@@ -615,7 +615,7 @@ describe('LocalPasswordService DI wiring', function () {
     DI.unregister(FakeIdentityStore);
     DI.unregister(MemoryPasswordCredentialStore);
     DI.unregister(MemorySessionIssuer);
-    DI.unregister(RecordingEventSink);
+    DI.unregister(RecordingEventListener);
     DI.unregister(RecordingTokenService);
     DI.unregister(DefaultBackoffThrottle);
     DI.unregister(MemorySecretStore);
@@ -629,7 +629,7 @@ describe('LocalPasswordService DI wiring', function () {
     DI.uncache(IdentityStore);
     DI.uncache(PasswordCredentialStore);
     DI.uncache(SessionIssuer);
-    DI.uncache(AuthnEventSink);
+    DI.uncache(AuthnEventListener);
     DI.uncache(TokenService);
     DI.uncache(AuthnThrottle);
     DI.uncache(PasswordHasher);
@@ -642,7 +642,7 @@ describe('LocalPasswordService DI wiring', function () {
     DI.uncache(FakeIdentityStore);
     DI.uncache(MemoryPasswordCredentialStore);
     DI.uncache(MemorySessionIssuer);
-    DI.uncache(RecordingEventSink);
+    DI.uncache(RecordingEventListener);
     DI.uncache(RecordingTokenService);
     DI.uncache(DefaultBackoffThrottle);
   });
@@ -663,7 +663,7 @@ describe('LocalPasswordService DI wiring', function () {
     expect((await service.change(alice, OLD, NEW, session, ctx())).status).to.equal('changed');
     expect(await service.set(alice, 'Another-Pass-4', ctx())).to.deep.equal({ status: 'set' });
     expect(tokens.calls).to.deep.equal([]);
-    const sink = (DI.resolve(Array.ofType(AuthnEventSink)) as unknown[]).find((s) => s instanceof RecordingEventSink) as RecordingEventSink;
+    const sink = (DI.resolve(Array.ofType(AuthnEventListener)) as unknown[]).find((s) => s instanceof RecordingEventListener) as RecordingEventListener;
     expect(sink.ofType('password.change').map((e) => e.outcome)).to.deep.equal(['success', 'success']);
   });
 

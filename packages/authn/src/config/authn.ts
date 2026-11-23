@@ -40,8 +40,7 @@ const authn = {
       clockSkewSeconds: 30,
     },
     audit: {
-      hashIdentifiers: true,
-      sinkTimeoutMs: 2000,
+      listenerTimeoutMs: 2000,
     },
   },
 };

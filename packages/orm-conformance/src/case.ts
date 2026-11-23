@@ -20,6 +20,8 @@ export interface ConformanceCase {
   readonly order: CaseOrder;
   /** Keys whose 0/1 values are booleans: sqlite, mysql and mssql return a raw boolean column as a number. */
   readonly booleans?: readonly string[];
+  /** PGlite's result, pinned. Without it a case that throws the same error on every target agrees with itself. */
+  readonly expected?: unknown;
   /** Returns plain data ( or models' fields mapped to plain data ); a throw is recorded as `{ $error: <class name> }`. */
   run(db: ConformanceDb): Promise<unknown>;
 }

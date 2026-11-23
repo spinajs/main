@@ -11,7 +11,7 @@ import adminConfig from '../../src/config/admin.js';
 import { AUTHZ_ASSIGNMENT_TABLE, AUTHZ_LINK_TABLE, AUTHZ_RULE_SUBJECT_TABLE, AUTHZ_RULE_TABLE, AUTHZ_SUBJECT_MEMBERSHIP_TABLE, AUTHZ_VERSION_TABLE, AdminAssignmentStore, AdminLinkStore, AdminRuleStore, DbAuthzAdminBackend, RbacContributor, RbacModel, RbacService, RoleStore, linkTokenHash, normaliseTags, readVersion, registerRbacStores, scopeToColumns, subjectKeyOf, subjectToColumns } from '../../src/index.js';
 import type { ConfigRoleStore, DbAssignmentStore, DbLinkStore, DbRuleStore } from '../../src/index.js';
 import type { LadderDef, RbacExtension, RbacModelOptions, RoleDef } from '../../src/index.js';
-import { RecordingEventSink } from '../admin/admin-harness.js';
+import { RecordingEventListener } from '../admin/admin-harness.js';
 import { TestRbacModel } from '../admin/test-rbac-model.js';
 import { rawQuery } from '../support/db.js';
 import type { TestDb } from '../support/db.js';
@@ -104,7 +104,7 @@ export class DbHarnessBackend extends DbAuthzAdminBackend {}
  */
 export function dbHarness(db: () => TestDb | undefined, opts: DbHarnessOptions = {}): BehaviourHarness {
   const models = new WeakMap<HostSetup, RbacModel>();
-  const sinks = new WeakMap<HostSetup, RecordingEventSink>();
+  const sinks = new WeakMap<HostSetup, RecordingEventListener>();
   const admin = opts.admin === true;
 
   return hostHarness({
@@ -146,7 +146,7 @@ export function dbHarness(db: () => TestDb | undefined, opts: DbHarnessOptions =
       }
 
       if (admin) {
-        const events = new RecordingEventSink();
+        const events = new RecordingEventListener();
         sinks.set(host, events);
         c.register(instance(events)).as(AuthzEventSink);
         c.register(DbHarnessBackend).as(AuthzAdminBackend);

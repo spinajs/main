@@ -15,9 +15,6 @@
       "path": "../authn/tsconfig.build.json"
     },
     {
-      "path": "../cli/tsconfig.build.json"
-    },
-    {
       "path": "../configuration/tsconfig.build.json"
     },
     {

@@ -152,8 +152,12 @@ function diffIndexes(table: TargetTable, columns: IColumnDescriptor[], extras: L
       .filter((index) => !columns.find((c) => ctx.fold(c.Name) === ctx.fold(index.columns[0]))?.Unique)
       .map((index) => addIndex(table, index));
   }
-  const live = extras.indexes.filter((i) => !i.primary);
-  const added = wanted.filter((w) => !live.some((l) => sameIndex(l, w, ctx))).map((w) => addIndex(table, w));
+  const inexact = extras.indexes.filter((i) => !i.primary && i.inexact === true);
+  for (const index of inexact) note(ctx, 'MIG007', `index ${index.name} on ${table.name} is an expression or prefix index and cannot be compared; check it by hand`);
+  // the `columns` of an inexact index do not say what it compares, so it matches nothing; a CREATE INDEX under its name would fail
+  const taken = new Set(inexact.map((i) => ctx.fold(i.name)));
+  const live = extras.indexes.filter((i) => !i.primary && i.inexact !== true);
+  const added = wanted.filter((w) => !live.some((l) => sameIndex(l, w, ctx)) && !taken.has(ctx.fold(indexName(table.name, w)))).map((w) => addIndex(table, w));
   const base = ctx.base.get(ctx.fold(table.name));
   const removed = base ? live.filter((l) => wantedIndexes(base).some((b) => sameIndex(b, l, ctx)) && !wanted.some((w) => sameIndex(w, l, ctx))) : [];
   const dropped = removed.map((l): SchemaChange => ({ kind: 'dropIndex', table: table.name, detail: { name: l.name }, destructive: true, reason: `index ${l.name} on ${table.name} was removed from the models since --base` }));

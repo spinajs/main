@@ -7,6 +7,8 @@ export interface ExplainNode {
   truth: Truth;
   children: ExplainNode[];
   source: string;
+  /** On a caveat node: the paths its conditional tuple's context set, which the caveat read from the tuple. */
+  tupleContext?: string[];
 }
 
 export const explainNode = (label: string, truth: Truth, source: string, children: ExplainNode[] = []): ExplainNode => ({ label, truth, children, source });
