@@ -1,5 +1,5 @@
 import ts from 'typescript';
-import type { AuthzSection, CliCommandEntry, ControllerEntry, PolicyRef, ScheduleEntry, SocketControllerEntry, SourceRef } from '@spinajs/manifest';
+import type { AuthzSection, CliCommandEntry, ControllerEntry, PolicyRef, RouteEntry, ScheduleEntry, SocketControllerEntry, SourceRef } from '@spinajs/manifest';
 import type { ExtractorContext } from '../context.js';
 import { findDecorator, identifierName, literalValue } from '../decorators.js';
 import { extendsFrameworkClass } from '../schema/framework-members.js';
@@ -19,7 +19,7 @@ export interface AuthzInputs {
 }
 
 const RESOURCE_ACTIONS = ['read', 'create', 'update', 'delete'];
-const IGNORE = /\/\/\s*spinajs-authz-ignore\s+(AUTHZ\d{3})\s*:\s*(.*\S)/g;
+const IGNORE = /^\/\/[^\S\r\n]*spinajs-authz-ignore[^\S\r\n]+(AUTHZ\d{3})[^\S\r\n]*:[^\S\r\n]*(\S.*?)\s*$/;
 
 /** Class and handler scopes are ANDed at runtime (`createPolicyGate`); as OR-of-AND groups that is their cross product. */
 export function combineScopes(outer: PolicyRef[][], inner: PolicyRef[][]): PolicyRef[][] {
@@ -48,7 +48,10 @@ function withPermissions(groups: PolicyRef[][], scopes: { class: ScopeAccess; ro
   );
 }
 
-const sourceKey = (s: SourceRef): string => `${s.file}:${s.line}:${s.col}`;
+export const sourceKey = (s: SourceRef): string => `${s.file}:${s.line}:${s.col}`;
+
+/** The id of a route in every `entryPoints` list of the manifest. */
+export const routeEntryId = (r: RouteEntry): string => `${r.method.toUpperCase()} ${r.fullPath}`;
 
 /** A route nothing guards still says what it is: open to anonymous callers, or public with a reason. */
 function declaredOpen(access: PolicyRef[][], anonymous: boolean, reason: string | undefined): PolicyRef[][] {
@@ -66,7 +69,7 @@ function routeEntryPoints(controllers: ControllerEntry[], classes: Map<string, t
       const flag = anonymous ? { allowAnonymous: true as const } : {};
       const scopes = { class: { permissions: c.access, options: { ...classOptions, ...flag } }, route: { permissions: r.access, options: { ...accessOptionsOf(methodOf(cls, r.handler, ctx), ctx), ...flag } } };
       const access = withPermissions(combineScopes(c.policies, r.policies), scopes);
-      return { kind: 'route' as const, id: `${r.method.toUpperCase()} ${r.fullPath}`, access: declaredOpen(access, anonymous, r.public ?? c.public), source: r.source };
+      return { kind: 'route' as const, id: routeEntryId(r), access: declaredOpen(access, anonymous, r.public ?? c.public), source: r.source };
     });
   });
 }
@@ -107,7 +110,8 @@ function systemEntry(kind: EntryPoint['kind'], id: string, source: SourceRef, sy
 
 function jobEntryPoint(st: ts.Statement, ctx: ExtractorContext, system: Map<string, string>): EntryPoint | undefined {
   if (!ts.isClassDeclaration(st) || !st.name || isAbstractClass(st) || !ctx.isSubclassOf(st, 'QueueJob')) return undefined;
-  const options = literalValue(findDecorator(st, 'Job')?.args[0], ctx) as { access?: unknown } | undefined;
+  // extractQueueMessages notes a non-literal option of this decorator.
+  const options = literalValue(findDecorator(st, 'Job')?.args[0], { checker: ctx.checker, info: () => undefined }) as { access?: unknown } | undefined;
   return systemEntry('queue-handler', `job:${st.name.text}`, ctx.sourceRef(st), system, accessFromOptions(options?.access));
 }
 
@@ -136,13 +140,50 @@ function queueEntryPoints(files: readonly ts.SourceFile[], ctx: ExtractorContext
   return out;
 }
 
+export interface IgnoreComment {
+  code: string;
+  reason: string;
+  line: number;
+  col: number;
+}
+
+/**
+ * The `//` comments of a file, read as comment ranges so that a marker inside a string or template is none.
+ * Every comment follows some token, punctuation included (`{ // …`, `, // …`), so the ranges are read after each
+ * token's end: the trailing ones on its line and the leading ones on the lines below. JSDoc nodes sit inside a
+ * comment and are not walked. The comment scanner reads JSX text as code, so a range inside it is dropped.
+ */
+function lineComments(file: ts.SourceFile): ts.CommentRange[] {
+  const out = new Map<number, ts.CommentRange>();
+  const jsxText: ts.Node[] = [];
+  const add = (ranges: ts.CommentRange[] | undefined): void => {
+    for (const r of ranges ?? []) if (r.kind === ts.SyntaxKind.SingleLineCommentTrivia) out.set(r.pos, r);
+  };
+  const visit = (node: ts.Node): void => {
+    if (ts.isJSDoc(node)) return;
+    if (ts.isJsxText(node)) jsxText.push(node);
+    const children = node.getChildren(file);
+    children.forEach(visit);
+    if (children.length > 0) return;
+    add(ts.getTrailingCommentRanges(file.text, node.getEnd()));
+    add(ts.getLeadingCommentRanges(file.text, node.getEnd()));
+  };
+  add(ts.getLeadingCommentRanges(file.text, 0));
+  visit(file);
+  return [...out.values()].filter((r) => !jsxText.some((t) => r.pos >= t.pos && r.pos < t.end)).sort((a, b) => a.pos - b.pos);
+}
+
+export function ignoreCommentsOf(file: ts.SourceFile): IgnoreComment[] {
+  return lineComments(file).flatMap((range) => {
+    const match = IGNORE.exec(file.text.slice(range.pos, range.end));
+    if (match === null) return [];
+    const { line, character } = file.getLineAndCharacterOfPosition(range.pos);
+    return [{ code: match[1], reason: match[2], line: line + 1, col: character + 1 }];
+  });
+}
+
 function ignoresIn(files: readonly ts.SourceFile[], ctx: ExtractorContext): AuthzSection['ignores'] {
-  return files.flatMap((file) =>
-    [...file.text.matchAll(IGNORE)].map((m) => {
-      const { line, character } = file.getLineAndCharacterOfPosition(m.index);
-      return { code: m[1], reason: m[2], source: { ...ctx.sourceRef(file), line: line + 1, col: character + 1 } };
-    }),
-  );
+  return files.flatMap((file) => ignoreCommentsOf(file).map(({ code, reason, line, col }) => ({ code, reason, source: { ...ctx.sourceRef(file), line, col } })));
 }
 
 /** What authz-orm's adapter registers for every resource type at runtime. */
@@ -151,8 +192,11 @@ function modelPermissions(resources: Resource[]): AuthzSection['permissions'] {
   return types.flatMap((type) => RESOURCE_ACTIONS.map((action) => ({ name: `${type}:${action}`, declaredIn: 'model' as const })));
 }
 
-/** The package's `authz` section; undefined when it declares nothing. `findings` stay empty until the flow pass. */
-export function authzSectionOf(ctx: ExtractorContext, files: readonly ts.SourceFile[], inputs: AuthzInputs): AuthzSection | undefined {
+/** The authz facts the extractors read; the flow pass adds `findings` and `flow`. */
+export type AuthzFacts = Omit<AuthzSection, 'findings' | 'flow'>;
+
+/** The package's authz facts; undefined when it declares nothing. */
+export function authzSectionOf(ctx: ExtractorContext, files: readonly ts.SourceFile[], inputs: AuthzInputs): AuthzFacts | undefined {
   const system = systemTasks(files, ctx);
   const classes = classesBySource(files, ctx, sourceKey);
   const entryPoints = [
@@ -162,6 +206,6 @@ export function authzSectionOf(ctx: ExtractorContext, files: readonly ts.SourceF
     ...inputs.schedules.map((s) => systemEntry('schedule', s.name, s.source, system)),
     ...inputs.commands.map((c) => systemEntry('cli', c.name, c.source, system)),
   ];
-  const section: AuthzSection = { resources: inputs.resources, permissions: modelPermissions(inputs.resources), entryPoints, findings: [], ignores: ignoresIn(files, ctx) };
+  const section: AuthzFacts = { resources: inputs.resources, permissions: modelPermissions(inputs.resources), entryPoints, ignores: ignoresIn(files, ctx) };
   return section.resources.length || section.entryPoints.length || section.ignores.length ? section : undefined;
 }

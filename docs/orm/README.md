@@ -17,7 +17,7 @@ Pick the driver package for your database.
 | Feature | What it does |
 | --- | --- |
 | [Connections](01-connections.md) | Boots `Orm`, opens the configured connections, applies the `Migration.OnStartup` migrations, binds models to the connections and reads their table info |
-| [Models](02-models.md) | Declares a model class over a table: primary keys, timestamps, soft delete, archiving, hidden and historical columns |
+| [Models](02-models.md) | Declares a model class over a table: primary keys, timestamps, soft delete, archiving and hidden columns |
 | [Model API](03-model-api.md) | Static and instance methods on `ModelBase`: get, find, where, insert, update, destroy, scopes |
 | [Converters and hydration](04-converters-and-hydration.md) | Converts column values between the database and JS, and maps rows to models and back |
 | [Query builder](05-query-builder.md) | Builds select, insert, update and delete queries, and hooks query and model middleware |
@@ -25,6 +25,7 @@ Pick the driver package for your database.
 | [Keyset pagination](21-keyset-pagination.md) | `query.paginate()`: stable pages with opaque `next`/`previous` cursors, in any mix of directions |
 | [Optimistic locking](22-optimistic-locking.md) | `@Version()`: update, destroy and save match the version the model was read at, `OptimisticLockError` (HTTP 409) otherwise |
 | [Read replicas](24-read-replicas.md) | `Replicas` per connection: model selects on healthy replicas, writes and transactions on the primary, read-your-writes per request |
+| [Write capture](25-write-capture.md) | `WriteObserver`: the rows an insert, update or delete reaches, read once before and once after the statement for every observer that asks, in one transaction; `db.WriteCapture.MaxRows` |
 | [Typed queries](18-typed-queries.md) | Checks column names, values and result shapes at compile time; strict mode is opt-in per package |
 | [Scopes and builder extensions](16-scopes-and-builder-extensions.md) | Adds your own methods to query builders: per-model scopes, prototype extensions, builder subclasses |
 | [SQL helpers](17-sql-helpers.md) | Dialect expressions (`SqlExpressions`), affected rows, duplicate keys, SQL fragments, typed raw SQL (`sql<Row>` and `executeSql`, checked by `spinajs doctor` and the `typed-sql` ESLint rule), composite-key `IN`, chunked writes and purges for stores that use a connection directly |
@@ -32,7 +33,7 @@ Pick the driver package for your database.
 | [Unit of work](07-unit-of-work.md) | Saves a model graph in dependency order with dirty tracking, an identity map and orphan policies |
 | [Transactions](08-transactions.md) | Runs queries and saves atomically, with isolation levels and shared table locks |
 | [Schema builder](09-schema-builder.md) | Creates and alters tables, columns, indexes, foreign keys, views, events and databases |
-| [Migrations](10-migrations.md) | `OrmMigrator`: orders, locks and runs migrations and their seeds on startup and on demand, re-reads the touched models; `resolveMigrationTool()` |
+| [Migrations](10-migrations.md) | `OrmMigrator`: orders, locks and runs migrations and their seeds from `npx spinajs migrate-up`, re-reads the touched models; the boot check (`OrmMigrationGuard`, `db.MigrationCheck`); `resolveMigrationTool()`; `migrateTestDatabase()` |
 | [JSON schema](11-json-schema.md) | Builds a JSON schema from a model for validation |
 | [Architecture](12-architecture.md) | How a query becomes SQL, and the extension points a dialect driver implements |
 | [Observability and resilience](13-observability-and-resilience.md) | Pool metrics, connection state and retry with backoff |

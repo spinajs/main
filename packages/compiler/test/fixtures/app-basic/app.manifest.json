@@ -859,7 +859,14 @@
       }
     ],
     "findings": [],
-    "ignores": []
+    "ignores": [],
+    "flow": {
+      "entryPoints": 13,
+      "unresolvedRoots": 0,
+      "opaqueCalls": 0,
+      "externalCalls": 9,
+      "foreignModelQueries": 0
+    }
   },
   "schemas": {
     "spinajs/app-basic/ArticleDto": {
@@ -1157,6 +1164,6 @@
       }
     }
   ],
-  "generatedAt": "2026-11-04T06:44:24.502Z",
-  "hash": "a5a3089daee95281268baa5520cc78048e0c79f21ac3ffd9a54b9255cdf88a81"
+  "generatedAt": "2026-11-17T20:24:35.388Z",
+  "hash": "2aa41def89c2355f1d27cdbba0cfd74507ee88315c67b172bbd2c23e47c20795"
 }

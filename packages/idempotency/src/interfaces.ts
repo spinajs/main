@@ -26,6 +26,8 @@ export interface IdempotencyClaimOptions {
 export interface IdempotencyScope {
   namespace: string;
   principal?: string;
+  /** More of the caller's scope, such as its tenant (`tenant:acme`); each names its kind, so two kinds never meet. */
+  parts?: readonly string[];
 }
 
 export interface IdempotencyRunOptions<T> {

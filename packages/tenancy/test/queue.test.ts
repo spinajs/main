@@ -7,8 +7,8 @@ import type { IQueueMessage } from '@spinajs/queue';
 import { MemoryBroker, MemoryQueueClient } from '@spinajs/queue/testing';
 import { createTestApp } from '@spinajs/testing';
 import type { TestApp } from '@spinajs/testing';
-import { currentTenant, runAcrossTenants, runInTenant, tenantScope } from '../src/index.js';
-import type { TenantScope } from '../src/index.js';
+import { MemoryTenantRegistry, TENANT_STATES, TenantRegistry, TenantUnavailable, currentTenant, runAcrossTenants, runInTenant, tenantRegistry, tenantScope } from '../src/index.js';
+import type { TenantRecord, TenantScope } from '../src/index.js';
 import { TENANT_QUEUE_HOOK_ORDER, TenantQueueHook, decodeTenantHeader, encodeTenantHeader } from '../src/queue.js';
 
 @Job()
@@ -41,6 +41,26 @@ const BILLING: TenantScope = { kind: 'all', reason: 'nightly billing; run 7\n≈º√
 
 const hook = new TenantQueueHook();
 
+class FlakyTenantRegistry extends MemoryTenantRegistry {
+  public down = false;
+
+  public override get(id: string): Promise<TenantRecord | undefined> {
+    return this.down ? Promise.reject(new Error('registry down')) : super.get(id);
+  }
+}
+
+async function flakyRegistry(): Promise<FlakyTenantRegistry> {
+  const inner = (await tenantRegistry()).inner;
+  if (!(inner instanceof FlakyTenantRegistry)) throw new Error('expected the flaky registry');
+  return inner;
+}
+
+const failureOf = (work: Promise<unknown>): Promise<unknown> =>
+  work.then(
+    () => 'ran',
+    (err: unknown) => err,
+  );
+
 const carrying = (message: IQueueMessage, value: string): IQueueMessage => {
   message.Headers = { [TENANT]: value };
   return message;
@@ -64,6 +84,33 @@ describe('the tenant header value', () => {
 });
 
 describe('TenantQueueHook', () => {
+  const BROKER = 'tenancy-queue';
+  let app: TestApp;
+
+  // Each tenant but 'acme' is named after its state; 'acme' is active.
+  beforeEach(async () => {
+    app = await createTestApp({
+      bootstrap: false,
+      config: {
+        logger: { targets: [{ name: 'Empty', type: 'BlackHoleTarget', layout: '{message}' }], rules: [{ name: '*', level: 'error', target: 'Empty' }] },
+        queue: {
+          default: 'memory',
+          routing: {},
+          connections: [{ service: 'MemoryQueueClient', name: 'memory', defaultQueueChannel: '/queue/memory', defaultTopicChannel: '/topic/memory', defaultQueueDeadLetterChannel: '/queue/memory.dlq', options: { broker: BROKER, deferred: true } }],
+        },
+        tenancy: { registry: 'FlakyTenantRegistry' },
+      },
+      register: (container) => container.register(FlakyTenantRegistry).as(TenantRegistry),
+    });
+    const registry = await flakyRegistry();
+    registry.add({ id: 'acme' });
+    for (const state of TENANT_STATES) if (state !== 'active') registry.add({ id: state, state });
+  });
+
+  afterEach(async () => {
+    await app?.dispose();
+  });
+
   it('runs ahead of hooks of the default order', () => {
     expect(hook.order).to.eq(TENANT_QUEUE_HOOK_ORDER);
     expect(TENANT_QUEUE_HOOK_ORDER).to.eq(-100);
@@ -155,35 +202,95 @@ describe('TenantQueueHook', () => {
     expect(await runInTenant('globex', () => scopeInside(carrying(new DetachedJob(), 'acme')))).to.eq(undefined);
   });
 
+  it('refuses for good a message for a tenant that is not active or not known, and never calls its handler', async () => {
+    let called = 0;
+    const handler = async () => {
+      called += 1;
+      return 'ran';
+    };
+    for (const tenant of ['provisioning', 'suspended', 'deleting', 'deleted', 'nobody']) {
+      for (const message of [carrying(new CarryJob(), tenant), carrying(new RequiredJob(), tenant), carrying(new TenantPing(), tenant)]) {
+        const refused = await failureOf(hook.aroundHandle(message, handler));
+
+        if (!isPermanentJobFailure(refused)) throw new Error(`expected a permanent failure for ${tenant}, got ${String(refused)}`);
+        expect(refused.reason).to.eq('tenant_unavailable');
+        expect(refused.message).to.contain(`tenant "${tenant}"`);
+        expect(refused.cause).to.be.instanceOf(TenantUnavailable);
+        expect(Object.keys(refused)).to.not.include('cause');
+      }
+    }
+    expect(called).to.eq(0);
+  });
+
+  it('runs a message for an active tenant in that tenant', async () => {
+    expect(await scopeInside(carrying(new CarryJob(), 'acme'))).to.deep.eq(ACME);
+    expect(await scopeInside(carrying(new RequiredJob(), 'acme'))).to.deep.eq(ACME);
+  });
+
+  it('refuses a message when the registry fails, logged apart from a refused state', async () => {
+    const logged: { level: string; args: unknown[] }[] = [];
+    const watched = new TenantQueueHook();
+    const record =
+      (level: string) =>
+      (...args: unknown[]) =>
+        void logged.push({ level, args });
+    Object.defineProperty(watched, 'Log', { value: { warn: record('warn'), error: record('error') } });
+
+    let called = 0;
+    const handler = async () => {
+      called += 1;
+      return 'ran';
+    };
+
+    const suspended = await failureOf(watched.aroundHandle(carrying(new CarryJob(), 'suspended'), handler));
+    (await flakyRegistry()).down = true;
+    const failed = await failureOf(watched.aroundHandle(carrying(new CarryJob(), 'acme'), handler));
+
+    expect(called).to.eq(0);
+
+    expect(isPermanentJobFailure(suspended)).to.eq(true);
+    expect(failed).to.be.instanceOf(Error).with.property('message', 'registry down');
+    expect(isPermanentJobFailure(failed)).to.eq(false);
+    expect(logged.map((l) => [l.level, l.args[1]])).to.deep.eq([
+      ['warn', 'Message ${messageName} refused: tenant ${tenant} is not admitted (${reason})'],
+      ['error', 'Message ${messageName} refused: the tenant registry failed to look up tenant ${tenant}'],
+    ]);
+  });
+
+  it('asks the registry nothing for a message without a tenant, in the cross-tenant scope or under none', async () => {
+    (await flakyRegistry()).down = true;
+
+    expect(await scopeInside(new CarryJob())).to.eq(undefined);
+    expect(await scopeInside(carrying(new CarryJob(), encodeTenantHeader(BILLING)))).to.deep.eq(BILLING);
+    expect(await scopeInside(carrying(new DetachedJob(), 'suspended'))).to.eq(undefined);
+  });
+
   describe('through the memory transport', function () {
     this.timeout(15000);
 
-    const BROKER = 'tenancy-queue';
-    let app: TestApp;
     let queue: QueueService;
     let client: MemoryQueueClient;
 
     beforeEach(async () => {
-      app = await createTestApp({
-        bootstrap: false,
-        config: {
-          logger: { targets: [{ name: 'Empty', type: 'BlackHoleTarget', layout: '{message}' }], rules: [{ name: '*', level: 'error', target: 'Empty' }] },
-          queue: {
-            default: 'memory',
-            routing: {},
-            connections: [{ service: 'MemoryQueueClient', name: 'memory', defaultQueueChannel: '/queue/memory', defaultTopicChannel: '/topic/memory', defaultQueueDeadLetterChannel: '/queue/memory.dlq', options: { broker: BROKER, deferred: true } }],
-          },
-        },
-      });
       queue = await app.resolve(QueueService);
       const connection = queue.get('memory');
       if (!(connection instanceof MemoryQueueClient)) throw new Error('expected the memory transport');
       client = connection;
     });
 
-    afterEach(async () => {
-      await app?.dispose();
+    afterEach(() => {
       MemoryBroker.drop(BROKER);
+    });
+
+    it('does not call the callback of an event for a suspended tenant: the delivery rejects', async () => {
+      const seen: (string | undefined)[] = [];
+      await queue.consume(TenantPing, async () => void seen.push(currentTenant()?.id));
+
+      const refused = await failureOf(client.deliver(carrying(new TenantPing(), 'suspended')));
+      await client.deliver(carrying(new TenantPing(), 'acme'));
+
+      expect(isPermanentJobFailure(refused) && refused.reason).to.eq('tenant_unavailable');
+      expect(seen).to.deep.eq(['acme']);
     });
 
     it('handles a message in the tenant it was emitted in, also when it is delivered again', async () => {

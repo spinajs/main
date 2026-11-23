@@ -10,12 +10,14 @@ export const AUTHZ_HTTP_RATE_LIMITS = Object.freeze({
   // Open streams are capped by authz.http.events.maxStreamsPerPrincipal; this caps the reconnect rate.
   events: { limit: 10, windowSeconds: 60, by: 'principal' },
   explain: { limit: 30, windowSeconds: 60, by: 'principal' },
+  decisions: { limit: 30, windowSeconds: 60, by: 'principal' },
 } as const satisfies RateLimitDefaults);
 
 export const AUTHZ_HTTP_RATE_LIMITED_ROUTES = Object.freeze({
   checks: 'POST /user/access/checks',
   events: 'GET /user/access/events',
   explain: 'GET /authz/explain',
+  decisions: 'GET /authz/decisions/:id/explain',
 });
 
 export const AuthzHttpRateLimit = configuredRateLimit('authz.http.rateLimit', AUTHZ_HTTP_RATE_LIMITS);

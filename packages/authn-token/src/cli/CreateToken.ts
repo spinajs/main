@@ -1,5 +1,5 @@
 import { Log, Logger } from '@spinajs/log';
-import { Argument, Command, Option } from '@spinajs/cli';
+import { Argument, CliCommand, Command, Option } from '@spinajs/cli';
 import { Config } from '@spinajs/configuration';
 import '../register-schema.js';
 import { Autoinject } from '@spinajs/di';
@@ -8,7 +8,6 @@ import { TokenService } from '@spinajs/authn/contracts';
 import type { TokenCreateOptions, TokenKind } from '@spinajs/authn/contracts';
 import { DateTime } from 'luxon';
 
-import { TokenCliCommand } from './TokenCliCommand.js';
 
 interface ICreateTokenOptions {
   name: string;
@@ -44,7 +43,7 @@ function reasonOf(e: unknown): string {
 @Option('-k, --kind <kind>', false, 'pat or service', 'pat')
 @Option('-p, --profile <profile>', false, 'profile to pin the token to')
 @Option('-e, --expires <expires>', false, "ISO expiry instant, in this machine's local time when it has no offset; omit for authn.token.defaultTtlDays from now")
-export class CreateToken extends TokenCliCommand {
+export class CreateToken extends CliCommand {
   @Logger('authn-token')
   protected Log: Log;
 

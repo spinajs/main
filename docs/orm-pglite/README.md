@@ -41,6 +41,13 @@ Importing `@spinajs/orm-pglite` registers the driver under `orm-driver-pglite`.
 - **A newer PostgreSQL**: PGlite 0.5.10 runs PostgreSQL 18.6, while the CI server runs 16.6.
 - **Its own SQL dialect profile.** The driver declares `pglite` (`PGLITE_SQL_DIALECT`), which types raw rows exactly as the `postgresql` profile does. An app that uses PGlite in tests and postgres in production should leave `package.json#spinajs.orm.dialects` unset, or set it per connection.
 
+## Query plans
+
+`driver.explain(sql, bindings)` is the postgres driver's `EXPLAIN (FORMAT JSON)`, inherited unchanged; see
+[Plans: postgres](../orm/13-observability-and-resilience.md#plans-postgres). PGlite has one session, so the EXPLAIN
+cannot run beside an open transaction: never await `explain()` inside one. It fails with the acquire timeout, or never
+settles when session settings apply.
+
 ## Snapshots
 
 `driver.dumpDataDir()` returns a tarball of the whole database; a connection with `Options.LoadDataDir` starts from a
@@ -68,3 +75,17 @@ hands it to one connection at a time, and sets that connection's `search_path` b
 holder ran in another schema. A transaction keeps the session from `BEGIN` to `COMMIT`: other connections on the
 instance wait for it, up to `Pool.AcquireTimeout`. An instance no connection holds closes after a second, so it does
 not keep the process alive. `execOnSharedPglite(name, sql)` runs a statement on an open instance (to drop a schema).
+
+## Streaming
+
+`supportedFeatures().streaming` is `true`: outside a transaction `query.stream({ batchSize })` reads a `WITH HOLD`
+cursor (`DECLARE`, one `FETCH batchSize` per batch, `CLOSE` also when the loop breaks or throws) instead of
+`pg-cursor`, which needs a socket client. A query without an order streams too. Each statement takes the session for
+itself, so the loop body may query the same connection, which a batched `populate` does. A `WITH HOLD` cursor is
+computed in full when its `DECLARE` commits, so a stream on PGlite holds its whole result in memory: fine for tests,
+not a server's behaviour. Inside a transaction a stream pages by keyset, as on every driver.
+
+`for await` closes the cursor however the loop ends. An iterator driven by hand with `next()` and dropped without
+`return()` leaves its cursor, and the result it holds, open until the instance closes: at `disconnect()`, or with
+`Options.Shared` when the last connection on the shared instance lets go. When a `FETCH` fails, the stream rejects
+with that error, also when the `CLOSE` that follows fails.
