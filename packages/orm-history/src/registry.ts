@@ -4,7 +4,7 @@ import type { Constructor } from '@spinajs/di';
 import { Logger } from '@spinajs/log-common';
 import type { Log } from '@spinajs/log-common';
 import { UuidConverter, extendModel, extractModelDescriptor, unextendModel } from '@spinajs/orm';
-import type { IModelDescriptor, ModelBase, ModelMembers } from '@spinajs/orm';
+import type { IModelDescriptor, ModelBase, ModelBaseClass, ModelMembers } from '@spinajs/orm';
 
 import { HistoryConfigError } from './errors.js';
 import { DEFAULT_HISTORY_TRAIL, lineageOf, ruleFor } from './rules.js';
@@ -22,7 +22,7 @@ export interface HistoryOptions {
 }
 
 export interface HistorySpec {
-  readonly model: Constructor<ModelBase>;
+  readonly model: ModelBaseClass;
   readonly entity: string;
   readonly pk: string;
   readonly columns: readonly string[] | '*';
@@ -37,9 +37,9 @@ const NO_RULES: readonly DataRule[] = [];
 
 // Decorators run when a class is defined, before any container exists, so the declarations are module state
 // (as the rules of @AuditReads in @spinajs/audit-orm are). Everything resolved from them lives in HistorySpecs.
-const declared = new Map<Constructor<ModelBase>, HistoryOptions | false>();
+const declared = new Map<ModelBaseClass, HistoryOptions | false>();
 
-function validate(model: Constructor<ModelBase>, o: HistoryOptions): void {
+function validate(model: ModelBaseClass, o: HistoryOptions): void {
   const at = `@History on ${model.name}`;
   if (o.columns !== undefined && o.exclude !== undefined) throw new HistoryConfigError(`${at}: columns and exclude cannot be combined`);
   if (o.columns !== undefined && o.columns.length === 0) throw new HistoryConfigError(`${at}: columns must name at least one column`);
@@ -48,9 +48,9 @@ function validate(model: Constructor<ModelBase>, o: HistoryOptions): void {
 }
 
 /** The history of a tracked model or of one of its rows. A marked model has the same as `Model.history()` and `row.history()`. */
-export function historyOf(model: Constructor<ModelBase>): ModelHistory;
+export function historyOf(model: ModelBaseClass): ModelHistory;
 export function historyOf(row: ModelBase): RowHistory;
-export function historyOf(target: Constructor<ModelBase> | ModelBase): ModelHistory | RowHistory {
+export function historyOf(target: ModelBaseClass | ModelBase): ModelHistory | RowHistory {
   const source = DI.resolve(ModelHistorySource);
   return typeof target === 'function' ? source.of(target) : source.ofRow(target);
 }
@@ -65,7 +65,7 @@ const MEMBERS: ModelMembers = {
   },
 };
 
-export function registerHistory(model: Constructor<ModelBase>, options: HistoryOptions | false = {}): void {
+export function registerHistory(model: ModelBaseClass, options: HistoryOptions | false = {}): void {
   if (options === false) {
     unextendModel(model, 'history');
   } else {
@@ -76,19 +76,19 @@ export function registerHistory(model: Constructor<ModelBase>, options: HistoryO
 }
 
 /** A marked class declares the two members the mark installs; the signature refuses a class that does not. */
-export function History(options: false): (target: Constructor<ModelBase>) => void;
-export function History(options?: HistoryOptions): <M extends Constructor<ModelBase & TrackedRow> & TrackedModel>(target: M) => void;
+export function History(options: false): (target: ModelBaseClass) => void;
+export function History(options?: HistoryOptions): <M extends ModelBaseClass<ModelBase & TrackedRow> & TrackedModel>(target: M) => void;
 export function History(options: HistoryOptions | false = {}) {
-  return (target: Constructor<ModelBase>): void => registerHistory(target, options);
+  return (target: ModelBaseClass): void => registerHistory(target, options);
 }
 
-/** The models that declared tracking themselves; models tracked only by a rule are not listed. */
-export function historyModels(): readonly Constructor<ModelBase>[] {
+/** The models that declared tracking themselves, an abstract base that has no table of its own included; models tracked only by a rule are not listed. */
+export function historyModels(): readonly ModelBaseClass[] {
   return [...declared].flatMap(([model, options]) => (options === false ? [] : [model]));
 }
 
 /** The declaration of `model` or of the nearest base class that has one; `false` is an opt-out. */
-function declaredFor(model: Constructor<ModelBase>): HistoryOptions | false | undefined {
+function declaredFor(model: ModelBaseClass): HistoryOptions | false | undefined {
   for (const c of lineageOf(model)) {
     const o = declared.get(c);
     if (o !== undefined) return o;
@@ -102,12 +102,12 @@ function keyStoredAsBytes(d: IModelDescriptor): boolean {
   return converter !== undefined && (converter === UuidConverter || converter.prototype instanceof UuidConverter);
 }
 
-function assertKeyed(model: Constructor<ModelBase>, d: IModelDescriptor | null | undefined): asserts d is IModelDescriptor {
+function assertKeyed(model: ModelBaseClass, d: IModelDescriptor | null | undefined): asserts d is IModelDescriptor {
   if (!d || d.PrimaryKey.length !== 1) throw new HistoryConfigError(`@History on ${model.name}: needs a single-column primary key, it has ${d?.PrimaryKey.length ?? 0}`);
   if (keyStoredAsBytes(d)) throw new HistoryConfigError(`@History on ${model.name}: its primary key ${d.PrimaryKey[0]} is stored as bytes by @Uuid(), which has no text for a subject id; history needs a string or integer key`);
 }
 
-function buildSpec(model: Constructor<ModelBase>, o: HistoryOptions): HistorySpec {
+function buildSpec(model: ModelBaseClass, o: HistoryOptions): HistorySpec {
   const d = extractModelDescriptor(model);
   assertKeyed(model, d);
   const softDelete = d.SoftDelete?.DeletedAt || undefined;
@@ -140,10 +140,10 @@ export class HistorySpecs {
   @Logger('orm-history')
   protected Log: Log;
 
-  private readonly resolved = new WeakMap<Constructor<ModelBase>, Resolved>();
+  private readonly resolved = new WeakMap<ModelBaseClass, Resolved>();
 
   /** Resolved at first use: the descriptor exists only once the ORM loaded the model. An untracked model is remembered too. */
-  public of(model: Constructor<ModelBase> | undefined): HistorySpec | undefined {
+  public of(model: ModelBaseClass | undefined): HistorySpec | undefined {
     if (!model) return undefined;
     const own = declaredFor(model);
     if (own === false) return undefined;
@@ -157,7 +157,7 @@ export class HistorySpecs {
   }
 
   /** A rule covers what can be keyed; a model it cannot key is left out instead of failing its writes. */
-  private ruled(model: Constructor<ModelBase>, rules: readonly DataRule[]): HistorySpec | undefined {
+  private ruled(model: ModelBaseClass, rules: readonly DataRule[]): HistorySpec | undefined {
     const rule = ruleFor(model, rules);
     if (!rule) return undefined;
     const d = extractModelDescriptor(model);
@@ -174,6 +174,6 @@ export class HistorySpecs {
 }
 
 /** For callers outside a container-built class; `HistoryObserver` and `OrmModelHistorySource` inject `HistorySpecs`. */
-export function historySpecOf(model: Constructor<ModelBase> | undefined): HistorySpec | undefined {
+export function historySpecOf(model: ModelBaseClass | undefined): HistorySpec | undefined {
   return DI.resolve(HistorySpecs).of(model);
 }

@@ -89,6 +89,8 @@ mark back: it removes the `audit()` the mark installed on that class and its row
 never marked. `@Auditable(false)` is its decorator form and, unlike `@Auditable()`, needs neither declaration. A
 subclass of a marked base keeps the member it inherits, and the inherited `Sub.audit()` keeps reading the subclass's
 events, so the `false` form has no effect on a subclass of a marked base. `auditOf` reads a model whatever its mark.
+`@Auditable()` on an abstract base class covers its concrete subclasses, each reading the events of its own table; the
+abstract class itself has no table, so its `audit()` throws `AuditConfigError`, as on any class without one.
 
 ```ts
 @Auditable(false)

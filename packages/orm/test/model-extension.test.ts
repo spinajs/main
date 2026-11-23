@@ -55,6 +55,64 @@ describe('extendModel', () => {
     expect('nameOf' in Again.prototype).to.eq(false);
   });
 
+  it('adds a member through an abstract model class for its concrete subclasses and their rows, and removes it again', () => {
+    abstract class Shared extends ModelBase {
+      declare static nameOf: Named['nameOf'];
+      declare nameOf: Named['nameOf'];
+    }
+    @Model('model_extension_concrete')
+    class Concrete extends Shared {}
+
+    extendModel(Shared, 'nameOf', {
+      onModel(this: Constructor<ModelBase>): string {
+        return this.name;
+      },
+      onRow(this: ModelBase): string {
+        return `row of ${this.constructor.name}`;
+      },
+    });
+    expect(Concrete.nameOf()).to.eq('Concrete');
+    expect(new Concrete().nameOf()).to.eq('row of Concrete');
+
+    unextendModel(Shared, 'nameOf');
+    expect(['nameOf' in Shared, 'nameOf' in Concrete, 'nameOf' in Concrete.prototype]).to.deep.eq([false, false, false]);
+  });
+
+  it('takes an abstract model and a model whose constructor takes parameters, and refuses a function that is not a model class', () => {
+    abstract class Shared extends ModelBase {}
+    class Labelled extends ModelBase {
+      constructor(public readonly label: string) {
+        super();
+      }
+    }
+    const members = {
+      onModel(this: Constructor<ModelBase>): string {
+        return this.name;
+      },
+    };
+    extendModel(Shared, 'nameOf', members);
+    extendModel(Labelled, 'nameOf', members);
+    expect([Object.hasOwn(Shared, 'nameOf'), Object.hasOwn(Labelled, 'nameOf')]).to.deep.eq([true, true]);
+    unextendModel(Shared, 'nameOf');
+    unextendModel(Labelled, 'nameOf');
+
+    function plain(): void {}
+    const arrow = (): number => 1;
+    // A row's constructor is typed Function.
+    const typedFunction = ModelBase.prototype.constructor;
+    const refused = (): void => {
+      // @ts-expect-error a plain function is not a model class
+      extendModel(plain, 'nameOf', members);
+      // @ts-expect-error an arrow function is not a model class
+      extendModel(arrow, 'nameOf', members);
+      // @ts-expect-error nor is a value typed Function
+      extendModel(typedFunction, 'nameOf', members);
+      // @ts-expect-error unextendModel refuses the same
+      unextendModel(plain, 'nameOf');
+    };
+    expect(refused).to.be.a('function');
+  });
+
   it('refuses a name the model already has, on either side, and installs nothing then', () => {
     @Model('model_extension_own')
     class Own extends ModelBase {
