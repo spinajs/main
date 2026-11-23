@@ -75,9 +75,10 @@ async function clientWith(value: Record<string, unknown>, options: Partial<IQueu
 
 const subscribed: string[] = [];
 
+// The name must differ from every other test client: one mocha process loads all files, and DI keeps the first class registered under a name.
 @PerInstanceCheck()
 @Injectable(QueueClient)
-class RecordingQueueClient extends QueueClient {
+class SubscriptionRecordingClient extends QueueClient {
   public emit(): Promise<void> {
     return Promise.resolve();
   }
@@ -294,10 +295,10 @@ describe('delivery routing', function () {
     subscribed.length = 0;
     await configure(
       { Shipped: [{ channel: '/topic/a', connection: 'a' }, { channel: '/topic/b', connection: 'b', onEventFailure: 'requeue' }] },
-      { default: 'a', connections: [{ service: 'RecordingQueueClient', name: 'a' }, { service: 'RecordingQueueClient', name: 'b' }] },
+      { default: 'a', connections: [{ service: 'SubscriptionRecordingClient', name: 'a' }, { service: 'SubscriptionRecordingClient', name: 'b' }] },
     );
     const queue = await DI.resolve(QueueService);
-    expect(queue.get('b')).to.be.instanceOf(RecordingQueueClient);
+    expect(queue.get('b')).to.be.instanceOf(SubscriptionRecordingClient);
     await expect(queue.consume(Shipped, () => Promise.resolve())).to.be.rejectedWith(InvalidArgument, /onEventFailure/);
     expect(subscribed).to.deep.equal([]);
   });

@@ -9,6 +9,7 @@ import { IdempotencyInFlight, IdempotencyStore, OrmIdempotencyStore, type Idempo
 import { MigrationTransactionMode } from '@spinajs/orm';
 import { migrateTestDatabase } from '@spinajs/orm/testing';
 import '@spinajs/orm-sqlite';
+import { resetTracing } from '@spinajs/tracing/testing';
 import { CLAIM_FAILURE_REDELIVERY_MS, decideDelivery, Event, QUEUE_CONFIGURATION_SCHEMA, QueueEvent, QueueHeaders, QueueService, isRedeliverLater, resolveDeliveryPolicy } from '../src/index.js';
 import { MemoryBroker, wireCopy } from '../src/testing/index.js';
 import { deferred, memoryClientOf, RecordingFaults, faultsHit, T0 } from './support/outbox-env.js';
@@ -111,6 +112,8 @@ async function teardown(): Promise<void> {
   }
   DI.clearCache();
   MemoryBroker.drop(current.brokerName);
+  // a `bootstrap: true` boot starts global tracing, which would replace the trace headers later suites emit
+  await resetTracing();
 }
 
 describe('queue: event deduplication by MessageId', function () {

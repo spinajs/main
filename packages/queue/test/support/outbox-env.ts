@@ -1,11 +1,12 @@
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { Bootstrapper, Constructor, DI, Injectable, PerInstanceCheck, type ContainerSnapshot } from '@spinajs/di';
-import { Clock, DbTimeSource, FaultInjector, type FaultPointName } from '@spinajs/durable';
+import { Clock, DbTimeSource, DurableSystemClock, FaultInjector, type FaultPointName } from '@spinajs/durable';
 import { FakeClock } from '@spinajs/durable/testing';
 import { MigrationTransactionMode, Orm, OrmDriver } from '@spinajs/orm';
 import { migrateTestDatabase } from '@spinajs/orm/testing';
 import '@spinajs/orm-sqlite';
 import '@spinajs/log';
+import { resetTracing } from '@spinajs/tracing/testing';
 import { Event, hydrateOutboxMessage, IQueueMessage, Job, OUTBOX_TABLE, OutboxRow, QueueClient, QueueEvent, QueueJob, QueueMessage, QueueService, toOutboxRow, type IQueueOutboxConfig } from '../../src/index.js';
 import { MemoryQueueClient } from '../../src/testing/index.js';
 
@@ -180,7 +181,11 @@ export async function bootOutboxDb(o: OutboxEnvOptions = {}): Promise<OutboxDb> 
   const clock = new FakeClock(T0);
   const faults = new RecordingFaults();
   DI.register(OutboxConf).as(Configuration);
-  if (!o.realTimers) {
+  if (o.realTimers) {
+    // The memory transport suites leave their fake clock registered; registered afresh, the default is the last and wins.
+    DI.unregister(Clock, DurableSystemClock);
+    DI.register(DurableSystemClock).as(Clock);
+  } else {
     DI.register(() => clock).as(Clock);
     DI.register(() => clock.dbSource).as(DbTimeSource);
   }
@@ -212,6 +217,8 @@ export async function disposeOutbox(): Promise<void> {
     await DI.dispose();
   }
   DI.clearCache();
+  // a `bootstrap: true` boot starts global tracing, which would replace the trace headers later suites emit
+  await resetTracing();
 }
 
 export function memoryClientOf(queue: QueueService, name: string): MemoryQueueClient {
