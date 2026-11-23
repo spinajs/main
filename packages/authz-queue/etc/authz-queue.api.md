@@ -40,7 +40,10 @@ export interface JobOptions {
 
 // QueueMessageHook (@spinajs/queue)
 export declare abstract class QueueMessageHook {
-    /** Place in the chain: a lower order runs first in `beforeEmit` and is further out in `aroundHandle`. Hooks of one order keep their registration order. */
+    /**
+     * Place in the chain: a lower order is further out in `aroundHandle` and runs later in `beforeEmit`, so the outermost hook
+     * writes last. Among hooks of one order, the first registered is further out.
+     */
     readonly order: number;
     abstract beforeEmit(message: IQueueMessage): void | Promise<void>;
     abstract aroundHandle<T>(message: IQueueMessage, next: () => Promise<T>): Promise<T>;

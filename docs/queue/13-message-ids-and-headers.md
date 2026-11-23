@@ -27,7 +27,7 @@ Every message `QueueService.emit()` sends carries a `MessageId`, and any message
 | `Error` | `x-error` | The transport, on a dead letter |
 | `OriginalDestination` | `x-original-destination` | STOMP only for now, on a dead letter |
 | `TraceParent` | `traceparent` | Reserved for tracing (W3C trace context) |
-| `Tenant` | `x-spinajs-tenant` | The hook of `@spinajs/tenancy/queue`: the tenant the message was emitted in, or `*:<reason>` for the cross-tenant scope. A value the caller or an earlier hook wrote is replaced; no other hook may write it |
+| `Tenant` | `x-spinajs-tenant` | The hook of `@spinajs/tenancy/queue`: the tenant the message was emitted in, or `*:<reason>` for the cross-tenant scope. A value the caller or a hook of a higher order wrote is replaced: the hook writes after them |
 
 The tenant header is as trustworthy as the broker: whoever can publish to it, or call `QueueClient.emit()` directly and so skip the hooks, can name any tenant.
 
