@@ -82,7 +82,7 @@ DI.register(AlertingMfaSecretStore).as(MfaSecretStore);
 
 ## Important behaviour
 
-- Importing `@spinajs/authn-totp/db` loads all of `@spinajs/authn-orm`, with its migration, `DbAuthnThrottle`, `DbAuthnAuditSink` and other DB stores. The root entry does not.
+- Importing `@spinajs/authn-totp/db` loads all of `@spinajs/authn-orm`, with its migration, `DbAuthnThrottle` and other DB stores. The root entry does not.
 - `MfaSecretStore` is resolved once per `TotpMfaStep` instance and kept. Register a replacement before the first TOTP call.
 - The cipher text is bound to `<identity>|<step>`. Build the identity exactly as stored (`{ type: 'user', id: <users.Uuid> }`); another spelling does not decrypt.
 - On MySQL and MSSQL the default collations ignore case in the identity column; see [MFA store](../authn-orm/05-mfa-store.md).

@@ -7,12 +7,13 @@ A `queue.connections` entry with `service: 'SqsQueueClient'` becomes one `SqsQue
 1. **Registration on import.** Importing `@spinajs/queue-sqs-transport` runs `@Injectable(QueueClient)` on `SqsQueueClient`, which registers the class under `QueueClient` and under itself.
 2. **Selection.** `DefaultQueueService` (from `@spinajs/queue`) has `@AutoinjectService('queue.connections', QueueClient)`. For each entry, DI finds the `QueueClient` registration whose class name equals `entry.service`.
 3. **Construction.** DI resolves `SqsQueueClient` with `[entry]`. `@PerInstanceCheck()` caches one instance per `entry.name`; on a miss DI calls `new SqsQueueClient(entry)` and awaits `client.resolve()`.
-4. **`SqsQueueClient.resolve()`** builds `this.Sqs = new SQSClient({ region, endpoint, credentials })` from `entry.options` and logs `SQS queue client <name> resolved` on the `queue` logger. It makes no AWS call and validates no queue URL.
+4. **`SqsQueueClient.resolve()`** reads `options.retryMode` into `RetryMode`, builds `this.Sqs = new SQSClient({ region, endpoint, credentials })` from `entry.options` and logs `SQS queue client <name> resolved` on the `queue` logger. It makes no AWS call and validates no queue URL.
 5. **Registration in the service.** `DefaultQueueService` stores the client in its `Connections` map under `entry.name` (`QueueClient.ServiceName`).
 
 Errors on the way:
 
 - `entry.service` with no matching class throws `ServiceNotFound('Service <name> is not registered in DI container')` when `QueueService` resolves. The usual cause is a missing `import '@spinajs/queue-sqs-transport'`.
+- An `options.retryMode` other than `'redrive'` or `'transport'` rejects `resolve()` with `InvalidArgument('Queue connection <name>: options.retryMode must be 'redrive' or 'transport', got <value>')`.
 - Bad credentials, a wrong region or a missing queue do **not** fail at boot. They show up on the first `emit()` (rejected promise) or as receive errors in the poll loop.
 
 ```mermaid
@@ -47,8 +48,11 @@ The connection entry is the whole object in `queue.connections[]`. SQS settings 
 | `queue.connections[].options.visibilityTimeout` | `number` | the queue's own setting | `0`-`43200` seconds (SQS limit) | `VisibilityTimeout` per receive: how long a failed message stays hidden before redelivery. |
 | `queue.connections[].options.receiveErrorBackoffMs` | `number` | `500` | `>= 0` (negative is clamped to `0`) | First sleep after a failed receive. |
 | `queue.connections[].options.receiveErrorBackoffMaxMs` | `number` | `10000` | `>= receiveErrorBackoffMs` (lower is raised to it) | Cap of the doubling receive-error sleep. |
+| `queue.connections[].options.retryMode` | `'redrive' \| 'transport'` | `'redrive'` | `'redrive'`, `'transport'`; anything else rejects `resolve()` | Who retries and dead-letters a failed message: the queue's visibility timeout and redrive policy, or the transport by the delivery decision. See [Retry modes](03-consuming-messages.md#retry-modes). |
+| `queue.connections[].defaultQueueDeadLetterChannel` | `string` | none | SQS queue URL | `'transport'` mode only: where a message goes when its route has no `deadLetterChannel`. |
+| `queue.connections[].retryDelay` | `number` | `0` | ms | `'transport'` mode only: the exponential backoff base of a route without `backoff`. |
 
-Keys of `IQueueConnectionOptions` the SQS transport reads **nowhere**: `login`, `password`, `host`, `port`, `queue`, `clientId`, `credentialProvider`, `reconnectDelay`, `heartbeatIncoming`, `heartbeatOutgoing`, `connectionTimeout`, `receiptTimeout`, `debug`, `retryDelay` and `defaultQueueDeadLetterChannel`. `options.queueUrl` is declared (deprecated) on `ISqsConnectionOptions` but is not read either; use `defaultQueueChannel`, `defaultTopicChannel` or `queue.routing`.
+Keys of `IQueueConnectionOptions` the SQS transport reads **nowhere**: `login`, `password`, `host`, `port`, `queue`, `clientId`, `credentialProvider`, `reconnectDelay`, `heartbeatIncoming`, `heartbeatOutgoing`, `connectionTimeout`, `receiptTimeout` and `debug`. `options.queueUrl` is declared (deprecated) on `ISqsConnectionOptions` but is not read either; use `defaultQueueChannel`, `defaultTopicChannel` or `queue.routing`.
 
 ```ts
 // config/queue.ts

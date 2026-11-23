@@ -18,6 +18,7 @@ export interface GenerateClientFlags {
   next?: boolean;
   mocks?: boolean;
   msw?: boolean;
+  importExtension?: 'js' | 'ts' | 'none';
   check?: boolean;
 }
 
@@ -70,6 +71,7 @@ export function toFilesOptions(flags: GenerateClientFlags): Omit<GenerateClientF
     next: flags.next,
     mocks: flags.mocks,
     msw: flags.msw,
+    importExtension: flags.importExtension,
   };
 }
 
@@ -94,4 +96,13 @@ export function unavailableFlag(flags: GenerateClientFlags, targets: TargetTable
 /** The first file is the client, written to `out` as given; companions sit beside it. */
 export function outputPaths(out: string, files: GeneratedFile[]): { path: string; contents: string }[] {
   return files.map((f, i) => ({ path: i === 0 ? out : join(dirname(out), f.path), contents: f.contents }));
+}
+
+/** One line per diagnostic, in the generator's order: `<file>: <severity> <code> <schema>#<pointer>: <message>`. */
+export function diagnosticLines(files: GeneratedFile[]): string[] {
+  return files.flatMap((f) => (f.diagnostics ?? []).map((d) => `${f.path}: ${d.severity} ${d.code} ${d.schema}#${d.pointer}: ${d.message}`));
+}
+
+export function diagnosticErrors(files: GeneratedFile[]): number {
+  return files.reduce((count, f) => count + (f.diagnostics ?? []).filter((d) => d.severity === 'error').length, 0);
 }

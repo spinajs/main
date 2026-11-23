@@ -3,7 +3,7 @@ import 'mocha';
 import sinon from 'sinon';
 import { FakeStrategy } from '@spinajs/authn-testing';
 
-import { AuthnAudit, AuthnEventSink } from '../../src/index.js';
+import { AuthnAudit, AuthnEventListener } from '../../src/index.js';
 import type { AuthenticationResult, AuthnContext, AuthnEvent, Credentials, IdentityRef, StrategyOutcome } from '../../src/index.js';
 import { bind, buildCore, useHarnessLog } from '../behaviour/harness.js';
 import type { CoreParts } from '../behaviour/harness.js';
@@ -11,9 +11,9 @@ import type { CoreParts } from '../behaviour/harness.js';
 const IP = '192.0.2.45';
 const OWNER: IdentityRef = { type: 'user', id: 'owner-detached' };
 
-class NeverSettlingSink extends AuthnEventSink {
+class NeverSettlingSink extends AuthnEventListener {
   readonly events: AuthnEvent[] = [];
-  publish(e: AuthnEvent): Promise<void> {
+  on(e: AuthnEvent): Promise<void> {
     this.events.push(e);
     return new Promise(() => undefined);
   }
@@ -48,7 +48,7 @@ describe('AuthnAudit detached delivery', function () {
     sink = new NeverSettlingSink();
     const verify = (c: Credentials): StrategyOutcome => (String((c as { token?: unknown }).token).endsWith('good') ? { ok: true, identity: OWNER, method: 'token' } : { ok: false, reason: 'invalid_credentials' });
     const s = new FakeStrategy({ name: 'token', kinds: ['bearer'], interactive: false, keys: () => [{ kind: 'account', value: 'acct-d' }], verify });
-    parts = await buildCore({}, { strategies: [{ name: 'token', service: 'Svc_token', instance: s, listed: true }], register: (c) => bind(c, AuthnEventSink, 'NeverSettling', sink) });
+    parts = await buildCore({}, { strategies: [{ name: 'token', service: 'Svc_token', instance: s, listed: true }], register: (c) => bind(c, AuthnEventListener, 'NeverSettling', sink) });
     parts.identities.add({ id: OWNER.id, login: 'owner-detached@example.test' });
     const audit = await parts.child.resolve(AuthnAudit);
     clock = sinon.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
@@ -76,7 +76,7 @@ describe('AuthnAudit detached delivery', function () {
 
     const settled = track(audit.settled());
     await clock!.tickAsync(1900);
-    assert.ok(!settled.done(), 'the delivery is still running before authn.audit.sinkTimeoutMs');
+    assert.ok(!settled.done(), 'the delivery is still running before authn.audit.listenerTimeoutMs');
     await clock!.tickAsync(200);
     assert.ok(settled.done(), 'settled() resolves once the sink timed out');
   });

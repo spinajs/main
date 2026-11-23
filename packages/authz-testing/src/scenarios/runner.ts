@@ -1,7 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { dirname, resolve } from 'node:path';
-import { IREvaluator, MemoryTupleSource, readOpenFga } from '@spinajs/authz-ir';
+import { IREvaluator, MemoryTupleSource, conditionParam, readOpenFga } from '@spinajs/authz-ir';
 import type { CaveatContext, ObjectRef, PolicyIR, Truth, TupleSubjectRef } from '@spinajs/authz-ir';
 
 /** One tuple of a scenario: `object#relation@subject`, optionally conditional. */
@@ -57,24 +57,72 @@ const parseRef = (text: unknown, where: string): ObjectRef => {
   return { type: m[1], id: m[2] };
 };
 
-function parseSubject(text: unknown, condition: unknown, where: string): TupleSubjectRef {
+/** OpenFGA parameter identifier to IR parameter path, from the model's caveats (`conditionParam` is the export's mapping). */
+function paramPaths(ir: PolicyIR): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const c of Object.values(ir.caveats)) {
+    for (const path of Object.keys(c.params)) {
+      const id = conditionParam(path);
+      const prev = out.get(id);
+      if (prev !== undefined && prev !== path) throw new Error(`condition parameter ${id} stands for both ${prev} and ${path}`);
+      out.set(id, path);
+    }
+  }
+  return out;
+}
+
+const toPaths = (ctx: Raw, paths: ReadonlyMap<string, string>, where: string): Record<string, unknown> =>
+  Object.fromEntries(
+    Object.entries(ctx).map(([k, v]) => {
+      const path = paths.get(k);
+      if (path === undefined) throw new Error(`${where}: ${k} is no parameter of a condition`);
+      return [path, v];
+    }),
+  );
+
+const nest = (flat: Record<string, unknown>): CaveatContext => {
+  const out: Record<string, Record<string, unknown>> = {};
+  for (const [path, v] of Object.entries(flat)) {
+    const [root, ...rest] = path.split('.');
+    let at = (out[root] ??= {});
+    for (const s of rest.slice(0, -1)) at = (at[s] ??= {}) as Record<string, unknown>;
+    at[rest[rest.length - 1]] = v;
+  }
+  return out;
+};
+
+/** `.fga.yaml` contexts name OpenFGA parameters (`env_ip`); `.authz.yaml` ones are already keyed by path. */
+interface Contexts {
+  readonly ir: PolicyIR;
+  readonly paths?: ReadonlyMap<string, string>;
+}
+
+function parseSubject(text: unknown, condition: unknown, where: string, at: Contexts): TupleSubjectRef {
   const [obj, relation] = typeof text === 'string' ? text.split('#') : [];
-  const ref = parseRef(obj, where);
+  const ref = { ...parseRef(obj, where), ...(relation === undefined ? {} : { relation }) };
   const c = condition as { name?: unknown; context?: Raw } | undefined;
-  return { ...ref, ...(relation === undefined ? {} : { relation }), ...(typeof c?.name === 'string' ? { caveat: { name: c.name, ...(c.context ? { context: c.context } : {}) } } : {}) };
+  if (typeof c?.name !== 'string') return ref;
+  if (!Object.prototype.hasOwnProperty.call(at.ir.caveats, c.name)) throw new Error(`${where}: condition ${c.name} is not defined in the model`);
+  const context = c.context && (at.paths ? toPaths(c.context, at.paths, where) : c.context);
+  return { ...ref, caveat: { name: c.name, ...(context ? { context } : {}) } };
 }
 
-function parseTuples(list: unknown, where: string): ScenarioTuple[] {
-  return ((list as Raw[] | undefined) ?? []).map((t, i) => ({ object: parseRef(t.object, `${where}[${i}]`), relation: String(t.relation), subject: parseSubject(t.user, t.condition, `${where}[${i}]`) }));
+function parseTuples(list: unknown, where: string, at: Contexts): ScenarioTuple[] {
+  return ((list as Raw[] | undefined) ?? []).map((t, i) => ({ object: parseRef(t.object, `${where}[${i}]`), relation: String(t.relation), subject: parseSubject(t.user, t.condition, `${where}[${i}]`, at) }));
 }
 
-function parseAssertions(test: Raw, where: string): ScenarioAssertion[] {
+const parseContext = (raw: unknown, where: string, at: Contexts): { context?: CaveatContext } => {
+  if (!raw) return {};
+  return { context: at.paths ? nest(toPaths(raw as Raw, at.paths, where)) : raw };
+};
+
+function parseAssertions(test: Raw, where: string, at: Contexts): ScenarioAssertion[] {
   const out: ScenarioAssertion[] = [];
   for (const [i, c] of ((test.check as Raw[] | undefined) ?? []).entries()) {
-    for (const [relation, expected] of Object.entries((c.assertions as Raw | undefined) ?? {})) out.push({ kind: 'check', user: parseRef(c.user, `${where}.check[${i}]`), object: parseRef(c.object, `${where}.check[${i}]`), relation, ...(c.context ? { context: c.context } : {}), expected: expected === true });
+    for (const [relation, expected] of Object.entries((c.assertions as Raw | undefined) ?? {})) out.push({ kind: 'check', user: parseRef(c.user, `${where}.check[${i}]`), object: parseRef(c.object, `${where}.check[${i}]`), relation, ...parseContext(c.context, `${where}.check[${i}]`, at), expected: expected === true });
   }
   for (const [i, l] of ((test.list_objects as Raw[] | undefined) ?? []).entries()) {
-    for (const [relation, expected] of Object.entries((l.assertions as Raw | undefined) ?? {})) out.push({ kind: 'list_objects', user: parseRef(l.user, `${where}.list_objects[${i}]`), type: String(l.type), relation, ...(l.context ? { context: l.context } : {}), expected: [...(expected as string[])].sort() });
+    for (const [relation, expected] of Object.entries((l.assertions as Raw | undefined) ?? {})) out.push({ kind: 'list_objects', user: parseRef(l.user, `${where}.list_objects[${i}]`), type: String(l.type), relation, ...parseContext(l.context, `${where}.list_objects[${i}]`, at), expected: [...(expected as string[])].sort() });
   }
   return out;
 }
@@ -88,9 +136,10 @@ export async function readScenario(path: string): Promise<Scenario> {
   const near = (file: unknown): Promise<string> => readFile(resolve(dirname(path), String(file)), 'utf8');
   const native = raw.ir !== undefined || raw.ir_file !== undefined;
   const ir = native ? ((raw.ir ?? JSON.parse(await near(raw.ir_file))) as PolicyIR) : readOpenFga(typeof raw.model === 'string' ? raw.model : await near(raw.model_file));
-  const shared = parseTuples(raw.tuples, `${path} tuples`);
+  const at: Contexts = native ? { ir } : { ir, paths: paramPaths(ir) };
+  const shared = parseTuples(raw.tuples, `${path} tuples`, at);
   const columns = ((raw.columns as Raw[] | undefined) ?? []).map((c, i) => ({ object: parseRef(c.object, `${path} columns[${i}]`), model: String(c.model), column: String(c.column), value: parseRef(c.value, `${path} columns[${i}]`) }));
-  const tests = ((raw.tests as Raw[] | undefined) ?? []).map((t, i) => ({ name: typeof t.name === 'string' ? t.name : `test ${i + 1}`, tuples: [...shared, ...parseTuples(t.tuples, `${path} tests[${i}].tuples`)], assertions: parseAssertions(t, `${path} tests[${i}]`) }));
+  const tests = ((raw.tests as Raw[] | undefined) ?? []).map((t, i) => ({ name: typeof t.name === 'string' ? t.name : `test ${i + 1}`, tuples: [...shared, ...parseTuples(t.tuples, `${path} tests[${i}].tuples`, at)], assertions: parseAssertions(t, `${path} tests[${i}]`, at) }));
   return { name: typeof raw.name === 'string' ? raw.name : path, ir, columns, asks: native ? 'permission' : 'relation', tests };
 }
 

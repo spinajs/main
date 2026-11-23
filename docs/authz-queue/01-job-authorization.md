@@ -25,6 +25,7 @@ Handling, inside the consumer that `QueueService.consume()` builds:
 2. The consumer calls `AuthzQueueHook.aroundHandle(message, next)`, where `next` runs the job's `execute()`, its `onFailed()`, or the `consume()` callback.
 3. `jobOptions(message)` reads `runAs` from the `@Job()` of the message's own class. Any value other than `'initiator'` or `'system'` counts as absent.
 4. The hook picks the principal:
+   - `runAs: 'system'` with no `access` and no `@SystemTask(reason)` on the class is refused before the principal is chosen: the hook throws `JobWithoutSystemTask` (`system_task_missing`), a `PermanentJobFailure` like `JobAccessDenied` below. The job is marked `dead` at once and the amqp and stomp transports dead-letter it without a retry. SQS leaves the message for redelivery; on the next delivery the consumer finds the `dead` row and, with `queue.deduplicate` on (the default), acknowledges the message without running anything, so SQS deletes it. With `queue.deduplicate: false` each redelivery is refused again until the queue's redrive policy dead-letters it, or, on a queue without a redrive policy, until the queue's retention period ends and SQS deletes it. The handler and its `onFailed()` run in none of the attempts. With `authz.queue.systemTask: 'warn'` the job runs and the hook logs one warning per job class.
    - `runAs: 'system'`: `SYSTEM`. The `Initiator` is ignored.
    - `runAs: 'initiator'` and the message has an `Initiator`: `InitiatorPrincipalFactory.principalOf(message.Initiator)` ([Initiator principal factory](02-initiator-principal-factory.md)). The default factory turns a malformed stamp into `UNATTENDED`.
    - anything else, events included: `UNATTENDED`.
@@ -32,7 +33,6 @@ Handling, inside the consumer that `QueueService.consume()` builds:
 6. `runAs` records a `runAs` audit entry when `authz.audit.runAs` is on for the domain ([Config](../authz/04-host-boot-and-configuration.md#configuration)), and preloads the principal unless it is `SYSTEM` or `UNATTENDED`.
 7. Inside `next`, `authz().current()` is the chosen principal. Checks, `assert()` and the ORM's `.accessible()` use it.
    - With `@Job({ access })`, the hook first checks each permission, as that principal, on `resource(message)` or else the type-level resource of the permission (`invoice:send` checks `{ type: 'invoice' }`). The first definite allow, or an allow on a type-level resource, runs the job. Otherwise it throws `JobAccessDenied` (`access_denied`), a `PermanentJobFailure`: the job is marked `dead` at once and the amqp and stomp transports dead-letter it without a retry. An allow with a residual on one row is denied, since the hook loads no row.
-   - `runAs: 'system'` with no `access` and no `@SystemTask(reason)` on the class logs one warning per job class.
 8. The handler's result and its error pass through the hook unchanged.
 
 ```mermaid
@@ -98,11 +98,12 @@ What the stamp holds, and what a `runAs: 'initiator'` handler runs as with the d
 | --- | --- | --- | --- | --- |
 | `authz.queue.domain` | `string` | `'root'` | the name of a booted authz domain | The domain whose principal is stamped and whose `runAs` wraps the handler. `AuthzQueueTrackingHook` uses it too. An empty string fails boot; a name with no booted domain makes every emit and handle throw `AuthzConfigError`, with no fallback to `root`. |
 | `authz.queue.stampedInitiatorWarning` | `boolean` | `true` | `true`, `false` | See [Initiator principal factory](02-initiator-principal-factory.md#configuration). |
+| `authz.queue.systemTask` | `'warn' \| 'deny'` | `'deny'` | `'warn'`, `'deny'` | What happens to a `runAs: 'system'` job with no `access` and no `@SystemTask(reason)`: `'deny'` refuses it (`system_task_missing`), `'warn'` runs it and logs once per job class. Another value fails boot. |
 
 ```ts
 export default {
   authz: {
-    queue: { domain: 'root', stampedInitiatorWarning: true },
+    queue: { domain: 'root', stampedInitiatorWarning: true, systemTask: 'deny' },
   },
 };
 ```
@@ -113,14 +114,14 @@ The schema `AUTHZ_QUEUE_CONFIGURATION_SCHEMA` (`$configurationModule: 'authz.que
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
-| Message hook | `QueueMessageHook`, one entry of the list the queue resolves with `Array.ofType(QueueMessageHook)` on every emit and handle; singleton; registered by `@Injectable(QueueMessageHook)` at import | `AuthzQueueHook` | none | Subclass it and override the protected `initiator(initiator)` (which principal a stamp becomes) or `service()` (which `AuthzService` it uses). Then `DI.unregister(AuthzQueueHook)` and `DI.register(MySubclass).as(QueueMessageHook)` before the queue starts. |
+| Message hook | `QueueMessageHook`, one entry of the list the queue resolves with `Array.ofType(QueueMessageHook)` on every emit and handle; singleton; registered by `@Injectable(QueueMessageHook)` at import; `order` `-50` | `AuthzQueueHook` | none | Subclass it and override the protected `initiator(initiator)` (which principal a stamp becomes) or `service()` (which `AuthzService` it uses). Then `DI.unregister(AuthzQueueHook)` and `DI.register(MySubclass).as(QueueMessageHook)` before the queue starts. |
 | Initiator principal factory | `InitiatorPrincipalFactory`, singleton | `StampedInitiatorPrincipalFactory` | `UserInitiatorPrincipalFactory` (`@spinajs/users/queue`) | See [Initiator principal factory](02-initiator-principal-factory.md). |
 
 `QueueMessageHook` and the `JobOptions` type are re-exported from `@spinajs/queue`. The package exports the stamp's shape as `Initiator`: `{ readonly type: PrincipalType; readonly id: string; readonly ceiling?: Ceiling }`.
 
 ### `AuthzQueueHook`: custom implementation
 
-Replace the hook only to change how a stamp maps to a principal for every job; to reload users, replace the [factory](02-initiator-principal-factory.md) instead. Hooks run in registration order, the first registered outermost, so a hook that needs the job's principal must be registered after this one.
+Replace the hook only to change how a stamp maps to a principal for every job; to reload users, replace the [factory](02-initiator-principal-factory.md) instead. Hooks nest by `order` (lowest outermost; equal orders in registration order). `AuthzQueueHook` has order `-50`, so a hook that needs the job's principal takes an order above `-50`, such as the default `0`. On emit the chain runs backwards, so this hook writes `Initiator` after every hook of a higher order, whatever the import order. A hook of order `-50` or lower runs its `beforeEmit()` after this one and can replace `Initiator`; give a hook such an order only to rewrite the stamp on purpose. A subclass keeps the order unless it overrides `order`.
 
 ```ts sample
 import '@spinajs/authz-queue';
@@ -166,6 +167,7 @@ DI.register(NoLinkJobsHook).as(QueueMessageHook);
 ```ts
 // Don't: a SYSTEM job that trusts a user id from the payload; any emitter can name any user
 @NewInstance()
+@SystemTask('deletes the data of the account the payload names')
 @Job({ runAs: 'system' })
 export class DeleteAccountData extends QueueJob {
   public UserId: string;
@@ -230,9 +232,10 @@ export async function requestInvoiceExport(customerId: string) {
 import '@spinajs/authz-queue';
 import { NewInstance } from '@spinajs/di';
 import { SYSTEM, authz } from '@spinajs/authz';
-import { Job, QueueJob } from '@spinajs/queue';
+import { Job, QueueJob, SystemTask } from '@spinajs/queue';
 
 @NewInstance()
+@SystemTask('rebuilds the search index of every tenant')
 @Job({ runAs: 'system' })
 export class RebuildSearchIndex extends QueueJob {
   public Index: string;

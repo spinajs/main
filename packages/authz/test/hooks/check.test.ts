@@ -1,9 +1,12 @@
 import * as chai from 'chai';
 import 'mocha';
+import { SpanStatusCode, trace } from '@opentelemetry/api';
 import { ManualClock, RecordingAudit, userPrincipal } from '@spinajs/authz-testing';
 import { ActionHook } from '@spinajs/hooks';
 import type { AfterContext } from '@spinajs/hooks';
 import { RecordingActionHook } from '@spinajs/hooks/testing';
+import { resetTracing, useInMemorySpans } from '@spinajs/tracing/testing';
+import type { InMemorySpans } from '@spinajs/tracing/testing';
 
 import { AccessDenied, AuthzClock, DecisionAudit } from '@spinajs/authz';
 import type { AuthzService, Decision, ResourceRef } from '@spinajs/authz';
@@ -175,6 +178,64 @@ describe('the authz.check hook', function () {
       expect(seen).to.have.length(1);
       expect(seen[0].allowed).to.equal(true);
       expect(seen[0]).to.equal(d);
+    });
+  });
+
+  describe('the authz.check span', () => {
+    let spans: InMemorySpans;
+
+    beforeEach(() => {
+      spans = useInMemorySpans();
+    });
+
+    afterEach(() => spans.detach());
+
+    after(() => resetTracing());
+
+    it('records the deny a hook narrowed the decision to', async () => {
+      const refuse = new RefuseWhen(['authz.check'], 'frozen');
+      const { service } = await checkDomain([refuse], true);
+      await service.check({ principal: alice, permission: PERMISSION, resource: p1 });
+
+      const checks = spans.byName('authz.check');
+      expect(checks).to.have.length(1);
+      expect(checks[0].attributes).to.include({ 'spina.authz.allowed': false, 'spina.authz.reason': 'hook:frozen' });
+      expect(checks[0].status.code).to.equal(SpanStatusCode.UNSET);
+    });
+
+    it('records the engine allow when the hook lets it through', async () => {
+      const rec = new RecordingActionHook(['authz.check']);
+      const { service } = await checkDomain([rec], true);
+      await service.check({ principal: alice, permission: PERMISSION, resource: p1 });
+      expect(spans.byName('authz.check')[0].attributes['spina.authz.allowed']).to.equal(true);
+    });
+
+    it('records the hook_error deny of a throwing hook, without the error text', async () => {
+      class Throws extends ActionHook {
+        readonly actions = ['authz.check'] as const;
+        before(): void {
+          throw new Error('secret-hook-text');
+        }
+      }
+      const { service } = await checkDomain([new Throws()], true);
+      await service.check({ principal: alice, permission: PERMISSION, resource: p1 });
+
+      const [span] = spans.byName('authz.check');
+      expect(span.attributes).to.include({ 'spina.authz.allowed': false, 'spina.authz.reason': 'hook_error' });
+      expect(span.status.code).to.equal(SpanStatusCode.UNSET);
+      expect(span.events).to.deep.equal([]);
+      expect(JSON.stringify([span.attributes, span.status])).to.not.contain('secret-hook-text');
+    });
+
+    it('runs the hook inside the span', async () => {
+      let seen: string | undefined;
+      const watch = new RefuseWhen(['authz.check'], 'never', () => {
+        seen = trace.getActiveSpan()?.spanContext().spanId;
+        return false;
+      });
+      const { service } = await checkDomain([watch], true);
+      await service.check({ principal: alice, permission: PERMISSION, resource: p1 });
+      expect(seen).to.equal(spans.byName('authz.check')[0].spanContext().spanId);
     });
   });
 });

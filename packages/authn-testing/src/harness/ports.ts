@@ -14,8 +14,8 @@ export interface Harness {
   readonly sessionStorage?: SessionStoragePort;
   readonly throttle?: ThrottlePort;
   readonly events?: EventsPort;
-  /** At least two sinks registered with Array.ofType (A21). */
-  readonly sinks?: readonly EventsPort[];
+  /** At least two listeners registered with Array.ofType (A21). */
+  readonly listeners?: readonly EventsPort[];
   readonly logs?: LogsPort;
   readonly spy?: VerifySpyPort;
   readonly mfa?: MfaPort;
@@ -133,7 +133,7 @@ export interface EventsPort {
   clear(): void;
 }
 
-/** What the log audit sink wrote, one entry per line. */
+/** What the application's log received, one entry per line. */
 export interface LogsPort {
   lines(): readonly string[];
 }

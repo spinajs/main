@@ -9,7 +9,7 @@ The store keeps every session in one table, `user_sessions`, mapped by the `DbSe
 1. `DbSession` carries `@Connection('session-provider-connection')` and `@Model('user_sessions')`.
 2. When `Orm` resolves, it binds the model to the driver stored under `session-provider-connection`: a connection with that `Name`, or a `db.Aliases` entry that points the name at another connection.
 3. The migration carries `@Migration('session-provider-connection')`. Importing the package registers it in DI, and the ORM's `DiRegistryMigrationSource` finds it; no directory scan is needed.
-4. With `Migration.OnStartup: true` on the target connection, `Orm.resolve()` (`DI.resolve(Orm)`) applies it when it is pending, in timestamp order with the other migrations of the same driver.
+4. [`npx spinajs migrate-up`](../orm/10-migrations.md#deploying-migrations) applies it when it is pending, in timestamp order with the other migrations of the same driver; `Orm.resolve()` (`DI.resolve(Orm)`) fails while it is pending.
 
 When no connection or alias has the name, `Orm` logs `Cannot find connection session-provider-connection` for the model and skips the migration with a warning. <!-- TODO(docs-hook): verify which error a DbSessionStore call raises when DbSession has no driver -->
 
@@ -42,14 +42,14 @@ When no connection or alias has the name, `Orm` logs `Cannot find connection ses
 | --- | --- | --- | --- | --- |
 | `db.Aliases['session-provider-connection']` | `string` | unset | a connection `Name` | Points the store's connection name at an existing connection. |
 | `db.Connections[].Name` | `string` | | `session-provider-connection` | Alternative to the alias: a dedicated connection with this name. |
-| `db.Connections[].Migration.OnStartup` | `boolean` | unset (off) | | Applies the migration when the `Orm` resolves. See [Migrations](../orm/10-migrations.md#configuration). |
+| `db.MigrationCheck` | `string` | `fail` | `fail`, `warn`, `off` | What `Orm.resolve()` does with pending or failed migrations; `Migration.Check` overrides it per connection. See [Migrations](../orm/10-migrations.md#configuration). |
 
 ```ts
 this.Config = _.merge(this.Config, {
   db: {
     DefaultConnection: 'main',
     Aliases: { 'session-provider-connection': 'main' },
-    Connections: [{ Name: 'main', Driver: 'orm-driver-postgres', Host: 'db', Database: 'shop', Migration: { OnStartup: true } }],
+    Connections: [{ Name: 'main', Driver: 'orm-driver-postgres', Host: 'db', Database: 'shop' }],
   },
 });
 ```
@@ -135,5 +135,5 @@ export async function sessionSchemaIsCurrent(): Promise<boolean> {
 ## Related
 
 - [Database session store](01-db-session-store.md): how the store reads and writes these columns.
-- [Migrations](../orm/10-migrations.md): discovery, migrating on startup, failed runs and `resolve()`.
-- [Connections](../orm/01-connections.md): `db.Aliases`, `@Connection` and `Migration.OnStartup`.
+- [Migrations](../orm/10-migrations.md): discovery, deploying with `migrate-up`, failed runs and `resolve()`.
+- [Connections](../orm/01-connections.md): `db.Aliases` and `@Connection`.

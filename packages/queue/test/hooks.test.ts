@@ -1,11 +1,13 @@
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { Constructor, DI, Injectable, PerInstanceCheck } from '@spinajs/di';
+import type { Class } from '@spinajs/di';
 import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 import { expect } from 'chai';
-import { QueueJob, Job, jobOptions, QueueService, JobModel, QueueClient, QueueMessageHook, QueueTrackingHook, IQueueMessage, QueueMessage } from './../src/index.js';
+import { QueueJob, Job, jobOptions, QueueService, JobModel, QueueClient, QueueMessageHook, QueueTrackingHook, IQueueMessage, QueueMessage, PermanentJobFailure } from './../src/index.js';
 import '@spinajs/orm-sqlite';
-import { MigrationTransactionMode, Orm, OrmMigrator } from '@spinajs/orm';
+import { MigrationTransactionMode, Orm, OrmMigrationGuard, OrmMigrator } from '@spinajs/orm';
+import { migrateTestDatabase } from '@spinajs/orm/testing';
 
 chai.use(chaiAsPromised);
 
@@ -45,7 +47,6 @@ class HookConf extends FrameworkConfiguration {
             Filename: ':memory:',
             Name: 'queue',
             Migration: {
-              OnStartup: true,
               Table: 'orm_migrations',
               Transaction: { Mode: MigrationTransactionMode.PerMigration },
             },
@@ -68,6 +69,7 @@ class HookConf extends FrameworkConfiguration {
 const trace: string[] = [];
 let failEmit = false;
 let failHandle = false;
+let refuseForGood = false;
 
 class OuterHook extends QueueMessageHook {
   beforeEmit(message: IQueueMessage): void {
@@ -79,6 +81,7 @@ class OuterHook extends QueueMessageHook {
   async aroundHandle<T>(_message: IQueueMessage, next: () => Promise<T>): Promise<T> {
     trace.push('outer.in');
     if (failHandle) throw new Error('refused to handle');
+    if (refuseForGood) throw new PermanentJobFailure('refused', 'for good');
     try {
       return await next();
     } finally {
@@ -112,6 +115,30 @@ class PlainJob extends QueueJob {
   }
 }
 
+@Job()
+class RetriedJob extends QueueJob {
+  public RetryCount = 3;
+
+  public async execute() {
+    trace.push('execute');
+    return 'done';
+  }
+}
+
+@Job()
+class FailingJob extends QueueJob {
+  public RetryCount = 0;
+
+  public async execute(): Promise<string> {
+    trace.push('execute');
+    throw new Error('boom');
+  }
+
+  public async onFailed(): Promise<void> {
+    trace.push('onFailed');
+  }
+}
+
 @Job({ runAs: 'system' })
 class SystemJob extends QueueJob {
   public async execute() {
@@ -128,6 +155,7 @@ function uncacheOwn() {
   DI.uncache(Configuration);
   DI.uncache(Orm);
   DI.uncache(OrmMigrator);
+  DI.uncache(OrmMigrationGuard);
   DI.uncache(QueueService);
   DI.uncache(QueueClient);
   DI.uncache(HookTestQueueClient);
@@ -146,11 +174,12 @@ describe('queue message hooks', function () {
     trace.length = 0;
     failEmit = false;
     failHandle = false;
+    refuseForGood = false;
     DI.register(HookConf).as(Configuration);
     DI.register(OuterHook).as(QueueMessageHook);
     DI.register(InnerHook).as(QueueMessageHook);
     await DI.resolve(Configuration);
-    await (await DI.resolve(Orm)).Migrator.ready();
+    await migrateTestDatabase();
     // the transport instance outlives a test; start each one with an empty wire
     (await client()).Emitted.length = 0;
   });
@@ -192,6 +221,25 @@ describe('queue message hooks', function () {
     expect(jobOptions(new SendInvoice())).to.deep.equal({ runAs: 'initiator', access: ['invoice:send'], resource });
   });
 
+  it('jobOptions returns tenancy for a known value and nothing for an unknown one', () => {
+    @Job({ tenancy: 'required' })
+    class Billing extends QueueJob {
+      public async execute() {
+        return null;
+      }
+    }
+
+    @Job({ tenancy: 'sometimes' as never })
+    class Misspelt extends QueueJob {
+      public async execute() {
+        return null;
+      }
+    }
+
+    expect(jobOptions(new Billing())).to.deep.equal({ tenancy: 'required' });
+    expect(jobOptions(new Misspelt())).to.deep.equal({});
+  });
+
   it('refuses an empty access list, and reads a malformed one as declared and empty', () => {
     expect(() => Job({ access: [] })).to.throw('@Job access needs a permission');
     expect(() => Job({ access: [''] })).to.throw('@Job access needs a permission');
@@ -205,13 +253,97 @@ describe('queue message hooks', function () {
     expect(jobOptions(new Forged())).to.deep.equal({ access: [] });
   });
 
-  it('beforeEmit runs for every hook, in order, before the transport sees the message', async () => {
+  it('beforeEmit runs for every hook, outermost last, before the transport sees the message', async () => {
     await PlainJob.emit({});
 
-    expect(trace).to.deep.equal(['outer.beforeEmit', 'inner.beforeEmit']);
+    expect(trace).to.deep.equal(['inner.beforeEmit', 'outer.beforeEmit']);
     const c = await client();
     expect(c.Emitted).to.have.length(1);
     expect(c.Emitted[0].Initiator).to.deep.equal({ type: 'user', id: 'alice' });
+  });
+
+  it('nests a hook of a lower order further out and runs its beforeEmit later, whenever it was registered', async () => {
+    class EarlyHook extends QueueMessageHook {
+      public override readonly order: number = -1;
+
+      beforeEmit(): void {
+        trace.push('early.beforeEmit');
+      }
+
+      async aroundHandle<T>(_message: IQueueMessage, next: () => Promise<T>): Promise<T> {
+        trace.push('early.in');
+        return next();
+      }
+    }
+    DI.register(EarlyHook).as(QueueMessageHook);
+    DI.uncache(Array.ofType(QueueMessageHook));
+
+    try {
+      const queue = await DI.resolve(QueueService);
+      await queue.consume(PlainJob);
+      await PlainJob.emit({});
+      const c = await client();
+      await c.deliver(c.Emitted[0]);
+    } finally {
+      DI.unregister(EarlyHook);
+      DI.uncache(EarlyHook);
+      DI.uncache(Array.ofType(QueueMessageHook));
+    }
+
+    expect(trace).to.deep.equal(['inner.beforeEmit', 'outer.beforeEmit', 'early.beforeEmit', 'early.in', 'outer.in', 'inner.in', 'execute', 'inner.out', 'outer.out']);
+  });
+
+  it('runs beforeEmit in the reverse of the handle chain, for mixed and for equal orders', async () => {
+    abstract class TracedHook extends QueueMessageHook {
+      protected abstract readonly label: string;
+
+      beforeEmit(): void {
+        trace.push(`${this.label}.beforeEmit`);
+      }
+
+      async aroundHandle<T>(_message: IQueueMessage, next: () => Promise<T>): Promise<T> {
+        trace.push(`${this.label}.in`);
+        return next();
+      }
+    }
+    // The DI cache is keyed by class name, so each hook needs a class of its own.
+    class LateHook extends TracedHook {
+      public override readonly order: number = 5;
+      protected readonly label = 'late';
+    }
+    class LowHook extends TracedHook {
+      public override readonly order: number = -1;
+      protected readonly label = 'early';
+    }
+    class PeerHook extends TracedHook {
+      protected readonly label = 'peer';
+    }
+    class LastHook extends TracedHook {
+      public override readonly order: number = 5;
+      protected readonly label = 'last';
+    }
+    // Outer and Inner (order 0) were registered first.
+    const added: Class<QueueMessageHook>[] = [LateHook, LowHook, PeerHook, LastHook];
+    for (const hook of added) DI.register(hook).as(QueueMessageHook);
+    DI.uncache(Array.ofType(QueueMessageHook));
+
+    try {
+      const queue = await DI.resolve(QueueService);
+      await queue.consume(PlainJob);
+      await PlainJob.emit({});
+      const c = await client();
+      await c.deliver(c.Emitted[0]);
+    } finally {
+      for (const hook of added) {
+        DI.unregister(hook);
+        DI.uncache(hook);
+      }
+      DI.uncache(Array.ofType(QueueMessageHook));
+    }
+
+    const handled = ['early', 'outer', 'inner', 'peer', 'late', 'last'];
+    expect(trace.filter((t) => t.endsWith('.in'))).to.deep.equal(handled.map((n) => `${n}.in`));
+    expect(trace.filter((t) => t.endsWith('.beforeEmit'))).to.deep.equal([...handled].reverse().map((n) => `${n}.beforeEmit`));
   });
 
   it('a throwing beforeEmit makes emit reject and sends nothing', async () => {
@@ -219,6 +351,7 @@ describe('queue message hooks', function () {
 
     await expect(PlainJob.emit({})).to.be.rejectedWith('refused');
 
+    expect(trace).to.deep.equal(['inner.beforeEmit', 'outer.beforeEmit']);
     const c = await client();
     expect(c.Emitted).to.have.length(0);
   });
@@ -300,6 +433,35 @@ describe('queue message hooks', function () {
     expect(row.LastError).to.equal('refused to handle');
     expect(trace).to.not.include('execute');
   });
+
+  it('a hook that refuses for good ends a job with retries left dead after one attempt', async () => {
+    refuseForGood = true;
+    const queue = await DI.resolve(QueueService);
+    await queue.consume(RetriedJob);
+    await RetriedJob.emit({});
+
+    const c = await client();
+    await expect(c.deliver(c.Emitted[0])).to.be.rejectedWith(PermanentJobFailure, 'refused: for good');
+
+    const row = (await JobModel.all())[0];
+    expect(row.MaxAttempts).to.equal(4);
+    expect(row.Status).to.equal('dead');
+    expect(row.Attempt).to.equal(1);
+    expect(row.LastError).to.equal('refused: for good');
+    expect(trace).to.not.include('execute');
+  });
+
+  it('onFailed runs inside the hook chain', async () => {
+    const queue = await DI.resolve(QueueService);
+    await queue.consume(FailingJob);
+    await FailingJob.emit({});
+    trace.length = 0;
+
+    const c = await client();
+    await expect(c.deliver(c.Emitted[0])).to.be.rejectedWith('boom');
+
+    expect(trace).to.deep.equal(['outer.in', 'inner.in', 'execute', 'inner.out', 'outer.out', 'outer.in', 'inner.in', 'onFailed', 'inner.out', 'outer.out']);
+  });
 });
 
 describe('queue without message hooks', function () {
@@ -311,7 +473,7 @@ describe('queue without message hooks', function () {
     trace.length = 0;
     DI.register(HookConf).as(Configuration);
     await DI.resolve(Configuration);
-    await (await DI.resolve(Orm)).Migrator.ready();
+    await migrateTestDatabase();
     // the transport instance outlives a test; start each one with an empty wire
     (await client()).Emitted.length = 0;
   });
@@ -369,7 +531,7 @@ describe('queue tracking hook', () => {
     DI.register(HookConf).as(Configuration);
     DI.register(TrackingHook).as(QueueTrackingHook);
     await DI.resolve(Configuration);
-    await (await DI.resolve(Orm)).Migrator.ready();
+    await migrateTestDatabase();
   });
 
   afterEach(() => {
@@ -408,7 +570,7 @@ describe('queue job owned by another initiator', () => {
     trace.length = 0;
     DI.register(HookConf).as(Configuration);
     await DI.resolve(Configuration);
-    await (await DI.resolve(Orm)).Migrator.ready();
+    await migrateTestDatabase();
   });
 
   const firstAttempt = async () => {

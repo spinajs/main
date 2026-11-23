@@ -9,7 +9,7 @@ import { _is_string, _non_empty, _try_check_arg } from '@spinajs/util';
 import { AuthnAudit } from '@spinajs/authn/audit';
 import type { AuthnAuditor, AuthnEventBody } from '@spinajs/authn/audit';
 import { AuthnService, AuthnThrottle, MfaEnrolmentService, MfaStep, SessionIssuer, identityThrottleKeys, ipv6PrefixOf, isFresh } from '@spinajs/authn/contracts';
-import type { AuthnContext, AuthnEvent, AuthnEventSink, AuthnFacts, Credentials, IdentityRef, MfaBeginResult, MfaConfirmResult, MfaDisableResult, MfaRegenerateResult, PrincipalRef, SessionHandle } from '@spinajs/authn/contracts';
+import type { AuthnContext, AuthnEvent, AuthnEventListener, AuthnFacts, Credentials, IdentityRef, MfaBeginResult, MfaConfirmResult, MfaDisableResult, MfaRegenerateResult, PrincipalRef, SessionHandle } from '@spinajs/authn/contracts';
 import { TotpAlreadyEnrolled, TotpEnrolmentChanged, TotpInvalidCode, TotpNotBegun, TotpNotEnrolled, TotpRecoveryCodesNotIssued } from '../step/errors.js';
 import { TotpMfaStep } from '../step/totp-step.js';
 import '../hooks.js';
@@ -27,8 +27,8 @@ export interface TotpServiceDeps {
   readonly sessions?: SessionIssuer;
   readonly authn?: AuthnService;
   readonly throttle?: AuthnThrottle;
-  /** Published to through `AuthnAudit.over`; left out, the container's AuthnAudit. */
-  readonly sinks?: readonly AuthnEventSink[];
+  /** Delivered to through `AuthnAudit.over`; left out, the container's AuthnAudit. */
+  readonly listeners?: readonly AuthnEventListener[];
   /** `authn.freshAuth.maxAgeSeconds`. */
   readonly maxAgeSeconds?: number;
   /** Otherwise `authn.throttle.ipv6Prefix`, else `http.throttle.ipv6Prefix`. */
@@ -87,11 +87,11 @@ export class TotpService extends MfaEnrolmentService {
   @Autoinject(Hooks)
   protected Hooks: Hooks;
 
-  private readonly sinkAudit: AuthnAuditor | undefined;
+  private readonly listenerAudit: AuthnAuditor | undefined;
 
   constructor(private readonly deps: TotpServiceDeps = {}) {
     super();
-    this.sinkAudit = deps.sinks && AuthnAudit.over(deps.sinks);
+    this.listenerAudit = deps.listeners && AuthnAudit.over(deps.listeners);
   }
 
   /** "Turning TOTP on": the steps list TotpMfaStep itself, not a subclass, and authn.mfa.encryptionKey.secret is set. */
@@ -394,7 +394,7 @@ export class TotpService extends MfaEnrolmentService {
   }
 
   private auditor(): AuthnAuditor {
-    return this.sinkAudit ?? this.Audit ?? missing('AuthnAudit');
+    return this.listenerAudit ?? this.Audit ?? missing('AuthnAudit');
   }
 
   private ipv6Prefix(): number {

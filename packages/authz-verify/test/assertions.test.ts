@@ -22,6 +22,7 @@ function partnerInvoices(): PolicyIR {
   return ir;
 }
 
+const NOTE = 'holds for principals without a ceiling: a ceiling whose permissions list invoice:approve and not invoice:read denies invoice:read where invoice:approve stays allowed (implies(a, b, { narrowed: true }) checks it)';
 const codes = (results: AssertionResult[]): string[] => results.flatMap((r) => r.diagnostics.map((d) => `${d.code} ${d.severity} ${d.assertion}: ${d.message}`));
 const unavailable: VerifyOptions = { solver: () => Promise.resolve(undefined) };
 
@@ -55,6 +56,7 @@ describe('verifyAssertions with the exact engine', () => {
     const results = await verifyAssertions(monotoneInvoices(), set, unavailable);
     expect(codes(results)).to.deep.equal([
       'AZV002 info implies(invoice:approve, invoice:read): holds (exact)',
+      `AZV004 info implies(invoice:approve, invoice:read): ${NOTE}`,
       'AZV001 error onlyVia(invoice:approve, [role:treasurer@org]): violated (exact)',
       'AZV002 info never(public, invoice:*): holds (exact)',
       'AZV001 error separated(invoice:read, invoice:approve): violated (exact)',
@@ -78,7 +80,11 @@ describe('verifyAssertions with the exact engine', () => {
     const ir = monotoneInvoices();
     ir.opaque = [{ kind: 'model', name: 'legacy' }];
     const [r] = await verifyAssertions(ir, defineAssertions(({ implies }) => [implies('invoice:approve', 'invoice:read')]), unavailable);
-    expect(codes([r])).to.deep.equal(['AZV002 info implies(invoice:approve, invoice:read): holds (exact)', "AZV003 warning implies(invoice:approve, invoice:read): depends on opaque: model 'legacy'"]);
+    expect(codes([r])).to.deep.equal([
+      'AZV002 info implies(invoice:approve, invoice:read): holds (exact)',
+      "AZV003 warning implies(invoice:approve, invoice:read): depends on opaque: model 'legacy'",
+      `AZV004 info implies(invoice:approve, invoice:read): ${NOTE}`,
+    ]);
   });
 });
 
@@ -104,6 +110,7 @@ describe('verifyAssertions with the bounded engine', function () {
     expect(codes(results)).to.deep.equal([
       'AZV001 error implies(invoice:read, invoice:approve): violated (bounded k=2)',
       'AZV002 info implies(invoice:approve, invoice:read): verified up to k=2',
+      `AZV004 info implies(invoice:approve, invoice:read): ${NOTE}`,
       'AZV002 info never(role:clerk@$global, invoice:read): verified up to k=2',
       'AZV001 error separated(invoice:update, invoice:read): violated (bounded k=2)',
     ]);
@@ -125,12 +132,13 @@ describe('formatResults', () => {
     const results = await verifyAssertions(monotoneInvoices(), defineAssertions(({ implies, onlyVia }) => [implies('invoice:approve', 'invoice:read'), onlyVia('invoice:approve', ['org#auditor'])]), unavailable);
     expect(formatResults(results, 'text')).to.deep.equal([
       'ok   AZV002 implies(invoice:approve, invoice:read)   holds (exact)',
+      `ok   AZV004 implies(invoice:approve, invoice:read)   ${NOTE}`,
       'fail AZV001 onlyVia(invoice:approve, [org#auditor])  violated (exact)',
       '     principal user:u1 with invoice:i1#parent@project:p1, project:p1#parent@org:o1, org:o1#accountant@user:u1 gets invoice:approve allow on invoice:i1',
-      '1 error(s), 0 warning(s), 1 info',
+      '1 error(s), 0 warning(s), 2 info',
     ]);
     const json = JSON.parse(formatResults(results, 'json')[0]) as { summary: unknown };
-    expect(json.summary).to.deep.equal({ error: 1, warning: 0, info: 1 });
-    expect(formatResults(results, 'github')[1]).to.equal('::error title=AZV001 onlyVia(invoice%3Aapprove%2C [org#auditor])::violated (exact): principal user:u1 with invoice:i1#parent@project:p1, project:p1#parent@org:o1, org:o1#accountant@user:u1 gets invoice:approve allow on invoice:i1');
+    expect(json.summary).to.deep.equal({ error: 1, warning: 0, info: 2 });
+    expect(formatResults(results, 'github')[2]).to.equal('::error title=AZV001 onlyVia(invoice%3Aapprove%2C [org#auditor])::violated (exact): principal user:u1 with invoice:i1#parent@project:p1, project:p1#parent@org:o1, org:o1#accountant@user:u1 gets invoice:approve allow on invoice:i1');
   });
 });

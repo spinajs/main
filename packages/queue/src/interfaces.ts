@@ -4,6 +4,7 @@ import { DateTime } from 'luxon';
 import _ from 'lodash';
 import { Log, Logger } from '@spinajs/log';
 import { Config } from '@spinajs/configuration';
+import type { IQueueOutboxConfig } from './outbox/config.js';
 
 export enum QueueMessageType {
   Job = 'JOB',
@@ -60,6 +61,13 @@ export interface IQueueJob extends IQueueMessage {
   JobId?: string;
 }
 
+export interface PublishDirectOptions {
+  /** Queue connections that already confirmed this message (an outbox retry). */
+  skip?: readonly string[];
+  /** Receives the name of every connection that confirmed the message in this call. */
+  published?: string[];
+}
+
 export abstract class QueueService extends AsyncService {
   @Config('queue')
   protected Configuration: IQueueConfiguration;
@@ -73,6 +81,9 @@ export abstract class QueueService extends AsyncService {
   public abstract consume<T extends QueueMessage>(event: Constructor<QueueMessage>, callback?: (message: T) => Promise<void>, subscriptionId?: string, durable?: boolean): Promise<void>;
   public abstract stopConsuming(event: Constructor<QueueMessage>): Promise<void>;
   public abstract get(connection?: string): QueueClient;
+
+  /** Sends to the brokers now, bypassing the outbox; the outbox relay publishes through it. */
+  public abstract publishDirect(message: IQueueMessage, options?: PublishDirectOptions): Promise<void>;
 
   protected getConnectionsForMessage(event: IQueueMessage | Constructor<QueueMessage>): string[] {
     const eventName = ((event as IQueueMessage).Name ?? (event as Constructor<QueueMessage>).name);
@@ -345,7 +356,7 @@ export abstract class QueueClient extends AsyncService implements IInstanceCheck
    * @returns the dead-letter channel, or undefined if none is configured
    */
   public getDeadLetterChannelForMessage(event: IQueueMessage | Constructor<QueueMessage>): string | undefined {
-    const eName = (event as IQueueMessage).Name ?? (event as Constructor<QueueMessage>).name ?? event.constructor.name;
+    const eName = this.messageName(event);
     const rOption = this.Routing?.[eName];
 
     // a single route option may carry its own dead-letter channel
@@ -370,7 +381,7 @@ export abstract class QueueClient extends AsyncService implements IInstanceCheck
    * where a throw would go unhandled.
    */
   public getMaxRetriesForMessage(event: IQueueMessage | Constructor<QueueMessage>): number | undefined {
-    const eName = (event as IQueueMessage).Name ?? (event as Constructor<QueueMessage>).name ?? event.constructor.name;
+    const eName = this.messageName(event);
     const rOption = this.Routing?.[eName];
     const entries: (string | IMessageRoutingOption | undefined)[] = _.isArray(rOption) ? this.ownRouteItems(rOption) : [rOption];
 
@@ -391,6 +402,16 @@ export abstract class QueueClient extends AsyncService implements IInstanceCheck
     return value;
   }
 
+  /** The first own routing entry of the message that declares `key`. */
+  public getRouteOption<K extends keyof IMessageRoutingOption>(event: IQueueMessage | Constructor<QueueMessage>, key: K): IMessageRoutingOption[K] | undefined {
+    const rOption = this.Routing?.[this.messageName(event)];
+    const entries: (string | IMessageRoutingOption | undefined)[] = _.isArray(rOption) ? this.ownRouteItems(rOption) : [rOption];
+    for (const entry of entries) {
+      if (entry && !_.isString(entry) && entry[key] !== undefined) return entry[key];
+    }
+    return undefined;
+  }
+
   /**
    *
    * Gets event channel from routing table or default if non is set
@@ -399,7 +420,7 @@ export abstract class QueueClient extends AsyncService implements IInstanceCheck
    */
   public getChannelForMessage(event: IQueueMessage | Constructor<QueueMessage>): string[] {
     const options = Reflect.getMetadata('queue:options', event);
-    const eName = (event as IQueueMessage).Name ?? (event as Constructor<QueueMessage>).name ?? event.constructor.name;
+    const eName = this.messageName(event);
     const isJob = (event as IQueueMessage).Type ? (event as IQueueMessage).Type === QueueMessageType.Job : options ? options.type === 'job' : false;
     const rOption = this.Routing?.[eName];
 
@@ -425,6 +446,18 @@ export abstract class QueueClient extends AsyncService implements IInstanceCheck
     }
 
     return [rOption.channel ?? (isJob ? this.Options.defaultQueueChannel! : this.Options.defaultTopicChannel!)];
+  }
+
+  /**
+   * Whether a rejected event handler leads to a later redelivery instead of an ack. Event dedup refuses a connection
+   * without it, because it would drop a duplicate that arrived while the first copy was still being handled.
+   */
+  public get RedeliversFailedEvents(): boolean {
+    return false;
+  }
+
+  protected messageName(event: IQueueMessage | Constructor<QueueMessage>): string {
+    return (event as IQueueMessage).Name ?? (event as Constructor<QueueMessage>).name ?? event.constructor.name;
   }
 
   /**
@@ -464,10 +497,23 @@ export interface IQueueConfiguration {
   deduplicate?: boolean;
 
   /**
+   * Suppress duplicate deliveries of an event per named subscription ( `subscriptionId` ), keyed by MessageId, through
+   * `@spinajs/idempotency`. Off by default in 4.x; `deduplicate: false` turns it off too. Handling stays at-least-once:
+   * see docs/queue/12-event-deduplication.md.
+   */
+  deduplicateEvents?: boolean;
+
+  /** How long a handled event's MessageId is remembered. Default '7d'. */
+  deduplicateTtl?: string | number;
+
+  /**
    * Automatic cleanup of old tracked jobs ( {@link JobModel} rows ) so the table doesn't
    * grow unbounded. Disabled by default - opt in to avoid silently deleting data.
    */
   retention?: IQueueRetentionOptions;
+
+  /** Transactional outbox; off by default in 4.x. See docs/queue/10-outbox.md. */
+  outbox?: Partial<IQueueOutboxConfig>;
 
   /**
    * Throttling of job progress persistence, so a chatty job that reports progress
@@ -543,6 +589,12 @@ export abstract class JobRetentionService extends AsyncService implements IMappa
   public abstract purgeJobs(olderThan: DateTime, statuses?: string[]): Promise<number>;
 }
 
+export interface DeliveryBackoff {
+  kind: 'fixed' | 'exponential';
+  delayMs: number;
+  maxDelayMs?: number;
+}
+
 export interface IMessageRoutingOption {
   channel?: string;
   deadLetterChannel?: string;
@@ -551,9 +603,18 @@ export interface IMessageRoutingOption {
   /**
    * Default retry count for jobs routed here that carry no `RetryCount` of their own.
    * An explicit `RetryCount` on the job always wins.
-   * Honoured by the STOMP and AMQP transports; the first routing entry that declares it applies.
+   * Honoured by every transport that executes the delivery decision; the first routing entry that declares it applies.
    */
   maxRetries?: number;
+
+  /** Delay between retries of messages routed here; default exponential on the connection's `retryDelay`. */
+  backoff?: DeliveryBackoff;
+
+  /** What a failed event handler leads to: 'drop' (the default) acks it, 'retry' retries it like a job, into the failing subscriber only. */
+  onEventFailure?: 'drop' | 'retry';
+
+  /** SQS FIFO: the message field whose value is the MessageGroupId. A route to a `.fifo` queue needs it. */
+  groupBy?: string;
 }
 
 export interface IQueueConnectionOptions {

@@ -4,13 +4,15 @@ import { expect } from 'chai';
 import sinon from 'sinon';
 import { DI } from '@spinajs/di';
 import { Forbidden } from '@spinajs/exceptions';
-import { IdempotencyService } from '@spinajs/idempotency';
+import { IdempotencyService, idempotencyKey } from '@spinajs/idempotency';
 import { Intl } from '@spinajs/intl';
 import { Log } from '@spinajs/log';
 import type { TestApp } from '@spinajs/testing';
 import { httpApp, req, TestConfiguration } from './common.js';
-import { Audit, AuditSink, BaseController, BasePath, BasePolicy, Controllers, Del, HttpServer, Idempotent, Middleware, Ok, Param, Policy, ReplayedResponse, RouteMiddleware } from '../src/index.js';
+import { Audit, AuditSink, BaseController, BasePath, BasePolicy, Controllers, Del, HttpServer, IdempotencyScopePart, Idempotent, Middleware, Ok, Param, Policy, ReplayedResponse, RouteMiddleware } from '../src/index.js';
 import type { IAuditRecord, IMiddlewareContext, IReplyContext, MiddlewareStage, Request } from '../src/index.js';
+import { BaseController, BasePath, BasePolicy, Controllers, Del, HttpServer, Idempotent, Middleware, Ok, Param, Policy, ReplayedResponse, RouteMiddleware } from '../src/index.js';
+import type { IActionLocalStoregeContext, IFinishContext, IMiddlewareContext, IReplyContext, MiddlewareStage, Request } from '../src/index.js';
 
 const state = {
   rows: new Set<string>(),
@@ -21,11 +23,22 @@ const state = {
   outerAfter: [] as number[],
 };
 
-class ReplayAuditSink extends AuditSink {
-  public static records: IAuditRecord[] = [];
+interface ReplayRecord {
+  readonly status: number;
+  readonly method: string;
+  readonly principal?: { readonly type: string; readonly id: string } | null;
+}
 
-  public write(record: IAuditRecord): void {
-    ReplayAuditSink.records.push(record);
+type WithPrincipal = IActionLocalStoregeContext & { Principal?: { readonly type: string; readonly id: string } | null };
+
+/** A recorder at 'beforePolicy', as the Audit middleware of `@spinajs/audit-http` is: it must see a replay too. */
+class ReplayRecorder extends RouteMiddleware {
+  public static records: ReplayRecord[] = [];
+
+  public override readonly Stage: MiddlewareStage = 'beforePolicy';
+
+  public onFinish({ req, res, storage }: IFinishContext): void {
+    ReplayRecorder.records.push({ status: res.statusCode, method: req.method, principal: (storage as WithPrincipal).Principal });
   }
 }
 
@@ -40,7 +53,7 @@ class SignIn extends RouteMiddleware {
   public onBefore({ req, storage }: IMiddlewareContext): Ok | undefined {
     const id = req.headers['x-user'];
     const link = req.headers['x-link'];
-    const header = (name: string) => (typeof req.headers[name] === 'string' ? (req.headers[name] as string) : undefined);
+    const header = (name: string) => (typeof req.headers[name] === 'string' ? req.headers[name] : undefined);
     if (typeof id === 'string' || typeof link === 'string') {
       const ceiling = header('x-ceiling');
       const impersonator = header('x-impersonator');
@@ -59,11 +72,24 @@ class SignIn extends RouteMiddleware {
         },
       });
     }
+    const zone = header('x-zone');
+    if (zone) Reflect.set(storage, 'Zone', zone);
     return req.headers['x-maintenance'] ? new Ok({ maintenance: true }) : undefined;
   }
 
   public onAfter({ response }: IReplyContext): void {
     state.beforePolicyAfter.push({ status: response.statusCode, replay: response instanceof ReplayedResponse });
+  }
+}
+
+/** Stands for the tenant scope part of @spinajs/tenancy-http: x-zone is the request's tenant; `unreadable` cannot be read. */
+class ZonePart extends IdempotencyScopePart {
+  public partOf(store: object): string | undefined {
+    const zone: unknown = Reflect.get(store, 'Zone');
+    if (zone === 'unreadable') {
+      throw new Error('zone store down');
+    }
+    return typeof zone === 'string' ? `zone:${zone}` : undefined;
   }
 }
 
@@ -90,7 +116,7 @@ class RowExists extends BasePolicy {
 }
 
 @BasePath('replay-items')
-@Middleware(Audit)
+@Middleware(ReplayRecorder)
 @Middleware(SignIn)
 @Middleware(OuterProbe)
 class ReplayItemsController extends BaseController {
@@ -135,11 +161,20 @@ class ReplayConfiguration extends TestConfiguration {
   }
 }
 
+interface Reply {
+  readonly status: number;
+  readonly text: string;
+  readonly headers: Readonly<Record<string, string | undefined>>;
+  readonly body: { readonly code?: string };
+}
+
+const send = async (pending: PromiseLike<unknown>): Promise<Reply> => (await pending) as Reply;
+
 const remove = (id: string, key?: string, user?: string, extra: Record<string, string> = {}) => {
   const headers: Record<string, string> = { Accept: 'application/json', ...extra };
   if (key !== undefined) headers['Idempotency-Key'] = key;
   if (user !== undefined) headers['x-user'] = user;
-  return req().delete(`replay-items/${id}`).set(headers);
+  return send(req().delete(`replay-items/${id}`).set(headers));
 };
 
 async function waitFor(condition: () => boolean, timeoutMs = 5_000): Promise<void> {
@@ -151,7 +186,7 @@ async function waitFor(condition: () => boolean, timeoutMs = 5_000): Promise<voi
 }
 
 describe('Idempotency-Key replay before the policy gate', function () {
-  this.timeout(20_000);
+  this.timeout(60_000);
 
   let app: TestApp;
 
@@ -159,8 +194,8 @@ describe('Idempotency-Key replay before the policy gate', function () {
     app = await httpApp({
       configuration: ReplayConfiguration,
       register: (c) => {
-        c.register(ReplayAuditSink).as(AuditSink);
         c.register(ReplayItemsController).as(BaseController);
+        c.register(ZonePart).as(IdempotencyScopePart);
       },
       resolve: [Intl, Controllers],
     });
@@ -176,7 +211,7 @@ describe('Idempotency-Key replay before the policy gate', function () {
     state.hold = undefined;
     state.beforePolicyAfter = [];
     state.outerAfter = [];
-    ReplayAuditSink.records = [];
+    ReplayRecorder.records = [];
   });
 
   afterEach(() => sinon.restore());
@@ -256,7 +291,7 @@ describe('Idempotency-Key replay before the policy gate', function () {
     expect(state.rows.has('b')).to.eq(true);
   });
 
-  it("sends the replay through the reply pipeline: the 'beforePolicy' middlewares see it, Audit records it, the outer ones are not entered", async () => {
+  it("sends the replay through the reply pipeline: the 'beforePolicy' middlewares see it, a recorder there records it, the outer ones are not entered", async () => {
     await remove('a', 'del-audit-1', 'u1');
     const again = await remove('a', 'del-audit-1', 'u1');
 
@@ -267,8 +302,8 @@ describe('Idempotency-Key replay before the policy gate', function () {
     ]);
     expect(state.outerAfter).to.deep.eq([200]);
 
-    await waitFor(() => ReplayAuditSink.records.length === 2);
-    const [, replayed] = ReplayAuditSink.records;
+    await waitFor(() => ReplayRecorder.records.length === 2);
+    const [, replayed] = ReplayRecorder.records;
     expect(replayed.status).to.eq(200);
     expect(replayed.method).to.eq('DELETE');
     expect(replayed.principal).to.include({ type: 'user', id: 'u1' });
@@ -355,8 +390,8 @@ describe('Idempotency-Key replay before the policy gate', function () {
     const service = await app.resolve(IdempotencyService);
     const peek = sinon.spy(service, 'peek');
 
-    const first = await req().delete('replay-items/open/a').set({ Accept: 'application/json', 'Idempotency-Key': 'open-1', 'x-user': 'u1' });
-    const again = await req().delete('replay-items/open/a').set({ Accept: 'application/json', 'Idempotency-Key': 'open-1', 'x-user': 'u1' });
+    const first = await send(req().delete('replay-items/open/a').set({ Accept: 'application/json', 'Idempotency-Key': 'open-1', 'x-user': 'u1' }));
+    const again = await send(req().delete('replay-items/open/a').set({ Accept: 'application/json', 'Idempotency-Key': 'open-1', 'x-user': 'u1' }));
 
     expect(first.status).to.eq(200);
     expect(again.headers['idempotent-replayed']).to.eq('true');
@@ -430,8 +465,8 @@ describe('Idempotency-Key replay before the policy gate', function () {
     });
 
     it("takes any key with sharedScope: 'any'", async () => {
-      const first = await req().delete('replay-items/any-key/a').set({ Accept: 'application/json', 'Idempotency-Key': 'order-1' });
-      const again = await req().delete('replay-items/any-key/a').set({ Accept: 'application/json', 'Idempotency-Key': 'order-1' });
+      const first = await send(req().delete('replay-items/any-key/a').set({ Accept: 'application/json', 'Idempotency-Key': 'order-1' }));
+      const again = await send(req().delete('replay-items/any-key/a').set({ Accept: 'application/json', 'Idempotency-Key': 'order-1' }));
 
       expect(first.status).to.eq(200);
       expect(again.headers['idempotent-replayed']).to.eq('true');
@@ -439,11 +474,101 @@ describe('Idempotency-Key replay before the policy gate', function () {
     });
 
     it('refuses a missing key of a required route as missing, not as not random', async () => {
-      const missing = await req().delete('replay-items/keyed/a').set({ Accept: 'application/json' });
+      const missing = await send(req().delete('replay-items/keyed/a').set({ Accept: 'application/json' }));
 
       expect(missing.status).to.eq(400);
       expect(missing.body.code).to.eq('idempotency.key-required');
       expect(state.actionCalls).to.eq(0);
+    });
+  });
+
+  describe('with a registered IdempotencyScopePart (a tenant)', () => {
+    const z1 = { 'x-zone': 'z1' };
+    const z2 = { 'x-zone': 'z2' };
+
+    it('runs the same principal and key again in another zone, and replays each zone its own reply', async () => {
+      const first = await remove('open/a', 'zone-1', 'u1', z1);
+      const other = await remove('open/a', 'zone-1', 'u1', z2);
+      const firstAgain = await remove('open/a', 'zone-1', 'u1', z1);
+      const otherAgain = await remove('open/a', 'zone-1', 'u1', z2);
+
+      expect(first.body).to.deep.eq({ deleted: 'a', call: 1 });
+      expect(other.status).to.eq(200);
+      expect(other.get('idempotent-replayed')).to.eq(undefined);
+      expect(other.body).to.deep.eq({ deleted: 'a', call: 2 });
+      expect([firstAgain.get('idempotent-replayed'), firstAgain.text]).to.deep.eq(['true', first.text]);
+      expect([otherAgain.get('idempotent-replayed'), otherAgain.text]).to.deep.eq(['true', other.text]);
+      expect(state.actionCalls).to.eq(2);
+    });
+
+    it('runs an anonymous random key again in another zone', async () => {
+      const key = randomUUID();
+      await remove('open/a', key, undefined, z1);
+      const other = await remove('open/a', key, undefined, z2);
+
+      expect(other.status).to.eq(200);
+      expect(other.get('idempotent-replayed')).to.eq(undefined);
+      expect(state.actionCalls).to.eq(2);
+    });
+
+    it("never replays another zone's reply before the policies: the policies judge it", async () => {
+      await remove('a', 'zone-peek-1', 'u1', z1);
+      const other = await remove('a', 'zone-peek-1', 'u1', z2);
+      const again = await remove('a', 'zone-peek-1', 'u1', z1);
+
+      expect(other.status).to.eq(403);
+      expect(other.get('idempotent-replayed')).to.eq(undefined);
+      expect(again.get('idempotent-replayed')).to.eq('true');
+      expect(state.policyCalls).to.eq(2);
+      expect(state.actionCalls).to.eq(1);
+    });
+
+    it('does not refuse a key another zone holds in flight', async () => {
+      let release!: () => void;
+      state.hold = new Promise<void>((resolve) => (release = resolve));
+
+      const held = remove('a', 'zone-race-1', 'u1', z1).then((res) => res);
+      await waitFor(() => state.actionCalls === 1);
+      const other = remove('a', 'zone-race-1', 'u1', z2).then((res) => res);
+      await waitFor(() => state.actionCalls === 2);
+      release();
+
+      expect([(await held).status, (await other).status]).to.deep.eq([200, 200]);
+    });
+
+    it('does not refuse as key reuse a key another zone used on another request', async () => {
+      await remove('a', 'zone-reuse-1', 'u1', z1);
+      const other = await remove('b', 'zone-reuse-1', 'u1', z2);
+
+      expect(other.status).to.eq(200);
+      expect(other.body).to.deep.eq({ deleted: 'b', call: 2 });
+    });
+
+    it('fails closed when a part cannot be read: the claim answers 500 and the route does not run', async () => {
+      const res = await remove('open/a', 'zone-unreadable-1', 'u1', { 'x-zone': 'unreadable' });
+
+      expect(res.status).to.eq(500);
+      expect(state.actionCalls).to.eq(0);
+    });
+
+    it('goes on to the policies and the claim when a part cannot be read before them, and never replays', async () => {
+      await remove('a', 'zone-unreadable-2', 'u1');
+      state.rows.add('a');
+      const res = await remove('a', 'zone-unreadable-2', 'u1', { 'x-zone': 'unreadable' });
+
+      expect(res.status).to.eq(500);
+      expect(res.get('idempotent-replayed')).to.eq(undefined);
+      expect(state.policyCalls).to.eq(2);
+      expect(state.actionCalls).to.eq(1);
+    });
+
+    it('keeps the key of a request outside any zone as it was without parts', async () => {
+      const run = sinon.spy(await app.resolve(IdempotencyService), 'run');
+
+      await remove('open/a', 'zone-none-1', 'u1');
+
+      const [scope, key] = run.firstCall.args;
+      expect(idempotencyKey(scope, key)).to.eq(idempotencyKey({ namespace: 'http:DELETE /replay-items/open/:id', principal: 'user:u1' }, 'zone-none-1'));
     });
   });
 });

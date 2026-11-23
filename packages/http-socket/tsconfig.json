@@ -66,6 +66,9 @@
       "path": "../telemetry-common/tsconfig.json"
     },
     {
+      "path": "../tracing/tsconfig.json"
+    },
+    {
       "path": "../validation/tsconfig.json"
     },
     {

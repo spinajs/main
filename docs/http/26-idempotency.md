@@ -146,17 +146,18 @@ On any other route the policies always run, even after a `'beforePolicy'` middle
 
 Two consequences follow:
 
-- Policies that do not depend on the principal, such as an IP allowlist, MFA step-up freshness or a tenant header,
-  are not evaluated again on a replay. The replayed reply is the one they admitted the first time. A tenant chosen by
-  a header is not part of the fingerprint either, so one user's request to tenant B with a key used for tenant A
-  replays A's reply, on the claim path too: put the tenant in the URL, or in the body with `fingerprint: 'body'`.
+- Policies that do not depend on the principal, such as an IP allowlist or MFA step-up freshness, are not evaluated
+  again on a replay. The replayed reply is the one they admitted the first time. A tenant set by
+  `@spinajs/tenancy-http` is part of the key's [scope](#scope), so a request to tenant B never replays a reply stored
+  in tenant A, before the policies or on the claim path. A tenant your own code reads from a header is not: put it in
+  the URL, or in the body with `fingerprint: 'body'`, or register an `IdempotencyScopePart` for it.
 - A principal whose permission was revoked within `ttl` still gets the reply it was owed. That is the standard
   semantics of idempotency keys (the IETF Idempotency-Key draft, Stripe). Keep `ttl` short on routes where this matters.
 
 ### Middlewares on an early replay
 
 A replay before the policies is an early answer: only the middlewares entered before the check see it. Those are the
-server middlewares and the route's `'beforePolicy'` middlewares; the shipped [`Audit`](30-audit.md) records it. The
+server middlewares and the route's `'beforePolicy'` middlewares; a recorder mounted there, such as [`Audit`](../audit-http/01-audit.md) of `@spinajs/audit-http`, records it. The
 `'outer'` and `'inner'` route middlewares are not entered, so their `onAfter` does not run and they set no header on
 it. A replay that goes through the claim (an anonymous or restricted caller, a principal signed in inside a policy, a
 route without policies) is seen by the `'outer'` middlewares entered before `@Idempotent`, so one key can be replayed
@@ -167,7 +168,8 @@ in the `'beforePolicy'` stage or among the server middlewares.
 
 A key is one key per route and principal. The route is `http:<METHOD> <path>` with the route template, for example
 `/orders/:id/pay`. The principal is the authenticated principal, or `anonymous`. The same key from two users runs
-twice. All anonymous callers of a route share one key space (see [Shared scopes](#shared-scopes)).
+twice. All anonymous callers of a route share one key space, per tenant with `@spinajs/tenancy-http` (see
+[Shared scopes](#shared-scopes)).
 
 A restricted principal gets a scope of its own: its key (`principalKey`) together with its authority, which is its
 `ceiling`, `onBehalfOf` and `delegation`, `authn.impersonator` and `companions` (`idempotencyPrincipal()` of
@@ -175,6 +177,12 @@ A restricted principal gets a scope of its own: its key (`principalKey`) togethe
 or an admin impersonating that user, nor the other way round. An unrestricted principal keeps the plain
 `principalKey`. A share link is scoped by the link, its scope and expiry and the signed-in companion: two bearers of
 one link who are not signed in share its key space, as anonymous callers share theirs.
+
+Every registered `IdempotencyScopePart` adds a part to the scope, read from `req.storage` after the `'beforePolicy'`
+middlewares ran. `@spinajs/tenancy-http` registers one for the tenant that `TenantMiddleware` set: the same key from
+one user, or from anonymous callers, in two tenants runs once in each, and is neither replayed nor refused as in
+flight or reused across them. A request with no part, such as one outside any tenant scope, keeps the key it had
+without parts.
 
 ### Shared scopes
 
@@ -218,6 +226,24 @@ routes (see [Transactions](../idempotency/README.md#transactions)).
 The lease is renewed while the route runs, but http has no abort signal an action could observe. If a renewal fails
 long enough for the lease to end during a slow action (a lost database connection, a paused process), another
 replica may claim the key and run the action a second time while the first one is still running.
+
+## API documents
+
+Both OpenAPI builders document an `@Idempotent` route the same way:
+
+- the `Idempotency-Key` header parameter, required when the route sets `required: true`; its schema bounds the header
+  value at 512 characters, the longest quoted form of a 255-character key
+- the 400, 409 (with `Retry-After`) and 422 problem answers
+- the `Idempotent-Replayed` header on its success answers
+
+A status the route already answers stays as it is: one from a `@response` tag or `@Access`, and in the manifest
+builder also one from the controller's error map and the 400 of a route with request arguments. `Retry-After` is
+documented only on a 409 the builder added.
+
+The JSDoc builder of `@spinajs/http-swagger` reads them from the middleware `@Idempotent` mounts. The manifest
+builder of `@spinajs/openapi` reads them from the manifest's `RouteEntry.idempotency`. A route middleware of your own
+can document the request headers it reads through `documentation()`, with `requestHeaders`
+([In API documents](14-route-middlewares.md#in-api-documents)).
 
 ## Migrating to random keys in shared scopes
 
