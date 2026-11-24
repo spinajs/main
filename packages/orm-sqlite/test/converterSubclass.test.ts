@@ -95,15 +95,13 @@ class PipeSetConverter extends SetValueConverter {
   }
 }
 
-// The inherited toDB() is typed 0 | 1 | boolean | null, so an override that stays assignable writes the inverse.
-class InvertedSqlBooleanConverter extends SqlBooleanValueConverter {
-  public toDB(...args: Parameters<SqlBooleanValueConverter['toDB']>): 0 | 1 | boolean | null {
-    const value = super.toDB(...args);
-    return value === 1 ? 0 : value === 0 ? 1 : value;
+class YesNoSqlConverter extends SqlBooleanValueConverter {
+  public toDB(value: unknown): unknown {
+    return value === null || value === undefined ? null : value ? 'Y' : 'N';
   }
 
-  public fromDB(...[value, ...rest]: Parameters<SqlBooleanValueConverter['fromDB']>): boolean | null {
-    return typeof value === 'boolean' ? value : !super.fromDB(value, ...rest);
+  public fromDB(value: unknown): boolean | null {
+    return typeof value === 'string' ? value === 'Y' : typeof value === 'boolean' ? value : null;
   }
 }
 
@@ -112,7 +110,7 @@ class PipeSqlSetConverter extends SqlSetConverter {
     return Array.isArray(value) ? value.join('|') : super.toDB(value);
   }
 
-  public fromDB(value: string | string[]): string[] {
+  public fromDB(value: string | string[] | null): string[] | null {
     return typeof value === 'string' ? value.split('|') : value;
   }
 }
@@ -187,7 +185,7 @@ class SubclassDoc extends ModelBase {
   @ConvertedBy(TaggedUniversalConverter, { TypeColumn: 'Type' })
   public Value: unknown;
 
-  @ConvertedBy(InvertedSqlBooleanConverter)
+  @ConvertedBy(YesNoSqlConverter)
   public Answer: boolean;
 
   @Bool()
@@ -258,7 +256,7 @@ describe('sqlite: a column declaring a subclass of a shipped converter', functio
         table.text('Big');
         table.text('Type');
         table.text('Value');
-        table.int('Answer');
+        table.text('Answer');
         table.int('Active');
         table.text('Labels');
         table.text('Kinds');
@@ -381,18 +379,21 @@ describe('sqlite: a column declaring a subclass of a shipped converter', functio
       return (await query).map((doc) => doc.Id).sort((a, b) => a - b);
     }
 
-    it('a subclass of SqlBooleanValueConverter runs on write, on read and in a where() binding', async () => {
-      await new SubclassDoc({ Id: 30, Answer: true }).insert();
+    it("a subclass of SqlBooleanValueConverter stores its own 'Y' / 'N' on write, on read and in a where() binding", async () => {
+      const built = new SubclassDoc({ Id: 30, Answer: true });
+      expect(built.Answer).to.eq(true);
+      await built.insert();
       await SubclassDoc.insert({ Id: 31, Answer: false });
 
-      expect((await raw(30)).Answer).to.eq(0);
-      expect((await raw(31)).Answer).to.eq(1);
+      expect((await raw(30)).Answer).to.eq('Y');
+      expect((await raw(31)).Answer).to.eq('N');
       expect((await read(30)).Answer).to.eq(true);
       expect((await read(31)).Answer).to.eq(false);
       expect(await ids(SubclassDoc.where('Answer', true))).to.deep.eq([30]);
+      expect(await ids(SubclassDoc.where('Answer', false))).to.deep.eq([31]);
 
       await SubclassDoc.update({ Answer: true }).where('Id', 31);
-      expect((await raw(31)).Answer).to.eq(0);
+      expect((await raw(31)).Answer).to.eq('Y');
     });
 
     it('a subclass of SqlSetConverter runs on write, on read and in a where() binding', async () => {
@@ -406,6 +407,12 @@ describe('sqlite: a column declaring a subclass of a shipped converter', functio
       await SubclassDoc.update({ Labels: ['c', 'd'] }).where('Id', 33);
       expect((await raw(33)).Labels).to.eq('c|d');
       expect((await read(33)).Labels).to.deep.eq(['c', 'd']);
+    });
+
+    it('a subclass of SqlSetConverter can read NULL as null', async () => {
+      await driver().insert().into('converter_subclass_doc').values({ Id: 36, Labels: null });
+
+      expect((await read(36)).Labels).to.eq(null);
     });
 
     it('@Bool() and @Set() columns still write 1 / 0 and comma-joined text', async () => {

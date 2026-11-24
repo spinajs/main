@@ -6,14 +6,14 @@ import { TimeSpan } from '@spinajs/util';
 const DATE_NUMERICAL_TYPES = ['int', 'integer', 'float', 'double', 'decimal', 'bigint', 'smallint', 'tinyint', 'mediumint'];
 
 export class SqlSetConverter extends SetValueConverter {
-  public toDB(value: unknown) {
+  public toDB(value: unknown): unknown {
     if (value && Array.isArray(value)) {
       return value.join(',');
     }
     return value;
   }
 
-  public fromDB(value: string | string[]) {
+  public fromDB(value: string | string[]): string[] | null {
     if (typeof value === 'string') {
       return value.split(',');
     }
@@ -47,7 +47,7 @@ export class SqlBooleanValueConverter extends BooleanValueConverter {
    * @param options - `@Bool()` options; `nullable` keeps `null` / `undefined` as `null`
    * @param dehydrating - present only when the caller is `dehydrate()`
    */
-  toDB(value: any, _model?: ModelBase<unknown>, _column?: IColumnDescriptor, options?: IBoolConverterOptions | null, ...dehydrating: [IDehydrateOptions?]) {
+  toDB(value: any, _model?: ModelBase<unknown>, _column?: IColumnDescriptor, options?: IBoolConverterOptions | null, ...dehydrating: [IDehydrateOptions?]): unknown {
     if (options?.nullable && (value === null || value === undefined)) {
       return null;
     }
