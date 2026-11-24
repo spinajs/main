@@ -44,7 +44,8 @@ function applySyncCallback(statement: IRelationSyncStatement, callback?: (this: 
   // builder is a thenable too (`return this.where(...)`), and its `then` would run it.
   const returned: unknown = callback.call(statement);
   if (isThenable(returned) && !(returned instanceof QueryBuilder)) {
-    void Promise.resolve(returned).catch(() => undefined);
+    // Only a native promise can reject unhandled; `then` of any other thenable is never called, it could run it.
+    if (returned instanceof Promise) void returned.catch(() => undefined);
     throw new OrmException('the sync() callback must be synchronous: it returned a promise, and conditions added after an await would not be confined to the owner');
   }
 

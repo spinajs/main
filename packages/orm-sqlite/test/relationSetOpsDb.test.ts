@@ -711,8 +711,8 @@ describe('Relation set operations against the database', function () {
       after(() => process.off('unhandledRejection', record));
       beforeEach(() => (unhandled.length = 0));
 
-      // The compiler accepts an async callback for a `void` return, and lint's no-misused-promises refuses it; this is
-      // what a caller lint does not see passes (JavaScript, an `any`).
+      // The compiler accepts an async callback for a `void` return, and lint's no-misused-promises refuses it;
+      // `unchecked` stands for a caller lint does not see (JavaScript, an `any`).
       const unchecked = (callback: (this: IRelationSyncStatement) => unknown): ((this: IRelationSyncStatement) => void) => callback;
 
       it('is refused before the orphan delete runs, and the one-to-many sync() changes no row of either owner', async () => {
