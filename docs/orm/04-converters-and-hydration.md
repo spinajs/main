@@ -8,7 +8,7 @@ A value converter turns one column's database value into a JS value and back: a 
 
 1. A converter decorator (`@DateTime()`, `@Json()`, ...) records `{ Class, Options }` in the model descriptor's `Converters` map, keyed by property name.
 2. `Orm.resolve()` calls `reloadTableInfo()`, which reads every model's columns with `driver.tableInfo()`.
-3. For each `Converters` entry whose column exists in the table, `Orm` checks `connection.Container.hasRegistered(Class)`. When registered, it resolves the class and stores the instance in `column.Converter`.
+3. For each `Converters` entry whose column exists in the table, `Orm` checks `connection.Container.hasRegistered()` for the class and then for each of its base classes. When one is registered, it resolves the declared class and stores the instance in `column.Converter`. A subclass of a shipped converter therefore runs without its own registration.
 4. A column still without a converter gets one from the `__orm_db_value_converters__` map, looked up by its lowercased native type.
 5. The resolved instance stays on the column descriptor and is shared by every instance of the model.
 
@@ -77,7 +77,7 @@ sequenceDiagram
 
 | Converter | Registered by | `toDB` | `fromDB` |
 | --- | --- | --- | --- |
-| `JsonValueConverter` | `OrmDriver.resolve()` | `JSON.stringify(value)`; `null` and `undefined` as they are, so the column holds SQL NULL | `null` for SQL NULL; objects and arrays as-is, strings through `JSON.parse` (the text `null` too) |
+| `JsonValueConverter` | `OrmDriver.resolve()` | `JSON.stringify(value)`; `null` and `undefined` as they are, so the column holds SQL NULL | `null` for SQL NULL; a value that is not a string (an object, array, number or boolean the driver parsed already) as it is; a string through `JSON.parse`, so the text `null` gives `null` and `123` the number; a string that is not JSON text as it is |
 | `UuidConverter` | `OrmDriver.resolve()` | A dashed uuid to a 16-byte `Buffer`; a 16-byte `Buffer` or `Uint8Array` returned as it is, other byte lengths throw `InvalidArgument`; empty values to `null` | A 16-byte `Buffer` or `Uint8Array` (a view at an offset too) to the dashed 36-character form; bytes of another length to their hex text; a string to the dashed form when it is 32 characters long without its dashes, otherwise returned as it is; empty values to `null` |
 | `UniversalValueConverter` | `OrmDriver.resolve()` | By the model's type column: `boolean` to `'true'`/`'false'`, `datetime`/`date`/`time` to ISO text, `number`/`float` to decimal text, `json` to JSON, anything else as-is | By the row's type column: the reverse, with dates read by `DateTime.fromISO` |
 | `Int64ValueConverter` | `OrmDriver.resolve()` | A `bigint` to decimal text, a safe integer as is, a decimal string trimmed of surrounding whitespace; anything else throws `InvalidArgument` | Any driver form (string, number, bigint) to the decorator's `as`: `'string'` (default), `'number'` (throws `OrmException` beyond `Number.MAX_SAFE_INTEGER`) or `'bigint'`. A number that is not a safe integer throws `OrmException`: the driver already lost precision. |
@@ -86,7 +86,7 @@ sequenceDiagram
 | `BooleanValueConverter` | the driver (`SqlBooleanValueConverter`) | `1`/`0` in statements, a boolean when dehydrating; `null` and `undefined` give `0` (`false` when dehydrating), or `null` with `@Bool({ nullable: true })` | `true` for `1`, `true` or `'1'`, otherwise `false`; NULL gives `false`, or `null` with `@Bool({ nullable: true })` |
 | `SetValueConverter` | the driver (`SqlSetConverter`) | Array joined with `,` | String split on `,` |
 
-The last four are tokens: `ValueConverter`'s own methods throw `MethodNotImplemented`, and each driver binds its implementation in its container. See [`@spinajs/orm-sql` value converters](../orm-sql/05-value-converters-and-defaults.md).
+The last four are tokens: `ValueConverter`'s own methods throw `MethodNotImplemented` with a message that names the converter class, and each driver binds its implementation in its container. See [`@spinajs/orm-sql` value converters](../orm-sql/05-value-converters-and-defaults.md).
 
 Two exported helpers hold the instant rules the datetime converters share; use them in a custom datetime converter:
 
@@ -175,7 +175,12 @@ DI.register(JsonValueConverter).asMapValue('__orm_db_value_converters__', 'json'
 ## Important behaviour
 
 - Converters attach once, during `Orm.resolve()`, and only to columns found in the reflected table. A model whose table does not exist gets none, and `hydrate()` copies every value raw through `NonDbPropertyHydrator`.
-- A decorator's converter class that is not registered in DI is skipped without an error. Register it, for example with `@Injectable()`.
+- A decorator's converter class that is not registered in DI, and does not extend a registered class, is skipped without an error. Register it, for example with `@Injectable()`.
+- A column may declare a subclass of a shipped converter (`JsonValueConverter`, `UuidConverter`, `DatetimeValueConverter`, `BooleanValueConverter`, `TimeValueConverter`, `SetValueConverter`, `Int64ValueConverter`, `UniversalValueConverter`). The subclass runs on write and read, not the class the driver registers for its base. A subclass of `SqlBooleanValueConverter` or `SqlSetConverter` is skipped: those classes implement their base instead of extending it.
+- A subclass of a token (`DatetimeValueConverter`, `BooleanValueConverter`, `TimeValueConverter`, `SetValueConverter`) runs its own methods, not the driver's implementation of the token. An empty one throws `MethodNotImplemented` on write, on read and in `new Model(data)`. Extend the driver's implementation instead (`SqlTimeValueConverter`, `IsoDatetimeValueConverter`, `SqliteDatetimeValueConverter`, ...), or implement both `toDB()` and `fromDB()`; a boolean or set subclass has only the second way, by the limit above.
+- A subclass is resolved by the connection's container on its own, as a singleton keyed by its class name. It does not get the arguments a driver passes to a converter it registers through a factory: MySQL builds its `DatetimeValueConverter` with the session zone, while a subclass of `MySqlDatetimeValueConverter` runs with UTC. Two unregistered subclasses with the same class name on one connection share one instance, the one resolved first.
+- A subclass's `toDB()` must return the database form. A returned `Date`, `DateTime`, `boolean` or `TimeSpan` is converted again, by the driver's converter for that class, when the statement is compiled.
+- A row that a converter's `fromDB()` cannot read rejects the whole query, not that row alone.
 - The native-type lookup never attaches a datetime converter: no lowercase datetime key exists in the default map. Declare `@DateTime()` on datetime columns.
 - `@DateTime()` reads the emitted design type. `DateTime | null` emits `Object` and throws at class definition unless the decorator is given `nullable: true`. `@CreatedAt()`, `@UpdatedAt()`, `@SoftDelete()` and `@Archived()` keep the strict check and always use seconds.
 - On SQLite a column declared with a numeric type in any case (`INTEGER`, `BIGINT`, `REAL`, `NUMERIC`, ...) receives Unix seconds from `@DateTime()`, `@CreatedAt()`, `@UpdatedAt()`, `@SoftDelete()` and `@Archived()`; they share `DatetimeValueConverter`. A numeric column that holds ISO text written by an earlier version needs a one-time conversion; see [Migration](../orm-sqlite/04-schema-and-ddl.md#migration).
@@ -441,6 +446,24 @@ UPDATE note SET tag_id = unhex(replace(tag_id, '-', '')) WHERE typeof(tag_id) = 
 ```
 
 The statement covers `@Uuid()` foreign keys only. A foreign key column with another converter needs its own statement, one that writes what that converter's `toDB()` returns. On MySQL a `BINARY(16)` column never held the 36-character text. In strict mode the write was rejected. Without strict mode the text was truncated to its first 16 characters, and those rows cannot be repaired: the rest of the key is gone.
+
+### A column runs the subclass of a shipped converter it declares
+
+A column that declares a subclass of a shipped converter was converted by the driver's class for its base, or not at all. It now runs the subclass on write and on read, so rows written before keep the driver's form while new rows take the subclass's:
+
+- A subclass of `UuidConverter`: old rows hold the 36-character text, new rows 16 bytes. `where()` binds the bytes, so a lookup by key misses an old row.
+- A subclass of the datetime, boolean or time converter: old rows hold the driver's ISO text, `1` / `0` or `HH:MM:SS`. A subclass with a format of its own reads them wrongly or throws, and a throw rejects the whole query.
+- A subclass of `JsonValueConverter` on SQLite: old rows hold `[object Object]` and read back as that text. Nothing is left to recover from it: write the values again, or set them to NULL.
+
+Rewrite those rows in the subclass's form, the one its `toDB()` returns. For the JSON case:
+
+```sql
+UPDATE product SET attributes = NULL WHERE attributes = '[object Object]';
+```
+
+An empty subclass of a token (`DatetimeValueConverter`, `BooleanValueConverter`, `TimeValueConverter`, `SetValueConverter`) was converted by the driver's implementation of the token. It now throws `MethodNotImplemented` on write, on read and in `new Model(data)`. Extend the driver's implementation instead, or implement both `toDB()` and `fromDB()`.
+
+`JsonValueConverter.fromDB()` returns a string that is not JSON text as it is, where it threw a `SyntaxError`. A string value written through `@Json()` reads back as written where the driver hands the stored text over (SQLite, MSSQL); where the driver parses JSON itself (PostgreSQL, PGlite, a MySQL `JSON` column) a string that is itself JSON text comes back as its JSON value (`'123'` as `123`), as before.
 
 ## Related
 

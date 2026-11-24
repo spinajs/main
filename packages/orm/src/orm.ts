@@ -2,7 +2,7 @@ import { BooleanValueConverter, DatetimeValueConverter, TimeValueConverter } fro
 import type { IValueConverter } from './interfaces.js';
 import { checkPendingProperties, effectiveManifestOf } from '@spinajs/configuration';
 import { Configuration, normalizeEnvironment } from '@spinajs/configuration-common';
-import { AsyncService, Autoinject, Container, DI } from '@spinajs/di';
+import { AsyncService, Autoinject, Container, DI, isConstructor } from '@spinajs/di';
 import type { ClassInfo, Class, IContainer } from '@spinajs/di';
 import { Log, Logger } from '@spinajs/log-common';
 import _ from 'lodash';
@@ -91,6 +91,20 @@ function strictMessage(missing: IMissingModelTable[], drift: IColumnDrift[]): st
   const parts = missing.length > 0 ? [missingTablesMessage(missing)] : [];
   if (drift.length > 0) parts.push(`Column drift (db.StrictTableCheck): ${drift.map((d) => d.message).join('; ')}. Run the migrations that add them or set db.StrictTableCheck to false`);
   return parts.join(' ');
+}
+
+/**
+ * Whether `container` can resolve the converter a column declares: the class is registered, or it extends one that
+ * is. Drivers register the shipped converters, never the subclasses a model declares.
+ */
+function convertsWith(container: IContainer, converter: Class<unknown>): boolean {
+  for (let type: unknown = converter; isConstructor(type); type = Object.getPrototypeOf(type)) {
+    if (container.hasRegistered(type)) {
+      return true;
+    }
+  }
+
+  return false;
 }
 
 /** Only decorators set these; a manifest descriptor does not know them, so a value a decorator set wins over it. */
@@ -233,7 +247,7 @@ export class Orm extends AsyncService {
             for (const [key, val] of descriptor.Converters) {
               const column = d.Columns.find((c) => c.Name === key);
               if (column) {
-                if (connection.Container.hasRegistered(val.Class)) {
+                if (convertsWith(connection.Container, val.Class)) {
                   column.Converter = connection.Container.resolve(val.Class);
                 }
               }

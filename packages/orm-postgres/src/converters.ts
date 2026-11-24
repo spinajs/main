@@ -41,16 +41,5 @@ export class PostgresDatetimeValueConverter extends IsoDatetimeValueConverter {
   }
 }
 
-/** node-postgres already parses json/jsonb; a string here is either a JSON string value or JSON text from a TEXT column. */
-export class PostgresJsonValueConverter extends JsonValueConverter {
-  public fromDB(value: any): any {
-    if (typeof value !== 'string') {
-      return value;
-    }
-    try {
-      return JSON.parse(value);
-    } catch {
-      return value;
-    }
-  }
-}
+/** {@link JsonValueConverter} already reads what node-postgres parsed from json / jsonb; kept as the driver's registered name. */
+export class PostgresJsonValueConverter extends JsonValueConverter {}

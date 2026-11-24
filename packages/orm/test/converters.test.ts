@@ -1,6 +1,6 @@
 import { UuidConverter, StandardModelToSqlConverter, StandardObjectToSqlConverter, JsonValueConverter, Int64ValueConverter } from './../src/converters.js';
-import { InvalidArgument } from '@spinajs/exceptions';
-import { RelationType } from './../src/interfaces.js';
+import { InvalidArgument, MethodNotImplemented } from '@spinajs/exceptions';
+import { BooleanValueConverter, RelationType } from './../src/interfaces.js';
 import type { IModelDescriptor } from './../src/interfaces.js';
 import { OrmException } from './../src/exceptions.js';
 import { ModelBase } from './../src/model.js';
@@ -110,6 +110,16 @@ describe('Orm converters', () => {
       expect(converter.fromDB(new Uint8Array(0)), 'an empty Uint8Array').to.eq('');
       expect(converter.fromDB(undefined), 'undefined').to.be.null;
     });
+  });
+
+  it('an empty subclass of a token converter names itself when it is asked to read', () => {
+    class FlagConverter extends BooleanValueConverter {}
+    const converter = new FlagConverter();
+    const hint = "FlagConverter converts nothing itself; extend the driver's implementation of its base class instead, or implement both toDB() and fromDB()";
+
+    expect(() => {
+      converter.fromDB(1);
+    }).to.throw(MethodNotImplemented, `FlagConverter.fromDB() is not implemented: ${hint}`);
   });
 
   it('int64 toDB of its own output is the same value', () => {

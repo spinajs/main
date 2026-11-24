@@ -28,4 +28,20 @@ describe('JsonValueConverter', () => {
     expect(converter.fromDB('{"a":[1,"x"]}')).to.deep.eq({ a: [1, 'x'] });
     expect(converter.fromDB('3.5')).to.eq(3.5);
   });
+
+  it('reads a string that is not JSON text as that string', () => {
+    expect(converter.fromDB('hello')).to.eq('hello');
+    expect(converter.fromDB('[object Object]')).to.eq('[object Object]');
+  });
+
+  it('reads a string that is itself JSON text as its JSON value', () => {
+    expect(converter.fromDB('123')).to.eq(123);
+    expect(converter.fromDB('"123"')).to.eq('123');
+  });
+
+  it('reads values a driver already parsed as they are', () => {
+    expect(converter.fromDB([1, 2])).to.deep.eq([1, 2]);
+    expect(converter.fromDB(5)).to.eq(5);
+    expect(converter.fromDB(true)).to.eq(true);
+  });
 });
