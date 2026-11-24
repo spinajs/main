@@ -1,6 +1,6 @@
 # Inserts and upserts
 
-On SQL Server an insert is `INSERT INTO ... VALUES (...); SELECT SCOPE_IDENTITY() as ID;`, an upsert is a `MERGE` statement, there is no `INSERT OR REPLACE`, and `orIgnore()` is a guarded batch. `MsSqlServerResponseMapper` reports the key of an inserted row from `SCOPE_IDENTITY()` when that value can only be the row's key (see [Inserted keys](#inserted-keys)).
+On SQL Server an insert is `INSERT INTO ... VALUES (...); SELECT SCOPE_IDENTITY() as ID, @@ROWCOUNT as INSERTED;`, an upsert is a `MERGE` statement, there is no `INSERT OR REPLACE`, and `orIgnore()` is a guarded batch. `MsSqlServerResponseMapper` reports the key of an inserted row from `SCOPE_IDENTITY()` when that value can only be the row's key (see [Inserted keys](#inserted-keys)).
 
 ## How it works
 
@@ -8,7 +8,7 @@ On SQL Server an insert is `INSERT INTO ... VALUES (...); SELECT SCOPE_IDENTITY(
 
 1. `driver.insert().into('orders').values({...})` builds an `InsertQueryBuilder` with `QueryContext.Insert`.
 2. `MsSqlInsertQueryCompiler.compile()` throws `OrmException('mssql insert or replace is not supported')` when `orReplace()` was called.
-3. Otherwise it emits `INSERT INTO <table> (<columns>) VALUES (...)` and appends `; SELECT SCOPE_IDENTITY() as ID;`.
+3. Otherwise it emits `INSERT INTO <table> (<columns>) VALUES (...)` and appends `; SELECT SCOPE_IDENTITY() as ID, @@ROWCOUNT as INSERTED;`. `@@ROWCOUNT` is the insert's own count: the counts of an `AFTER` trigger's statements, which `mssql` lists first in `rowsAffected`, do not change it.
 4. With `orIgnore()` the insert is wrapped in `BEGIN TRY … END TRY BEGIN CATCH … END CATCH`. The catch swallows errors 2627 (unique constraint) and 2601 (unique index) raised by the insert itself, and rethrows with `THROW` every other error and a duplicate key that a trigger of the table raised. The batch then selects `ID` and `INSERTED`:
 
 ```sql
@@ -18,7 +18,7 @@ BEGIN CATCH IF ERROR_NUMBER() NOT IN (2601, 2627) OR ERROR_PROCEDURE() IS NOT NU
 SELECT CASE WHEN @spinajs_inserted > 0 THEN SCOPE_IDENTITY() END as ID, @spinajs_inserted as INSERTED;
 ```
 
-5. `executeOnDb()` returns `{ RowsAffected, LastInsertId, Returning: [] }`, `LastInsertId` read from the `ID` column and `RowsAffected` from `INSERTED` when the batch has it. For an ignored row both are `0`. The builder resolves with that object. No mapper is involved.
+5. `executeOnDb()` returns `{ RowsAffected, LastInsertId, Returning: [] }`, `LastInsertId` read from the `ID` column and `RowsAffected` from `INSERTED`. For an ignored row both are `0`. The builder resolves with that object. No mapper is involved.
 
 ### Model insert
 
@@ -47,7 +47,7 @@ The key is unknown, and the mapper returns `undefined`, for:
 | A `bigint` identity past `Number.MAX_SAFE_INTEGER` | `SCOPE_IDENTITY()` is `numeric(38,0)`, which tedious reads as a JavaScript number: the value arrives rounded |
 | An insert without a model, an `INSTEAD OF` trigger that writes the row | no key column is known / `SCOPE_IDENTITY()` is `NULL` in the statement's scope |
 
-The row count is not part of the rule for a plain insert: on a table with an `AFTER` trigger, `RowsAffected` is the count of the trigger's first statement, while `SCOPE_IDENTITY()` stays the row's own identity (an identity the trigger generates in another table is in another scope).
+The row count is not part of the rule for a plain insert: a plain insert that did not fail inserted its row. An `AFTER` trigger does not change `SCOPE_IDENTITY()`: an identity the trigger generates in another table is in another scope.
 
 These cases reach [write-capture](../orm/25-write-capture.md) observers as an insert with `unknownKeys: true` and no rows, unless every row supplied its key. An upsert whose row supplies a conflict value is still found by that value.
 

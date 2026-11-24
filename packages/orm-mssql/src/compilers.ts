@@ -87,8 +87,13 @@ export class MsSqlInsertQueryCompiler extends SqlInsertQueryCompiler {
     const bindings = dResult.bindings!.concat(values.bindings);
 
     // an upsert decides what a conflict does on its own
-    if (!this._builder.Ignore || this.isDuplicate) {
+    if (this.isDuplicate) {
       return { bindings, expression: insert + '; SELECT SCOPE_IDENTITY() as ID;' };
+    }
+
+    // The batch reports its own count: the driver's rowsAffected lists the counts of an AFTER trigger's statements first.
+    if (!this._builder.Ignore) {
+      return { bindings, expression: insert + '; SELECT SCOPE_IDENTITY() as ID, @@ROWCOUNT as INSERTED;' };
     }
 
     if (this._builder.Values.length > 1) {

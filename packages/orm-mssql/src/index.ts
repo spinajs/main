@@ -41,8 +41,13 @@ function msSqlEscapeIdentifier(name: string): string {
   return '[' + String(name).replace(/]/g, ']]') + ']';
 }
 
-/** The row count an `orIgnore()` batch selects as `INSERTED`; a plain insert has no such column. */
-function insertedCountOf(row: unknown): number | undefined {
+/**
+ * The row count an insert batch selects as `INSERTED`; an upsert's batch has no such column.
+ * The batch's own row is in its last result set: a trigger may return result sets of its own before it.
+ */
+function insertedCountOf(recordsets: unknown): number | undefined {
+  const last: unknown = Array.isArray(recordsets) ? recordsets.at(-1) : undefined;
+  const row: unknown = Array.isArray(last) ? last[0] : undefined;
   return typeof row === 'object' && row !== null && 'INSERTED' in row && typeof row.INSERTED === 'number' ? row.INSERTED : undefined;
 }
 
@@ -106,7 +111,7 @@ export class MsSqlServerResponseMapper extends ServerResponseMapper {
     if (pk === undefined || insert.Values.length !== 1 || insert.Update) return undefined;
 
     const { RowsAffected, LastInsertId } = this.read(response);
-    // Only orIgnore() counts its own row; a plain insert's rowsAffected[0] is the count of an AFTER trigger's first statement when the table has one.
+    // Only orIgnore() can skip its row without an error.
     if (insert.Ignore && RowsAffected !== 1) return undefined;
     // SCOPE_IDENTITY() is numeric(38,0), which tedious reads as a double: an id past 2^53 arrives rounded.
     return Number.isSafeInteger(LastInsertId) && LastInsertId > 0 ? [Object.fromEntries([[pk, LastInsertId]])] : undefined;
@@ -172,11 +177,12 @@ export class MsSqlOrmDriver extends SqlDriver {
       case QueryContext.Update:
       case QueryContext.Delete:
         return {
-          RowsAffected: result.rowsAffected[0],
+          // the counts of an AFTER trigger's statements, nested triggers included, come before the statement's own
+          RowsAffected: result.rowsAffected.at(-1),
         };
       case QueryContext.Insert:
         return {
-          RowsAffected: insertedCountOf(result.recordset?.[0]) ?? result.rowsAffected[0],
+          RowsAffected: insertedCountOf(result.recordsets) ?? result.rowsAffected[0],
           // SCOPE_IDENTITY() path; MSSQL keeps no RETURNING rows here.
           LastInsertId: result.recordset?.[0]?.ID ?? 0,
           Returning: [],

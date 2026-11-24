@@ -171,7 +171,7 @@ describe('mssql inserted keys', function () {
       }
     });
 
-    it('reads the key of a plain insert whatever row count an AFTER trigger puts first', () => {
+    it('reads the key of a plain insert without checking its row count', () => {
       expect(keysOf(insertOf(models.IdentityRow, [{ Name: 'a' }]), insertResult(2, 7))).to.deep.eq([{ Id: 7 }]);
     });
 
@@ -213,7 +213,7 @@ describe('mssql inserted keys', function () {
       await new models.IdentityRow({ Name: 'a' }).insert();
 
       expect(SENT).to.have.lengthOf(1);
-      expect(SENT[0]).to.match(/; SELECT SCOPE_IDENTITY\(\) as ID;$/);
+      expect(SENT[0]).to.match(/; SELECT SCOPE_IDENTITY\(\) as ID, @@ROWCOUNT as INSERTED;$/);
     });
 
     it('ModelBase.insert backfills an identity key', async () => {
