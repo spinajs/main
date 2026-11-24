@@ -21,7 +21,7 @@ import type { IModelChange, IModelSnapshot } from './snapshot.js';
 import { UnitOfWork } from './unit-of-work.js';
 import { quoterOf } from './quoting.js';
 import { registerModelBase } from './model-registry.js';
-import { columnToDb } from './column-values.js';
+import { columnToDb, hydratedKey } from './column-values.js';
 
 import { DI, isConstructor, isClass, getInheritedDescriptor } from '@spinajs/di';
 import type { IContainer, Constructor } from '@spinajs/di';
@@ -936,7 +936,7 @@ export class ModelBase<M = unknown> implements IModelBase {
         // Do not overwrite a key the caller already supplied ( uuid / assigned strategies ).
         const key = lacksKey(this) ? sResponseMapper.insertedKeys(data, query)?.[0] : undefined;
         if (key !== undefined) {
-          setPkValue(this, description, pkValueOf(key, description));
+          setPkValue(this, description, hydratedKey(description, key));
         }
 
         return data;
@@ -1459,7 +1459,7 @@ export const MODEL_STATIC_MIXINS = staticMixins({
         rows.forEach((v, idx) => {
           const key = keys?.[idx];
           if (key !== undefined && v instanceof ModelBase && lacksKey(v)) {
-            setPkValue(v, description, pkValueOf(key, description));
+            setPkValue(v, description, hydratedKey(description, key));
           }
         });
         // Without keys for every row ( see ServerResponseMapper.insertedKeys ) nothing is assigned:

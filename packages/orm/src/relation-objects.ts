@@ -11,6 +11,7 @@ import type { Orm } from './orm.js';
 import _ from 'lodash';
 import type { OrmDriver } from './driver.js';
 import { extractModelDescriptor } from './descriptor.js';
+import { hydratedValue } from './column-values.js';
 import { isCompositePk, pkColumns, pkKeyStringFor, pkValueOf, whereNotAnyPk } from './primary-keys.js';
 import { OrmException } from './exceptions.js';
 
@@ -22,12 +23,6 @@ const relationSyncs = new WeakMap<object, { readonly relation: string; readonly 
  */
 export function relationSyncOf(query: object): { readonly relation: string; readonly owner: Constructor<ModelBase> } | undefined {
   return relationSyncs.get(query);
-}
-
-/** A raw row's column value as the hydrator would set it on the model, so it compares with a model's key. */
-function hydratedValue(descriptor: IModelDescriptor, column: string, row: Record<string, unknown>): unknown {
-  const converter = descriptor.Columns.find((c) => c.Name === column)?.Converter;
-  return converter ? converter.fromDB(row[column], row, descriptor.Converters.get(column)?.Options) : row[column];
 }
 
 /**
