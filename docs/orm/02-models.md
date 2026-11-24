@@ -158,9 +158,21 @@ Relation decorators are covered in [Relations](06-relations.md). Converter decor
 
 | `generated` | Who supplies the value | Insert behaviour |
 | --- | --- | --- |
-| `'auto'` (default) | The database (identity or auto-increment). | The insert asks for `RETURNING` when `supportedFeatures().insertReturning` is `true` and takes the key the connection's `ServerResponseMapper.insertedKeys()` reports. |
+| `'auto'` (default) | The database (identity, auto-increment or a column default). | A key without a value is left out of the insert row. The insert asks for `RETURNING` when `supportedFeatures().insertReturning` is `true` and takes the key the connection's `ServerResponseMapper.insertedKeys()` reports. |
 | `'uuid'` | The ORM, client-side. | `generateClientSideKeys()` fills an empty key with a v4 UUID at construction and again before insert. A supplied value is never overwritten. |
 | `'assigned'` | The caller. | `assertAssignedKeys()` throws `OrmException` before any SQL runs when the key is `null`, `undefined` or `''`. |
+
+An `auto` key whose column converter would write `NULL` for a missing value, such as `@Uuid()` or `@Int64()`, is
+left out of the row too, so the column default applies. A binary UUID key the database generates
+(`"Id" bytea PRIMARY KEY DEFAULT uuid_send(gen_random_uuid())` on PostgreSQL):
+
+```ts
+@Model('tags')
+export class Tag extends ModelBase<Tag> {
+  @Primary() @Uuid() public Id: string; // no `generated` option: the database generates the key
+  public Name: string;
+}
+```
 
 `model.insert()`, `Model.insert(...)` and the unit of work take generated keys from the
 connection's `ServerResponseMapper.insertedKeys(response, insert)`: one key per inserted row, in

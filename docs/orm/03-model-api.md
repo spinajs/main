@@ -67,7 +67,7 @@ Every builder is lazy: awaiting it executes the query. See [Query builder](05-qu
 #### Insert
 
 1. `insert()` runs `generateClientSideKeys()` (fills `uuid` keys) and `assertAssignedKeys()` (throws when an `assigned` key is missing) on every row, before any SQL is built.
-2. A `ModelBase` row is converted with `toSql()`; a plain object with `ObjectToSqlConverter`, which skips `undefined` properties.
+2. A `ModelBase` row is converted with `toSql()`; a plain object with `ObjectToSqlConverter`, which skips `undefined` properties. `toSql()` leaves out an `auto` key that has no value (`null`, `undefined` or `''`), so the column default generates it.
 3. `behaviour` maps to `orIgnore()`, `onDuplicate().update(<every non-key column>)` or `orReplace()`. An array with any behaviour other than `InsertBehaviour.None` throws `OrmException`; an empty array resolves without a query.
 4. When the key is database-generated and the driver supports `RETURNING`, the insert asks for the key columns.
 5. After execution, generated keys are written back onto every `ModelBase` row that has no key, from what the connection's `ServerResponseMapper.insertedKeys()` reports: by default the `RETURNING` rows, otherwise the connection package's own rule (see [Primary key strategies](02-models.md#primary-key-strategies)). Every `ModelBase` row is then re-baselined with `takeSnapshot()`.
