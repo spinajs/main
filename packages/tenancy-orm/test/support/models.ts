@@ -1,4 +1,4 @@
-import { BelongsTo, Column, Connection, HasMany, Migration, Model, ModelBase, OrmMigration, Primary, Recursive, Relation, SingleRelation } from '@spinajs/orm';
+import { BelongsTo, Column, Connection, HasMany, HasManyToMany, Migration, Model, ModelBase, OrmMigration, Primary, Recursive, Relation, SingleRelation } from '@spinajs/orm';
 import type { OrmDriver } from '@spinajs/orm';
 
 import { Tenant } from '../../src/index.js';
@@ -28,6 +28,41 @@ export class InvoiceLine extends ModelBase<InvoiceLine> {
 }
 
 @Connection('default')
+@Model('tag')
+@Tenant()
+export class Tag extends ModelBase<Tag> {
+  @Primary()
+  public Id: number;
+
+  @Column({ family: 'text', length: 64 })
+  public tenant_id: string;
+
+  public name: string;
+}
+
+@Connection('default')
+@Model('invoice_tag')
+@Tenant()
+export class InvoiceTag extends ModelBase<InvoiceTag> {
+  @Primary()
+  public Id: number;
+
+  @Column({ family: 'text', length: 64 })
+  public tenant_id: string;
+
+  public invoice_id: number;
+
+  public tag_id: number;
+
+  // Named by string: Invoice is declared below.
+  @BelongsTo('Invoice', 'invoice_id')
+  public Invoice: SingleRelation<Invoice>;
+
+  @BelongsTo(Tag, 'tag_id')
+  public Tag: SingleRelation<Tag>;
+}
+
+@Connection('default')
 @Model('invoice')
 @Tenant()
 export class Invoice extends ModelBase<Invoice> {
@@ -48,6 +83,9 @@ export class Invoice extends ModelBase<Invoice> {
 
   @HasMany(InvoiceLine, { foreignKey: 'invoice_id', primaryKey: 'Id' })
   public Lines: Relation<InvoiceLine, Invoice>;
+
+  @HasManyToMany(InvoiceTag, Tag, { targetModelPKey: 'Id', sourceModelPKey: 'Id', junctionModelTargetPk: 'tag_id', junctionModelSourcePk: 'invoice_id' })
+  public Tags: Relation<Tag, Invoice>;
 }
 
 @Connection('default')
@@ -156,7 +194,7 @@ export class Ledger extends TenantOwned<Ledger> {
   public entry: string;
 }
 
-const TABLES = ['carrier', 'invoice', 'invoice_line', 'note', 'orphan', 'archived_note', 'ledger', 'folder', 'depot'];
+const TABLES = ['carrier', 'invoice', 'invoice_line', 'note', 'orphan', 'archived_note', 'ledger', 'folder', 'depot', 'tag', 'invoice_tag'];
 
 @Migration('default')
 export class TenancyOrmTest_2026_11_16_00_00_00 extends OrmMigration {
@@ -208,6 +246,17 @@ export class TenancyOrmTest_2026_11_16_00_00_00 extends OrmMigration {
       table.string('name', 32).notNull();
       table.int('invoice_id');
       table.int('parent_id');
+    });
+    await connection.schema().createTable('tag', (table) => {
+      table.int('Id').primaryKey().autoIncrement();
+      table.string('tenant_id', 64).notNull();
+      table.string('name', 32).notNull();
+    });
+    await connection.schema().createTable('invoice_tag', (table) => {
+      table.int('Id').primaryKey().autoIncrement();
+      table.string('tenant_id', 64).notNull();
+      table.int('invoice_id').notNull();
+      table.int('tag_id').notNull();
     });
     await connection.index().table('invoice').name('invoice_tenant').columns(['tenant_id']);
   }

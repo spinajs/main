@@ -5,11 +5,12 @@ import { InvalidArgument, InvalidOperation, NotSupported } from '@spinajs/except
 import { Orm } from '@spinajs/orm';
 import type { OrmDriver } from '@spinajs/orm';
 import type { TestApp } from '@spinajs/testing';
-import { TenantRequired, runInTenant } from '@spinajs/tenancy';
+import { TenantRequired, TenantSwitchDenied, runAcrossTenants, runInTenant } from '@spinajs/tenancy';
 import { acrossTenantsReason } from '../src/index.js';
 import { markAcrossTenants } from '../src/marker.js';
+import { register, unregisterTenantModel } from '../src/registry.js';
 import { bootApp } from './support/app.js';
-import { Carrier, Folder, Invoice, InvoiceLine, InvoiceView, Orphan } from './support/models.js';
+import { Carrier, Folder, Invoice, InvoiceLine, InvoiceTag, InvoiceView, Orphan, Tag, TenantOwned } from './support/models.js';
 import { everywhere, inTenant } from './support/scope.js';
 
 chai.use(chaiAsPromised);
@@ -38,6 +39,8 @@ describe('.acrossTenants()', function () {
     await everywhere(async () => {
       await Invoice.destroy().where('Id', '>', 0);
       await InvoiceLine.destroy().where('Id', '>', 0);
+      await InvoiceTag.destroy().where('Id', '>', 0);
+      await Tag.destroy().where('Id', '>', 0);
     });
     await inTenant('t1', () => Invoice.insert({ code: 'A-1', status: 'open' }));
     await inTenant('t2', () => Invoice.insert({ code: 'B-1', status: 'open' }));
@@ -94,6 +97,109 @@ describe('.acrossTenants()', function () {
     const lines = Object.fromEntries(loaded.map((row) => [row.code, Array.from(row.Lines, (line) => line.sku)]));
     expect(lines).to.deep.eq({ 'A-1': ['own'], 'B-1': [] });
     await expect(Promise.resolve(Invoice.query().populate('Lines').acrossTenants('report'))).to.be.rejectedWith(TenantRequired, 'select on tenant table invoice_line');
+  });
+
+  it('widens the orphan delete of a sync() only when its callback says so', async () => {
+    const [a1] = await inTenant('t1', () => Invoice.where('code', 'A-1'));
+    await inTenant('t1', () => InvoiceLine.insert({ invoice_id: a1.Id, sku: 'own' }));
+    await inTenant('t2', () => InvoiceLine.insert({ invoice_id: a1.Id, sku: 'theirs' }));
+    const [b1] = await inTenant('t2', () => Invoice.where('code', 'B-1'));
+    await inTenant('t2', () => InvoiceLine.insert({ invoice_id: b1.Id, sku: 'other invoice' }));
+    const skus = async (): Promise<string[]> => (await everywhere(() => InvoiceLine.query())).map((line) => line.sku).sort();
+
+    await inTenant('t1', () => a1.Lines.sync());
+    expect(await skus()).to.deep.eq(['other invoice', 'theirs']);
+    await inTenant('t1', () => a1.Lines.sync(function () {}));
+    expect(await skus()).to.deep.eq(['other invoice', 'theirs']);
+
+    await inTenant('t1', () =>
+      a1.Lines.sync(function () {
+        this.acrossTenants('invoice merge');
+      }),
+    );
+    expect(await skus()).to.deep.eq(['other invoice']);
+  });
+
+  describe('in the sync() of a many-to-many list', () => {
+    let a1: Invoice;
+    let kept: Tag;
+
+    // A-1 links `kept` and `dropped` in t1 and in t2; B-1 links `dropped` in t2.
+    beforeEach(async () => {
+      [a1] = await inTenant('t1', () => Invoice.where('code', 'A-1'));
+      const [b1] = await inTenant('t2', () => Invoice.where('code', 'B-1'));
+      await inTenant('t1', async () => {
+        await Tag.insert({ name: 'kept' });
+        await Tag.insert({ name: 'dropped' });
+      });
+      const [dropped, keptTag] = await inTenant('t1', () => Tag.query().orderBy('name'));
+      kept = keptTag;
+      for (const [tenant, invoice, tag] of [
+        ['t1', a1, kept],
+        ['t1', a1, dropped],
+        ['t2', a1, kept],
+        ['t2', a1, dropped],
+        ['t2', b1, dropped],
+      ] as const) {
+        await inTenant(tenant, () => InvoiceTag.insert({ invoice_id: invoice.Id, tag_id: tag.Id }));
+      }
+      a1.Tags.push(kept);
+    });
+
+    const links = async (): Promise<string[]> => {
+      const names = new Map((await everywhere(() => Tag.query())).map((tag) => [tag.Id, tag.name]));
+      const codes = new Map((await everywhere(() => Invoice.query())).map((invoice) => [invoice.Id, invoice.code]));
+      const rows = await everywhere(() => InvoiceTag.query());
+      return rows.map((row) => `${row.tenant_id} ${codes.get(row.invoice_id)} ${names.get(row.tag_id)}`).sort();
+    };
+    const everyLink = ['t1 A-1 dropped', 't1 A-1 kept', 't2 A-1 dropped', 't2 A-1 kept', 't2 B-1 dropped'];
+
+    it('confines the junction delete when the callback does not widen it', async () => {
+      await inTenant('t1', () => a1.Tags.sync());
+      expect(await links()).to.deep.eq(['t1 A-1 kept', 't2 A-1 dropped', 't2 A-1 kept', 't2 B-1 dropped']);
+      await inTenant('t1', () => a1.Tags.sync(function () {}));
+      expect(await links()).to.deep.eq(['t1 A-1 kept', 't2 A-1 dropped', 't2 A-1 kept', 't2 B-1 dropped']);
+    });
+
+    it('widens the junction delete on a connection without tenant settings', async () => {
+      unregisterTenantModel(TenantOwned);
+      register(TenantOwned, undefined, '@Tenant()');
+      try {
+        await inTenant('t1', () =>
+          a1.Tags.sync(function () {
+            this.acrossTenants('invoice merge');
+          }),
+        );
+      } finally {
+        unregisterTenantModel(TenantOwned);
+        register(TenantOwned, { rls: true }, '@Tenant()');
+      }
+      expect(await links()).to.deep.eq(['t1 A-1 kept', 't2 A-1 kept', 't2 B-1 dropped']);
+    });
+
+    // The read of existing links runs first, in the current scope, and the callback cannot reach it.
+    it('refuses the widened junction delete after the read of existing links pinned the tenant', async () => {
+      const widened = inTenant('t1', () =>
+        a1.Tags.sync(function () {
+          this.acrossTenants('invoice merge');
+        }),
+      );
+      await expect(widened).to.be.rejectedWith(TenantSwitchDenied, 'the tenant scope changed from tenant:t1 to all');
+      expect(await links()).to.deep.eq(everyLink);
+    });
+
+    it('needs a tenant scope for the read of existing links', async () => {
+      const unscoped = a1.Tags.sync(function () {
+        this.acrossTenants('invoice merge');
+      });
+      await expect(unscoped).to.be.rejectedWith(TenantRequired, 'select on tenant table invoice_tag');
+      expect(await links()).to.deep.eq(everyLink);
+    });
+
+    it('runs the whole sync() across tenants inside runAcrossTenants()', async () => {
+      await runAcrossTenants('invoice merge', () => a1.Tags.sync());
+      expect(await links()).to.deep.eq(['t1 A-1 kept', 't2 A-1 kept', 't2 B-1 dropped']);
+    });
   });
 
   it('leaves the shape rules of part 2 as they are in the all-tenants scope', async () => {
