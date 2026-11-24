@@ -28,11 +28,11 @@ SQLite is the driver with `RETURNING` (`insertReturning: true`), so it reads gen
 
 An insert that came back without them, such as a builder made with `createQuery(Model, InsertQueryBuilder)` or a `driver.insert()` without `returning()`, gets SQLite's rowid rule: the key is `sqlite3`'s `lastID` (`sqlite3_last_insert_rowid()`) only when all of these hold:
 
-1. The insert has a model whose primary key is one column, generated `auto`, and flagged `AutoIncrement` by the table info: a lone `INTEGER PRIMARY KEY`, the rowid alias.
+1. The insert has a model whose primary key is one column, generated `auto`, and flagged `AutoIncrement` by the table info: the rowid alias, a lone `INTEGER PRIMARY KEY` of a rowid table, not declared `DESC` (see [Table reflection](01-connection.md#table-reflection)).
 2. It inserts one row, without `onDuplicate()`.
 3. `RowsAffected` (`changes`) is 1. `lastID` keeps the rowid of an earlier insert on the connection when this statement inserted nothing.
 4. `lastID` is a positive safe integer.
-5. The row supplies no key and the key column has no default, or the row supplies the number `lastID` holds. In a `WITHOUT ROWID` table, which the table info does not tell apart, an `INTEGER PRIMARY KEY` is not the rowid, so a row there either supplies its key or takes the column default, and `lastID` is stale.
+5. The row supplies no key and the key column has no default, or the row supplies the number `lastID` holds. The table info does not flag the key of a `WITHOUT ROWID` table, but a model whose columns come from the manifest (`db.Models.Source: 'manifest'`) takes the flag from its declaration. There a `WITHOUT ROWID` row either supplies its key or takes the column default, and `lastID` is stale, so this rule leaves it without a key. The same check leaves two rowid-alias inserts without a reported key: one into a key column declared with a `DEFAULT` (SQLite ignores it and fills the rowid), and one that supplies the key as text.
 
 Otherwise the insert reports no keys: several rows (`lastID` names only the last), a composite, `uuid`, `assigned` or text key (a text or `BLOB` key the database fills has a rowid that is not the key), or an insert without a model. Such an insert reaches write observers with `unknownKeys: true`.
 
@@ -51,8 +51,9 @@ Measured with `sqlite3` 5.x (SQLite 3.44.2) on a table `t (Id INTEGER PRIMARY KE
 | `INSERT` into a table whose `BEFORE` or `AFTER INSERT` trigger inserts into another table | inserted | 1 | this statement's row, not the trigger's | `lastID` |
 | `INSERT` stopped by a `BEFORE INSERT` trigger's `RAISE(IGNORE)` | skipped | 0 | the earlier insert's rowid | none |
 | `INSERT` into a view with an `INSTEAD OF` trigger | inserted into the base table | 0 | the earlier insert's rowid | none |
-| `INSERT` into `WITHOUT ROWID` with `Id INTEGER PRIMARY KEY` supplied | inserted | 1 | the earlier insert's rowid | none, unless equal to the supplied key |
+| `INSERT` into `WITHOUT ROWID` with `Id INTEGER PRIMARY KEY` supplied | inserted | 1 | the earlier insert's rowid | none (not flagged `AutoIncrement`) |
 | `INSERT` into `WITHOUT ROWID` with a key the column `DEFAULT` fills | inserted | 1 | the earlier insert's rowid | none |
+| `INSERT` into `Id INTEGER PRIMARY KEY DESC` without a key | inserted, `Id` stored `NULL` | 1 | the hidden rowid | none (not flagged `AutoIncrement`) |
 | `INSERT` into `Id TEXT PRIMARY KEY DEFAULT (...)` | inserted | 1 | the hidden rowid | none |
 | `INSERT` with a supplied key past `2^53` | inserted | 1 | rounded | none |
 
@@ -223,7 +224,8 @@ export class TrimmingSqliteDriver extends SqliteOrmDriver {
 
 - `RETURNING` rows arrive in insert order, which is how a batch of `auto`-key models gets one key each.
 - `LastInsertId` of a plain `Insert` is `sqlite3`'s `lastID`: the **last** row id of the statement, or of an earlier statement on the connection when this one inserted nothing.
-- `INTEGER PRIMARY KEY DESC` is not a rowid alias (an SQLite quirk), yet the table info flags it `AutoIncrement`: a row inserted without a key stores `NULL` as its key, and the rowid rule reports the hidden rowid as the key. Declare an integer key without `DESC`.
+- `INTEGER PRIMARY KEY DESC` is not a rowid alias (an SQLite quirk), so the table info does not flag it `AutoIncrement`. A row inserted without a key stores `NULL` as its key and reports no key; a model inserted without one keeps `Id` `null`. Supply the key, or declare an integer key without `DESC`.
+- The key of a `WITHOUT ROWID` table is not flagged `AutoIncrement` either. A row whose key is `null` fails before it reaches SQLite with `InvalidArgument('value column <c> cannot be null')`, also when the column has a `DEFAULT`; a row that leaves the key out gets the default. A model inserted without a key sends `null` unless the column has a default. The model's request schema requires the key, and `getOrNew()` keeps a key the caller passes.
 - For `uuid` and `assigned` keys `LastInsertId` means nothing: SQLite's internal row id on a plain insert, `0` from `RETURNING` rows. The model keeps the key it generated; check `RowsAffected` for success.
 - A multi-row upsert updates each conflicting row with its own values (`excluded.col`).
 - `onDuplicate()` without `update()` emits `DO NOTHING`: a conflicting row is kept as it is and returns no `RETURNING` row.

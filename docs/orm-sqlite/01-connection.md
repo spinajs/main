@@ -59,7 +59,7 @@ Every `QueryContext` goes through the same mapping, `Schema` and `Transaction` i
 | `Name`, `Type`, `NativeType` | `PRAGMA table_info`: the declared type, eg. `INTEGER`, `TEXT`, `BOOLEAN` |
 | `Nullable` | `notnull = 0` |
 | `PrimaryKey` | `pk > 0`; every column of a composite key |
-| `AutoIncrement` | the only key column, `pk = 1`, declared `INTEGER` |
+| `AutoIncrement` | the column is the rowid alias: the only key column, and `PRAGMA index_list` has no index of origin `pk`. Every other primary key has one: `INTEGER PRIMARY KEY DESC`, a key of another type, a composite key, and the key of a `WITHOUT ROWID` table. A table-level `PRIMARY KEY (Id)` of an `INTEGER` column is a rowid alias |
 | `DefaultValue` | `dflt_value` parsed as postgres's `column_default` is: a quoted literal becomes the string, a number the number, `NULL` or no default `null`, anything else ( `CURRENT_TIMESTAMP`, an expression ) a `RawQuery`. A literal then passes through the value converter registered for the lower-cased type in `__orm_db_value_converters__` when there is one |
 | `Unique` | the column is the only column of a unique index (`PRAGMA index_list` / `PRAGMA index_info`); a column of a composite unique index is not `Unique` |
 | `IsForeignKey`, `ForeignKeyDescription` | `PRAGMA foreign_key_list` (`From`, `Table`, `To`) |

@@ -713,13 +713,17 @@ export class SqliteOrmDriver extends SqlDriver {
 
     // only a single-column unique index makes its column unique on its own: onDuplicate() turns
     // Unique columns into the conflict target, which must match one index exactly
-    const uIndices = (await this.readIndexes(name)).filter((i) => i.unique === 1 && i.columns.length === 1).map((i) => i.columns[0]);
+    const indexes = await this.readIndexes(name);
+    const uIndices = indexes.filter((i) => i.unique === 1 && i.columns.length === 1).map((i) => i.columns[0]);
 
     const foreignKeys = await this.readForeignKeys(name);
 
     // PRAGMA table_info reports `pk` as the 1-BASED POSITION within the primary key, not a
     // boolean. Every column with pk > 0 is part of the key.
     const pkColumnCount = tblInfo.filter((r) => r.pk > 0).length;
+    // Every primary key but the rowid alias has an index of origin `pk`: the automatic index of a rowid table
+    // (INTEGER PRIMARY KEY DESC, any other type, a composite key) or the key of a WITHOUT ROWID table.
+    const rowidAlias = pkColumnCount === 1 && !indexes.some((i) => i.origin === 'pk');
 
     return tblInfo.map((r: ITableInfo) => {
       const fk = foreignKeys.find((i) => i.from === r.name);
@@ -746,9 +750,7 @@ export class SqliteOrmDriver extends SqlDriver {
               To: fk.to,
             }
           : null as any,
-        // sqlite only auto-fills a lone INTEGER PRIMARY KEY ( the rowid alias ); a composite
-        // key never auto-increments, so the column count has to be checked too.
-        AutoIncrement: pkColumnCount === 1 && r.pk === 1 && r.type === 'INTEGER',
+        AutoIncrement: rowidAlias && r.pk === 1,
         Name: r.name,
         Converter: null as any,
         Schema: _schema ? _schema : this.Options.Database,

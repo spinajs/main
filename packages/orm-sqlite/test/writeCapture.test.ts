@@ -125,11 +125,20 @@ class CapWr extends ModelBase {
   public Name: string;
 }
 
+@Connection('sqlite')
+@Model('cap_desc')
+class CapDesc extends ModelBase {
+  @Primary()
+  public Id: number;
+
+  public Name: string;
+}
+
 const fixture = { writes: [] as CapturedWrite[], inTransaction: [] as boolean[], transactional: true, prepareFails: false, prepared: [] as WriteStatement[] };
 
 class FixtureObserver extends WriteObserver {
   interest({ model }: WriteStatement): CaptureInterest | undefined {
-    return [CapMember, CapPair, CapSoft, CapBlob, CapGen, CapNote, CapTrig, CapWr].some((m) => model === m) ? { columns: '*', transactional: fixture.transactional } : undefined;
+    return [CapMember, CapPair, CapSoft, CapBlob, CapGen, CapNote, CapTrig, CapWr, CapDesc].some((m) => model === m) ? { columns: '*', transactional: fixture.transactional } : undefined;
   }
 
   prepare(statement: WriteStatement): void {
@@ -632,6 +641,7 @@ describe('write capture on sqlite', function () {
         await schema.raw('CREATE TABLE cap_trig (Id INTEGER PRIMARY KEY, Name TEXT)');
         await schema.raw("CREATE TRIGGER cap_trig_ai AFTER INSERT ON cap_trig BEGIN INSERT INTO cap_member (Email, Name) VALUES ('t' || NEW.Id, 'by trigger'); END");
         await schema.raw('CREATE TABLE cap_wr (Id INTEGER PRIMARY KEY DEFAULT (abs(random()) % 1000 + 5000), Name TEXT) WITHOUT ROWID');
+        await schema.raw('CREATE TABLE cap_desc (Id INTEGER PRIMARY KEY DESC, Name TEXT)');
         await db().reloadTableInfo();
       });
 
@@ -658,6 +668,13 @@ describe('write capture on sqlite', function () {
 
         expect(fixture.writes.map((w) => [w.unknownKeys, w.rows])).to.deep.eq([[true, []]]);
         expect(await rows('cap_wr')).to.have.length(1);
+      });
+
+      it('reports the keys as unknown for an INTEGER PRIMARY KEY DESC key, which SQLite stores as NULL', async () => {
+        await insert(CapDesc, { Name: 'a' });
+
+        expect(fixture.writes.map((w) => [w.unknownKeys, w.rows])).to.deep.eq([[true, []]]);
+        expect(await rows('cap_desc')).to.deep.eq([{ Id: null, Name: 'a' }]);
       });
 
       it('reports the keys as unknown when the database fills a key that is not an auto-increment integer', async () => {
