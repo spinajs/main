@@ -1,11 +1,11 @@
-import { BooleanValueConverter, DatetimeValueConverter, IColumnDescriptor, IDehydrateOptions, IValueConverter, ModelBase, TimeValueConverter, instantFromDb, toInstant } from '@spinajs/orm';
+import { BooleanValueConverter, DatetimeValueConverter, IColumnDescriptor, IDehydrateOptions, ModelBase, SetValueConverter, TimeValueConverter, instantFromDb, toInstant } from '@spinajs/orm';
 import type { IBoolConverterOptions, IDateTimeConverterOptions } from '@spinajs/orm';
 import { DateTime } from 'luxon';
 import { TimeSpan } from '@spinajs/util';
 
 const DATE_NUMERICAL_TYPES = ['int', 'integer', 'float', 'double', 'decimal', 'bigint', 'smallint', 'tinyint', 'mediumint'];
 
-export class SqlSetConverter implements IValueConverter {
+export class SqlSetConverter extends SetValueConverter {
   public toDB(value: unknown) {
     if (value && Array.isArray(value)) {
       return value.join(',');
@@ -21,7 +21,7 @@ export class SqlSetConverter implements IValueConverter {
   }
 }
 
-export class SqlBooleanValueConverter implements BooleanValueConverter {
+export class SqlBooleanValueConverter extends BooleanValueConverter {
   /**
    * SQL wants 0/1, a dehydrated payload wants the boolean the property declares.
    *
