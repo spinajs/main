@@ -6,8 +6,8 @@ import { createQuery, DeleteQueryBuilder, InsertQueryBuilder, UpdateQueryBuilder
 import type { QueryBuilder } from './builders.js';
 import { columnToDb, hydratedKey } from './column-values.js';
 import { extractModelDescriptor } from './descriptor.js';
+import { junctionRow, settleJunction } from './junction-rows.js';
 import type { OrmDriver } from './driver.js';
-import type { ModelBase } from './model.js';
 import { OrmException } from './exceptions.js';
 import { OrphanPolicy, ServerResponseMapper } from './interfaces.js';
 import type { ISaveOptions, ISaveResult } from './interfaces.js';
@@ -248,11 +248,10 @@ export class SubjectExecutor {
   /**
    * Creates, updates and destroys junction rows.
    *
-   * Rows are written column-first rather than through the junction model's `insert()`, so a
-   * junction model is not required to declare `@BelongsTo` on both sides —
-   * `ManyToManyRelationList.update()` does require that, and none of the existing junction
-   * fixtures satisfy it. A junction model the relation holds for a member still supplies the
-   * row's own columns, through its `toSql()`.
+   * Rows are written column-first ( `junctionRow`, shared with `ManyToManyRelationList.update()` )
+   * rather than through the junction model's `insert()`, so a junction model is not required to
+   * declare `@BelongsTo` on both sides. A junction model the relation holds for a member still
+   * supplies the row's own columns, through its `toSql()`.
    *
    * Inserts run before deletes so that re-linking the same pair inside one save cannot
    * momentarily violate a unique constraint on the junction table in the other order.
@@ -281,21 +280,9 @@ export class SubjectExecutor {
       return;
     }
 
-    const { sourceColumn, targetColumn } = this.junctionColumns(delta);
-    const ownerKey = delta.Owner.PrimaryKeyValue;
-    // A generated junction key is never carried over: the row is new even when its model came
-    // from another link.
-    const generated = pkColumns(delta.JunctionDescriptor).filter((c) => pkGeneration(delta.JunctionDescriptor, c) === 'auto');
-
-    const rows = delta.Added.map((target) => {
-      const junction = delta.Junctions.get(target);
-      const own = junction ? _.omit(junction.toSql() as Record<string, unknown>, generated) : {};
-      return {
-        ...own,
-        [sourceColumn]: columnToDb(delta.JunctionDescriptor, sourceColumn, ownerKey, junction),
-        [targetColumn]: columnToDb(delta.JunctionDescriptor, targetColumn, target.PrimaryKeyValue, junction),
-      };
-    });
+    const columns = this.junctionColumns(delta);
+    const links = delta.Added.map((target) => ({ ownerKey: delta.Owner.PrimaryKeyValue, targetKey: target.PrimaryKeyValue, junction: delta.Junctions.get(target) }));
+    const rows = links.map((link) => junctionRow(delta.JunctionDescriptor, columns, link));
 
     // `values()` takes the union of the rows' columns and binds undefined where a row lacks one,
     // so rows with different columns go in separate statements.
@@ -308,13 +295,9 @@ export class SubjectExecutor {
       }
     }
 
-    // Written, the junction models are rows: a later change of their columns is an UPDATE.
-    for (const target of delta.Added) {
-      const junction = delta.Junctions.get(target) as (ModelBase & Record<string, unknown>) | undefined;
-      if (junction) {
-        junction[sourceColumn] = ownerKey;
-        junction[targetColumn] = target.PrimaryKeyValue;
-        junction.takeSnapshot();
+    for (const link of links) {
+      if (link.junction) {
+        settleJunction(link.junction, columns, link);
       }
     }
   }

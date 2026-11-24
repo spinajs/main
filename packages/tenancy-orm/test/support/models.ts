@@ -54,6 +54,8 @@ export class InvoiceTag extends ModelBase<InvoiceTag> {
 
   public tag_id: number;
 
+  public note: string | null;
+
   // Named by string: Invoice is declared below.
   @BelongsTo('Invoice', 'invoice_id')
   public Invoice: SingleRelation<Invoice>;
@@ -257,6 +259,7 @@ export class TenancyOrmTest_2026_11_16_00_00_00 extends OrmMigration {
       table.string('tenant_id', 64).notNull();
       table.int('invoice_id').notNull();
       table.int('tag_id').notNull();
+      table.string('note', 32);
     });
     await connection.index().table('invoice').name('invoice_tenant').columns(['tenant_id']);
   }

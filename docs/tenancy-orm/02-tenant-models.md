@@ -130,10 +130,17 @@ database's collation treats as the tenant column is not caught there.
 - Only a plain-object insert (`Model.insert({...})`) gets the tenant column from the middleware. A model instance
   (`new Model(...).insert()`, `Model.create()`, `getOrCreate()`, `Model.insert(instance)`) needs the tenant column set on
   it, on every driver: the ORM checks not-null columns when it converts the instance, before the middleware runs.
-- Saving a loaded relation list (`relation.update()` of a one-to-many or many-to-many list) is an upsert, so it throws
-  `NotSupported` inside a tenant.
+- `relation.update()` and `relation.sync()` of a one-to-many list write their changed members as upserts, so on a tenant
+  target model they throw `NotSupported` inside a tenant. A many-to-many list inserts an unsaved member the same way.
+- A many-to-many list's `update()` and `sync()` write the link of a saved member as a plain insert on the junction
+  model, so a tenant junction model gets the tenant column from the middleware: inside a tenant the link is written for
+  that tenant, also when the member is linked only in another tenant (that tenant's row is left as it is). Junction data
+  of another tenant (`add(tag, { tenant_id: 't2' })` inside `t1`) throws `TenantMismatch` and nothing is written.
+- Junction data given to `add(member, data)` becomes a junction model instance, so it needs the tenant column too:
+  `add(tag, { note: 'urgent' })` makes `sync()` throw `OrmException: Field tenant_id cannot be null`; write
+  `add(tag, { note: 'urgent', tenant_id: 't1' })`, or add the member without junction data.
 - `relation.sync()` runs its select and orphan delete on the target or junction model, so inside a tenant they are
-  confined like any other statement of the model; a member it has to write still makes it throw, as `update()` does.
+  confined like any other statement of the model.
 - In the all-tenants scope an upsert is not refused: its update half can rewrite the tenant column, and `orReplace()` can
   replace another tenant's row.
 - Import the package before the Orm resolves: the Orm adds `.acrossTenants()` and registers `TenantModel` and its

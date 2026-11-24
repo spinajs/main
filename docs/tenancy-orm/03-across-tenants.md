@@ -35,9 +35,14 @@ the whole `sync()` inside `runAcrossTenants(reason, fn)`:
 await runAcrossTenants('merge of duplicate tenants', () => invoice.Tags.sync());
 ```
 
-Both forms only remove links. A member with no link row in the scope of that read makes `sync()` throw and roll back,
-because `sync()` writes the new junction row without its tenant column: inside a tenant that includes a member linked
-only in another tenant, inside `runAcrossTenants` a member linked in no tenant.
+The links `sync()` adds are plain inserts on the junction model: inside a tenant they get that tenant's column, and
+inside `runAcrossTenants` every new link needs the tenant column in its junction data, or `sync()` throws
+`TenantRequired` and rolls back:
+
+```ts
+invoice.Tags.add(tag, { tenant_id: 't2' });
+await runAcrossTenants('merge of duplicate tenants', () => invoice.Tags.sync());
+```
 
 ## Services and extension points
 
@@ -63,6 +68,10 @@ execution copy made from the marked builder, such as a page of `stream()`, and i
   runs in the current scope: with no scope it throws `TenantRequired`, and on a connection with tenant settings it pins
   the tenant, so the widened delete throws `TenantSwitchDenied`. There, run the whole `sync()` inside
   `runAcrossTenants(reason, fn)`.
+- The links a many-to-many `sync()` or `update()` adds are inserts: inside a tenant they are written for that tenant, and
+  in `runAcrossTenants()` the junction data of every new link must carry the tenant column (`TenantRequired` otherwise).
+  An unsaved member that is a tenant model still cannot be written: it is inserted as a model instance and as an upsert
+  (see [Tenant models](02-tenant-models.md)).
 - A clone of a marked select carries the mark (`TenantSelectExtension.onClone`).
 - A to-one populate is part of the statement and is widened with it.
 - A to-many populate runs as a statement of its own in the scope around it: inside a tenant, the other tenants' rows

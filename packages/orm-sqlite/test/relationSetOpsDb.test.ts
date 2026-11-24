@@ -4,13 +4,16 @@ import { DI } from '@spinajs/di';
 import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 import 'mocha';
-import { DeleteQueryBuilder, InsertQueryBuilder, QueryBuilder, QueryMiddleware, SelectQueryBuilder, UpdateQueryBuilder, extractModelDescriptor, relationSyncOf } from '@spinajs/orm';
+import { DeleteQueryBuilder, InsertQueryBuilder, OrmException, QueryBuilder, QueryMiddleware, SelectQueryBuilder, SortOrder, UpdateQueryBuilder, extractModelDescriptor, relationSyncOf } from '@spinajs/orm';
+import type { IModelDescriptor } from '@spinajs/orm';
 import { bootUow, registerUowConnection, rows, UowOrder, UowOrderItem, UowOrderTag, UowTag } from './uowFixture.js';
 import { SdOwner } from './models/sd/SdOwner.js';
 import { SdItem } from './models/sd/SdItem.js';
 import './migrations/SdMigration_2026_08_03_00_00_00.js';
 import { UkItem, UkOrder, UkOrderTag, UkTag } from './models/uk/UkModels.js';
 import './migrations/UkMigration_2026_11_23_00_00_00.js';
+import { SfFriendship, SfPerson } from './models/sf/SfModels.js';
+import './migrations/SfMigration_2026_11_24_00_00_00.js';
 
 const expect = chai.expect;
 chai.use(chaiAsPromised);
@@ -145,6 +148,215 @@ describe('Relation set operations against the database', function () {
       const links = await rows('uow_order_tag');
       expect(links.map((l: any) => l.tag_id).sort()).to.deep.eq([1, 2, green.Id].sort());
       expect(links.every((l: any) => l.tag_id !== null && l.tag_id !== undefined)).to.be.true;
+    });
+  });
+
+  describe('junction rows that update() and sync() write', () => {
+    interface LinkRow {
+      Id: number;
+      order_id: number;
+      tag_id: number;
+      Note: string | null;
+    }
+
+    async function orderWithGreen() {
+      await seededOrder();
+      await UowTag.insert({ Name: 'green' }); // 3
+      const order = await UowOrder.where({ Id: 1 }).populate('Tags').first();
+      const green = await UowTag.where({ Id: 3 }).first();
+      return { order, green };
+    }
+
+    const linkOf = async (tagId: number) => (await rows<LinkRow>('uow_order_tag')).find((l) => l.tag_id === tagId);
+
+    it('writes the columns given as plain data, and the list keeps the written junction model clean', async () => {
+      const { order, green } = await orderWithGreen();
+      order.Tags.add(green, { Note: 'from data' });
+
+      await order.Tags.update();
+
+      const link = await linkOf(3);
+      expect(link).to.deep.include({ order_id: 1, tag_id: 3, Note: 'from data' });
+      const junction = order.Tags.junction<UowOrderTag>(green)!;
+      expect([junction.Id, junction.order_id, junction.tag_id, junction.Note]).to.deep.eq([link!.Id, 1, 3, 'from data']);
+      expect(junction.IsDirty).to.eq(false);
+    });
+
+    it('writes the columns of a given junction model and keeps that instance', async () => {
+      const { order, green } = await orderWithGreen();
+      const given = new UowOrderTag({ Note: 'from model' });
+      order.Tags.add(green, given);
+
+      await order.Tags.sync();
+
+      const link = await linkOf(3);
+      expect(link).to.deep.include({ order_id: 1, tag_id: 3, Note: 'from model' });
+      expect(order.Tags.junction(green)).to.eq(given);
+      expect([given.Id, given.order_id, given.tag_id]).to.deep.eq([link!.Id, 1, 3]);
+      expect(given.IsDirty).to.eq(false);
+    });
+
+    async function withNoteDefault<T>(fn: () => Promise<T>): Promise<T> {
+      const note = extractModelDescriptor(UowOrderTag)!.Columns.find((c) => c.Name === 'Note')!;
+      const previous = note.DefaultValue;
+      note.DefaultValue = 'default note';
+      try {
+        return await fn();
+      } finally {
+        note.DefaultValue = previous;
+      }
+    }
+
+    for (const write of ['update', 'sync'] as const) {
+      it(`writes what a new junction model is constructed with for a member added without junction data through ${write}(), and holds none for it`, async () => {
+        const { order, green } = await orderWithGreen();
+        order.Tags.push(green);
+
+        await withNoteDefault(() => order.Tags[write]());
+
+        expect(await linkOf(3)).to.deep.include({ order_id: 1, tag_id: 3, Note: 'default note' });
+        expect(order.Tags.junction(green)).to.eq(undefined);
+      });
+    }
+
+    /** Runs `fn` with the junction descriptor changed as `patch` says, restored afterwards. */
+    async function withJunctionDescriptor<T>(patch: (descriptor: IModelDescriptor) => () => void, fn: () => Promise<T>): Promise<T> {
+      const restore = patch(extractModelDescriptor(UowOrderTag)!);
+      try {
+        return await fn();
+      } finally {
+        restore();
+      }
+    }
+
+    const versionedOnNote = (descriptor: IModelDescriptor) => {
+      descriptor.VersionColumn = 'Note';
+      return () => Reflect.deleteProperty(descriptor, 'VersionColumn');
+    };
+
+    const assignedKey = (descriptor: IModelDescriptor) => {
+      const previous = descriptor.PrimaryKeyGeneration;
+      descriptor.PrimaryKeyGeneration = new Map([['Id', 'assigned' as const]]);
+      return () => {
+        descriptor.PrimaryKeyGeneration = previous;
+      };
+    };
+
+    it('starts the version of a @Version junction model given as data, on the row and on the model the list holds', async () => {
+      const { order, green } = await orderWithGreen();
+      order.Tags.add(green, {});
+
+      await withJunctionDescriptor(versionedOnNote, () => order.Tags.update());
+
+      // Note has text affinity in SQLite, so the version reads back as text.
+      expect((await linkOf(3))!.Note).to.eq('1');
+      expect(order.Tags.junction<UowOrderTag>(green)!.Note).to.eq(1);
+    });
+
+    it('starts the version of a @Version junction model on the row of a member added without junction data', async () => {
+      const { order, green } = await orderWithGreen();
+      order.Tags.push(green);
+
+      await withJunctionDescriptor(versionedOnNote, () => order.Tags.sync());
+
+      expect((await linkOf(3))!.Note).to.eq('1');
+    });
+
+    it('refuses a given junction model with an assigned key and no value before the database', async () => {
+      const { order, green } = await orderWithGreen();
+      order.Tags.add(green, { Note: 'given' });
+
+      await expect(withJunctionDescriptor(assignedKey, () => order.Tags.update())).to.be.rejectedWith(OrmException, 'must be assigned before insert');
+      expect(await linkOf(3)).to.eq(undefined);
+    });
+
+    it('refuses an assigned junction key for a member added without junction data before the database', async () => {
+      const { order, green } = await orderWithGreen();
+      order.Tags.push(green);
+
+      await expect(withJunctionDescriptor(assignedKey, () => order.Tags.update())).to.be.rejectedWith(OrmException, 'must be assigned before insert');
+      expect(await linkOf(3)).to.eq(undefined);
+    });
+
+    it('puts the version of a given @Version junction model back when its insert is rejected', async () => {
+      const { order, green } = await orderWithGreen();
+      // An assigned key the table already holds, so the database rejects the insert.
+      order.Tags.add(green, { Id: 1 });
+      const junction = order.Tags.junction<UowOrderTag>(green)!;
+      const before = junction.Note;
+
+      const versionedWithAssignedKey = (descriptor: IModelDescriptor) => {
+        const restoreVersion = versionedOnNote(descriptor);
+        const restoreKey = assignedKey(descriptor);
+        return () => {
+          restoreKey();
+          restoreVersion();
+        };
+      };
+      await expect(withJunctionDescriptor(versionedWithAssignedKey, () => order.Tags.update())).to.be.rejectedWith(/UNIQUE constraint failed/);
+
+      expect(junction.Note).to.eq(before);
+      expect(await linkOf(3)).to.eq(undefined);
+    });
+
+    it('points the relations the junction model declares at the owner and the member', async () => {
+      const { order, green } = await orderWithGreen();
+      order.Tags.add(green, { Note: 'linked' });
+
+      await order.Tags.update();
+
+      const junction = order.Tags.junction<UowOrderTag>(green)!;
+      expect(junction.Order.Value).to.eq(order);
+      expect(junction.Tag.Value).to.eq(green);
+      expect(junction.IsDirty).to.eq(false);
+    });
+
+    describe('on a self-referencing junction model with a third relation', () => {
+      async function people() {
+        for (const Name of ['ann', 'bob', 'cid']) await SfPerson.insert({ Name });
+        const [ann, bob, cid] = await SfPerson.select().whereIn('Id', [1, 2, 3]).order('Id', SortOrder.ASC);
+        return { ann, bob, cid };
+      }
+
+      for (const write of ['update', 'sync'] as const) {
+        it(`points each side by its column, copies every relation key back, and leaves the junction clean through ${write}()`, async () => {
+          const { ann, bob, cid } = await people();
+          const given = new SfFriendship();
+          given.Approver.Value = cid;
+          ann.Friends.add(bob, given);
+
+          await ann.Friends[write]();
+
+          expect(await rows('sf_friendship')).to.deep.eq([{ Id: 1, person_id: 1, friend_id: 2, approver_id: 3 }]);
+          expect(given.Person.Value).to.eq(ann);
+          expect(given.Friend.Value).to.eq(bob);
+          expect([given.person_id, given.friend_id, given.approver_id]).to.deep.eq([1, 2, 3]);
+          expect(given.IsDirty).to.eq(false);
+          expect((await given.update()).RowsAffected).to.eq(0);
+        });
+      }
+    });
+
+    it('writes the two keys alone for a member added without junction data through save()', async () => {
+      const { order, green } = await orderWithGreen();
+      order.Tags.push(green);
+
+      await withNoteDefault(() => order.save());
+
+      expect(await linkOf(3)).to.deep.include({ order_id: 1, tag_id: 3, Note: null });
+    });
+
+    it('writes nothing for the same member on a second sync()', async () => {
+      const { order, green } = await orderWithGreen();
+      order.Tags.add(green, { Note: 'once' });
+
+      await order.Tags.sync();
+      const first = await rows<LinkRow>('uow_order_tag');
+      await order.Tags.sync();
+      await order.Tags.update();
+
+      expect(await rows<LinkRow>('uow_order_tag')).to.deep.eq(first);
+      expect(first.filter((l) => l.tag_id === 3)).to.have.length(1);
     });
   });
 

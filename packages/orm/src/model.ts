@@ -22,6 +22,7 @@ import { UnitOfWork } from './unit-of-work.js';
 import { quoterOf } from './quoting.js';
 import { registerModelBase } from './model-registry.js';
 import { columnToDb, hydratedKey } from './column-values.js';
+import { effectiveForeignKeys, writeBackRelationKeys } from './relation-keys.js';
 
 import { DI, isConstructor, isClass, getInheritedDescriptor } from '@spinajs/di';
 import type { IContainer, Constructor } from '@spinajs/di';
@@ -178,35 +179,9 @@ export class ModelBase<M = unknown> implements IModelBase {
     return (this.ModelDescriptor?.Columns ?? []).filter((c) => !c.Virtual && !c.Ignore);
   }
 
-  /**
-   * The value this model writes for every foreign key a @BelongsTo currently manages, keyed by
-   * column name. A relation holding a target owns its foreign key: `toSql()` writes the target's
-   * join-column value ( `Relation.PrimaryKey` — the target's primary key unless `@BelongsTo`
-   * names another column ), so a direct write to the column never reaches the database. A
-   * relation holding null or undefined owns nothing and is absent here, leaving the column to
-   * speak for itself: NULL after a `detach()`, untouched after a `populate()` that found no row.
-   *
-   * A @Recursive relation is excluded whatever it holds: `toSql()` writes its foreign key from
-   * the raw column, overriding the relation, so the column is what reaches the database.
-   *
-   * The single place that answers "what does this model persist for this column", so the
-   * snapshot baseline and the diff can never read the question differently.
-   */
+  /** See `effectiveForeignKeys()` of relation-keys.ts. */
   private effectiveForeignKeys(): Map<string, unknown> {
-    const effective = new Map<string, unknown>();
-
-    for (const [, r] of this.ModelDescriptor?.Relations ?? []) {
-      if (r.Type !== RelationType.One || !r.ForeignKey || r.Recursive) {
-        continue;
-      }
-
-      const rel = (this as any)[r.Name];
-      if (rel?.Value) {
-        effective.set(r.ForeignKey, rel.Value[r.PrimaryKey]);
-      }
-    }
-
-    return effective;
+    return effectiveForeignKeys(this);
   }
 
   /**
@@ -232,19 +207,9 @@ export class ModelBase<M = unknown> implements IModelBase {
     this.__snapshot__ = snapshot;
   }
 
-  /**
-   * Copies the value each @BelongsTo relation just wrote back onto its foreign-key column, so
-   * the model agrees with the row. Call it after a statement that wrote those keys, before
-   * `takeSnapshot()`.
-   *
-   * Without it a foreign key written directly and then overridden by its relation keeps the
-   * overridden value in the column, the snapshot records that value as the baseline, and the
-   * model reads dirty forever - every `save()` minting an UPDATE that changes nothing.
-   */
+  /** See `writeBackRelationKeys()` of relation-keys.ts. */
   private writeBackRelationKeys(): void {
-    for (const [name, value] of this.effectiveForeignKeys()) {
-      (this as any)[name] = value;
-    }
+    writeBackRelationKeys(this);
   }
 
   /**

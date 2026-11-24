@@ -2,10 +2,10 @@ import 'mocha';
 import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 import { InvalidArgument, InvalidOperation, NotSupported } from '@spinajs/exceptions';
-import { Orm } from '@spinajs/orm';
+import { Orm, OrmException } from '@spinajs/orm';
 import type { OrmDriver } from '@spinajs/orm';
 import type { TestApp } from '@spinajs/testing';
-import { TenantRequired, TenantSwitchDenied, runAcrossTenants, runInTenant } from '@spinajs/tenancy';
+import { TenantMismatch, TenantRequired, TenantSwitchDenied, runAcrossTenants, runInTenant } from '@spinajs/tenancy';
 import { acrossTenantsReason } from '../src/index.js';
 import { markAcrossTenants } from '../src/marker.js';
 import { register, unregisterTenantModel } from '../src/registry.js';
@@ -199,6 +199,65 @@ describe('.acrossTenants()', function () {
     it('runs the whole sync() across tenants inside runAcrossTenants()', async () => {
       await runAcrossTenants('invoice merge', () => a1.Tags.sync());
       expect(await links()).to.deep.eq(['t1 A-1 kept', 't2 A-1 kept', 't2 B-1 dropped']);
+    });
+
+    describe('a member with no link row', () => {
+      let fresh: Tag;
+
+      beforeEach(async () => {
+        fresh = await inTenant('t1', async () => {
+          await Tag.insert({ name: 'fresh' });
+          return (await Tag.where('name', 'fresh'))[0];
+        });
+      });
+
+      it('gets a link of the current tenant from sync() and from update()', async () => {
+        a1.Tags.add(fresh);
+        await inTenant('t1', () => a1.Tags.sync());
+        expect(await links()).to.deep.eq(['t1 A-1 fresh', 't1 A-1 kept', 't2 A-1 dropped', 't2 A-1 kept', 't2 B-1 dropped']);
+
+        await everywhere(() => InvoiceTag.destroy().where('tag_id', fresh.Id));
+        await inTenant('t1', () => a1.Tags.update());
+        expect(await links()).to.deep.eq(['t1 A-1 fresh', 't1 A-1 kept', 't2 A-1 dropped', 't2 A-1 kept', 't2 B-1 dropped']);
+      });
+
+      it('gets a link in the current tenant when it is linked only in another, and leaves that row', async () => {
+        const [b1] = await inTenant('t2', () => Invoice.where('code', 'B-1'));
+        b1.Tags.push(...(await inTenant('t1', () => Tag.where('name', 'dropped'))));
+
+        await inTenant('t1', () => b1.Tags.sync());
+        expect(await links()).to.deep.eq([...everyLink, 't1 B-1 dropped'].sort());
+      });
+
+      it('refuses junction data of another tenant inside a tenant and writes nothing', async () => {
+        a1.Tags.add(fresh, { tenant_id: 't2' });
+        await expect(inTenant('t1', () => a1.Tags.sync())).to.be.rejectedWith(TenantMismatch, 'carries tenant_id "t2" inside tenant "t1"');
+        expect(await links()).to.deep.eq(everyLink);
+      });
+
+      // A junction model the caller gives is serialised as a model instance, which needs its tenant column set.
+      it('refuses junction data without the tenant column inside a tenant and writes nothing', async () => {
+        a1.Tags.add(fresh, { note: 'urgent' });
+        await expect(inTenant('t1', () => a1.Tags.sync())).to.be.rejectedWith(OrmException, 'Field tenant_id cannot be null');
+        expect(await links()).to.deep.eq(everyLink);
+
+        a1.Tags.remove(fresh);
+        a1.Tags.add(fresh, { note: 'urgent', tenant_id: 't1' });
+        await inTenant('t1', () => a1.Tags.sync());
+        expect(await links()).to.deep.eq(['t1 A-1 fresh', 't1 A-1 kept', 't2 A-1 dropped', 't2 A-1 kept', 't2 B-1 dropped']);
+        expect((await everywhere(() => InvoiceTag.where('tag_id', fresh.Id))).map((row) => row.note)).to.deep.eq(['urgent']);
+      });
+
+      it('needs the tenant column on the junction data inside runAcrossTenants()', async () => {
+        a1.Tags.add(fresh);
+        await expect(runAcrossTenants('invoice merge', () => a1.Tags.sync())).to.be.rejectedWith(TenantRequired, 'must set tenant_id on every row');
+        expect(await links()).to.deep.eq(everyLink);
+
+        a1.Tags.remove(fresh);
+        a1.Tags.add(fresh, { tenant_id: 't2' });
+        await runAcrossTenants('invoice merge', () => a1.Tags.sync());
+        expect(await links()).to.deep.eq(['t1 A-1 kept', 't2 A-1 fresh', 't2 A-1 kept', 't2 B-1 dropped']);
+      });
     });
   });
 
