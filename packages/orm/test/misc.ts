@@ -1,7 +1,7 @@
 /* eslint-disable prettier/prettier */
-import { ITransactionContext, ITransactionOptions, ValueConverter, DatetimeValueConverter, QueryMiddleware } from './../src/interfaces.js';
+import { ITransactionContext, ITransactionOptions, ValueConverter, DatetimeValueConverter, QueryMiddleware, ServerResponseMapper, DbServerResponse } from './../src/interfaces.js';
 import { join, normalize, resolve } from 'path';
-import { IColumnDescriptor, ColumnQueryCompiler, DropTableCompiler, TableExistsCompiler, SelectQueryCompiler, ICompilerOutput, DeleteQueryCompiler, InsertQueryCompiler, UpdateQueryCompiler, TableQueryCompiler, QueryBuilder, Builder, SelectQueryBuilder, DefaultValueBuilder, RawQuery, IMigrationRecord, MIGRATION_TABLE_NAME, SlowQueryMiddleware } from '../src/index.js';
+import { IColumnDescriptor, ColumnQueryCompiler, DropTableCompiler, TableExistsCompiler, SelectQueryCompiler, ICompilerOutput, DeleteQueryCompiler, InsertQueryCompiler, UpdateQueryCompiler, TableQueryCompiler, QueryBuilder, Builder, SelectQueryBuilder, DefaultValueBuilder, RawQuery, IMigrationRecord, MIGRATION_TABLE_NAME, SlowQueryMiddleware, InsertQueryBuilder, extractModelDescriptor, pkColumns } from '../src/index.js';
 import { OrmDriver } from './../src/driver.js';
 import { DbPropertyHydrator, NonDbPropertyHydrator, ModelHydrator, OneToOneRelationHydrator, JunctionModelPropertyHydrator, OneToManyRelationHydrator } from './../src/hydrators.js';
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
@@ -1453,13 +1453,21 @@ export function stubDb(rows: IMigrationRecord[]) {
   });
 }
 
-export class FakeServerResponseMapper {
-  public read(response: any, _pkNames?: string[]): any {
+export class FakeServerResponseMapper extends ServerResponseMapper {
+  public read(response: any, _pkNames?: string[]): DbServerResponse {
     return {
       LastInsertId: response?.insertId || response?.lastID || 1,
       RowsAffected: response?.changes || response?.affectedRows || 1,
       // Part of the DbServerResponse contract since I3; this fake reports no RETURNING rows.
       Returning: [] as any[],
     };
+  }
+
+  /** This fake dialect keys one inserted row by its `LastInsertId`, when the key is one auto-increment column. */
+  public insertedKeys(response: unknown, insert: InsertQueryBuilder): Array<Record<string, unknown>> | undefined {
+    const descriptor = insert.Model === undefined ? null : extractModelDescriptor(insert.Model);
+    const pk = descriptor ? pkColumns(descriptor) : [];
+    const autoIncrement = pk.length === 1 && descriptor?.Columns.find((c) => c.Name === pk[0])?.AutoIncrement === true;
+    return autoIncrement && insert.Values.length === 1 ? [{ [pk[0]]: this.read(response).LastInsertId }] : undefined;
   }
 }

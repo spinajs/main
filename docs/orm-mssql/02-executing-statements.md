@@ -19,7 +19,7 @@
 | `Insert` | `{ RowsAffected: result.rowsAffected[0], LastInsertId: result.recordset[0].ID ?? 0, Returning: [] }` |
 | `Select`, `Upsert`, `Schema`, `Transaction`, other | `result.recordset`: the rows of the first result set, or `undefined` for a statement with none |
 
-`LastInsertId` comes from the `SELECT SCOPE_IDENTITY() as ID` that the insert compiler appends; see [Inserts and upserts](04-inserts-and-upserts.md).
+`LastInsertId` comes from the `SELECT SCOPE_IDENTITY() as ID` that the insert compiler appends; see [Inserts and upserts](04-inserts-and-upserts.md). `result.rowsAffected` holds one count per statement that reports one, a trigger's statements included and first: on a table with an `AFTER` trigger, `RowsAffected` of a plain insert is the count of the trigger's first statement. An `orIgnore()` insert reports its own `INSERTED` count instead.
 
 ### Errors
 

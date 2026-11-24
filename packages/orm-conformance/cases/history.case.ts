@@ -43,14 +43,11 @@ export const HISTORY_CASES = [
     expected: { asTheDriverPromises: true },
     run: ({ driver }) =>
       tracked(driver, CfUser, async () => {
-        await CfUser.insert([
-          { Name: 'a', Active: true },
-          { Name: 'b', Active: true },
-        ]);
+        const users = [new CfUser({ Name: 'a', Active: true }), new CfUser({ Name: 'b', Active: true })];
+        await CfUser.insert(users);
         const ops = (await historyOf(CfUser).since(0)).map((e) => e.op);
-        // A driver that reports the keys of a multi-row insert gives one entry per row; one that does not gives one `lost` marker.
-        const features = driver.supportedFeatures();
-        const reported = features.insertReturning || features.insertIdIsFirstOfBatch === true;
+        // A connection that reports the keys of a multi-row insert gives one entry per row; one that does not gives one `lost` marker.
+        const reported = users.every((u) => u.Id !== null && u.Id !== undefined);
         return { asTheDriverPromises: ops.join(',') === (reported ? 'insert,insert' : 'lost') };
       }),
   }),

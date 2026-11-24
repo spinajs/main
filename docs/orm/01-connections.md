@@ -158,11 +158,10 @@ this.Config = _.merge(this.Config, {
 | --- | --- | --- |
 | `events` | `boolean` | The database supports scheduled events. |
 | `insertReturning` | `boolean` | A plain `INSERT` can echo inserted rows with `RETURNING` / `OUTPUT`. |
-| `insertIdIsFirstOfBatch` | `boolean` (optional, default `false`) | The identity reported after a multi-row insert is the key of the first row, with the others contiguous. |
 | `concurrentTransactions` | `boolean` (optional, default `true`) | Two outermost transactions can be open at once. `false` (SQLite) makes `transaction()` queue outermost calls. |
 | `nativeJson` | `boolean` (optional, default `false`) | The database has a JSON column type of its own. Without it, `json()` columns are stored as text. `true` on MySQL and PostgreSQL. |
 
-Insert and update responses are normalized to `DbServerResponse` (`RowsAffected`, `LastInsertId`, `Returning`) by the connection's `ServerResponseMapper`. See [Architecture](12-architecture.md). To write a new driver, see [Adding a new SQL dialect](../orm-sql/07-adding-a-sql-dialect.md).
+Insert and update responses are normalized to `DbServerResponse` (`RowsAffected`, `LastInsertId`, `Returning`) by the connection's `ServerResponseMapper`, whose `insertedKeys()` reports the keys of the rows an insert wrote: by default the keys in the `RETURNING` rows; any other rule is the connection package's (see [MySQL](../orm-mysql/04-inserts-and-generated-keys.md), [MSSQL](../orm-mssql/04-inserts-and-upserts.md), [SQLite](../orm-sqlite/05-inserts-and-upserts.md)). See [Architecture](12-architecture.md). To write a new driver, see [Adding a new SQL dialect](../orm-sql/07-adding-a-sql-dialect.md).
 
 ```ts sample
 import { DI } from '@spinajs/di';

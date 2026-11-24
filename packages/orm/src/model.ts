@@ -3,7 +3,7 @@ import { SortOrder } from './enums.js';
 import { MODEL_DESCTRIPTION_SYMBOL } from './symbols.js';
 import { ORM_MODEL_FACTORY } from './tokens.js';
 import { RelationType, InsertBehaviour, ModelToSqlConverter, ObjectToSqlConverter, ServerResponseMapper } from './interfaces.js';
-import type { IModelDescriptor, IInsertResult, IUpdateResult, IOrderByBuilder, ISelectQueryBuilder, IWhereBuilder, QueryScope, IModelBase, IColumnDescriptor, IRelationDescriptor, IDehydrateOptions, DbServerResponse, ISupportedFeature, ISaveOptions, ISaveResult, ITransactionOptions } from './interfaces.js';
+import type { IModelDescriptor, IInsertResult, IUpdateResult, IOrderByBuilder, ISelectQueryBuilder, IWhereBuilder, QueryScope, IModelBase, IColumnDescriptor, IRelationDescriptor, IDehydrateOptions, ISaveOptions, ISaveResult, ITransactionOptions } from './interfaces.js';
 import type { WhereFunction } from './types.js';
 import type { LiteralColumn, OrmStrict, WhereCatchAllColumn, WhereColumn, WhereOperator, WhereValue } from './typing.js';
 import { RawQuery, UpdateQueryBuilder, TruncateTableQueryBuilder, SelectQueryBuilder, DeleteQueryBuilder, InsertQueryBuilder, createQuery, _descriptor } from './builders.js';
@@ -933,18 +933,10 @@ export class ModelBase<M = unknown> implements IModelBase {
 
     query.middleware({
       afterQuery: (data: IInsertResult) => {
-        const response = sResponseMapper.read(data, pkColumns(description));
-
-        if ((response.Returning ?? []).length !== 0) {
-          setPkValue(this, description, pkValueOf(response.Returning[0], description));
-        } else if (needsKeyBack) {
-          // Do not overwrite a key the caller already supplied ( uuid / assigned strategies ).
-          // Same tuple-truthiness trap as destroy().
-          const current = this.PrimaryKeyValue;
-          const missing = Array.isArray(current) ? current.some((v) => v === null || v === undefined) : !current;
-          if (missing) {
-            this.PrimaryKeyValue = response.LastInsertId;
-          }
+        // Do not overwrite a key the caller already supplied ( uuid / assigned strategies ).
+        const key = lacksKey(this) ? sResponseMapper.insertedKeys(data, query)?.[0] : undefined;
+        if (key !== undefined) {
+          setPkValue(this, description, pkValueOf(key, description));
         }
 
         return data;
@@ -1111,64 +1103,10 @@ export class ModelBase<M = unknown> implements IModelBase {
 registerModelBase(ModelBase);
 
 
-/**
- * Decides whether a multi-row insert's generated keys can be read off `LastInsertId + index` on a
- * dialect that has no RETURNING.
- *
- * The premise is a documented MySQL guarantee, not a guess. InnoDB splits inserts into *simple*
- * ones — row count known before execution, which is exactly what `INSERT INTO t (…) VALUES (…),
- * (…)` is, and the only shape {@link InsertQueryBuilder} can build — and *bulk* ones
- * (`INSERT … SELECT`), where it is not. For a simple insert InnoDB reserves one contiguous block
- * of N auto-increment values under a short mutex it releases immediately, so the k-th row of the
- * statement gets `LAST_INSERT_ID() + k`. This holds under `innodb_autoinc_lock_mode = 2`, the
- * MySQL 8 default, and was verified against a live server. The "values may not be contiguous"
- * caveat in the MySQL manual is about bulk inserts and about mixed-mode inserts.
- *
- * The guards below rule out every case where the mapping stops being positional.
- */
-function _canBackfillContiguousKeys(description: IModelDescriptor, rows: any[], response: DbServerResponse, features: ISupportedFeature, insertBehaviour: InsertBehaviour, statements: number): boolean {
-  // Only a dialect whose reported id is the FIRST of the block can be walked forwards. MSSQL's
-  // SCOPE_IDENTITY() and SQLite's last_insert_rowid() report the LAST one.
-  if (!features.insertIdIsFirstOfBatch) {
-    return false;
-  }
-
-  // One database-generated identity column, or there is no counter to walk. A composite key has
-  // no single identity column, and uuid / assigned keys are already set by this point.
-  const keys = pkColumns(description);
-  if (keys.length !== 1 || pkGeneration(description, keys[0]) !== 'auto') {
-    return false;
-  }
-
-  // INSERT IGNORE / REPLACE / ON DUPLICATE KEY UPDATE are mixed-mode: rows can be skipped,
-  // replaced or updated rather than inserted, so the k-th allocated id stops belonging to the
-  // k-th input row. ( The array path rejects these outright today; this keeps the invariant
-  // local to the decision rather than depending on a check three hundred lines away. )
-  if (insertBehaviour !== InsertBehaviour.None) {
-    return false;
-  }
-
-  // The block is contiguous within one statement only, and a split insert reports the last
-  // statement's identity value, not the first row's.
-  if (statements > 1) {
-    return false;
-  }
-
-  // No identity value reported at all.
-  if (typeof response.LastInsertId !== 'number' || !Number.isFinite(response.LastInsertId) || response.LastInsertId <= 0) {
-    return false;
-  }
-
-  // The server must confirm it inserted exactly one row per row we sent. Anything else means
-  // rows were skipped or the statement did something other than a plain multi-row insert.
-  if (response.RowsAffected !== rows.length) {
-    return false;
-  }
-
-  // A batch where SOME rows carry an explicit key is a mixed-mode insert: InnoDB allocates
-  // auto-increment values only for the rows that omitted one, so index arithmetic would both
-  // mis-key the generated rows and overwrite the supplied ones.
-  return rows.every((v) => v instanceof ModelBase && (v.PrimaryKeyValue === null || v.PrimaryKeyValue === undefined));
+// A composite key is a tuple, and a tuple is always truthy: check every part. Same trap as destroy().
+function lacksKey(model: ModelBase): boolean {
+  const current: unknown = model.PrimaryKeyValue;
+  return Array.isArray(current) ? current.some((v) => v === null || v === undefined) : !current;
 }
 
 /**
@@ -1516,33 +1454,16 @@ export const MODEL_STATIC_MIXINS = staticMixins({
 
     const iMidleware = {
       afterQuery: (result: IInsertResult) => {
-        const response = sResponseMapper.read(result, pkColumns(description));
         const rows = Array.isArray(data) ? (data as Array<InstanceType<T>>) : [data as InstanceType<T>];
-
-        if ((response.Returning ?? []).length === rows.length) {
-          // Authoritative: the database told us every key it assigned, in insert order.
-          rows.forEach((v, idx) => {
-            if (v instanceof ModelBase) {
-              setPkValue(v, description, pkValueOf(response.Returning[idx], description));
-            }
-          });
-        } else if (autoKey && rows.length === 1) {
-          // One row, one identity value - safe.
-          const v = rows[0];
-          if (v instanceof ModelBase && !v.PrimaryKeyValue) {
-            v.PrimaryKeyValue = response.LastInsertId;
+        const keys = rows.some((v) => v instanceof ModelBase && lacksKey(v)) ? sResponseMapper.insertedKeys(result, query) : undefined;
+        rows.forEach((v, idx) => {
+          const key = keys?.[idx];
+          if (key !== undefined && v instanceof ModelBase && lacksKey(v)) {
+            setPkValue(v, description, pkValueOf(key, description));
           }
-        } else if (_canBackfillContiguousKeys(description, rows, response, query.Driver.supportedFeatures(), insertBehaviour, query.splitByDriverLimits().length)) {
-          // Multi-row `INSERT ... VALUES` on a dialect with no RETURNING whose identity value is
-          // the first of the statement's contiguous block. See _canBackfillContiguousKeys.
-          rows.forEach((v, idx) => {
-            (v as ModelBase).PrimaryKeyValue = response.LastInsertId + idx;
-          });
-        }
-        // Anything else — a dialect whose insert id names the last row, a batch that mixed
-        // supplied and generated keys, a statement the server did not insert one row per input
-        // row for — cannot be mapped positionally, so nothing is assigned. Callers needing the
-        // keys there must re-select or insert the models one at a time.
+        });
+        // Without keys for every row ( see ServerResponseMapper.insertedKeys ) nothing is assigned:
+        // callers needing them must re-select or insert the models one at a time.
 
         // Every persist path re-baselines after its statement, and the baseline is taken after
         // the backfill above so it carries whatever key the statement produced: the model is

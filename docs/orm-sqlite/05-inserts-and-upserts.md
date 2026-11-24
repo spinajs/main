@@ -1,6 +1,6 @@
 # Inserts, upserts and `RETURNING`
 
-SQLite is the driver with `RETURNING` (`insertReturning: true`), so it reads generated keys back exactly, also from multi-row inserts. This page covers how SQLite spells `INSERT`, `INSERT OR IGNORE` / `OR REPLACE`, `ON CONFLICT ... DO UPDATE` and `RETURNING`, how the raw result becomes a `DbServerResponse`, and how a model becomes an insert row.
+SQLite is the driver with `RETURNING` (`insertReturning: true`), so it reads generated keys back exactly, also from multi-row inserts. An insert that came back without `RETURNING` rows reports a key only for one row written through the rowid alias. This page covers how SQLite spells `INSERT`, `INSERT OR IGNORE` / `OR REPLACE`, `ON CONFLICT ... DO UPDATE` and `RETURNING`, how the raw result becomes a `DbServerResponse`, and how a model becomes an insert row.
 
 ## How it works
 
@@ -20,7 +20,41 @@ SQLite is the driver with `RETURNING` (`insertReturning: true`), so it reads gen
 5. **Map.** Model inserts resolve `ServerResponseMapper` (`SqliteServerResponseMapper`) and call `read(result, pkNames)`:
    - An array (upsert rows): `RowsAffected` = row count; `LastInsertId` = the key of the **last** row when there is one key column and its value is a number, else `0`; `Returning` = the rows.
    - An object: `RowsAffected`, `LastInsertId` and `Returning` copied, defaulting to `0`, `0`, `[]`.
-6. **Keys back.** A model with an `auto` key asks for `RETURNING <key columns>` (`model.insert()` except with `InsertOrUpdate`, and `Model.insert(rowOrRows)`). When `Returning` has one row per inserted model, each model gets its own key, in insert order, also when the insert was split into several statements. `uuid` and `assigned` keys are set before the insert and kept.
+6. **Keys back.** A model with an `auto` key asks for `RETURNING <key columns>` (`model.insert()` except with `InsertOrUpdate`, and `Model.insert(rowOrRows)`). `ModelBase.insert()`, the static `Model.insert()`, the unit of work and the write capture take keys from `SqliteServerResponseMapper.insertedKeys(response, insert)`: one key per row, or none at all (next section). When `Returning` has one row per inserted model, each model gets its own key, in insert order, also when the insert was split into several statements. `uuid` and `assigned` keys are set before the insert and kept; a key the row already holds is never overwritten.
+
+### Which keys an insert reports
+
+`insertedKeys()` first takes the keys of the `RETURNING` rows, when there is one row with the whole key per inserted row. Every model insert of an `auto` key and every upsert (`ON CONFLICT` always compiles `RETURNING`) gets its keys this way.
+
+An insert that came back without them, such as a builder made with `createQuery(Model, InsertQueryBuilder)` or a `driver.insert()` without `returning()`, gets SQLite's rowid rule: the key is `sqlite3`'s `lastID` (`sqlite3_last_insert_rowid()`) only when all of these hold:
+
+1. The insert has a model whose primary key is one column, generated `auto`, and flagged `AutoIncrement` by the table info: a lone `INTEGER PRIMARY KEY`, the rowid alias.
+2. It inserts one row, without `onDuplicate()`.
+3. `RowsAffected` (`changes`) is 1. `lastID` keeps the rowid of an earlier insert on the connection when this statement inserted nothing.
+4. `lastID` is a positive safe integer.
+5. The row supplies no key and the key column has no default, or the row supplies the number `lastID` holds. In a `WITHOUT ROWID` table, which the table info does not tell apart, an `INTEGER PRIMARY KEY` is not the rowid, so a row there either supplies its key or takes the column default, and `lastID` is stale.
+
+Otherwise the insert reports no keys: several rows (`lastID` names only the last), a composite, `uuid`, `assigned` or text key (a text or `BLOB` key the database fills has a rowid that is not the key), or an insert without a model. Such an insert reaches write observers with `unknownKeys: true`.
+
+Measured with `sqlite3` 5.x (SQLite 3.44.2) on a table `t (Id INTEGER PRIMARY KEY, Email TEXT UNIQUE, Name TEXT)` unless the row says otherwise:
+
+| Statement | Outcome | `changes` | `lastID` | Reported key |
+| --- | --- | --- | --- | --- |
+| `INSERT` | inserted | 1 | the new rowid, or the supplied key | `lastID` |
+| `INSERT OR IGNORE` | inserted | 1 | the new rowid | `lastID` |
+| `INSERT OR IGNORE` | skipped (`UNIQUE` or `CHECK`) | 0 | the earlier insert's rowid | none |
+| `INSERT OR REPLACE` | deleted the conflicting row (one or two of them), inserted a new one | 1 | the new row's rowid | `lastID` |
+| `INSERT OR REPLACE` | inserted, no conflict | 1 | the new rowid | `lastID` |
+| `INSERT ... ON CONFLICT DO UPDATE` without `RETURNING` | updated | 1 | the earlier insert's rowid | none (has `RETURNING` when compiled) |
+| `INSERT ... ON CONFLICT DO NOTHING` | skipped | 0 | the earlier insert's rowid | none |
+| `INSERT` with two rows | inserted | 2 | the last rowid | none |
+| `INSERT` into a table whose `BEFORE` or `AFTER INSERT` trigger inserts into another table | inserted | 1 | this statement's row, not the trigger's | `lastID` |
+| `INSERT` stopped by a `BEFORE INSERT` trigger's `RAISE(IGNORE)` | skipped | 0 | the earlier insert's rowid | none |
+| `INSERT` into a view with an `INSTEAD OF` trigger | inserted into the base table | 0 | the earlier insert's rowid | none |
+| `INSERT` into `WITHOUT ROWID` with `Id INTEGER PRIMARY KEY` supplied | inserted | 1 | the earlier insert's rowid | none, unless equal to the supplied key |
+| `INSERT` into `WITHOUT ROWID` with a key the column `DEFAULT` fills | inserted | 1 | the earlier insert's rowid | none |
+| `INSERT` into `Id TEXT PRIMARY KEY DEFAULT (...)` | inserted | 1 | the hidden rowid | none |
+| `INSERT` with a supplied key past `2^53` | inserted | 1 | rounded | none |
 
 ### Model serialization
 
@@ -37,7 +71,7 @@ The only difference from `StandardModelToSqlConverter` in `@spinajs/orm` is step
 
 ## Configuration
 
-No keys. `supportedFeatures()` is fixed: `{ events: false, insertReturning: true, insertIdIsFirstOfBatch: false, nativeJson: false, concurrentTransactions: false }`, and `MaxBindings` is `32766`. `insertIdIsFirstOfBatch` is `false` because `sqlite3`'s `lastID` is the **last** row id of a multi-row insert; SQLite gets every key from `RETURNING` instead. `MaxBindings` sets where a multi-row insert is split. `concurrentTransactions: false` makes the core queue outermost transactions (see [Transactions](03-transactions.md)).
+No keys. `supportedFeatures()` is fixed: `{ events: false, insertReturning: true, nativeJson: false, concurrentTransactions: false, streaming }` (`streaming` is `true` with a read pool on a WAL file), and `MaxBindings` is `32766`. `MaxBindings` sets where a multi-row insert is split. `concurrentTransactions: false` makes the core queue outermost transactions (see [Transactions](03-transactions.md)).
 
 ## Services and extension points
 
@@ -47,7 +81,7 @@ All registered by `SqliteOrmDriver.resolve()` in the connection's child containe
 | --- | --- | --- | --- | --- |
 | Insert compiler | `InsertQueryCompiler`, new instance, constructor `(container, builder)` | `SqliteInsertQueryCompiler` (exported) | `SqlInsertQueryCompiler` from `@spinajs/orm-sql` (no `RETURNING`, MySQL `IGNORE`) | Subclass; override `compile()`, `into()`, `returning()`, `upsort()`, `values()`, `columns()`, `autoIncrementPlaceholder()`. |
 | Upsert compiler | `OnDuplicateQueryCompiler`, new instance, constructor `(builder: OnDuplicateQueryBuilder)` | `SqliteOnDuplicateQueryCompiler` (exported) | `SqlOnDuplicateQueryCompiler` (MySQL `ON DUPLICATE KEY UPDATE`) | Subclass; override `compile()`. |
-| Insert response | `ServerResponseMapper`, new instance | `SqliteServerResponseMapper` (exported) | none; the base class throws `MethodNotImplemented` | Subclass `SqliteServerResponseMapper`; override `read(data, pkNames?)`. |
+| Insert response | `ServerResponseMapper`, new instance | `SqliteServerResponseMapper` (exported) | none; the base class throws `MethodNotImplemented` | Subclass `SqliteServerResponseMapper`; override `read(data, pkNames?)`, or `insertedKeys(response, insert)` for the keys of inserted rows. |
 | Model to row | `ModelToSqlConverter`, new instance | `SqliteModelToSqlConverter` (exported) | `StandardModelToSqlConverter` from `@spinajs/orm` | Subclass `SqliteModelToSqlConverter`; override `toSql(model)`. |
 | Plain object to row | `ObjectToSqlConverter`, new instance, registered by `OrmDriver.resolve()` | `StandardObjectToSqlConverter` | | Used by `Model.insert()` with plain objects; it already leaves out `undefined`. |
 
@@ -150,7 +184,7 @@ export class CountingSqliteDriver extends SqliteOrmDriver {
 }
 ```
 
-The mapper runs for model inserts and unit-of-work saves; a raw `driver.insert()` resolves with the driver's result without calling it.
+The mapper runs for model inserts, unit-of-work saves and the write capture; a raw `driver.insert()` resolves with the driver's result without calling it.
 
 ### Model to row: custom implementation
 
@@ -188,7 +222,8 @@ export class TrimmingSqliteDriver extends SqliteOrmDriver {
 ## Important behaviour
 
 - `RETURNING` rows arrive in insert order, which is how a batch of `auto`-key models gets one key each.
-- `LastInsertId` of a plain `Insert` is `sqlite3`'s `lastID`: the **last** row id of the statement.
+- `LastInsertId` of a plain `Insert` is `sqlite3`'s `lastID`: the **last** row id of the statement, or of an earlier statement on the connection when this one inserted nothing.
+- `INTEGER PRIMARY KEY DESC` is not a rowid alias (an SQLite quirk), yet the table info flags it `AutoIncrement`: a row inserted without a key stores `NULL` as its key, and the rowid rule reports the hidden rowid as the key. Declare an integer key without `DESC`.
 - For `uuid` and `assigned` keys `LastInsertId` means nothing: SQLite's internal row id on a plain insert, `0` from `RETURNING` rows. The model keeps the key it generated; check `RowsAffected` for success.
 - A multi-row upsert updates each conflicting row with its own values (`excluded.col`).
 - `onDuplicate()` without `update()` emits `DO NOTHING`: a conflicting row is kept as it is and returns no `RETURNING` row.

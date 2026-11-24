@@ -5,9 +5,9 @@ import { InvalidArgument, NotSupported } from '@spinajs/exceptions';
 
 import { SelectQueryBuilder, createQuery } from '../builders.js';
 import type { DeleteQueryBuilder, InsertQueryBuilder, UpdateQueryBuilder } from '../builders.js';
-import { extractModelDescriptor } from '../descriptor.js';
 import type { OrmDriver } from '../driver.js';
 import { SqlExpressions } from '../expressions.js';
+import { ServerResponseMapper } from '../interfaces.js';
 import { CaptureReadScope } from './contracts.js';
 
 class DirectCaptureReadScope extends CaptureReadScope {
@@ -79,8 +79,6 @@ export function countKeyless(reads: readonly (readonly unknown[])[]): number {
 
 const uniqueKeys = (values: readonly unknown[]): string[] => keyTexts(values).keys;
 
-const isRow = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null;
-
 /** The value of a column whose name is only known at run time. */
 export const columnValue = (row: Readonly<Record<string, unknown>>, column: string): unknown => Reflect.get(row, column);
 
@@ -134,18 +132,7 @@ export function upsertKeys(query: InsertQueryBuilder, pk: string): string[] {
   return uniqueKeys(query.getColumnValues(pk));
 }
 
-interface InsertResult {
-  readonly Returning?: unknown;
-  readonly LastInsertId?: unknown;
-  readonly RowsAffected?: unknown;
-}
-
-function insertResultOf(result: unknown): InsertResult {
-  if (Array.isArray(result)) return { Returning: result };
-  return isRow(result) ? result : {};
-}
-
-/** The keys an insert wrote, read the way ModelBase.insert backfills them; undefined when they cannot be known. */
+/** The keys an insert wrote: the supplied ones, else what the connection's `ServerResponseMapper.insertedKeys` reports. */
 export function insertedKeys(query: InsertQueryBuilder, result: unknown, pk: string): string[] | undefined {
   return insertedKeyTexts(query, result, pk)?.keys;
 }
@@ -155,28 +142,6 @@ export function insertedKeyTexts(query: InsertQueryBuilder, result: unknown, pk:
   if (rows === 0) return noKeys();
   const supplied = query.getColumnValues(pk);
   if (supplied.length === rows && supplied.every((v) => v !== null && v !== undefined)) return keyTexts(supplied);
-  const r = insertResultOf(result);
-  const returning = Array.isArray(r.Returning) ? r.Returning.filter(isRow) : [];
-  const returned = returning.map((x) => columnValue(x, pk));
-  if (returned.length === rows && returned.every((v) => v !== undefined && v !== null)) return keyTexts(returned);
-  const keys = keysFromLastInsertId(query, r, supplied, pk);
-  return keys && { keys, keyless: [] };
-}
-
-// LastInsertId is the identity value a driver reports (the rowid on SQLite), the row's key only when that key is it.
-const keyIsAutoIncrement = (query: InsertQueryBuilder, pk: string): boolean => query.Model !== undefined && extractModelDescriptor(query.Model)?.Columns.find((c) => c.Name === pk)?.AutoIncrement === true;
-
-function keysFromLastInsertId(query: InsertQueryBuilder, r: InsertResult, supplied: readonly unknown[], pk: string): string[] | undefined {
-  if (!keyIsAutoIncrement(query, pk)) return undefined;
-  const rows = query.Values.length;
-  const last = r.LastInsertId;
-  if (typeof last !== 'number' || !Number.isSafeInteger(last) || last <= 0) return undefined;
-  if (rows === 1) return [String(last)];
-  const noneSupplied = supplied.every((v) => v === null || v === undefined);
-  // A split insert reports the insert id of its last statement, not of the first row (as ModelBase.insert knows).
-  const oneStatement = query.splitByDriverLimits().length === 1;
-  if (noneSupplied && oneStatement && query.Driver.supportedFeatures().insertIdIsFirstOfBatch === true && r.RowsAffected === rows && !query.Ignore && !query.Replace && !query.Update) {
-    return Array.from({ length: rows }, (_, k) => String(last + k));
-  }
-  return undefined;
+  const keys = query.Container.resolve(ServerResponseMapper).insertedKeys(result, query);
+  return keys && keyTexts(keys.map((k) => columnValue(k, pk)));
 }

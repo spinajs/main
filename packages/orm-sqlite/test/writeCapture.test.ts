@@ -96,11 +96,40 @@ class CapGen extends ModelBase {
   public Name: string;
 }
 
+// A CHECK constraint makes OR IGNORE skip a row that has no conflict value to find it by.
+@Connection('sqlite')
+@Model('cap_note')
+class CapNote extends ModelBase {
+  @Primary()
+  public Id: number;
+
+  public Name: string;
+}
+
+@Connection('sqlite')
+@Model('cap_trig')
+class CapTrig extends ModelBase {
+  @Primary()
+  public Id: number;
+
+  public Name: string;
+}
+
+// WITHOUT ROWID: the INTEGER PRIMARY KEY is no rowid alias, so LastInsertId is not its key.
+@Connection('sqlite')
+@Model('cap_wr')
+class CapWr extends ModelBase {
+  @Primary()
+  public Id: number;
+
+  public Name: string;
+}
+
 const fixture = { writes: [] as CapturedWrite[], inTransaction: [] as boolean[], transactional: true, prepareFails: false, prepared: [] as WriteStatement[] };
 
 class FixtureObserver extends WriteObserver {
   interest({ model }: WriteStatement): CaptureInterest | undefined {
-    return [CapMember, CapPair, CapSoft, CapBlob, CapGen].some((m) => model === m) ? { columns: '*', transactional: fixture.transactional } : undefined;
+    return [CapMember, CapPair, CapSoft, CapBlob, CapGen, CapNote, CapTrig, CapWr].some((m) => model === m) ? { columns: '*', transactional: fixture.transactional } : undefined;
   }
 
   prepare(statement: WriteStatement): void {
@@ -231,15 +260,13 @@ describe('write capture on sqlite', function () {
 
   it('reports the keys of an insert split into several statements as unknown', () => {
     // The merged result of a split insert holds the last statement's insert id and the summed row count.
-    const driver = db().Connections.get('sqlite')!;
-    const features = { ...driver.supportedFeatures(), insertIdIsFirstOfBatch: true };
-    const stubs = [sinon.stub(driver, 'MaxInsertRows').value(1), sinon.stub(driver, 'supportedFeatures').returns(features)];
+    const stub = sinon.stub(db().Connections.get('sqlite')!, 'MaxInsertRows').value(1);
     try {
       const { query } = createQuery(UowTag, InsertQueryBuilder);
       query.values([{ Name: 'a' }, { Name: 'b' }]);
       expect(insertedKeys(query, { LastInsertId: 2, RowsAffected: 2 }, 'Id')).to.eq(undefined);
     } finally {
-      for (const s of stubs) s.restore();
+      stub.restore();
     }
   });
 
@@ -596,11 +623,41 @@ describe('write capture on sqlite', function () {
     });
 
     describe('with a single-row insert that returns no keys', () => {
-      const insert = (model: typeof CapMember | typeof CapGen, values: Record<string, unknown>) => createQuery(model, InsertQueryBuilder).query.values(values);
+      const insert = (model: typeof ModelBase, values: Record<string, unknown>) => createQuery(model, InsertQueryBuilder).query.values(values);
 
       beforeEach(async () => {
-        await db().Connections.get('sqlite')!.schema().raw('CREATE TABLE cap_gen (Id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(8)))), Name TEXT)');
+        const schema = db().Connections.get('sqlite')!.schema();
+        await schema.raw('CREATE TABLE cap_gen (Id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(8)))), Name TEXT)');
+        await schema.raw("CREATE TABLE cap_note (Id INTEGER PRIMARY KEY, Name TEXT CHECK (Name <> 'skip'))");
+        await schema.raw('CREATE TABLE cap_trig (Id INTEGER PRIMARY KEY, Name TEXT)');
+        await schema.raw("CREATE TRIGGER cap_trig_ai AFTER INSERT ON cap_trig BEGIN INSERT INTO cap_member (Email, Name) VALUES ('t' || NEW.Id, 'by trigger'); END");
+        await schema.raw('CREATE TABLE cap_wr (Id INTEGER PRIMARY KEY DEFAULT (abs(random()) % 1000 + 5000), Name TEXT) WITHOUT ROWID');
         await db().reloadTableInfo();
+      });
+
+      it('does not report the row of an earlier insert for an OR IGNORE insert that skipped its row', async () => {
+        await insert(CapNote, { Name: 'kept' });
+        await insert(CapNote, { Name: 'skip' }).orIgnore();
+
+        expect(fixture.writes.map((w) => [w.unknownKeys, w.rows])).to.deep.eq([
+          [false, [{ id: '1', before: undefined, after: { Id: 1, Name: 'kept' } }]],
+          [true, []],
+        ]);
+        expect(await rows('cap_note')).to.have.length(1);
+      });
+
+      it("reports the statement's row, not the row its AFTER INSERT trigger inserted into another table", async () => {
+        await insert(CapTrig, { Name: 'a' });
+
+        expect(fixture.writes.map((w) => [w.model, w.unknownKeys, w.rows])).to.deep.eq([[CapTrig, false, [{ id: '1', before: undefined, after: { Id: 1, Name: 'a' } }]]]);
+        expect((await rows<{ Id: number }>('cap_member')).map((r) => r.Id)).to.deep.eq([1, 2, 3]);
+      });
+
+      it('reports the keys as unknown for a WITHOUT ROWID key its column default fills', async () => {
+        await insert(CapWr, { Name: 'filled' });
+
+        expect(fixture.writes.map((w) => [w.unknownKeys, w.rows])).to.deep.eq([[true, []]]);
+        expect(await rows('cap_wr')).to.have.length(1);
       });
 
       it('reports the keys as unknown when the database fills a key that is not an auto-increment integer', async () => {

@@ -1,6 +1,6 @@
 # Inserts and upserts
 
-On SQL Server an insert is `INSERT INTO ... VALUES (...); SELECT SCOPE_IDENTITY() as ID;`, an upsert is a `MERGE` statement, there is no `INSERT OR REPLACE`, and `orIgnore()` is a guarded batch. `MsSqlServerResponseMapper` reads the generated key back for model inserts.
+On SQL Server an insert is `INSERT INTO ... VALUES (...); SELECT SCOPE_IDENTITY() as ID;`, an upsert is a `MERGE` statement, there is no `INSERT OR REPLACE`, and `orIgnore()` is a guarded batch. `MsSqlServerResponseMapper` reports the key of an inserted row from `SCOPE_IDENTITY()` when that value can only be the row's key (see [Inserted keys](#inserted-keys)).
 
 ## How it works
 
@@ -25,7 +25,31 @@ SELECT CASE WHEN @spinajs_inserted > 0 THEN SCOPE_IDENTITY() END as ID, @spinajs
 1. `Model.insert(data)`, `model.insert()`, `model.save()` and the unit of work resolve `ServerResponseMapper` from the connection's container.
 2. The driver registers `MsSqlServerResponseMapper` under that token.
 3. The statement runs; the row is written.
-4. `read()` turns the `executeOnDb()` result into a `DbServerResponse`: `LastInsertId` is the `SCOPE_IDENTITY()` value, `0` when it is not a number. The model's primary key is set from it.
+4. `insertedKeys(result, query)` reports the key of the row, or `undefined` (see [Inserted keys](#inserted-keys)). It reads the result through `read()`, which turns it into a `DbServerResponse`: `LastInsertId` is the `SCOPE_IDENTITY()` value, `0` when it is not a number. A model whose key is still empty gets the reported key; without one the key stays empty.
+
+### Inserted keys
+
+`MsSqlServerResponseMapper.insertedKeys()` decides the keys that `ModelBase.insert()`, the static `Model.insert()`, the unit of work and the write capture take for inserted rows. SQL Server returns no `RETURNING` rows, so the only source is the `SCOPE_IDENTITY()` value the statement selects. It reports a key only when all of these hold:
+
+- the insert has a model whose primary key is one column, with the `auto` strategy, and that column is the table's `IDENTITY` column (`AutoIncrement`, read from `COLUMNPROPERTY(..., 'IsIdentity')` by `tableInfo()`);
+- the statement inserts one row;
+- it is a plain insert or an `orIgnore()` insert whose batch reports `INSERTED = 1`; it is not an upsert;
+- the `SCOPE_IDENTITY()` value is a positive safe integer.
+
+The key is unknown, and the mapper returns `undefined`, for:
+
+| Insert | Why |
+| --- | --- |
+| Several rows | `SCOPE_IDENTITY()` is the last identity of the statement, and SQL Server does not promise a multi-row `INSERT ... VALUES` contiguous values |
+| A key that is not the identity column (a `NEWID()` / `NEWSEQUENTIALID()` or sequence default, another column is the `IDENTITY`) | `SCOPE_IDENTITY()` is another column's value or `NULL` |
+| An `orIgnore()` row that was skipped | the batch selects `ID` `NULL` and `INSERTED` `0` |
+| An upsert (`MERGE`), inserted or updated | after a `MERGE` that updated, `SCOPE_IDENTITY()` can return an identity that an earlier statement of the same pooled session generated, in any table, so the value cannot tell an insert from an update |
+| A `bigint` identity past `Number.MAX_SAFE_INTEGER` | `SCOPE_IDENTITY()` is `numeric(38,0)`, which tedious reads as a JavaScript number: the value arrives rounded |
+| An insert without a model, an `INSTEAD OF` trigger that writes the row | no key column is known / `SCOPE_IDENTITY()` is `NULL` in the statement's scope |
+
+The row count is not part of the rule for a plain insert: on a table with an `AFTER` trigger, `RowsAffected` is the count of the trigger's first statement, while `SCOPE_IDENTITY()` stays the row's own identity (an identity the trigger generates in another table is in another scope).
+
+These cases reach [write-capture](../orm/25-write-capture.md) observers as an insert with `unknownKeys: true` and no rows, unless every row supplied its key. An upsert whose row supplies a conflict value is still found by that value.
 
 ### Upsert
 
@@ -41,13 +65,13 @@ WHEN MATCHED THEN UPDATE SET [Name] = ?
 WHEN NOT MATCHED THEN INSERT ([Email],[Name]) VALUES (?,?); SELECT SCOPE_IDENTITY() as ID;
 ```
 
-4. `executeOnDb()` returns the `[{ ID }]` row array (the `Upsert` context returns `recordset`). For a model upsert `MsSqlServerResponseMapper` reports the row count as `RowsAffected` and the last row's `ID` as `LastInsertId`, `0` when `MERGE` updated.
+4. `executeOnDb()` returns the `[{ ID }]` row array (the `Upsert` context returns `recordset`). `MsSqlServerResponseMapper.read()` reports the row count as `RowsAffected` and the last row's `ID` as `LastInsertId`, `0` when it is `NULL`. `insertedKeys()` reports no key for an upsert.
 
 ## Services and extension points
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
-| Insert response mapper | `ServerResponseMapper` (from `@spinajs/orm`), in the driver's child container; resolved per insert | `MsSqlServerResponseMapper` (exported) | `MysqlServerResponseMapper` (`@spinajs/orm-mysql`) reads the same `{ RowsAffected, LastInsertId }` object but not the upsert row array | Subclass `MsSqlServerResponseMapper` or `ServerResponseMapper`, implement `read(data, pkNames?)`, register `.as(ServerResponseMapper)` in a driver subclass's `resolve()` after `super.resolve()`. |
+| Insert response mapper | `ServerResponseMapper` (from `@spinajs/orm`), in the driver's child container; resolved per insert | `MsSqlServerResponseMapper` (exported) | `MysqlServerResponseMapper` (`@spinajs/orm-mysql`) reads the same `{ RowsAffected, LastInsertId }` object but not the upsert row array | Subclass `MsSqlServerResponseMapper` or `ServerResponseMapper`, implement `read(data, pkNames?)` and, to change which keys inserts report, `insertedKeys(response, insert)`; register `.as(ServerResponseMapper)` in a driver subclass's `resolve()` after `super.resolve()`. |
 | Insert compiler | `InsertQueryCompiler`, new instance per query | `MsSqlInsertQueryCompiler` (not exported) | `SqlInsertQueryCompiler` (`@spinajs/orm-sql`, MySQL spelling) | Extend `SqlInsertQueryCompiler`, register `.as(InsertQueryCompiler)`. |
 | Upsert compiler | `OnDuplicateQueryCompiler`, new instance per query | `MsSqlOnDuplicateQueryCompiler` (not exported) | `SqlOnDuplicateQueryCompiler` (`ON DUPLICATE KEY UPDATE`, not T-SQL) | Extend `SqlOnDuplicateQueryCompiler`; return the `MERGE ... WHEN NOT MATCHED THEN ` prefix. The insert compiler appends `INSERT (...) VALUES (...)` and the identity read. |
 
@@ -130,15 +154,15 @@ export class InsertMissingMsSqlDriver extends MsSqlOrmDriver {
 
 ## Important behaviour
 
-- **`SCOPE_IDENTITY()` is the last identity of the batch.** A multi-row insert reports the last generated key, so `insertIdIsFirstOfBatch` is `false` and the ORM does not backfill keys of a batch.
+- **`SCOPE_IDENTITY()` is the last identity of the batch.** A multi-row insert reports the last generated key, so the mapper reports no keys for it and the ORM does not backfill keys of a batch.
 - **`RETURNING` is not supported.** `insertReturning` is `false`; `InsertQueryBuilder.returning()` throws `NotSupported`.
 - **`orIgnore()` takes one row per statement.** A duplicate in a multi-row `VALUES` would refuse every row of it, where the other dialects skip only the duplicate, so several rows with `orIgnore()` throw `OrmException` at compile time.
 - **An ignored duplicate leaves the transaction usable.** orm-mssql runs with `XACT_ABORT OFF`: tedious sets it at login, and a `SET XACT_ABORT ON` sent through the driver ends with its own statement. On a connection that does run with `XACT_ABORT ON`, the duplicate dooms the transaction: the insert fails with error 3998 and the transaction is already rolled back.
 - **`orIgnore()` with `onDuplicate()` compiles the `MERGE`.** The upsert decides what a conflict does, and `orIgnore()` has no effect.
-- **Any unique key counts, and identities are spent.** A duplicate under any unique constraint or index of the table is ignored, not only the one the caller had in mind. A duplicate key that a trigger raises in another table is not ignored: the insert fails. A refused insert still uses up an `IDENTITY` value. A model inserted with `InsertOrIgnore` whose row was ignored gets `0` as its key.
+- **Any unique key counts, and identities are spent.** A duplicate under any unique constraint or index of the table is ignored, not only the one the caller had in mind. A duplicate key that a trigger raises in another table is not ignored: the insert fails. A refused insert still uses up an `IDENTITY` value. A model inserted with `InsertOrIgnore` whose row was ignored keeps an empty key.
 - **`InsertBehaviour.InsertOrReplace` throws** `OrmException('mssql insert or replace is not supported')` at compile time. Use `InsertBehaviour.InsertOrUpdate`.
 - **`MERGE` matches on every unique column**, joined with `AND`, against the inserted values. It works on a builder query without a model: `driver.insert().into('t').values({...}).onDuplicate('Email').update(['Name'])`.
-- **`SCOPE_IDENTITY()` is `NULL` after an update.** When `MERGE` updates, the identity row holds `ID: null`, and `MsSqlServerResponseMapper` reports `LastInsertId: 0`.
+- **`SCOPE_IDENTITY()` after a `MERGE` that updated is not reliable.** On a fresh session it is `NULL`; on a pooled session that inserted before, it can be the identity of that earlier insert, in another table. `LastInsertId` of an upsert is therefore no key, and a model upserted with `InsertOrUpdate` whose row carries no key keeps an empty key.
 - **Large batches are split.** `MaxBindings` is `2000` and `MaxInsertRows` `1000`, so a multi-row insert becomes several statements of at most 1000 rows and 2000 parameters, run in one transaction.
 
 ## Best practices

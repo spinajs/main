@@ -73,7 +73,7 @@ export class AppConfiguration extends FrameworkConfiguration {
 | Driver string | `orm-driver-mssql` |
 | `ServerResponseMapper` | `MsSqlServerResponseMapper`, reads `SCOPE_IDENTITY()` |
 | `RETURNING` | Not supported: `returning()` throws `NotSupported` |
-| Batch key backfill | Not supported (`insertIdIsFirstOfBatch: false`) |
+| Batch key backfill | Not supported: a multi-row insert reports no keys (see [Inserts and upserts](04-inserts-and-upserts.md)) |
 | Batch limits | `MaxBindings` `2000`, `MaxInsertRows` `1000`: a larger insert is split into several statements |
 | Long `whereIn()` | More than 200 strings or numbers bind as one JSON parameter read with `OPENJSON(?)` |
 | `driver.now()` | `SYSDATETIMEOFFSET()` |

@@ -12,6 +12,9 @@ import type { Constructor, IContainer } from '@spinajs/di';
 import type { ModelBase } from './model.js';
 import { MethodNotImplemented } from '@spinajs/exceptions';
 import { columnToDb } from './column-values.js';
+import type { InsertQueryBuilder } from './builders/insert.js';
+import { insertDescriptor, returningRowKeys } from './inserted-keys.js';
+import { pkColumns } from './primary-keys.js';
 import type { Relation } from './relation-objects.js';
 import type { Lazy } from '@spinajs/util';
 import type { AggregateValue, ColumnName, ColumnRef, DeclaredColumn, LiteralColumn, ColumnTypeOf, Head, MinMaxValue, StrictAliasNarrowed, Narrowed, PickColumns, PopulateName, PopulatePath, PopulateTree, Project, RelationTarget, Reproject, SourceRow, StrictNarrowed, WhereCatchAllColumn, WhereColumn, WhereOperator, WhereValue, WithPopulated } from './typing.js';
@@ -53,26 +56,6 @@ export interface ISupportedFeature {
 
   /** Can this dialect echo inserted rows back via RETURNING / OUTPUT on a plain INSERT? */
   insertReturning: boolean;
-
-  /**
-   * Does the identity value reported after a multi-row `INSERT ... VALUES` name the key of the
-   * FIRST row of that statement, with the remaining rows following contiguously?
-   *
-   * MySQL: **true**. InnoDB treats a statement whose row count is known before execution — every
-   * `INSERT ... VALUES (…), (…)` the builder can produce — as a *simple insert*, reserves one
-   * contiguous block of auto-increment values under a short mutex, and `LAST_INSERT_ID()` reports
-   * the first of them. This holds under `innodb_autoinc_lock_mode = 2`, the MySQL 8 default; the
-   * documented "values may not be contiguous" caveat is about *bulk* inserts (`INSERT … SELECT`,
-   * row count unknown) and about mixed-mode inserts where some rows carry an explicit key.
-   *
-   * MSSQL: **false**. `SCOPE_IDENTITY()` returns the LAST identity generated in the scope.
-   * SQLite: **false**. `sqlite3_last_insert_rowid()` is likewise the last row, not the first —
-   * SQLite gets its keys from RETURNING instead.
-   *
-   * Optional and defaulting to false, so a custom driver that does not set it simply opts out of
-   * the batch key backfill rather than getting wrong keys.
-   */
-  insertIdIsFirstOfBatch?: boolean;
 
   /** Can two outermost transactions be open at once? `false` makes `OrmDriver.transaction()` queue them. Unset means true. */
   concurrentTransactions?: boolean;
@@ -192,6 +175,29 @@ export class ServerResponseMapper {
    */
   public read(_response: any, _pkNames?: string[]): DbServerResponse {
     throw new MethodNotImplemented(`no ServerResponseMapper is registered for this connection. Every driver must register one: container.register(MyMapper).as(ServerResponseMapper)`);
+  }
+
+  /**
+   * The primary key of every row this insert wrote, in insert order, as one object per row
+   * (primary key column name -> value); undefined when this dialect cannot tell.
+   *
+   * All or nothing: one entry per row of `insert.Values`, never a partial list. By default the
+   * keys {@link returnedKeys} gives; a connection package whose dialect reports keys another way
+   * overrides it.
+   *
+   * @param response - whatever the driver's executeOnDb resolved with, as {@link read} takes it
+   * @param insert - the executed insert; one without a model has no known keys
+   */
+  public insertedKeys(response: unknown, insert: InsertQueryBuilder): Array<Record<string, unknown>> | undefined {
+    return this.returnedKeys(response, insert);
+  }
+
+  /** The keys in the RETURNING rows of this insert, when there is one whole key per inserted row. */
+  protected returnedKeys(response: unknown, insert: InsertQueryBuilder): Array<Record<string, unknown>> | undefined {
+    const descriptor = insertDescriptor(insert);
+    if (!descriptor) return undefined;
+    const pk = pkColumns(descriptor);
+    return returningRowKeys(this.read(response, pk), insert.Values.length, pk);
   }
 }
 

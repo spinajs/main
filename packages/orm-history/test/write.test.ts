@@ -6,7 +6,9 @@ import { MemoryAuditStore } from '@spinajs/audit/testing';
 import { rowsOf } from '@spinajs/audit-orm';
 import { Archived, Column, DeleteQueryBuilder, Hidden, InsertBehaviour, InsertQueryBuilder, Json, JsonValueConverter, SoftDelete, Uuid, createQuery, extractDecoratorPropertyDescriptor } from '@spinajs/orm';
 import type { IModelDescriptor } from '@spinajs/orm';
-import { HistoryConfigError, HistoryWriteError, LOST_SUBJECT_ID, historySpecOf, registerHistory, toHistoryValue } from '../src/index.js';
+import { LOST_SUBJECT_ID, toHistoryValue } from '../src/encode.js';
+import { HistoryConfigError, HistoryWriteError, registerHistory } from '../src/index.js';
+import { historySpecOf } from '../src/registry.js';
 import { who } from './support/audit.js';
 import { HistoryDb, applyDecorator } from './support/db.js';
 

@@ -21,7 +21,7 @@
 | `QueryContext` | `executeOnDb()` resolves with |
 | --- | --- |
 | `Update`, `Delete` | `{ RowsAffected }` from `OkPacket.affectedRows` |
-| `Insert`, `Upsert` | `{ RowsAffected, LastInsertId, Returning: [] }` from `OkPacket.affectedRows` and `OkPacket.insertId` |
+| `Insert`, `Upsert` | `{ RowsAffected, LastInsertId, Returning: [], AutoIncrementStep }` from `OkPacket.affectedRows`, `OkPacket.insertId` and the connection's `auto_increment_increment` when known ([Inserts and generated keys](04-inserts-and-generated-keys.md#the-step-of-a-connection)) |
 | anything else (`Select`, `Schema`, `Transaction`, ...) | the raw `mysql2` result: the row array for a select |
 
 ```mermaid
@@ -149,6 +149,7 @@ export class ShopConfiguration extends FrameworkConfiguration {
 | MySQL driver | `'orm-driver-mysql'` and `MySqlOrmDriver`; `@NewInstance()`, one instance per connection entry, resolved by `Orm` at boot from `Driver` | `MySqlOrmDriver` | `MySqlSSHOrmDriver` (`'orm-driver-mysql-ssh'`, see [SSH tunnel](02-ssh-tunnel.md)) | Subclass with `@Injectable('<string>') @NewInstance()`. Use a new string for chosen connections, or `'orm-driver-mysql'` to replace it everywhere. Register before `Orm` resolves. |
 | Connection setup | `poolConfig()` (protected), `connect()` (public) | `poolConfig()` maps the keys above; `connect()` opens and proves the pool | | Override `poolConfig()` to compute `mysql2` options that configuration cannot hold, eg. a CA read from a file; spread `super.poolConfig()` to keep the `timezone` of `TimeZone`. Both connect paths use it, `MySqlSSHOrmDriver` included. Override `connect()` only to change how the pool is opened; call `setState(ConnectionState.Connected)` when the link is proven. |
 | Session zone | `pinSessionZone(pool)`, `acquire(done, pool?)` (protected) | `SET time_zone` per new connection unless `TimeZone` is `SYSTEM`; `acquire()` waits for it and destroys a connection on which it failed | | `openPool()` calls both. A pool built without `pinSessionZone()` hands out connections in the server's zone, whatever `TimeZone` says. |
+| Auto-increment step | `trackAutoIncrementStep(pool)` (protected) | one `SET` per new connection that turns on the session tracker for `auto_increment_increment`; a failure leaves the step unknown and the connection usable | | `openPool()` calls it. A pool built without it reports no keys for multi-row inserts. See [The step of a connection](04-inserts-and-generated-keys.md#the-step-of-a-connection). |
 | Error mapping | `mapMySqlError(err, driver, query, bindings)` (exported function) | the table in [Errors](#errors) | | Not a DI service. Catch the ORM errors instead; override `executeOnDb()` only to map more `errno` values. |
 | Retry policy | `isRetryableError(err)` (protected) | shared codes, `fatal` errors, never inside a transaction | | Override, call `super.isRetryableError(err)` first so the transaction guard stays. |
 | Pool gauges | `poolMetrics()` (public) | reads `mysql2`'s internal `_allConnections`, `_freeConnections`, `_connectionQueue`; zeros when they are absent | | Override when you swap the pool implementation. Must never throw. |

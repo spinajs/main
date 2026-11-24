@@ -17,7 +17,7 @@ npm install @spinajs/orm @spinajs/orm-mysql
 | [MySQL driver](01-mysql-driver.md) | Connection pool, session time zone (`TimeZone`), statement execution, error mapping to `UniqueViolation` / `ConstraintViolation`, `driver.now()`, retries, health probe, pool metrics; how to override `connect()` and the retry policy. |
 | [SSH tunnel](02-ssh-tunnel.md) | `MySqlSSHOrmDriver`: the pool over a forwarded SSH channel, one forwarded channel per pooled connection. |
 | [Transactions](03-transactions.md) | One pooled connection per transaction, savepoints, all four isolation levels, no retries inside. |
-| [Inserts and generated keys](04-inserts-and-generated-keys.md) | `LAST_INSERT_ID()`, contiguous batch keys, `INSERT IGNORE`, `REPLACE`, `ON DUPLICATE KEY UPDATE`, the response mapper. |
+| [Inserts and generated keys](04-inserts-and-generated-keys.md) | `LAST_INSERT_ID()`, which keys `INSERT`, `INSERT IGNORE`, `REPLACE` and `ON DUPLICATE KEY UPDATE` report, batch keys and the `auto_increment_increment` step, the response mapper. |
 | [Table reflection](05-table-reflection.md) | `tableInfo()`, `parseColumnDefault()`, `ResponseSchemaTypes`, the table-exists probe. |
 | [Schema, views and events](06-schema-views-and-events.md) | Column types (`DATETIME(3)`, `TIMESTAMP(3)`), `ALTER TABLE`, table locks, views, scheduled events, non-transactional DDL. |
 | [Set membership and literal quoting](07-set-membership-and-literals.md) | `FIND_IN_SET`, backslash-escaped literals, backtick identifiers, and `sql_mode` variants. |
@@ -67,7 +67,7 @@ export async function bootstrap(): Promise<Orm> {
 | Behaviour | MySQL |
 | --- | --- |
 | `RETURNING` | not supported; `returning()` throws `NotSupported` |
-| Batch insert keys | contiguous from `LAST_INSERT_ID()`, under six guards |
+| Batch insert keys | from `LAST_INSERT_ID()` by the session's `auto_increment_increment`, plain multi-row inserts only; otherwise none |
 | Isolation levels | all four |
 | Retries | transport failures only, never inside a transaction |
 | DDL in a transaction | no: implicit commit |

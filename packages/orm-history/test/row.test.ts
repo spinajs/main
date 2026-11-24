@@ -3,8 +3,10 @@ import chaiAsPromised from 'chai-as-promised';
 import 'mocha';
 import { DI } from '@spinajs/di';
 import { ModelBase, Primary } from '@spinajs/orm';
-import { History, HistoryConfigError, ModelHistorySource, OrmModelHistorySource, historyOf, registerHistory } from '../src/index.js';
+import { History, HistoryConfigError, historyOf, registerHistory } from '../src/index.js';
 import type { TrackedModel, TrackedRow } from '../src/index.js';
+import { OrmModelHistorySource } from '../src/read.js';
+import { ModelHistorySource } from '../src/types.js';
 import { HistoryDb } from './support/db.js';
 
 chai.use(chaiAsPromised);

@@ -20,7 +20,8 @@ import { MySqlDatetimeValueConverter } from './converters.js';
 import { IMySqlSessionZone, mySqlSessionZone } from './time-zone.js';
 import { mapMySqlError } from './errors.js';
 import { normalizeMysqlPlan } from './explain.js';
-import type { QueryPlan } from '@spinajs/orm';
+import type { InsertQueryBuilder, QueryPlan } from '@spinajs/orm';
+import { mysqlInsertedKeys, reportedAutoIncrementStep, TRACK_AUTO_INCREMENT_STEP } from './inserted-keys.js';
 
 export * from './errors.js';
 import { IIndexInfo, ITableColumnInfo, ITableTypeInfo } from './types.js';
@@ -91,6 +92,11 @@ export class MysqlServerResponseMapper extends ServerResponseMapper {
       Returning: [] as any[],
     };
   }
+
+  /** MySQL's own rule, in docs/orm-mysql/04-inserts-and-generated-keys.md. */
+  public insertedKeys(response: unknown, insert: InsertQueryBuilder): Array<Record<string, unknown>> | undefined {
+    return mysqlInsertedKeys(this.read(response), response, insert);
+  }
 }
 
 @SqlDialect(MYSQL_SQL_DIALECT)
@@ -101,6 +107,9 @@ export class MySqlOrmDriver extends SqlDriver {
 
   /** The `SET time_zone` outcome of each pooled connection, keyed by the connection. */
   private readonly sessionZones = new WeakMap<object, Promise<Error | null>>();
+
+  /** The `auto_increment_increment` of each pooled connection, kept current by the server's session tracker. */
+  private readonly autoIncrementSteps = new WeakMap<object, number>();
 
   private _sessionZone?: IMySqlSessionZone;
   // `_executionId` went with the per-driver query timing master centralised.
@@ -205,6 +214,8 @@ export class MySqlOrmDriver extends SqlDriver {
               return fail(err);
             }
 
+            self.noteAutoIncrementStep(queryable, results);
+
             switch (context) {
               case QueryContext.Update:
               case QueryContext.Delete:
@@ -218,6 +229,7 @@ export class MySqlOrmDriver extends SqlDriver {
                   RowsAffected: (results as any as OkPacket).affectedRows,
                   LastInsertId: (results as any as OkPacket).insertId,
                   Returning: [],
+                  AutoIncrementStep: self.autoIncrementSteps.get(queryable),
                 });
                 break;
               default:
@@ -307,11 +319,7 @@ export class MySqlOrmDriver extends SqlDriver {
   }
 
   public supportedFeatures(): ISupportedFeature {
-    // insertIdIsFirstOfBatch: a multi-row `INSERT ... VALUES` is a *simple insert* to InnoDB
-    // ( row count known before execution ), so it reserves one contiguous block of
-    // auto-increment values and LAST_INSERT_ID() reports the first of them. True even under
-    // innodb_autoinc_lock_mode = 2, the MySQL 8 default.
-    return { events: true, insertReturning: false, insertIdIsFirstOfBatch: true, nativeJson: true, concurrentTransactions: true, streaming: true };
+    return { events: true, insertReturning: false, nativeJson: true, concurrentTransactions: true, streaming: true };
   }
 
   /** The zone of this connection's datetimes, from its `TimeZone` option. */
@@ -482,6 +490,29 @@ export class MySqlOrmDriver extends SqlDriver {
   }
 
   /**
+   * A multi-row insert's keys advance by the session's `auto_increment_increment`, which any statement on the connection
+   * can change; the tracker reports each change in the OK packet of the statement that made it, so no insert has to ask.
+   */
+  protected trackAutoIncrementStep(pool: mysql.Pool): void {
+    pool.on('connection', (connection) => {
+      connection.query(TRACK_AUTO_INCREMENT_STEP, (err, results) => {
+        if (!err) {
+          this.noteAutoIncrementStep(connection, results);
+        }
+      });
+    });
+  }
+
+  private noteAutoIncrementStep(connection: object, results: unknown): void {
+    const step = reportedAutoIncrementStep(results);
+    if (step === null) {
+      this.autoIncrementSteps.delete(connection);
+    } else if (step !== undefined) {
+      this.autoIncrementSteps.set(connection, step);
+    }
+  }
+
+  /**
    * Takes a pooled connection once its session zone is set. A connection whose `SET time_zone` failed is destroyed
    * and the acquire fails: a statement on it would read and stamp datetimes in the server's zone.
    */
@@ -515,6 +546,7 @@ export class MySqlOrmDriver extends SqlDriver {
     return new Promise((resolve, reject) => {
       const pool = mysql.createPool(config);
       this.pinSessionZone(pool);
+      this.trackAutoIncrementStep(pool);
 
       this.acquire((err, connection) => {
         if (err) {

@@ -70,8 +70,8 @@ Every builder is lazy: awaiting it executes the query. See [Query builder](05-qu
 2. A `ModelBase` row is converted with `toSql()`; a plain object with `ObjectToSqlConverter`, which skips `undefined` properties.
 3. `behaviour` maps to `orIgnore()`, `onDuplicate().update(<every non-key column>)` or `orReplace()`. An array with any behaviour other than `InsertBehaviour.None` throws `OrmException`; an empty array resolves without a query.
 4. When the key is database-generated and the driver supports `RETURNING`, the insert asks for the key columns.
-5. After execution, generated keys are written back onto every `ModelBase` row: from `RETURNING`, from `LastInsertId` for a single row, or from `LastInsertId + index` when the driver reports `insertIdIsFirstOfBatch`. Every `ModelBase` row is then re-baselined with `takeSnapshot()`.
-6. A batch larger than one statement can carry is split by `InsertQueryBuilder.splitByDriverLimits()` and runs in one transaction; generated keys come back from every statement's `RETURNING`, in insert order. A driver without `RETURNING` leaves the keys of a split batch unset: `LastInsertId` names one statement, and the ids of several statements are not contiguous.
+5. After execution, generated keys are written back onto every `ModelBase` row that has no key, from what the connection's `ServerResponseMapper.insertedKeys()` reports: by default the `RETURNING` rows, otherwise the connection package's own rule (see [Primary key strategies](02-models.md#primary-key-strategies)). Every `ModelBase` row is then re-baselined with `takeSnapshot()`.
+6. A batch larger than one statement can carry is split by `InsertQueryBuilder.splitByDriverLimits()` and runs in one transaction; generated keys come back from every statement's `RETURNING`, in insert order. Without `RETURNING`, the keys of a split batch are whatever the connection package's `insertedKeys()` reports; the MySQL, MSSQL and SQLite packages report none.
 
 ### Instance members
 
@@ -166,7 +166,7 @@ its connections and `OrmConnectionMissing` (with `connection`) when no connectio
 | --- | --- | --- | --- |
 | `QueryScope` | Per-model builder extensions | none | Set `public static readonly _queryScopes` on the model. See [Scopes and builder extensions](16-scopes-and-builder-extensions.md). |
 | `MODEL_STATIC_MIXINS` | The static API bound onto each model | the exported object | Not replaceable per model; `Orm` binds it as-is. |
-| `ServerResponseMapper` | Reads the driver's insert response into `RowsAffected`, `LastInsertId`, `Returning` | registered by each driver | See [Architecture](12-architecture.md). |
+| `ServerResponseMapper` | Reads the driver's insert response into `RowsAffected`, `LastInsertId`, `Returning`, and reports the keys of the inserted rows (`insertedKeys`) | registered by each driver | See [Architecture](12-architecture.md). |
 
 ## Important behaviour
 

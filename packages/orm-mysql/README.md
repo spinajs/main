@@ -46,11 +46,13 @@ await DI.resolve(Orm);
 
 ## What is distinctive
 
-- **`insertIdIsFirstOfBatch: true`** — the only driver where it holds. For a *simple* insert
-  (`INSERT ... VALUES (...), (...)`, the only shape the builder produces) InnoDB reserves one
-  contiguous block of auto-increment values and `LAST_INSERT_ID()` reports the first, so a
-  multi-row insert's keys can be read as `LAST_INSERT_ID() + index`. The ORM applies six guards
-  before relying on it.
+- **Keys of inserted rows come from `LAST_INSERT_ID()`**, by the driver's own rule
+  (`MysqlServerResponseMapper.insertedKeys()`). For a plain multi-row `INSERT ... VALUES` InnoDB
+  reserves one block and reports its first value, so row k gets
+  `LAST_INSERT_ID() + k * auto_increment_increment`; the driver follows each connection's step
+  through the server's session tracker. `INSERT IGNORE`, `REPLACE` and `ON DUPLICATE KEY UPDATE`
+  report a key for a single row only when the OK packet proves which row was written. See
+  [Inserts and generated keys](../../docs/orm-mysql/04-inserts-and-generated-keys.md).
 - **No `RETURNING`** — `InsertQueryBuilder.returning()` throws `NotSupported` rather than
   silently doing nothing.
 - **Database events are supported**, and **all four isolation levels** are honoured.
