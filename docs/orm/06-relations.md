@@ -172,6 +172,7 @@ Relation (list) methods, from `IRelation` and the abstract `Relation` class:
 - `slice()`, `filter()`, `map()` and `splice()` on a relation return a plain `Array`, not a relation.
 - `OneToManyRelationList.sync()` deletes the target rows that point at the owner but are missing from the list. A `@SoftDelete` target is stamped instead. It does **not** read the orphan policy; only `save()` does.
 - `sync(callback)` applies `callback`, with the builder as `this`, to every update and delete statement it builds itself, after the statement is built and before it runs: the one-to-many orphan delete (the soft-delete stamp, an update, for a `@SoftDelete` target) and the many-to-many orphan delete of junction rows. It is not applied to the many-to-many select of existing links or to the inserts. A condition it adds narrows what the statement removes (see [Replace an order's tags](#replace-an-orders-tags)). `update()` takes no callback.
+  - The callback's conditions are one group, ANDed with the owner key and the kept members: `WHERE order_id = ? AND Id NOT IN (?) AND ( <the callback's conditions> )`. An `orWhere()` is an alternative inside that group, so the callback narrows what `sync()` removes and never widens it past the owner. The owner key and the kept members hold even when the callback removes or reorders the statement's where statements or changes their `Boolean` connector. A callback that adds no condition leaves the statement as it was.
   - The callback runs synchronously. When it throws, `sync()` rejects and its transaction rolls back, inserts included.
   - `this` is an `IRelationSyncStatement`: the where builder of the statement, over untyped rows because a many-to-many statement is on the junction model. Every `where` form type-checks there, `this.where('tag_id', tagId)` included. Methods only the delete or only the update builder has are not on it.
   - Packages add their builder methods to `IRelationSyncStatement` by declaration merging, as they do for the update and delete builders; `@spinajs/authz-orm` adds `this.accessible(permission)` there.
@@ -250,6 +251,19 @@ order.Lines.remove(cancelledLine);
 // Do: persist the change
 order.Lines.remove(cancelledLine);
 await order.Lines.sync();
+```
+
+```ts
+// Don't: expect an orWhere() to add rows to the orphan delete; the callback's conditions are one group ANDed
+// with the owner, so this removes item B only when its Qty is 9, and never an item of another order
+order.Items.remove((i) => i.Sku === 'B');
+await order.Items.sync(function () {
+  this.orWhere('Qty', 9);
+});
+
+// Do: say through the list what goes; a callback can only narrow it
+order.Items.remove((i) => i.Sku === 'B' || i.Qty === 9);
+await order.Items.sync();
 ```
 
 ```ts

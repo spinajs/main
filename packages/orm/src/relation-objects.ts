@@ -29,6 +29,30 @@ export function relationSyncOf(query: object): { readonly relation: string; read
 }
 
 /**
+ * Runs a `sync()` callback on the statement itself, so marks other packages put on it stay on it. The where statements
+ * the list built, and their connectors, are restored afterwards whatever the callback did to them; the ones it added become one
+ * group ANDed with them: the callback narrows what `sync()` reaches and cannot widen it past the owner.
+ */
+function applySyncCallback(statement: IRelationSyncStatement, callback?: (this: IRelationSyncStatement) => void): void {
+  if (!callback) {
+    return;
+  }
+
+  const own = [...statement.Statements];
+  const connectors = own.map((s) => s.Boolean);
+  callback.call(statement);
+  const added = statement.Statements.filter((s) => !own.includes(s));
+  own.forEach((s, i) => (s.Boolean = connectors[i]));
+  statement.Statements.splice(0, statement.Statements.length, ...own);
+
+  if (added.length !== 0) {
+    statement.andWhere(function () {
+      this.Statements.push(...added);
+    });
+  }
+}
+
+/**
  * Builds the equality used by every keyed set operation.
  *
  * Same reference is always equal. Two DIFFERENT rows are equal only when every key column is
@@ -554,7 +578,7 @@ export class ManyToManyRelationList<T extends ModelBase, O extends ModelBase> ex
       query.whereNotIn(this.Relation.JunctionModelTargetModelFKey_Name!, toDelete);
     }
 
-    callback?.call(query);
+    applySyncCallback(query, callback);
     await query;
   }
 
@@ -758,7 +782,7 @@ export class OneToManyRelationList<T extends ModelBase, O extends ModelBase> ext
         whereNotAnyPk(update, this.TargetModelDescriptor!, toKeep);
       }
 
-      callback?.call(update);
+      applySyncCallback(update, callback);
       await update;
       return;
     }
@@ -770,7 +794,7 @@ export class OneToManyRelationList<T extends ModelBase, O extends ModelBase> ext
       whereNotAnyPk(query, this.TargetModelDescriptor!, toKeep);
     }
 
-    callback?.call(query);
+    applySyncCallback(query, callback);
     await query;
   }
 
