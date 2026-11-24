@@ -1,5 +1,4 @@
 import _ from 'lodash';
-import type { Constructor } from '@spinajs/di';
 import { columnToDb } from './column-values.js';
 import type { IModelDescriptor } from './interfaces.js';
 import type { ModelBase } from './model.js';
@@ -18,7 +17,7 @@ export interface IJunctionLink {
   junction?: ModelBase;
 }
 
-const autoKeyColumns = (descriptor: IModelDescriptor): string[] => pkColumns(descriptor).filter((c) => pkGeneration(descriptor, c) === 'auto');
+export const autoKeyColumns = (descriptor: IModelDescriptor): string[] => pkColumns(descriptor).filter((c) => pkGeneration(descriptor, c) === 'auto');
 
 /**
  * The row of a plain insert for one link: the junction model's own columns through its `toSql()`, then the two key
@@ -36,13 +35,12 @@ export function junctionRow(descriptor: IModelDescriptor, columns: IJunctionColu
 }
 
 /**
- * The columns a new junction model fills on construction ( defaults, `@CreatedAt`, client-side keys ), in their
+ * The columns `fresh`, a new junction model, fills on construction ( defaults, `@CreatedAt`, client-side keys ), in their
  * database form, for a link added without junction data. Read column by column, not through `toSql()`: its not-null
  * check refuses a column that the insert's middleware or the database fills, such as a tenant column. A column the new
  * model leaves empty is left out of the row.
  */
-export function constructedJunctionColumns(JunctionModel: Constructor<ModelBase>, descriptor: IModelDescriptor, columns: IJunctionColumns): Record<string, unknown> {
-  const fresh = new JunctionModel();
+export function constructedJunctionColumns(fresh: ModelBase, descriptor: IModelDescriptor, columns: IJunctionColumns): Record<string, unknown> {
   const managedForeignKeys = new Set([...descriptor.Relations.values()].map((r) => r.ForeignKey));
   const skipped = new Set([columns.sourceColumn, columns.targetColumn, ...autoKeyColumns(descriptor)]);
   const row: Record<string, unknown> = {};

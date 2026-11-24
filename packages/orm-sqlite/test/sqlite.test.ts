@@ -873,7 +873,7 @@ describe('Relation tests', function () {
     expect(result[0].Localisations[1].Metadata[0].Key).to.eq('meta 2');
   });
 
-  it('links a member through a junction model without a @BelongsTo to the owner', async () => {
+  it('links members through a junction model without a @BelongsTo to the owner, and points the one it declares', async () => {
     const db = await DI.resolve(Orm);
     await (await migrations()).up();
     await db.reloadTableInfo();
@@ -882,9 +882,14 @@ describe('Relation tests', function () {
     const offer = await Offer.where({ Id: 1 }).populate('Localisations').first();
     offer.Localisations.push(await Location.where({ Name: 'Loc 3' }).first());
 
+    await Location.insert({ Name: 'Loc 4', Network_id: 1 });
+    const loc4 = await Location.where({ Name: 'Loc 4' }).first();
+    offer.Localisations.add(loc4, new OfferLocation());
+
     await offer.Localisations.sync();
 
-    expect((await OfferLocation.where('Offer_id', 1)).map((l: any) => l.Localisation as number).sort()).to.deep.eq([1, 2, 3]);
+    expect((await OfferLocation.where('Offer_id', 1)).map((l: any) => l.Localisation as number).sort()).to.deep.eq([1, 2, 3, 4]);
+    expect(offer.Localisations.junction<OfferLocation>(loc4)!.Location.Value).to.eq(loc4);
   });
 });
 

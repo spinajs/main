@@ -5,7 +5,8 @@ import { DI, NewInstance } from '@spinajs/di';
 import type { Class, Constructor, ResolveResult } from '@spinajs/di';
 import { DateTime } from 'luxon';
 import { createQuery, DeleteQueryBuilder, InsertQueryBuilder, SelectQueryBuilder, UpdateQueryBuilder } from './builders.js';
-import { constructedJunctionColumns, junctionRow, settleJunction } from './junction-rows.js';
+import { autoKeyColumns, constructedJunctionColumns, junctionRow, settleJunction } from './junction-rows.js';
+import type { IJunctionColumns, IJunctionLink } from './junction-rows.js';
 import type { QueryBuilder } from './builders.js';
 import type { ModelBase } from './model.js';
 import type { Orm } from './orm.js';
@@ -13,7 +14,8 @@ import _ from 'lodash';
 import type { OrmDriver } from './driver.js';
 import { extractModelDescriptor } from './descriptor.js';
 import { hydratedValue } from './column-values.js';
-import { isCompositePk, pkColumns, pkGeneration, pkKeyStringFor, pkValueOf, setPkValue, whereNotAnyPk } from './primary-keys.js';
+import { assertAssignedKeys, generateClientSideKeys, isCompositePk, pkColumns, pkKeyStringFor, pkValueOf, setPkValue, whereNotAnyPk } from './primary-keys.js';
+import { startVersion, startVersionOf } from './versioning.js';
 import { OrmException } from './exceptions.js';
 
 const relationSyncs = new WeakMap<object, { readonly relation: string; readonly owner: Constructor<ModelBase> }>();
@@ -584,14 +586,17 @@ export class ManyToManyRelationList<T extends ModelBase, O extends ModelBase> ex
     });
   }
 
+  protected findJunctionRelation(model: Constructor<ModelBase> | ForwardRefFunction): IRelationDescriptor | undefined {
+    return Array.from(this.junctionModelDescriptor?.Relations.values() ?? []).find((r) => r.TargetModel === model);
+  }
+
   /**
    * Finds the junction model's relation pointing at `model`, by constructor identity — the
    * junction's PROPERTY name is the author's choice ( `Order`, `Tag`, … ) and has nothing to
    * do with the target class name.
    */
   protected junctionRelationFor(model: Constructor<ModelBase> | ForwardRefFunction): IRelationDescriptor {
-    const relations = Array.from(this.junctionModelDescriptor?.Relations.values() ?? []);
-    const found = relations.find((r) => r.TargetModel === model);
+    const found = this.findJunctionRelation(model);
 
     if (!found) {
       throw new OrmException(`junction model ${this.junctionModelDescriptor?.Name} of relation ${this.Relation.Name} declares no relation targeting ${(model as any)?.name}; add a @BelongsTo for it`);
@@ -634,24 +639,63 @@ export class ManyToManyRelationList<T extends ModelBase, O extends ModelBase> ex
     const columns = { sourceColumn: this.Relation.JunctionModelSourceModelFKey_Name!, targetColumn: this.Relation.JunctionModelTargetModelFKey_Name! };
     const link = { ownerKey: this.OwnerJoinValue as unknown, targetKey: member.PrimaryKeyValue as unknown, junction: this.junctions.get(member) };
 
+    const undoVersion = link.junction ? this.prepareJunction(link.junction, member) : () => undefined;
+    const row = link.junction ? junctionRow(descriptor, columns, link) : this.constructedLinkRow(columns, link);
+
     const query = this.junctionQuery(InsertQueryBuilder);
-    const keyColumns = pkColumns(descriptor);
-    const needsKeyBack = link.junction !== undefined && keyColumns.some((c) => pkGeneration(descriptor, c) === 'auto');
+    const needsKeyBack = link.junction !== undefined && autoKeyColumns(descriptor).length !== 0;
     if (needsKeyBack && query.Driver.supportedFeatures().insertReturning) {
-      query.returning(keyColumns);
+      query.returning(pkColumns(descriptor));
     }
 
-    // Unlike save(), which writes the two keys alone, a link without junction data gets what a new junction model is constructed with.
-    const constructed = link.junction ? {} : constructedJunctionColumns(this.Relation.JunctionModel!, descriptor, columns);
-    const response: unknown = await query.values({ ...constructed, ...junctionRow(descriptor, columns, link) });
+    const response: unknown = await query.values(row).catch((err: unknown) => {
+      undoVersion();
+      throw err;
+    });
 
     if (link.junction) {
+      // A connection that reports no key leaves the junction keyless, as `ModelBase.insert()` does.
       const key = needsKeyBack ? query.Container.resolve(ServerResponseMapper).insertedKeys(response, query)?.[0] : undefined;
       if (key !== undefined) {
         setPkValue(link.junction, descriptor, pkValueOf(key, descriptor));
       }
       settleJunction(link.junction, columns, link);
     }
+  }
+
+  /**
+   * What `ModelBase.insert()` does to a model before it serialises it, the upsert left out: client-side keys, the
+   * assigned-key check, the junction's relations to both sides where it declares them, the version start. Returns the
+   * undo of the version start.
+   */
+  protected prepareJunction(junction: ModelBase, member: T): () => void {
+    const descriptor = this.junctionModelDescriptor!;
+    generateClientSideKeys(junction, descriptor);
+    assertAssignedKeys(junction, descriptor);
+
+    const sides: Array<[IRelationDescriptor | undefined, ModelBase]> = [
+      [this.findJunctionRelation(this.Owner.constructor as Constructor<ModelBase>), this.Owner],
+      [this.findJunctionRelation(member.constructor as Constructor<ModelBase>), member],
+    ];
+    for (const [relation, target] of sides) {
+      const single: unknown = relation ? Reflect.get(junction, relation.Name) : undefined;
+      if (single instanceof SingleRelation) {
+        single.Value = target;
+      }
+    }
+
+    return startVersion(junction);
+  }
+
+  /** Unlike `save()`, which writes the two keys alone, a link without junction data gets what a new junction model is constructed with. */
+  protected constructedLinkRow(columns: IJunctionColumns, link: IJunctionLink): Record<string, unknown> {
+    const descriptor = this.junctionModelDescriptor!;
+    const fresh = new this.Relation.JunctionModel!();
+    assertAssignedKeys(fresh, descriptor);
+
+    const row = { ...constructedJunctionColumns(fresh, descriptor, columns), ...junctionRow(descriptor, columns, link) };
+    startVersionOf(descriptor, row, true);
+    return row;
   }
 
   public async populate<Q extends typeof ModelBase>(callback?: (this: ISelectQueryBuilder<T[]> & Q['_queryScopes']) => void) {

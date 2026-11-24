@@ -245,6 +245,7 @@ describe('.acrossTenants()', function () {
         a1.Tags.add(fresh, { note: 'urgent', tenant_id: 't1' });
         await inTenant('t1', () => a1.Tags.sync());
         expect(await links()).to.deep.eq(['t1 A-1 fresh', 't1 A-1 kept', 't2 A-1 dropped', 't2 A-1 kept', 't2 B-1 dropped']);
+        expect((await everywhere(() => InvoiceTag.where('tag_id', fresh.Id))).map((row) => row.note)).to.deep.eq(['urgent']);
       });
 
       it('needs the tenant column on the junction data inside runAcrossTenants()', async () => {

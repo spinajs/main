@@ -4,7 +4,8 @@ import { DI } from '@spinajs/di';
 import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 import 'mocha';
-import { DeleteQueryBuilder, InsertQueryBuilder, QueryBuilder, QueryMiddleware, SelectQueryBuilder, UpdateQueryBuilder, extractModelDescriptor, relationSyncOf } from '@spinajs/orm';
+import { DeleteQueryBuilder, InsertQueryBuilder, OrmException, QueryBuilder, QueryMiddleware, SelectQueryBuilder, UpdateQueryBuilder, extractModelDescriptor, relationSyncOf } from '@spinajs/orm';
+import type { IModelDescriptor } from '@spinajs/orm';
 import { bootUow, registerUowConnection, rows, UowOrder, UowOrderItem, UowOrderTag, UowTag } from './uowFixture.js';
 import { SdOwner } from './models/sd/SdOwner.js';
 import { SdItem } from './models/sd/SdItem.js';
@@ -215,6 +216,72 @@ describe('Relation set operations against the database', function () {
         expect(order.Tags.junction(green)).to.eq(undefined);
       });
     }
+
+    /** Runs `fn` with the junction descriptor changed as `patch` says, restored afterwards. */
+    async function withJunctionDescriptor<T>(patch: (descriptor: IModelDescriptor) => () => void, fn: () => Promise<T>): Promise<T> {
+      const restore = patch(extractModelDescriptor(UowOrderTag)!);
+      try {
+        return await fn();
+      } finally {
+        restore();
+      }
+    }
+
+    const versionedOnNote = (descriptor: IModelDescriptor) => {
+      descriptor.VersionColumn = 'Note';
+      return () => Reflect.deleteProperty(descriptor, 'VersionColumn');
+    };
+
+    const assignedKey = (descriptor: IModelDescriptor) => {
+      const previous = descriptor.PrimaryKeyGeneration;
+      descriptor.PrimaryKeyGeneration = new Map([['Id', 'assigned' as const]]);
+      return () => {
+        descriptor.PrimaryKeyGeneration = previous;
+      };
+    };
+
+    it('starts the version of a @Version junction model given as data, on the row and on the model the list holds', async () => {
+      const { order, green } = await orderWithGreen();
+      order.Tags.add(green, {});
+
+      await withJunctionDescriptor(versionedOnNote, () => order.Tags.update());
+
+      // Note has text affinity in SQLite, so the version reads back as text.
+      expect((await linkOf(3))!.Note).to.eq('1');
+      expect(order.Tags.junction<UowOrderTag>(green)!.Note).to.eq(1);
+    });
+
+    it('starts the version of a @Version junction model on the row of a member added without junction data', async () => {
+      const { order, green } = await orderWithGreen();
+      order.Tags.push(green);
+
+      await withJunctionDescriptor(versionedOnNote, () => order.Tags.sync());
+
+      expect((await linkOf(3))!.Note).to.eq('1');
+    });
+
+    it('refuses a junction model with an assigned key and no value before the database', async () => {
+      const { order, green } = await orderWithGreen();
+
+      for (const add of [() => order.Tags.add(green, { Note: 'given' }), () => order.Tags.push(green)]) {
+        order.Tags.remove(green);
+        add();
+        await expect(withJunctionDescriptor(assignedKey, () => order.Tags.update())).to.be.rejectedWith(OrmException, 'must be assigned before insert');
+      }
+      expect(await linkOf(3)).to.eq(undefined);
+    });
+
+    it('points the relations the junction model declares at the owner and the member', async () => {
+      const { order, green } = await orderWithGreen();
+      order.Tags.add(green, { Note: 'linked' });
+
+      await order.Tags.update();
+
+      const junction = order.Tags.junction<UowOrderTag>(green)!;
+      expect(junction.Order.Value).to.eq(order);
+      expect(junction.Tag.Value).to.eq(green);
+      expect(junction.IsDirty).to.eq(false);
+    });
 
     it('writes the two keys alone for a member added without junction data through save()', async () => {
       const { order, green } = await orderWithGreen();
