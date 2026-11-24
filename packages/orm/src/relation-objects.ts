@@ -1,6 +1,6 @@
 /* eslint-disable prettier/prettier */
 import { InsertBehaviour } from './interfaces.js';
-import type { IRelationDescriptor, IModelDescriptor, ForwardRefFunction, IRelation, ISelectQueryBuilder, QueryScope } from './interfaces.js';
+import type { IRelationDescriptor, IModelDescriptor, ForwardRefFunction, IRelation, ISelectQueryBuilder, IRelationSyncStatement, QueryScope } from './interfaces.js';
 import { DI, NewInstance } from '@spinajs/di';
 import type { Class, Constructor, ResolveResult } from '@spinajs/di';
 import { DateTime } from 'luxon';
@@ -13,6 +13,16 @@ import type { OrmDriver } from './driver.js';
 import { extractModelDescriptor } from './descriptor.js';
 import { isCompositePk, pkColumns, pkKeyStringFor, pkValueOf, whereNotAnyPk } from './primary-keys.js';
 import { OrmException } from './exceptions.js';
+
+const relationSyncs = new WeakMap<object, { readonly relation: string; readonly owner: Constructor<ModelBase> }>();
+
+/**
+ * What built this statement, when a relation list's `sync()` or `update()` did. It answers in the `sync()` callback and
+ * from `beforeQueryExecution` on, not in `afterQueryCreation`: that hook runs inside the builder's constructor.
+ */
+export function relationSyncOf(query: object): { readonly relation: string; readonly owner: Constructor<ModelBase> } | undefined {
+  return relationSyncs.get(query);
+}
 
 /** A raw row's column value as the hydrator would set it on the model, so it compares with a model's key. */
 function hydratedValue(descriptor: IModelDescriptor, column: string, row: Record<string, unknown>): unknown {
@@ -186,6 +196,12 @@ export abstract class Relation<R extends ModelBase<R>, O extends ModelBase<O>, Q
     return key ? (this.Owner as any)[key] : this.Owner.PrimaryKeyValue;
   }
 
+  /** Makes `relationSyncOf` name this relation for a statement the list built itself. */
+  protected ownStatement<B extends object>(query: B): B {
+    relationSyncs.set(query, Object.freeze({ relation: this.Relation.Name, owner: this.Owner.constructor as Constructor<ModelBase> }));
+    return query;
+  }
+
   /**
    * Removes all members matching the predicate. In-memory only — the database changes on the
    * next `sync()` ( orphan delete ) or `save()` ( orphan policy ).
@@ -256,10 +272,10 @@ export abstract class Relation<R extends ModelBase<R>, O extends ModelBase<O>, Q
    * Synchronize relation data with db
    * NOTE: it removes data from db that are not in relation
    *
-   * @param obj - object to add
-   * @param mode - insert mode
+   * @param callback - applied, with the builder as `this`, to every update and delete statement the call builds itself
+   *        ( the orphan delete or soft-delete stamp ), before it runs; not to the select of existing links or the inserts
    */
-  public abstract sync(): Promise<void>;
+  public abstract sync(callback?: (this: IRelationSyncStatement) => void): Promise<void>;
 
   /**
    * Updates or ads data to relation
@@ -523,14 +539,14 @@ export class ManyToManyRelationList<T extends ModelBase, O extends ModelBase> ex
   * @param data relation data
   * @returns
   */
-  protected async _dbDiff(data: T[]) {
+  protected async _dbDiff(data: T[], callback?: (this: IRelationSyncStatement) => void) {
     // A junction table carries exactly ONE foreign key column per side, so it cannot address
     // a composite target key. Fail loudly rather than delete the wrong rows.
     if (isCompositePk(this.TargetModelDescriptor!)) {
       throw new OrmException(`many-to-many relation ${this.Relation.Name} targets ${this.TargetModelDescriptor!.Name}, which has a composite primary key; a junction table carries one foreign key column per side and cannot address it`);
     }
 
-    const query = this.junctionQuery(DeleteQueryBuilder<unknown>).where(this.Relation.JunctionModelSourceModelFKey_Name!, this.OwnerJoinValue);
+    const query = this.ownStatement(this.junctionQuery(DeleteQueryBuilder<unknown>)).where(this.Relation.JunctionModelSourceModelFKey_Name!, this.OwnerJoinValue);
 
     // if we have data in relation, we need to exclude them from delete query.
     // Explicit null/undefined checks — a primary key of 0 or '' is a real key, and dropping
@@ -540,6 +556,7 @@ export class ManyToManyRelationList<T extends ModelBase, O extends ModelBase> ex
       query.whereNotIn(this.Relation.JunctionModelTargetModelFKey_Name!, toDelete);
     }
 
+    callback?.call(query);
     await query;
   }
 
@@ -550,11 +567,13 @@ export class ManyToManyRelationList<T extends ModelBase, O extends ModelBase> ex
     *
     *  One transaction: the junction upserts and the orphan delete used to be independent
     *  statements. Nested inside a caller's transaction this takes a savepoint.
+    *
+    * @param callback - applied, with the builder as `this`, to the orphan delete of junction rows before it runs
     */
-  public async sync() {
+  public async sync(callback?: (this: IRelationSyncStatement) => void) {
     await this.Driver.transaction(async () => {
       await this._update();
-      await this._dbDiff(this);
+      await this._dbDiff(this, callback);
     });
   }
 
@@ -597,7 +616,7 @@ export class ManyToManyRelationList<T extends ModelBase, O extends ModelBase> ex
     const sourceModelRelation = this.junctionRelationFor(this.Owner.constructor as Constructor<ModelBase>);
 
     // Soft-deleted and archived junction rows count as links too, so they are not inserted a second time.
-    const existingQuery = this.junctionQuery(SelectQueryBuilder<unknown>).withDeleted().withArchived().onPrimary().where(this.Relation.JunctionModelSourceModelFKey_Name!, this.OwnerJoinValue);
+    const existingQuery = this.ownStatement(this.junctionQuery(SelectQueryBuilder<unknown>)).withDeleted().withArchived().onPrimary().where(this.Relation.JunctionModelSourceModelFKey_Name!, this.OwnerJoinValue);
     const existingRows = (await existingQuery.asRaw<Record<string, unknown>[]>()) ?? [];
     const linked = new Set(existingRows.map((r) => hydratedValue(this.junctionModelDescriptor!, this.Relation.JunctionModelTargetModelFKey_Name!, r)).filter((v) => v !== null && v !== undefined));
 
@@ -658,7 +677,7 @@ export class OneToManyRelationList<T extends ModelBase, O extends ModelBase> ext
    * @param data relation data
    * @returns
    */
-  protected async _dbDiff(data: T[]) {
+  protected async _dbDiff(data: T[], callback?: (this: IRelationSyncStatement) => void) {
     // A composite key is a tuple and always truthy, so filter on the key COLUMNS being set
     // rather than on the tuple itself.
     const keys = pkColumns(this.TargetModelDescriptor!);
@@ -671,8 +690,7 @@ export class OneToManyRelationList<T extends ModelBase, O extends ModelBase> ext
     // through a model-aware builder so the DateTime passes the column's converter.
     const softDeleteColumn = this.TargetModelDescriptor!.SoftDelete?.DeletedAt;
     if (softDeleteColumn) {
-      const { query } = createQuery(this.Relation.TargetModel, UpdateQueryBuilder);
-      const update = (query as UpdateQueryBuilder<unknown>).update({ [softDeleteColumn]: DateTime.utc() });
+      const update = this.ownStatement(createQuery(this.Relation.TargetModel, UpdateQueryBuilder<unknown>).query).update({ [softDeleteColumn]: DateTime.utc() });
       update.where(this.Relation.ForeignKey, this.OwnerJoinValue);
       // Rows stamped by an earlier sync keep their original deletion time.
       update.whereNull(softDeleteColumn);
@@ -681,17 +699,19 @@ export class OneToManyRelationList<T extends ModelBase, O extends ModelBase> ext
         whereNotAnyPk(update, this.TargetModelDescriptor!, toKeep);
       }
 
+      callback?.call(update);
       await update;
       return;
     }
 
-    const query = createQuery(this.Relation.TargetModel, DeleteQueryBuilder<unknown>).query.where(this.Relation.ForeignKey, this.OwnerJoinValue);
+    const query = this.ownStatement(createQuery(this.Relation.TargetModel, DeleteQueryBuilder<unknown>).query).where(this.Relation.ForeignKey, this.OwnerJoinValue);
 
     // if we have data in relation, we need to exclude them from the delete query
     if (toKeep.length !== 0 && keys.length !== 0) {
       whereNotAnyPk(query, this.TargetModelDescriptor!, toKeep);
     }
 
+    callback?.call(query);
     await query;
   }
 
@@ -739,11 +759,14 @@ export class OneToManyRelationList<T extends ModelBase, O extends ModelBase> ext
    *  independent statement, so a throw between it and the writes left the database
    *  inconsistent with the in-memory graph. Nested inside a caller's transaction this takes
    *  a savepoint rather than opening a second one.
+   *
+   * @param callback - applied, with the builder as `this`, to the orphan delete ( the soft-delete stamp for a
+   *        `@SoftDelete` target ) before it runs
    */
-  public async sync() {
+  public async sync(callback?: (this: IRelationSyncStatement) => void) {
     await this.Driver.transaction(async () => {
       await this._update();
-      await this._dbDiff(this);
+      await this._dbDiff(this, callback);
     });
   }
 

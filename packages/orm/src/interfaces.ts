@@ -122,10 +122,10 @@ export interface IRelation<R extends ModelBase<R>, O extends ModelBase<O>> exten
    * Synchronize relation data with db
    * NOTE: it removes data from db that are not in relation
    *
-   * @param obj - object to add
-   * @param mode - insert mode
+   * @param callback - applied, with the builder as `this`, to every update and delete statement the call builds itself
+   *        ( the orphan delete or soft-delete stamp ), before it runs; not to the select of existing links or the inserts
    */
-  sync(): Promise<void>;
+  sync(callback?: (this: IRelationSyncStatement) => void): Promise<void>;
 
   /**
    * Calculates the intersection between this relation and the provided dataset. Pure
@@ -1518,6 +1518,12 @@ export interface IUpdateQueryBuilder<T> extends IColumnsBuilder, IWhereBuilder<T
 
 /** @spinajs query delete */
 export interface IDeleteQueryBuilder<T> extends IWhereBuilder<T>, ILimitBuilder<T> { }
+
+/** The statement a relation list's `sync()` hands to its callback: its orphan delete or soft-delete stamp. Packages add methods to it by declaration merging, as they do for the update and delete builders. */
+export interface IRelationSyncStatement extends IWhereBuilder<unknown> {
+  // Keeps the interface non-empty (no-empty-object-type); never set.
+  readonly __relationSyncStatement?: never;
+}
 
 /** @spinajs query select */
 export interface ISelectQueryBuilder<T = unknown> extends ITypedColumnsBuilder<T>, ILimitBuilder<T>, IWhereBuilder<T>, IJoinBuilder, IWithRecursiveBuilder, IQueryBuilder, IBuilder<T> {
