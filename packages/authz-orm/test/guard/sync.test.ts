@@ -368,6 +368,38 @@ describe("authz-orm guard: a relation list's sync()", function () {
         expect(warn.firstCall.args[0]).to.deep.equal({ owner: PostModel.name, relation: kind.relation, model: kind.model().name, permission, left: 1 });
       });
 
+      it('.accessible(p) next to a condition group that keeps the denied orphan out of it: runs, the denied orphan stays', async () => {
+        env('test');
+        const permission = kind.permission;
+        await as(() =>
+          sync(false, function () {
+            this.accessible(permission);
+            this.where('flag', 'green').orWhere('flag', 'blue');
+          }),
+        );
+
+        expect(await kind.state()).to.deep.equal(kind.syncedKeepingRed);
+      });
+
+      it('.accessible(p) next to a condition group that reaches the denied orphan: AccessDenied after the write, rolled back', async () => {
+        env('test');
+        const executed = record(kind.model());
+        const permission = kind.permission;
+        const err = await as(() =>
+          settle(() =>
+            sync(false, function () {
+              this.accessible(permission);
+              this.where('flag', 'red').orWhere('flag', 'green');
+            }),
+          ),
+        );
+
+        expect(err).to.be.instanceOf(AccessDenied);
+        expect((err as Error).message).to.equal(`Access denied: ${permission} on ${kind.type} (no_access)`);
+        expect(await kind.state()).to.deep.equal(kind.before);
+        expect(executed).to.deep.equal([...kind.statements, 'select']);
+      });
+
       it('.accessible(p) with a plan that leaves one orphan out: the count ignores what a middleware adds to selects at creation', async () => {
         env('test');
         const target = kind.model();

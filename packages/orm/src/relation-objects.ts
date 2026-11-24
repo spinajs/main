@@ -4,10 +4,10 @@ import type { IRelationDescriptor, IModelDescriptor, ForwardRefFunction, IRelati
 import { DI, NewInstance } from '@spinajs/di';
 import type { Class, Constructor, ResolveResult } from '@spinajs/di';
 import { DateTime } from 'luxon';
-import { createQuery, DeleteQueryBuilder, InsertQueryBuilder, SelectQueryBuilder, UpdateQueryBuilder } from './builders.js';
+import { isThenable } from '@spinajs/util';
+import { createQuery, DeleteQueryBuilder, InsertQueryBuilder, QueryBuilder, SelectQueryBuilder, UpdateQueryBuilder } from './builders.js';
 import { autoKeyColumns, constructedJunctionColumns, junctionRow, settleJunction } from './junction-rows.js';
 import type { IJunctionColumns, IJunctionLink } from './junction-rows.js';
-import type { QueryBuilder } from './builders.js';
 import type { ModelBase } from './model.js';
 import type { Orm } from './orm.js';
 import _ from 'lodash';
@@ -40,7 +40,14 @@ function applySyncCallback(statement: IRelationSyncStatement, callback?: (this: 
 
   const own = [...statement.Statements];
   const connectors = own.map((s) => s.Boolean);
-  callback.call(statement);
+  // A `void` return type accepts an async function; what it adds after an await would land outside the group. A
+  // builder is a thenable too (`return this.where(...)`), and its `then` would run it.
+  const returned: unknown = callback.call(statement);
+  if (isThenable(returned) && !(returned instanceof QueryBuilder)) {
+    void Promise.resolve(returned).catch(() => undefined);
+    throw new OrmException('the sync() callback must be synchronous: it returned a promise, and conditions added after an await would not be confined to the owner');
+  }
+
   const added = statement.Statements.filter((s) => !own.includes(s));
   own.forEach((s, i) => (s.Boolean = connectors[i]));
   statement.Statements.splice(0, statement.Statements.length, ...own);
