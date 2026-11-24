@@ -159,7 +159,7 @@ Relation (list) methods, from `IRelation` and the abstract `Relation` class:
 - The static `Model.populate(relation, owner)` returns a builder for the related rows. It throws `OrmException` for Query and Virtual relations.
 - `Orm` resolves every `TargetModel` by class name when it starts. An unknown name throws `OrmException` (`type <T> not found for relation <name> in model <M> in file <file>`).
 - The junction model of a `@HasManyToMany` must be a registered model. Otherwise eager populate throws `InvalidOperation` (`model <J> not exists in orm module`).
-- `ManyToManyRelationList.populate()`, `update()` and `sync()` find the junction's relations by target class. The junction model must declare a `@BelongsTo` to both sides, or they throw `OrmException` (`junction model <J> of relation <name> declares no relation targeting <T>; add a @BelongsTo for it`).
+- `ManyToManyRelationList.populate()` finds the junction's relations by target class. The junction model must declare a `@BelongsTo` to both sides, or it throws `OrmException` (`junction model <J> of relation <name> declares no relation targeting <T>; add a @BelongsTo for it`). `update()` and `sync()` do not need them.
 - `ManyToManyRelationList.sync()` throws `OrmException` when the target has a composite primary key.
 - Eager many-to-many populate joins the target on the column named by `sourceModelPKey`. <!-- TODO(docs-hook): verify eager many-to-many populate and many-to-many whereExist when source and target primary key names differ (both use IRelationDescriptor.PrimaryKey as the target join column) -->
 - A model with a `@JunctionTable()` property cannot be hydrated outside a many-to-many populate. `JunctionModelPropertyHydrator` hydrates the junction model from `values.JunctionModel`, which is then missing.
@@ -186,6 +186,9 @@ Relation (list) methods, from `IRelation` and the abstract `Relation` class:
   - A write-capture observer interested in a junction or target model with a composite primary key makes the orphan delete throw `write capture: <Model> needs a single-column primary key, it has <n>`, like every other write of that model.
   - The select of existing links still counts soft-deleted and archived junction rows.
 - `ManyToManyRelationList.sync()` skips members that already have a junction row, so repeated calls do not duplicate links.
+- `ManyToManyRelationList.update()` and `sync()` write the link of a member without a junction row as a plain insert on the junction model, one statement per link, built like the junction rows of `save()`: the columns of the junction model the list holds for the member (`add(member, junction)`), then the two key columns. A member added without junction data gets a row of the two keys only; the defaults and `@CreatedAt` of a new junction model are not written, the table's own defaults apply. Afterwards `junction(member)` carries both keys, the generated key when the connection reports one, and no pending change.
+  - It is not an upsert. A pair that another transaction links between the select of existing links and the insert fails on a unique index of the junction table, and `sync()` rolls back; without such an index both links are written.
+  - An unsaved member is still inserted with `InsertBehaviour.InsertOrUpdate` before its link.
 - `ManyQueryRelationList` is read-only. `remove()`, `set()`, `union()`, `diff()`, `intersection()`, `sync()`, `update()` and `populate()` throw `OrmException` synchronously.
 - `ModelBase.attach(model)` adds the model to **every** relation whose target is the model's class. With two relations to the same model, push into the specific relation instead.
 - `whereNotExists()` on a belongs-to relation without a callback adds `<ForeignKey> IS NOT NULL`, the same clause as `whereExist()`.
@@ -199,7 +202,8 @@ Relation (list) methods, from `IRelation` and the abstract `Relation` class:
 - Pass `foreignKey` explicitly when the column does not follow `<name>_id`. The defaults come from class and property names, not from the database.
 - Use `whereOnJoin()` for conditions on an optional belongs-to target; use `where()` only when the parent row must match.
 - Use `whereExist()` to filter by a relation without loading it. It works on update and delete builders too.
-- Give every junction model a `@BelongsTo` to both sides, so `sync()` and lazy `populate()` work.
+- Give every junction model a `@BelongsTo` to both sides, so lazy `populate()` works.
+- Add a unique index on the two key columns of a junction table, so a link written twice by concurrent `sync()` calls fails instead of being duplicated.
 - Declare `orphan` on every `@HasMany` whose foreign key is `NOT NULL`.
 - Use `Dataset.union(...)` with `set()` to merge incoming members, then `sync()` once.
 

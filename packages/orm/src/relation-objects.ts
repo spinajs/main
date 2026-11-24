@@ -1,10 +1,11 @@
 /* eslint-disable prettier/prettier */
-import { InsertBehaviour } from './interfaces.js';
+import { InsertBehaviour, ServerResponseMapper } from './interfaces.js';
 import type { IRelationDescriptor, IModelDescriptor, ForwardRefFunction, IRelation, ISelectQueryBuilder, IRelationSyncStatement, QueryScope } from './interfaces.js';
 import { DI, NewInstance } from '@spinajs/di';
 import type { Class, Constructor, ResolveResult } from '@spinajs/di';
 import { DateTime } from 'luxon';
-import { createQuery, DeleteQueryBuilder, SelectQueryBuilder, UpdateQueryBuilder } from './builders.js';
+import { createQuery, DeleteQueryBuilder, InsertQueryBuilder, SelectQueryBuilder, UpdateQueryBuilder } from './builders.js';
+import { junctionRow, settleJunction } from './junction-rows.js';
 import type { QueryBuilder } from './builders.js';
 import type { ModelBase } from './model.js';
 import type { Orm } from './orm.js';
@@ -12,7 +13,7 @@ import _ from 'lodash';
 import type { OrmDriver } from './driver.js';
 import { extractModelDescriptor } from './descriptor.js';
 import { hydratedValue } from './column-values.js';
-import { isCompositePk, pkColumns, pkKeyStringFor, pkValueOf, whereNotAnyPk } from './primary-keys.js';
+import { isCompositePk, pkColumns, pkGeneration, pkKeyStringFor, pkValueOf, setPkValue, whereNotAnyPk } from './primary-keys.js';
 import { OrmException } from './exceptions.js';
 
 const relationSyncs = new WeakMap<object, { readonly relation: string; readonly owner: Constructor<ModelBase> }>();
@@ -560,8 +561,8 @@ export class ManyToManyRelationList<T extends ModelBase, O extends ModelBase> ex
     *  Deletes from db entries that are not in relation and adds entries that are not in db
     *  Sets foreign key to relational data
     *
-    *  One transaction: the junction upserts and the orphan delete used to be independent
-    *  statements. Nested inside a caller's transaction this takes a savepoint.
+    *  The junction inserts and the orphan delete share one transaction. Nested inside a caller's
+    *  transaction this takes a savepoint.
     *
     * @param callback - applied, with the builder as `this`, to the orphan delete of junction rows before it runs
     */
@@ -605,11 +606,9 @@ export class ManyToManyRelationList<T extends ModelBase, O extends ModelBase> ex
    * Unsaved members are inserted first — a junction row written for a model with no primary
    * key would carry a NULL foreign key. Members that already have a junction row are skipped:
    * the junction's own primary key is auto-generated, so re-inserting the pair would DUPLICATE
-   * the link rather than upsert it ( which is exactly what repeated `sync()` calls used to do ).
+   * the link.
    */
   protected async _update() {
-    const sourceModelRelation = this.junctionRelationFor(this.Owner.constructor as Constructor<ModelBase>);
-
     // Soft-deleted and archived junction rows count as links too, so they are not inserted a second time.
     const existingQuery = this.ownStatement(this.junctionQuery(SelectQueryBuilder<unknown>)).withDeleted().withArchived().onPrimary().where(this.Relation.JunctionModelSourceModelFKey_Name!, this.OwnerJoinValue);
     const existingRows = (await existingQuery.asRaw<Record<string, unknown>[]>()) ?? [];
@@ -620,16 +619,36 @@ export class ManyToManyRelationList<T extends ModelBase, O extends ModelBase> ex
         await f.insert(InsertBehaviour.InsertOrUpdate);
       }
 
-      if (linked.has(f.PrimaryKeyValue)) {
-        continue;
+      if (!linked.has(f.PrimaryKeyValue)) {
+        await this.insertLink(f);
       }
+    }
+  }
 
-      const targetModelRelation = this.junctionRelationFor(f.constructor as Constructor<ModelBase>);
+  /**
+   * A plain insert, not an upsert: the read of existing links found none for the member. A pair
+   * linked by a concurrent transaction in between fails on a unique index of the junction table.
+   */
+  protected async insertLink(member: T): Promise<void> {
+    const descriptor = this.junctionModelDescriptor!;
+    const columns = { sourceColumn: this.Relation.JunctionModelSourceModelFKey_Name!, targetColumn: this.Relation.JunctionModelTargetModelFKey_Name! };
+    const link = { ownerKey: this.OwnerJoinValue as unknown, targetKey: member.PrimaryKeyValue as unknown, junction: this.junctions.get(member) };
 
-      const junctionEntry = this.junctions.get(f) ?? new this.Relation.JunctionModel!();
-      (junctionEntry as any)[sourceModelRelation.Name].Value = this.Owner;
-      (junctionEntry as any)[targetModelRelation.Name].Value = f;
-      await junctionEntry.insert(InsertBehaviour.InsertOrUpdate);
+    const query = this.junctionQuery(InsertQueryBuilder);
+    const keyColumns = pkColumns(descriptor);
+    const needsKeyBack = link.junction !== undefined && keyColumns.some((c) => pkGeneration(descriptor, c) === 'auto');
+    if (needsKeyBack && query.Driver.supportedFeatures().insertReturning) {
+      query.returning(keyColumns);
+    }
+
+    const response: unknown = await query.values(junctionRow(descriptor, columns, link));
+
+    if (link.junction) {
+      const key = needsKeyBack ? query.Container.resolve(ServerResponseMapper).insertedKeys(response, query)?.[0] : undefined;
+      if (key !== undefined) {
+        setPkValue(link.junction, descriptor, pkValueOf(key, descriptor));
+      }
+      settleJunction(link.junction, columns, link);
     }
   }
 

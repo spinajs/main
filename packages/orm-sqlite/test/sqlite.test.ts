@@ -24,6 +24,8 @@ import { has_many_1, owned_by_has_many_1, owned_by_owned_by_has_many_1 } from '.
 import { SqlDriver } from '@spinajs/orm-sql';
 import '@spinajs/log';
 import { Offer } from './models/Offer.js';
+import { OfferLocation } from './models/OfferLocation.js';
+import { Location } from './models/Location.js';
 import { SoftDeleteModel } from './models/SoftDeleteModel.js';
 import { ConnectionConf, ConnectionConf2, TEST_MIGRATION_TABLE_NAME, db, migrations } from './common.js';
 
@@ -869,6 +871,20 @@ describe('Relation tests', function () {
 
     expect(result[0].Localisations[0].Metadata[0].Key).to.eq('meta 1');
     expect(result[0].Localisations[1].Metadata[0].Key).to.eq('meta 2');
+  });
+
+  it('links a member through a junction model without a @BelongsTo to the owner', async () => {
+    const db = await DI.resolve(Orm);
+    await (await migrations()).up();
+    await db.reloadTableInfo();
+
+    await Location.insert({ Name: 'Loc 3', Network_id: 1 });
+    const offer = await Offer.where({ Id: 1 }).populate('Localisations').first();
+    offer.Localisations.push(await Location.where({ Name: 'Loc 3' }).first());
+
+    await offer.Localisations.sync();
+
+    expect((await OfferLocation.where('Offer_id', 1)).map((l: any) => l.Localisation as number).sort()).to.deep.eq([1, 2, 3]);
   });
 });
 

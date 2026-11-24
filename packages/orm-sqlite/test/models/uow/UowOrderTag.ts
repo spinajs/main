@@ -16,10 +16,8 @@ export class UowOrderTag extends ModelBase {
 
   public Note: string;
 
-  // The legacy `ManyToManyRelationList.update()` path instantiates the junction model and
-  // finds its two sides by `relation.TargetModel === owner/target.constructor`, so both must
-  // be declared here. `SubjectExecutor` does not need them — it writes junction rows
-  // column-first — but relation.sync()/update() do.
+  // The lazy `ManyToManyRelationList.populate()` finds its sides by `relation.TargetModel`, so
+  // both are declared here; the junction writes of save(), sync() and update() do not need them.
   //
   // Named by string to avoid an import cycle; Orm.resolve() binds them by class name.
   @BelongsTo('UowOrder', 'order_id', 'Id')

@@ -193,7 +193,7 @@ describe('Relation set operations against the database', function () {
       expect(given.IsDirty).to.eq(false);
     });
 
-    it('writes only the two keys for a member added without junction data, and holds no junction model for it', async () => {
+    it('writes only the two keys for a member added without junction data, not the defaults of a new junction model, and holds none for it', async () => {
       const { order, green } = await orderWithGreen();
       const note = extractModelDescriptor(UowOrderTag)!.Columns.find((c) => c.Name === 'Note')!;
       const previous = note.DefaultValue;
@@ -205,7 +205,7 @@ describe('Relation set operations against the database', function () {
         note.DefaultValue = previous;
       }
 
-      expect(await linkOf(3)).to.deep.include({ order_id: 1, tag_id: 3, Note: 'default note' });
+      expect(await linkOf(3)).to.deep.include({ order_id: 1, tag_id: 3, Note: null });
       expect(order.Tags.junction(green)).to.eq(undefined);
     });
 
