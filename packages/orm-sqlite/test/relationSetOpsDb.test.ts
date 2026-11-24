@@ -4,7 +4,7 @@ import { DI } from '@spinajs/di';
 import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 import 'mocha';
-import { DeleteQueryBuilder, InsertQueryBuilder, OrmException, QueryBuilder, QueryMiddleware, SelectQueryBuilder, UpdateQueryBuilder, extractModelDescriptor, relationSyncOf } from '@spinajs/orm';
+import { DeleteQueryBuilder, InsertQueryBuilder, OrmException, QueryBuilder, QueryMiddleware, SelectQueryBuilder, SortOrder, UpdateQueryBuilder, extractModelDescriptor, relationSyncOf } from '@spinajs/orm';
 import type { IModelDescriptor } from '@spinajs/orm';
 import { bootUow, registerUowConnection, rows, UowOrder, UowOrderItem, UowOrderTag, UowTag } from './uowFixture.js';
 import { SdOwner } from './models/sd/SdOwner.js';
@@ -12,6 +12,8 @@ import { SdItem } from './models/sd/SdItem.js';
 import './migrations/SdMigration_2026_08_03_00_00_00.js';
 import { UkItem, UkOrder, UkOrderTag, UkTag } from './models/uk/UkModels.js';
 import './migrations/UkMigration_2026_11_23_00_00_00.js';
+import { SfFriendship, SfPerson } from './models/sf/SfModels.js';
+import './migrations/SfMigration_2026_11_24_00_00_00.js';
 
 const expect = chai.expect;
 chai.use(chaiAsPromised);
@@ -260,14 +262,40 @@ describe('Relation set operations against the database', function () {
       expect((await linkOf(3))!.Note).to.eq('1');
     });
 
-    it('refuses a junction model with an assigned key and no value before the database', async () => {
+    it('refuses a given junction model with an assigned key and no value before the database', async () => {
       const { order, green } = await orderWithGreen();
+      order.Tags.add(green, { Note: 'given' });
 
-      for (const add of [() => order.Tags.add(green, { Note: 'given' }), () => order.Tags.push(green)]) {
-        order.Tags.remove(green);
-        add();
-        await expect(withJunctionDescriptor(assignedKey, () => order.Tags.update())).to.be.rejectedWith(OrmException, 'must be assigned before insert');
-      }
+      await expect(withJunctionDescriptor(assignedKey, () => order.Tags.update())).to.be.rejectedWith(OrmException, 'must be assigned before insert');
+      expect(await linkOf(3)).to.eq(undefined);
+    });
+
+    it('refuses an assigned junction key for a member added without junction data before the database', async () => {
+      const { order, green } = await orderWithGreen();
+      order.Tags.push(green);
+
+      await expect(withJunctionDescriptor(assignedKey, () => order.Tags.update())).to.be.rejectedWith(OrmException, 'must be assigned before insert');
+      expect(await linkOf(3)).to.eq(undefined);
+    });
+
+    it('puts the version of a given @Version junction model back when its insert is rejected', async () => {
+      const { order, green } = await orderWithGreen();
+      // An assigned key the table already holds, so the database rejects the insert.
+      order.Tags.add(green, { Id: 1 });
+      const junction = order.Tags.junction<UowOrderTag>(green)!;
+      const before = junction.Note;
+
+      const versionedWithAssignedKey = (descriptor: IModelDescriptor) => {
+        const restoreVersion = versionedOnNote(descriptor);
+        const restoreKey = assignedKey(descriptor);
+        return () => {
+          restoreKey();
+          restoreVersion();
+        };
+      };
+      await expect(withJunctionDescriptor(versionedWithAssignedKey, () => order.Tags.update())).to.be.rejected;
+
+      expect(junction.Note).to.eq(before);
       expect(await linkOf(3)).to.eq(undefined);
     });
 
@@ -281,6 +309,32 @@ describe('Relation set operations against the database', function () {
       expect(junction.Order.Value).to.eq(order);
       expect(junction.Tag.Value).to.eq(green);
       expect(junction.IsDirty).to.eq(false);
+    });
+
+    describe('on a self-referencing junction model with a third relation', () => {
+      async function people() {
+        for (const Name of ['ann', 'bob', 'cid']) await SfPerson.insert({ Name });
+        const [ann, bob, cid] = await SfPerson.select().whereIn('Id', [1, 2, 3]).order('Id', SortOrder.ASC);
+        return { ann, bob, cid };
+      }
+
+      for (const write of ['update', 'sync'] as const) {
+        it(`points each side by its column, copies every relation key back, and leaves the junction clean through ${write}()`, async () => {
+          const { ann, bob, cid } = await people();
+          const given = new SfFriendship();
+          given.Approver.Value = cid;
+          ann.Friends.add(bob, given);
+
+          await ann.Friends[write]();
+
+          expect(await rows('sf_friendship')).to.deep.eq([{ Id: 1, person_id: 1, friend_id: 2, approver_id: 3 }]);
+          expect(given.Person.Value).to.eq(ann);
+          expect(given.Friend.Value).to.eq(bob);
+          expect([given.person_id, given.friend_id, given.approver_id]).to.deep.eq([1, 2, 3]);
+          expect(given.IsDirty).to.eq(false);
+          expect((await given.update()).RowsAffected).to.eq(0);
+        });
+      }
     });
 
     it('writes the two keys alone for a member added without junction data through save()', async () => {

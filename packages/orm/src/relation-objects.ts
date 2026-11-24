@@ -1,5 +1,5 @@
 /* eslint-disable prettier/prettier */
-import { InsertBehaviour, ServerResponseMapper } from './interfaces.js';
+import { InsertBehaviour, RelationType, ServerResponseMapper } from './interfaces.js';
 import type { IRelationDescriptor, IModelDescriptor, ForwardRefFunction, IRelation, ISelectQueryBuilder, IRelationSyncStatement, QueryScope } from './interfaces.js';
 import { DI, NewInstance } from '@spinajs/di';
 import type { Class, Constructor, ResolveResult } from '@spinajs/di';
@@ -586,17 +586,14 @@ export class ManyToManyRelationList<T extends ModelBase, O extends ModelBase> ex
     });
   }
 
-  protected findJunctionRelation(model: Constructor<ModelBase> | ForwardRefFunction): IRelationDescriptor | undefined {
-    return Array.from(this.junctionModelDescriptor?.Relations.values() ?? []).find((r) => r.TargetModel === model);
-  }
-
   /**
    * Finds the junction model's relation pointing at `model`, by constructor identity — the
    * junction's PROPERTY name is the author's choice ( `Order`, `Tag`, … ) and has nothing to
    * do with the target class name.
    */
   protected junctionRelationFor(model: Constructor<ModelBase> | ForwardRefFunction): IRelationDescriptor {
-    const found = this.findJunctionRelation(model);
+    const relations = Array.from(this.junctionModelDescriptor?.Relations.values() ?? []);
+    const found = relations.find((r) => r.TargetModel === model);
 
     if (!found) {
       throw new OrmException(`junction model ${this.junctionModelDescriptor?.Name} of relation ${this.Relation.Name} declares no relation targeting ${(model as any)?.name}; add a @BelongsTo for it`);
@@ -654,7 +651,7 @@ export class ManyToManyRelationList<T extends ModelBase, O extends ModelBase> ex
     });
 
     if (link.junction) {
-      // A connection that reports no key leaves the junction keyless, as `ModelBase.insert()` does.
+      // A connection that reports no key leaves the junction with the key it had, none for a new one, as `ModelBase.insert()` does.
       const key = needsKeyBack ? query.Container.resolve(ServerResponseMapper).insertedKeys(response, query)?.[0] : undefined;
       if (key !== undefined) {
         setPkValue(link.junction, descriptor, pkValueOf(key, descriptor));
@@ -673,11 +670,13 @@ export class ManyToManyRelationList<T extends ModelBase, O extends ModelBase> ex
     generateClientSideKeys(junction, descriptor);
     assertAssignedKeys(junction, descriptor);
 
-    const sides: Array<[IRelationDescriptor | undefined, ModelBase]> = [
-      [this.findJunctionRelation(this.Owner.constructor as Constructor<ModelBase>), this.Owner],
-      [this.findJunctionRelation(member.constructor as Constructor<ModelBase>), member],
+    // By column, not by class: the two sides of a self-referencing junction target one class.
+    const sides: Array<[string, ModelBase]> = [
+      [this.Relation.JunctionModelSourceModelFKey_Name!, this.Owner],
+      [this.Relation.JunctionModelTargetModelFKey_Name!, member],
     ];
-    for (const [relation, target] of sides) {
+    for (const [column, target] of sides) {
+      const relation = Array.from(descriptor.Relations.values()).find((r) => r.Type === RelationType.One && r.ForeignKey === column);
       const single: unknown = relation ? Reflect.get(junction, relation.Name) : undefined;
       if (single instanceof SingleRelation) {
         single.Value = target;

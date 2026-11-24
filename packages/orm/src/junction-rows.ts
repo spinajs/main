@@ -3,6 +3,7 @@ import { columnToDb } from './column-values.js';
 import type { IModelDescriptor } from './interfaces.js';
 import type { ModelBase } from './model.js';
 import { pkColumns, pkGeneration } from './primary-keys.js';
+import { writeBackRelationKeys } from './relation-keys.js';
 
 /** The two key columns of a many-to-many junction table. */
 export interface IJunctionColumns {
@@ -59,8 +60,12 @@ export function constructedJunctionColumns(fresh: ModelBase, descriptor: IModelD
   return row;
 }
 
-/** Written, a junction model is a row: a later change of its columns is an update. */
+/**
+ * Written, a junction model is a row: a later change of its columns is an update. Every @BelongsTo is copied back to
+ * its column first, as after `ModelBase.insert()`; the two key columns then take the values the row was written with.
+ */
 export function settleJunction(junction: ModelBase, columns: IJunctionColumns, link: IJunctionLink): void {
+  writeBackRelationKeys(junction);
   Reflect.set(junction, columns.sourceColumn, link.ownerKey);
   Reflect.set(junction, columns.targetColumn, link.targetKey);
   junction.takeSnapshot();
