@@ -164,7 +164,9 @@ Relation decorators are covered in [Relations](06-relations.md). Converter decor
 
 `model.insert()`, `Model.insert(...)` and the unit of work take generated keys from the
 connection's `ServerResponseMapper.insertedKeys(response, insert)`: one key per inserted row, in
-insert order, or none at all. A key the caller supplied is never overwritten. A connection package
+insert order, or none at all. A key the caller supplied is never overwritten. A generated key goes
+onto the model through each key column's converter (`fromDB`), so it holds what a read of the row
+gives: the dashed text of a `@Uuid()` key, the declared JS type of an `@Int64()` key. A connection package
 may override `insertedKeys` with its own rule. The default takes the `RETURNING` rows, when there is
 one per inserted row and each carries the whole key, in insert order; otherwise no key is
 assigned. A dialect without `RETURNING` reports keys only by its connection package's rule: see

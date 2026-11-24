@@ -27,6 +27,16 @@ class GapInt64 extends ModelBase {
   public Small: number;
 }
 
+@Connection('sqlite')
+@Model('gap_int64_key')
+class GapInt64Key extends ModelBase {
+  @Primary()
+  @Int64('bigint')
+  public Id: bigint;
+
+  public Name: string;
+}
+
 function driver(): SqliteOrmDriver {
   return db().Connections.get('sqlite') as SqliteOrmDriver;
 }
@@ -48,6 +58,12 @@ describe('sqlite @Int64 columns', function () {
         table.bigint('Counter');
         table.bigint('Big');
         table.bigint('Small');
+      });
+    await driver()
+      .schema()
+      .createTable('gap_int64_key', (table) => {
+        table.int('Id').primaryKey().autoIncrement();
+        table.string('Name');
       });
     await db().reloadTableInfo();
   });
@@ -90,6 +106,14 @@ describe('sqlite @Int64 columns', function () {
 
     const found = await GapInt64.query().whereIn('Counter', ['1', '44']);
     expect(found.map((m) => m.Id).sort((a, b) => a - b)).to.deep.eq([one.Id, two.Id].sort((a, b) => a - b));
+  });
+
+  it('writes a generated @Int64 key onto the model as its declared JS type', async () => {
+    const model = new GapInt64Key({ Name: 'one' });
+    await model.insert();
+
+    expect(model.Id).to.eq((await GapInt64Key.where('Name', 'one').first()).Id);
+    expect(model.Id).to.eq(1n);
   });
 
   it('refuses a value beyond 2^53 that sqlite3 already rounded', async () => {

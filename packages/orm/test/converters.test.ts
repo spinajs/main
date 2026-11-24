@@ -3,6 +3,7 @@ import { InvalidArgument, MethodNotImplemented } from '@spinajs/exceptions';
 import { BooleanValueConverter, RelationType } from './../src/interfaces.js';
 import type { IModelDescriptor } from './../src/interfaces.js';
 import { OrmException } from './../src/exceptions.js';
+import { hydratedKey } from './../src/column-values.js';
 import { ModelBase } from './../src/model.js';
 import * as chai from 'chai';
 import _ from 'lodash';
@@ -261,6 +262,28 @@ describe('Orm converters', () => {
       const result = new StandardModelToSqlConverter().toSql(model) as Record<string, unknown>;
 
       expect(result).to.not.have.property('Computed');
+    });
+  });
+
+  describe('hydratedKey of a key row an insert reported', () => {
+    const uuid = '0db8f7f5-56cd-4801-ac23-ad6d78bfec3f';
+
+    it('converts each part of a composite key with its own column converter', () => {
+      const descriptor = {
+        PrimaryKey: ['Id', 'Seq', 'Plain'],
+        Columns: [column('Id', { PrimaryKey: true, Converter: new UuidConverter() }), column('Seq', { PrimaryKey: true, Converter: new Int64ValueConverter() }), column('Plain', { PrimaryKey: true })],
+        Converters: new Map([['Seq', { Options: { as: 'bigint' } }]]),
+      } as unknown as IModelDescriptor;
+
+      expect(hydratedKey(descriptor, { Id: new UuidConverter().toDB(uuid), Seq: 7, Plain: 3 })).to.deep.eq([uuid, 7n, 3]);
+    });
+
+    it('leaves a key column without a converter, and a missing part, as they are', () => {
+      const descriptor = { PrimaryKey: ['Id'], Columns: [column('Id', { PrimaryKey: true })], Converters: new Map() } as unknown as IModelDescriptor;
+      const converted = { PrimaryKey: ['Id', 'Seq'], Columns: [column('Id', { PrimaryKey: true, Converter: new UuidConverter() }), column('Seq', { PrimaryKey: true, Converter: new Int64ValueConverter() })], Converters: new Map() } as unknown as IModelDescriptor;
+
+      expect(hydratedKey(descriptor, { Id: 5 })).to.eq(5);
+      expect(hydratedKey(converted, { Id: new UuidConverter().toDB(uuid) })).to.deep.eq([uuid, undefined]);
     });
   });
 });

@@ -1,7 +1,7 @@
 import { DI } from '@spinajs/di';
 import * as chai from 'chai';
 import 'mocha';
-import { extractModelDescriptor } from '@spinajs/orm';
+import { extractModelDescriptor, InsertBehaviour } from '@spinajs/orm';
 import { bootUow, registerUowConnection, rows } from './uowFixture.js';
 import { UkGenNote, UkGenTag, UkNote, UkOrder, UkOrderTag, UkTag } from './models/uk/UkModels.js';
 import './migrations/UkMigration_2026_11_23_00_00_00.js';
@@ -154,7 +154,8 @@ describe('foreign keys written from a relation pass the column converter', funct
 
     it('save() of a parent whose key the database generates writes the key of its new child as the same bytes', async () => {
       const tag = new UkGenTag({ Name: 'generated' });
-      tag.Notes.push(new UkGenNote({ Text: 'note' }));
+      const note = new UkGenNote({ Text: 'note' });
+      tag.Notes.push(note);
 
       await tag.save();
 
@@ -163,6 +164,83 @@ describe('foreign keys written from a relation pass the column converter', funct
       expect(Buffer.isBuffer(tagRow.Id) && tagRow.Id.length, 'generated key').to.eq(16);
       expect(noteRow.tag_id).to.deep.eq(tagRow.Id);
       expect((await UkGenNote.where('tag_id', textOf(tagRow.Id))).map((n) => n.Text)).to.deep.eq(['note']);
+
+      expect(tag.Id, 'the key on the saved model').to.eq((await UkGenTag.where('Name', 'generated').first()).Id);
+      expect(note.tag_id, 'the foreign key on the saved child').to.eq(tag.Id);
+      expect(tag.IsDirty || note.IsDirty, 'a change pending after save()').to.be.false;
+      expect(await tag.save(), 'a second save()').to.include({ Inserted: 0, Updated: 0 });
     });
+  });
+});
+
+describe('a key the database generates reaches the model in the model form', function () {
+  this.timeout(10000);
+
+  const freshKey = async (Name: string) => (await UkGenTag.where('Name', Name).first()).Id;
+
+  before(() => registerUowConnection());
+  beforeEach(() => bootUow());
+  afterEach(() => DI.clearCache());
+
+  it('insert() of one model', async () => {
+    const tag = new UkGenTag({ Name: 'one' });
+
+    await tag.insert();
+
+    expect(tag.Id).to.eq(await freshKey('one'));
+    expect(tag.IsDirty).to.be.false;
+  });
+
+  it('insert(InsertOrIgnore) of one model', async () => {
+    const tag = new UkGenTag({ Name: 'one' });
+
+    await tag.insert(InsertBehaviour.InsertOrIgnore);
+
+    expect(tag.Id).to.eq(await freshKey('one'));
+  });
+
+  it('insert(InsertOrUpdate) of one model', async () => {
+    const tag = new UkGenTag({ Name: 'one' });
+
+    await tag.insert(InsertBehaviour.InsertOrUpdate);
+
+    expect(tag.Id).to.eq(await freshKey('one'));
+  });
+
+  it('the static insert() of one model', async () => {
+    const tag = new UkGenTag({ Name: 'one' });
+
+    await UkGenTag.insert(tag);
+
+    expect(tag.Id).to.eq(await freshKey('one'));
+    expect(tag.IsDirty).to.be.false;
+  });
+
+  for (const behaviour of [InsertBehaviour.InsertOrIgnore, InsertBehaviour.InsertOrUpdate]) {
+    it(`the static insert() of one model with ${InsertBehaviour[behaviour]}`, async () => {
+      const tag = new UkGenTag({ Name: 'one' });
+
+      await UkGenTag.insert(tag, behaviour);
+
+      expect(tag.Id).to.eq(await freshKey('one'));
+    });
+  }
+
+  it('the static insert() of several models', async () => {
+    const tags = [new UkGenTag({ Name: 'one' }), new UkGenTag({ Name: 'two' })];
+
+    await UkGenTag.insert(tags);
+
+    expect(tags.map((t) => t.Id)).to.deep.eq([await freshKey('one'), await freshKey('two')]);
+  });
+
+  it('a key the caller supplied is written and kept as it is', async () => {
+    const supplied = '0a5e3c1e-6b1f-4c2a-9d3e-0000000000aa';
+    const tag = new UkGenTag({ Id: supplied, Name: 'one' });
+
+    await tag.insert();
+
+    expect(tag.Id).to.eq(supplied);
+    expect(await freshKey('one')).to.eq(supplied);
   });
 });
