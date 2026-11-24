@@ -1,16 +1,25 @@
 import { Autoinject, Container, IContainer, Inject, NewInstance } from '@spinajs/di';
 import { MethodNotImplemented, NotSupported } from '@spinajs/exceptions';
 import { TableExistsCompiler, TableExistsQueryBuilder, ICompilerOutput, ColumnQueryCompiler, ForeignKeyQueryCompiler, ColumnQueryBuilder, TableAliasCompiler, IQueryBuilder, ColumnStatement, RawQuery, InsertQueryBuilder, OrmException, IdentifierQuoter, CreateDatabaseCompiler, CreateDatabaseQueryBuilder, DropDatabaseCompiler, DropDatabaseQueryBuilder, CreateViewQueryBuilder, IOrderByBuilder, AlterColumnQueryBuilder, AlterColumnQueryCompiler, ColumnAlterationType } from '@spinajs/orm';
+import type { IColumnDescriptor } from '@spinajs/orm';
 import { SqlColumnQueryCompiler, SqlDeleteQueryCompiler, SqlInsertQueryCompiler, SqlLimitQueryCompiler, SqlOrderByQueryCompiler, SqlTableQueryCompiler, SqlOnDuplicateQueryCompiler, assertCharsetName, SqlCreateViewQueryCompiler, SqlDefaultValueBuilder, SqlAlterTableQueryCompiler, SqlAlterColumnQueryCompiler } from '@spinajs/orm-sql';
 import _ from 'lodash';
 import { MsSqlNowExpression } from './statements.js';
+import { outputKeys } from './inserted-keys.js';
+import { toNamedParameters } from './named-parameters.js';
 
-/**
- * Escapes a T-SQL string literal by doubling embedded single quotes. Used for the dynamic
- * CREATE DATABASE batch, where the statement itself has to travel as a literal.
- */
+/** Escapes a T-SQL string literal by doubling embedded single quotes. */
 function escapeTsqlLiteral(value: string): string {
   return String(value).replace(/'/g, "''");
+}
+
+/**
+ * Runs `block`, which sets `@spinajs_inserted` to its count; it stays 0 for a duplicate. 2627 / 2601: duplicate key under a
+ * unique constraint / a unique index. ERROR_PROCEDURE() is set when a trigger of the table raised it, which refused the
+ * row for another reason than a duplicate of it.
+ */
+function ignoreDuplicate(block: string): string {
+  return `BEGIN TRY ${block} END TRY BEGIN CATCH IF ERROR_NUMBER() NOT IN (2601, 2627) OR ERROR_PROCEDURE() IS NOT NULL BEGIN; THROW; END; END CATCH;`;
 }
 
 @NewInstance()
@@ -83,8 +92,19 @@ export class MsSqlInsertQueryCompiler extends SqlInsertQueryCompiler {
     const columns = this.columns();
     const values = this.values();
     const dResult = super.upsort();
-    const insert = dResult.expression + `${into} ${columns} ${values.data}`;
     const bindings = dResult.bindings!.concat(values.bindings);
+    const keys = outputKeys(this._builder);
+
+    if (keys) {
+      const output = ` OUTPUT ${keys.columns.map((c) => `inserted.${this.Quoter.quote(c.Name)}`).join(', ')} INTO @spinajs_keys`;
+      // the OUTPUT clause of a MERGE follows its last WHEN clause
+      const statement = (out: string) => (this.isDuplicate ? `${dResult.expression}${into} ${columns} ${values.data}${out}` : `${into} ${columns}${out} ${values.data}`);
+      // The driver names the first `bindings.length` placeholders @p0.. by position, which are those of the first form. The
+      // second form is named here the same way, so both read the values bound once.
+      return { bindings, expression: this.keysBatch(statement(output), toNamedParameters(statement(''), bindings.length), keys.columns) };
+    }
+
+    const insert = dResult.expression + `${into} ${columns} ${values.data}`;
 
     // an upsert decides what a conflict does on its own
     if (this.isDuplicate) {
@@ -100,16 +120,42 @@ export class MsSqlInsertQueryCompiler extends SqlInsertQueryCompiler {
       throw new OrmException('mssql insert or ignore takes one row per statement: a duplicate would refuse the other rows too');
     }
 
-    // 2627 / 2601: duplicate key under a unique constraint / a unique index. ERROR_PROCEDURE() is set when a trigger of
-    // the table raised it, which refused the row for another reason than a duplicate of it. The batch reports its own
-    // count: the driver's rowsAffected[0] would be the count of the DECLARE's assignment, not of the INSERT.
+    // The batch reports its own count: the driver's rowsAffected[0] would be the count of the DECLARE's assignment, not of the INSERT.
     return {
       bindings,
-      expression:
-        `DECLARE @spinajs_inserted INT = 0; BEGIN TRY ${insert}; SET @spinajs_inserted = @@ROWCOUNT; END TRY ` +
-        `BEGIN CATCH IF ERROR_NUMBER() NOT IN (2601, 2627) OR ERROR_PROCEDURE() IS NOT NULL BEGIN; THROW; END; END CATCH; ` +
-        `SELECT CASE WHEN @spinajs_inserted > 0 THEN SCOPE_IDENTITY() END as ID, @spinajs_inserted as INSERTED;`,
+      expression: `DECLARE @spinajs_inserted INT = 0; ${ignoreDuplicate(`${insert}; SET @spinajs_inserted = @@ROWCOUNT;`)} SELECT CASE WHEN @spinajs_inserted > 0 THEN SCOPE_IDENTITY() END as ID, @spinajs_inserted as INSERTED;`,
     };
+  }
+
+  /**
+   * `OUTPUT ... INTO` a table variable: a bare `OUTPUT` fails on a table with an enabled trigger (error 334). `OUTPUT` needs
+   * SELECT on the key columns, so a login without it runs the statement as before and takes `SCOPE_IDENTITY()` for a
+   * one-column identity key. `OUTPUT` shows the row an `INSTEAD OF` trigger was given, not the row it wrote: `KEYS_EXACT`
+   * is 1 only when the table is seen to have no such trigger, or the key holds the identity this statement generated,
+   * which stays NULL under such a trigger. OBJECTPROPERTY is NULL for a login that cannot see the table's metadata, and
+   * for a synonym.
+   */
+  protected keysBatch(withOutput: string, withoutOutput: string, keys: IColumnDescriptor[]): string {
+    const quote = (name: string) => this.Quoter.quote(name);
+    const names = keys.map((c) => quote(c.Name));
+    // an insert has no alias, so this is the table's qualified name
+    const table = escapeTsqlLiteral(this._container.resolve(TableAliasCompiler).compile(this._builder));
+    // after a MERGE that updated, SCOPE_IDENTITY() can be the identity of an earlier statement
+    const identity = this.isDuplicate ? undefined : keys.find((c) => c.AutoIncrement);
+    // an insert into the table variable resets SCOPE_IDENTITY(), so it is read into a variable first
+    const capture = 'SELECT @spinajs_inserted = @@ROWCOUNT, @spinajs_identity = SCOPE_IDENTITY();';
+    const identityKey = identity && keys.length === 1 ? ` INSERT INTO @spinajs_keys (${quote(identity.Name)}) SELECT @spinajs_identity WHERE @spinajs_identity IS NOT NULL;` : '';
+    const readable = keys.map((c) => `HAS_PERMS_BY_NAME(N'${table}', 'OBJECT', 'SELECT', N'${escapeTsqlLiteral(c.Name)}', 'COLUMN') = 1`).join(' AND ');
+    const write = `IF ${readable} BEGIN ${withOutput}; ${capture} END ELSE BEGIN ${withoutOutput}; ${capture}${identityKey} END;`;
+    const database = this._builder.Database ? `DB_NAME() = N'${escapeTsqlLiteral(this._builder.Database)}' AND ` : '';
+    const ownIdentity = identity ? ` WHEN EXISTS (SELECT 1 FROM @spinajs_keys WHERE ${quote(identity.Name)} = @spinajs_identity) THEN 1` : '';
+
+    return (
+      `DECLARE @spinajs_keys TABLE (${names.map((n) => `${n} sql_variant`).join(', ')}); DECLARE @spinajs_inserted INT = 0; DECLARE @spinajs_identity NUMERIC(38,0); ` +
+      `${this._builder.Ignore && !this.isDuplicate ? ignoreDuplicate(write) : write} ` +
+      `SELECT ${names.join(', ')} FROM @spinajs_keys; ` +
+      `SELECT @spinajs_identity as ID, @spinajs_inserted as INSERTED, CASE WHEN ${database}OBJECTPROPERTY(OBJECT_ID(N'${table}'), 'HasInsteadOfTrigger') = 0 THEN 1${ownIdentity} ELSE 0 END as KEYS_EXACT;`
+    );
   }
 
   protected into() {

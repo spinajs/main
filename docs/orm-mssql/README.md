@@ -17,7 +17,7 @@ npm install @spinajs/orm @spinajs/orm-mssql
 | [Connection and configuration](01-configuration.md) | Registers the `orm-driver-mssql` driver; connection keys, the `mssql` pool, TLS options, `ping()`, `tableInfo()` |
 | [Executing statements](02-executing-statements.md) | `executeOnDb()`: backtick stripping, `?` to `@p0` rewriting with `toNamedParameters()`, raw `Date` parameters, result shapes per `QueryContext`, error mapping with `mapMsSqlError()` |
 | [Transactions](03-transactions.md) | Four isolation levels, `SAVE TRANSACTION` savepoints, `IMsSqlTransactionContext` |
-| [Inserts and upserts](04-inserts-and-upserts.md) | `SCOPE_IDENTITY()`, `MsSqlServerResponseMapper`, `MERGE` upserts, no `INSERT IGNORE` or `INSERT OR REPLACE`, batches split by `MaxBindings` / `MaxInsertRows` |
+| [Inserts and upserts](04-inserts-and-upserts.md) | `OUTPUT inserted.<key>` keys, `MsSqlServerResponseMapper`, `MERGE` upserts, no `INSERT IGNORE` or `INSERT OR REPLACE`, batches split by `MaxBindings` / `MaxInsertRows` |
 | [Query dialect](05-query-dialect.md) | Bracket quoting, three-part table names, `OFFSET ... FETCH`, multi-column `ORDER BY`, `DELETE TOP (n)`, `OPENJSON` for long `whereIn()` lists, `CHARINDEX` set membership, `NVARCHAR(4000)` text casts, `SYSDATETIMEOFFSET()` for `now()`, `N'...'` literals |
 | [Schema dialect](06-schema-dialect.md) | `CREATE TABLE`, `IDENTITY(1,1)`, `DATETIMEOFFSET(3)` instants, column type spelling, `exact()` columns, UTC column defaults, `ALTER TABLE` / `ALTER COLUMN` / `sp_rename`, databases, views, table existence, unsupported schema features |
 | [Value conversion](07-value-conversion.md) | `IsoDatetimeValueConverter`: `Date`, luxon `DateTime` and datetime strings as ISO 8601 in UTC |
@@ -71,7 +71,7 @@ export class AppConfiguration extends FrameworkConfiguration {
 | Behaviour | MSSQL |
 | --- | --- |
 | Driver string | `orm-driver-mssql` |
-| `ServerResponseMapper` | `MsSqlServerResponseMapper`, reads `SCOPE_IDENTITY()` |
+| `ServerResponseMapper` | `MsSqlServerResponseMapper`, reads the keys `OUTPUT` returned |
 | `RETURNING` | Not supported: `returning()` throws `NotSupported` |
 | Batch key backfill | Not supported: a multi-row insert reports no keys (see [Inserts and upserts](04-inserts-and-upserts.md)) |
 | Batch limits | `MaxBindings` `2000`, `MaxInsertRows` `1000`: a larger insert is split into several statements |

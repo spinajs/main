@@ -1,9 +1,8 @@
 import { MsSqlSqlExpressions } from './expressions.js';
-import { DatetimeValueConverter, DefaultValueBuilder, NowExpression, DeleteQueryCompiler, TableAliasCompiler, OnDuplicateQueryCompiler, OrderByQueryCompiler, TableQueryCompiler, ColumnQueryCompiler, InsertQueryCompiler, QueryContext, OrmDriver, IColumnDescriptor, TableExistsCompiler, LimitQueryCompiler, IDriverOptions, ISupportedFeature, IsolationLevel, ITransactionContext, ITransactionOptions, InSetStatement, InStatement, StartsWithStatement, IdentifierQuoter, TruncateTableQueryCompiler, CreateDatabaseCompiler, DropDatabaseCompiler, CreateViewCompiler, LiteralQuoter, EventQueryCompiler, DropEventQueryCompiler, TextWrapper, ServerResponseMapper, DbServerResponse, AlterTableQueryCompiler, AlterColumnQueryCompiler, SqlExpressions, LiveForeignKey, LiveIndex, groupIndexColumns, referentialRule, SqlDialect, MigrationLock, WhereStatement, extractModelDescriptor, pkColumns, pkGeneration } from '@spinajs/orm';
-import type { IModelDescriptor, InsertQueryBuilder } from '@spinajs/orm';
+import { DatetimeValueConverter, DefaultValueBuilder, NowExpression, DeleteQueryCompiler, TableAliasCompiler, OnDuplicateQueryCompiler, OrderByQueryCompiler, TableQueryCompiler, ColumnQueryCompiler, InsertQueryCompiler, QueryContext, OrmDriver, IColumnDescriptor, TableExistsCompiler, LimitQueryCompiler, IDriverOptions, ISupportedFeature, IsolationLevel, ITransactionContext, ITransactionOptions, InSetStatement, InStatement, StartsWithStatement, IdentifierQuoter, TruncateTableQueryCompiler, CreateDatabaseCompiler, DropDatabaseCompiler, CreateViewCompiler, LiteralQuoter, EventQueryCompiler, DropEventQueryCompiler, TextWrapper, ServerResponseMapper, DbServerResponse, AlterTableQueryCompiler, AlterColumnQueryCompiler, SqlExpressions, LiveForeignKey, LiveIndex, groupIndexColumns, referentialRule, SqlDialect, MigrationLock, WhereStatement } from '@spinajs/orm';
+import type { InsertQueryBuilder } from '@spinajs/orm';
 import { MSSQL_SQL_DIALECT } from './sql-dialect.js';
 export { MSSQL_SQL_DIALECT } from './sql-dialect.js';
-/* eslint-disable security/detect-object-injection */
 import { Injectable, NewInstance } from '@spinajs/di';
 
 import { IsoDatetimeValueConverter, SqlDriver, SqlTruncateTableQueryCompiler, UnsupportedEventQueryCompiler, UnsupportedDropEventQueryCompiler, RowQueue } from '@spinajs/orm-sql';
@@ -14,8 +13,11 @@ import { BracketIdentifierQuoter, MsSqlInSetStatement, MsSqlInStatement, MsSqlLi
 import { mapMsSqlError } from './errors.js';
 import { MsSqlMigrationLock } from './migration-lock.js';
 import { columnDefault } from './column-default.js';
+import { toNamedParameters } from './named-parameters.js';
+import { keyValue, outputKeys } from './inserted-keys.js';
 
 export * from './errors.js';
+export { toNamedParameters } from './named-parameters.js';
 export { MsSqlStartsWithStatement, MsSqlWhereStatement } from './statements.js';
 
 export * from './expressions.js';
@@ -42,84 +44,48 @@ function msSqlEscapeIdentifier(name: string): string {
   return '[' + String(name).replace(/]/g, ']]') + ']';
 }
 
-/**
- * The row count an insert batch selects as `INSERTED`; an upsert's batch has no such column.
- * The batch's own row is in its last result set: a trigger may return result sets of its own before it.
- */
-function insertedCountOf(recordsets: unknown): number | undefined {
-  const last: unknown = Array.isArray(recordsets) ? recordsets.at(-1) : undefined;
-  const row: unknown = Array.isArray(last) ? last[0] : undefined;
-  return typeof row === 'object' && row !== null && 'INSERTED' in row && typeof row.INSERTED === 'number' ? row.INSERTED : undefined;
-}
+/** A column of the first row of a result set. */
+const firstRowValue = (set: unknown, column: string): unknown => {
+  const row: unknown = Array.isArray(set) ? set[0] : undefined;
+  return typeof row === 'object' && row !== null ? Reflect.get(row, column) : undefined;
+};
 
 /**
- * Rewrites the first `count` `?` placeholders into `@p0..`; a statement without bindings is left alone, any `?` in it is text.
- * A `?` inside a '...' or "..." literal or a [...] identifier is text too.
+ * An insert or upsert result. The batch's own row, with its count as `INSERTED`, is in its last result set: a trigger may
+ * return result sets of its own before it. An upsert without that row (one without a model) resolves with its rows.
  */
-export function toNamedParameters(stmt: string, count: number): string {
-  let out = '';
-  let index = 0;
-  let closing: string | null = null;
+function insertResultOf(result: mssql.IResult<unknown>, context: QueryContext): unknown {
+  const sets: unknown[] = result.recordsets;
+  const inserted: unknown = firstRowValue(sets.at(-1), 'INSERTED');
+  if (typeof inserted !== 'number' && context === QueryContext.Upsert) return result.recordset;
 
-  for (let i = 0; i < stmt.length; i++) {
-    const ch = stmt[i];
-
-    if (closing) {
-      out += ch;
-      if (ch === closing) {
-        // a doubled closing character is an escaped one, not the end of the literal
-        if (stmt[i + 1] === closing) {
-          out += stmt[++i];
-        } else {
-          closing = null;
-        }
-      }
-      continue;
-    }
-
-    if (ch === "'" || ch === '"') {
-      closing = ch;
-    } else if (ch === '[') {
-      closing = ']';
-    } else if (ch === '?' && index < count) {
-      out += `@p${index++}`;
-      continue;
-    }
-
-    out += ch;
-  }
-
-  return out;
-}
-
-/** The key `SCOPE_IDENTITY()` reports: a single-column `auto` key that is the table's identity column. */
-function identityKey(descriptor: IModelDescriptor | null): string | undefined {
-  const pk = descriptor ? pkColumns(descriptor) : [];
-  if (!descriptor || pk.length !== 1 || pkGeneration(descriptor, pk[0]) !== 'auto') return undefined;
-  return descriptor.Columns.find((c) => c.Name === pk[0])?.AutoIncrement === true ? pk[0] : undefined;
+  const keys = firstRowValue(sets.at(-1), 'KEYS_EXACT') === 1 ? sets.at(-2) : undefined;
+  return {
+    RowsAffected: typeof inserted === 'number' ? inserted : result.rowsAffected[0],
+    LastInsertId: firstRowValue(typeof inserted === 'number' ? sets.at(-1) : sets[0], 'ID') ?? 0,
+    Returning: [],
+    ...(Array.isArray(keys) ? { InsertedKeys: keys } : {}),
+  };
 }
 
 /** `executeOnDb` already shapes an insert result; MSSQL has no RETURNING rows to read keys from. */
 export class MsSqlServerResponseMapper extends ServerResponseMapper {
   /**
-   * The `SCOPE_IDENTITY()` value of a statement that inserted one row into a table whose key is its identity column.
-   * Several rows have no known keys: it is the last identity of the scope, and a multi-row insert gets no contiguous range.
-   * An upsert has none either: after a `MERGE` that updated, `SCOPE_IDENTITY()` can hold an identity an earlier statement
-   * of the session generated, in any table, so its value cannot tell an insert from an update.
+   * The key the batch of a one-row insert or upsert output as `InsertedKeys`, for the row it inserted or updated. Several
+   * rows have no known keys: SQL Server does not promise `OUTPUT` rows in `VALUES` order.
    */
   public insertedKeys(response: unknown, insert: InsertQueryBuilder): Array<Record<string, unknown>> | undefined {
-    const pk = insert.Model === undefined ? undefined : identityKey(extractModelDescriptor(insert.Model));
-    if (pk === undefined || insert.Values.length !== 1 || insert.Update) return undefined;
+    const keys = outputKeys(insert);
+    const rows: unknown = typeof response === 'object' && response !== null ? Reflect.get(response, 'InsertedKeys') : undefined;
+    // none: orIgnore() skipped the row; several: the MERGE condition matched several rows
+    if (!keys || !Array.isArray(rows) || rows.length !== 1 || this.read(response).RowsAffected !== 1) return undefined;
 
-    const { RowsAffected, LastInsertId } = this.read(response);
-    // Only orIgnore() can skip its row without an error.
-    if (insert.Ignore && RowsAffected !== 1) return undefined;
-    // SCOPE_IDENTITY() is numeric(38,0), which tedious reads as a double: an id past 2^53 arrives rounded.
-    return Number.isSafeInteger(LastInsertId) && LastInsertId > 0 ? [Object.fromEntries([[pk, LastInsertId]])] : undefined;
+    const key = keys.columns.map((c): [string, unknown] => [c.Name, keyValue(firstRowValue(rows, c.Name), c, keys.descriptor, rows[0])]);
+    return key.every(([, value]) => value !== undefined) ? [Object.fromEntries(key)] : undefined;
   }
 
   public read(data: any): DbServerResponse {
-    // An upsert resolves with the rows of `SELECT SCOPE_IDENTITY()`.
+    // An upsert without a model resolves with the rows of `SELECT SCOPE_IDENTITY()`.
     if (Array.isArray(data)) {
       const id = data.length !== 0 ? data[data.length - 1]?.ID : undefined;
       return { RowsAffected: data.length, LastInsertId: typeof id === 'number' ? id : 0, Returning: [] };
@@ -182,12 +148,8 @@ export class MsSqlOrmDriver extends SqlDriver {
           RowsAffected: result.rowsAffected.at(-1),
         };
       case QueryContext.Insert:
-        return {
-          RowsAffected: insertedCountOf(result.recordsets) ?? result.rowsAffected[0],
-          // SCOPE_IDENTITY() path; MSSQL keeps no RETURNING rows here.
-          LastInsertId: result.recordset?.[0]?.ID ?? 0,
-          Returning: [],
-        };
+      case QueryContext.Upsert:
+        return insertResultOf(result, context);
       default:
         return result.recordset;
     }
