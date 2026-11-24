@@ -13,7 +13,7 @@ import type { Orm } from './orm.js';
 import _ from 'lodash';
 import type { OrmDriver } from './driver.js';
 import { extractModelDescriptor } from './descriptor.js';
-import { hydratedValue } from './column-values.js';
+import { hydratedKey, hydratedValue } from './column-values.js';
 import { assertAssignedKeys, generateClientSideKeys, isCompositePk, pkColumns, pkKeyStringFor, pkValueOf, setPkValue, whereNotAnyPk } from './primary-keys.js';
 import { startVersion, startVersionOf } from './versioning.js';
 import { OrmException } from './exceptions.js';
@@ -654,7 +654,7 @@ export class ManyToManyRelationList<T extends ModelBase, O extends ModelBase> ex
       // A connection that reports no key leaves the junction with the key it had, none for a new one, as `ModelBase.insert()` does.
       const key = needsKeyBack ? query.Container.resolve(ServerResponseMapper).insertedKeys(response, query)?.[0] : undefined;
       if (key !== undefined) {
-        setPkValue(link.junction, descriptor, pkValueOf(key, descriptor));
+        setPkValue(link.junction, descriptor, hydratedKey(descriptor, key));
       }
       settleJunction(link.junction, columns, link);
     }

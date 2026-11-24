@@ -293,7 +293,7 @@ describe('Relation set operations against the database', function () {
           restoreVersion();
         };
       };
-      await expect(withJunctionDescriptor(versionedWithAssignedKey, () => order.Tags.update())).to.be.rejected;
+      await expect(withJunctionDescriptor(versionedWithAssignedKey, () => order.Tags.update())).to.be.rejectedWith(/UNIQUE constraint failed/);
 
       expect(junction.Note).to.eq(before);
       expect(await linkOf(3)).to.eq(undefined);
