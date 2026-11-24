@@ -1,7 +1,8 @@
 import { Configuration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
-import { BooleanValueConverter, Connection, DatetimeValueConverter, Int64ValueConverter, Json, JsonValueConverter, Model, ModelBase, Orm, Primary, SetValueConverter, TimeValueConverter, UniversalValueConverter, UuidConverter, extractDecoratorPropertyDescriptor } from '@spinajs/orm';
+import { Bool, BooleanValueConverter, Connection, DatetimeValueConverter, Int64ValueConverter, Json, JsonValueConverter, Model, ModelBase, Orm, Primary, Set, SetValueConverter, TimeValueConverter, UniversalValueConverter, UuidConverter, extractDecoratorPropertyDescriptor } from '@spinajs/orm';
 import type { IModelDescriptor, IUniversalConverterOptions, ValueConverter } from '@spinajs/orm';
+import { SqlBooleanValueConverter, SqlSetConverter } from '@spinajs/orm-sql';
 import { MethodNotImplemented } from '@spinajs/exceptions';
 import { TimeSpan } from '@spinajs/util';
 import { expect } from 'chai';
@@ -94,6 +95,26 @@ class PipeSetConverter extends SetValueConverter {
   }
 }
 
+class YesNoSqlConverter extends SqlBooleanValueConverter {
+  public toDB(value: unknown): unknown {
+    return value === null || value === undefined ? null : value ? 'Y' : 'N';
+  }
+
+  public fromDB(value: unknown): boolean | null {
+    return typeof value === 'string' ? value === 'Y' : typeof value === 'boolean' ? value : null;
+  }
+}
+
+class PipeSqlSetConverter extends SqlSetConverter {
+  public toDB(value: unknown): unknown {
+    return Array.isArray(value) ? value.join('|') : super.toDB(value);
+  }
+
+  public fromDB(value: string | string[] | null): string[] | null {
+    return typeof value === 'string' ? value.split('|') : value;
+  }
+}
+
 class TaggedInt64Converter extends Int64ValueConverter {
   public toDB(value: unknown): string | number | null {
     const converted = super.toDB(value);
@@ -163,6 +184,18 @@ class SubclassDoc extends ModelBase {
 
   @ConvertedBy(TaggedUniversalConverter, { TypeColumn: 'Type' })
   public Value: unknown;
+
+  @ConvertedBy(YesNoSqlConverter)
+  public Answer: boolean;
+
+  @Bool()
+  public Active: boolean;
+
+  @ConvertedBy(PipeSqlSetConverter)
+  public Labels: string[];
+
+  @Set()
+  public Kinds: string[];
 }
 
 @Connection('sqlite')
@@ -223,6 +256,10 @@ describe('sqlite: a column declaring a subclass of a shipped converter', functio
         table.text('Big');
         table.text('Type');
         table.text('Value');
+        table.text('Answer');
+        table.int('Active');
+        table.text('Labels');
+        table.text('Kinds');
       });
     await db().reloadTableInfo();
   });
@@ -335,6 +372,59 @@ describe('sqlite: a column declaring a subclass of a shipped converter', functio
 
     expect((await raw(14)).Tags).to.eq('a|b');
     expect((await read(14)).Tags).to.deep.eq(['a', 'b']);
+  });
+
+  describe("the driver's boolean and set converters", () => {
+    async function ids(query: PromiseLike<SubclassDoc[]>): Promise<number[]> {
+      return (await query).map((doc) => doc.Id).sort((a, b) => a - b);
+    }
+
+    it("a subclass of SqlBooleanValueConverter stores its own 'Y' / 'N' on write, on read and in a where() binding", async () => {
+      const built = new SubclassDoc({ Id: 30, Answer: true });
+      expect(built.Answer).to.eq(true);
+      await built.insert();
+      await SubclassDoc.insert({ Id: 31, Answer: false });
+
+      expect((await raw(30)).Answer).to.eq('Y');
+      expect((await raw(31)).Answer).to.eq('N');
+      expect((await read(30)).Answer).to.eq(true);
+      expect((await read(31)).Answer).to.eq(false);
+      expect(await ids(SubclassDoc.where('Answer', true))).to.deep.eq([30]);
+      expect(await ids(SubclassDoc.where('Answer', false))).to.deep.eq([31]);
+
+      await SubclassDoc.update({ Answer: true }).where('Id', 31);
+      expect((await raw(31)).Answer).to.eq('Y');
+    });
+
+    it('a subclass of SqlSetConverter runs on write, on read and in a where() binding', async () => {
+      await new SubclassDoc({ Id: 32, Labels: ['a', 'b'] }).insert();
+      await SubclassDoc.insert({ Id: 33, Labels: ['c'] });
+
+      expect((await raw(32)).Labels).to.eq('a|b');
+      expect((await read(32)).Labels).to.deep.eq(['a', 'b']);
+      expect(await ids(SubclassDoc.where('Labels', '=', ['a', 'b']))).to.deep.eq([32]);
+
+      await SubclassDoc.update({ Labels: ['c', 'd'] }).where('Id', 33);
+      expect((await raw(33)).Labels).to.eq('c|d');
+      expect((await read(33)).Labels).to.deep.eq(['c', 'd']);
+    });
+
+    it('a subclass of SqlSetConverter can read NULL as null', async () => {
+      await driver().insert().into('converter_subclass_doc').values({ Id: 36, Labels: null });
+
+      expect((await read(36)).Labels).to.eq(null);
+    });
+
+    it('@Bool() and @Set() columns still write 1 / 0 and comma-joined text', async () => {
+      await new SubclassDoc({ Id: 34, Active: true, Kinds: ['x', 'y'] }).insert();
+      await SubclassDoc.insert({ Id: 35, Active: false, Kinds: ['z'] });
+
+      expect(await raw(34)).to.include({ Active: 1, Kinds: 'x,y' });
+      expect(await raw(35)).to.include({ Active: 0, Kinds: 'z' });
+      expect(await read(34)).to.include({ Active: true }).and.have.property('Kinds').that.deep.eq(['x', 'y']);
+      expect((await read(35)).Active).to.eq(false);
+      expect(await ids(SubclassDoc.where('Active', true))).to.deep.eq([34]);
+    });
   });
 
   it('Int64ValueConverter: a subclass runs on write and read', async () => {
