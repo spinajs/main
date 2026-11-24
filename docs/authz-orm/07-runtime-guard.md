@@ -50,6 +50,7 @@ The guard has no `authz.orm` keys. It reads the app env; `authz.audit.unscoped` 
 - **Selects only.** Updates and deletes are not guarded; mark them with `.accessible()` yourself.
 - **`.within()` and `.withAccess()` alone do not satisfy it.** `.within()` narrows and `.withAccess()` annotates; neither authorizes.
 - **hasMany relations are selects too.** A hasMany `populate()` of an `@AccessResource` model builds its own select; call `.accessible()` in the populate callback. A belongsTo or many-to-many populate runs no select of its own and a `@Recursive` one would filter its root rows only, so `.accessible()` in their callbacks throws `AuthzConfigError` ([Access lists](01-access-lists.md#important-behaviour)).
+- **A many-to-many `sync()` or `update()` selects its junction model.** When the junction model is an `@AccessResource`, that select of existing links is flagged like any other: `AuthzConfigError` in the `test` env, a warning in development. The select is internal to the relation, so it cannot be marked `.accessible()` or `.unscoped()`; run the call under `authz().runAs(SYSTEM, reason, fn)` or in a route marked `@Unscoped(reason)`.
 - **The call site is taken only in `warn` mode.** In `throw` and `off` mode no stack is captured.
 - **Plain models are ignored.** A select of a model without `@AccessResource` is never flagged.
 

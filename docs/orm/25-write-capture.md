@@ -96,7 +96,7 @@ An upsert is also refused after it ran, when the read after it finds more rows b
 
 Only statements built on a model reach the capture. It does not see:
 
-- builders without a model: `driver.insert()`, `driver.update()`, `driver.del()`, `insertChunked`, and the rows of a junction table written without a junction model;
+- builders without a model: `driver.insert()`, `driver.update()`, `driver.del()`, `insertChunked`;
 - `RawQuery` statements, `driver.execute()` with a compiled expression, `driver.executeOnDb()`, raw SQL and `TRUNCATE`;
 - schema builders;
 - rows the database changes by itself: foreign-key `ON DELETE CASCADE` or `SET NULL`, and triggers;

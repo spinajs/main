@@ -132,6 +132,8 @@ database's collation treats as the tenant column is not caught there.
   it, on every driver: the ORM checks not-null columns when it converts the instance, before the middleware runs.
 - Saving a loaded relation list (`relation.update()` of a one-to-many or many-to-many list) is an upsert, so it throws
   `NotSupported` inside a tenant.
+- `relation.sync()` runs its select and orphan delete on the target or junction model, so inside a tenant they are
+  confined like any other statement of the model; a member it has to write still makes it throw, as `update()` does.
 - In the all-tenants scope an upsert is not refused: its update half can rewrite the tenant column, and `orReplace()` can
   replace another tenant's row.
 - Import the package before the Orm resolves: the Orm adds `.acrossTenants()` and registers `TenantModel` and its
