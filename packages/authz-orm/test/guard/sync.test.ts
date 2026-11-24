@@ -363,12 +363,13 @@ describe("authz-orm guard: a relation list's sync()", function () {
         expect((err as AccessDenied).decision.permission).to.equal(permission);
         expect((err as AccessDenied).decision.reason).to.deep.equal({ code: 'no_access' });
         expect(await kind.state()).to.deep.equal(kind.before);
-        expect(executed).to.deep.equal([...kind.statements, 'select']);
+        // the one-row check, then the read of every row left for the log
+        expect(executed).to.deep.equal([...kind.statements, 'select', 'select']);
         expect(warn.callCount).to.equal(1);
         expect(warn.firstCall.args[0]).to.deep.equal({ owner: PostModel.name, relation: kind.relation, model: kind.model().name, permission, left: 1 });
       });
 
-      it('.accessible(p) with a plan that leaves one orphan out: the count ignores what a middleware adds to selects at creation', async () => {
+      it('.accessible(p) with a plan that leaves one orphan out: the check ignores what a middleware adds to selects at creation', async () => {
         env('test');
         const target = kind.model();
         class GreenSelects extends QueryMiddleware {
