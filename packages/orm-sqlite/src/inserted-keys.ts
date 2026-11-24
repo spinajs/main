@@ -11,8 +11,9 @@ function rowidColumn(insert: InsertQueryBuilder): IColumnDescriptor | undefined 
 }
 
 /**
- * Table info cannot tell a WITHOUT ROWID table, where an INTEGER PRIMARY KEY is no rowid alias and `lastID` keeps an
- * earlier statement's rowid. Its key is NOT NULL, so its row either supplies the key or takes the column default.
+ * Under `db.Models.Source: 'manifest'` the flag comes from the model's declaration, not from table info, and can name
+ * the key of a WITHOUT ROWID table, where `lastID` keeps an earlier statement's rowid. Its key is NOT NULL, so its row
+ * either supplies the key or takes the column default.
  */
 function lastIdNamesTheRow(lastId: number, supplied: unknown, column: IColumnDescriptor): boolean {
   if (supplied === null || supplied === undefined) return column.DefaultValue === null || column.DefaultValue === undefined;
