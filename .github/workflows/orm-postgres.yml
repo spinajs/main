@@ -86,9 +86,9 @@ jobs:
       - name: install
         run: npm ci
 
-      # orm-pglite's tests import @spinajs/testing ( a devDependency ), which the two package graphs do not build.
-      - name: build orm-pglite + orm-postgres + testing + deps
-        run: node node_modules/typescript-7/lib/tsc.js -b packages/orm-pglite/tsconfig.build.json packages/orm-postgres/tsconfig.build.json packages/testing/tsconfig.build.json
+      # orm-pglite's tests import @spinajs/testing and @spinajs/orm-sqlite ( devDependencies ), which the two package graphs do not build.
+      - name: build orm-pglite + orm-postgres + testing + orm-sqlite + deps
+        run: node node_modules/typescript-7/lib/tsc.js -b packages/orm-pglite/tsconfig.build.json packages/orm-postgres/tsconfig.build.json packages/testing/tsconfig.build.json packages/orm-sqlite/tsconfig.build.json
 
       - name: orm-pglite suite
         working-directory: packages/orm-pglite
