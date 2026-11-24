@@ -45,7 +45,7 @@ The column text comes from one protected method, `write(dt)`, which receives a v
 
 ### `SqlTimeValueConverter`
 
-- `toDB(TimeSpan | string | number)` writes `[-]HH:MM:SS`, with hours above 24 allowed (MySQL `TIME` spans `-838:59:59` to `838:59:59`). A value `TimeSpan.parse()` cannot read becomes `null`.
+- `toDB(TimeSpan | string | number)` writes `[-]HH:MM:SS`, with hours above 24 allowed (MySQL `TIME` spans `-838:59:59` to `838:59:59`). A negative span is the positive text with a minus sign: `-02:30` writes `-02:30:00`. A value `TimeSpan.parse()` cannot read becomes `null`.
 - `fromDB('[-]H{1,3}:MM:SS[.ffffff]')` returns a `TimeSpan`; other strings fall back to `TimeSpan.parse()`.
 - `snapshotValue()` and `snapshotEquals()` compare by total milliseconds, so a `time` column is only reported as changed when its value changed.
 
