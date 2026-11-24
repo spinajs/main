@@ -1,6 +1,6 @@
 # Inserts and generated keys
 
-MySQL has no `RETURNING`, so `MySqlOrmDriver` hands back generated keys through `LAST_INSERT_ID()`. It is the only shipped driver where a multi-row insert's keys are contiguous from that id, so `Model.insert([...])` can key every row. The insert compiler writes `INSERT IGNORE`, `REPLACE INTO` and `ON DUPLICATE KEY UPDATE`.
+MySQL has no `RETURNING`, so `MySqlOrmDriver` reads the keys of inserted rows off the OK packet's `insertId` (`LAST_INSERT_ID()`). `MysqlServerResponseMapper.insertedKeys()` owns that rule: one row gets `insertId`, and the rows of one plain multi-row insert get the block that starts there, advancing by the connection's `auto_increment_increment`. Where the packet does not prove a key, it reports none. The insert compiler writes `INSERT IGNORE`, `REPLACE INTO` and `ON DUPLICATE KEY UPDATE`.
 
 ## How it works
 
@@ -11,45 +11,65 @@ MySQL has no `RETURNING`, so `MySqlOrmDriver` hands back generated keys through 
    - otherwise `INSERT INTO <table>`.
 
    Columns and `VALUES (...), (...)` come from the shared compiler. With `onDuplicate()` and no `orReplace()`, `SqlOnDuplicateQueryCompiler` appends `` ON DUPLICATE KEY UPDATE `col` = VALUES(`col`), ... ``.
-3. **Send.** `executeOnDb()` runs it with `QueryContext.Insert` (or `Upsert` after `onDuplicate()`) and resolves `{ RowsAffected, LastInsertId, Returning: [] }` from `mysql2`'s `OkPacket`.
+3. **Send.** `executeOnDb()` runs it with `QueryContext.Insert` (or `Upsert` after `onDuplicate()`) and resolves `{ RowsAffected, LastInsertId, Returning: [], AutoIncrementStep }`: the first two from `mysql2`'s `OkPacket`, the last the step the connection last reported ([The step of a connection](#the-step-of-a-connection)).
 4. **Map.** The model layer resolves `ServerResponseMapper` from the connection container: `MysqlServerResponseMapper.read(data)` returns `{ LastInsertId: data.LastInsertId ?? 0, RowsAffected: data.RowsAffected ?? 0, Returning: [] }`.
-5. **Key one row.** For a model with an `auto` primary key and no key set, `PrimaryKeyValue = LastInsertId`.
-6. **Key a batch.** For `Model.insert([a, b, c])`, every row gets `LastInsertId + index` when all seven guards hold (next section). Otherwise no key is assigned.
+5. **Key the rows.** `ModelBase.insert()`, the static `Model.insert()`, the unit of work and the write capture take keys from `MysqlServerResponseMapper.insertedKeys(response, insert)`: one key per row, or none at all (next section). A key the row already holds is never overwritten.
 
 Errors: a duplicate primary or unique key without `orIgnore()`, `orReplace()` or `onDuplicate()` throws `UniqueViolation` ([Errors](01-mysql-driver.md#errors)). `returning(columns)` throws `NotSupported('driver orm-driver-mysql does not support RETURNING on INSERT')`. `Model.insert([...], behaviour)` with any behaviour other than `InsertBehaviour.None` throws `OrmException('insert behaviour is not supported with arrays')`.
 
-### Contiguous keys for a batch
+### Which keys an insert reports
 
-`supportedFeatures()` returns `{ events: true, insertReturning: false, insertIdIsFirstOfBatch: true, nativeJson: true, concurrentTransactions: true }`. `MaxBindings` is `65535`, the server's prepared-statement limit. `mysql2`'s `query()` writes the bindings into the SQL text on the client, so the server never counts them and a batch is bounded in practice by the server's `max_allowed_packet`. `insertIdIsFirstOfBatch` rests on InnoDB behaviour:
+A key is reported only for a model with a single-column primary key whose generation is `auto` and whose column is `AUTO_INCREMENT` (`AutoIncrement` in the table info, read from `EXTRA`), and only when `insertId` is a positive safe integer. An insert without a model, a composite key, a `uuid` or `assigned` key, or a key column without `AUTO_INCREMENT` reports none.
 
-- `INSERT INTO t (...) VALUES (...), (...)` is a *simple insert*: the row count is known before execution. It is the only shape `InsertQueryBuilder` builds.
-- For a simple insert InnoDB reserves one contiguous block of N auto-increment values, and `LAST_INSERT_ID()` reports the first. Row k gets `LAST_INSERT_ID() + k`.
-- This holds under `innodb_autoinc_lock_mode = 2`, the MySQL 8 default. The manual's "not contiguous" caveat covers bulk inserts (`INSERT ... SELECT`) and mixed-mode inserts, which the builder does not produce.
+**One row.** The key is `insertId` when the packet proves that the statement wrote that row. Measured on MySQL 8.4.11 with `mysql2` 3.22, whose default flags include `FOUND_ROWS`:
 
-`Model.insert([...])` backfills keys only when every guard passes:
+| Statement | Outcome | `affectedRows` | `insertId` | Reported key |
+| --- | --- | --- | --- | --- |
+| `INSERT` | inserted | 1 | the new id, or the explicit one | `insertId` |
+| `INSERT IGNORE` | inserted | 1 | the new id | `insertId` |
+| `INSERT IGNORE` | skipped (duplicate) | 0 | 0 | none |
+| `REPLACE` | inserted, no conflict | 1 | the new id | `insertId` |
+| `REPLACE` | deleted the conflicting row, inserted a new one | 1 + the rows deleted | the new row's id, or the explicit one | `insertId` |
+| `ON DUPLICATE KEY UPDATE` | inserted | 1 | the new id | `insertId` |
+| `ON DUPLICATE KEY UPDATE` | updated an existing row | 2 | the updated row's id | `insertId` |
+| `ON DUPLICATE KEY UPDATE` | row left unchanged | 1 with `FOUND_ROWS`, 0 without | 0 | none |
+| `INSERT IGNORE ... ON DUPLICATE KEY UPDATE` | any | not measured | | none |
 
-1. The driver reports `insertIdIsFirstOfBatch: true` (MySQL only).
-2. The model has exactly one primary key column, with `auto` generation.
-3. `InsertBehaviour` is `None`: `INSERT IGNORE`, `REPLACE` and `ON DUPLICATE KEY UPDATE` can skip or reuse rows.
-4. The batch ran as one statement. A batch over `MaxBindings` (`65535` parameters) or `MaxInsertRows` is split, and the blocks of separate statements are not contiguous.
-5. `LastInsertId` is a finite number above `0`.
-6. `RowsAffected` equals the number of rows sent.
-7. No row carried an explicit key. With some keys supplied, InnoDB allocates values only for the others.
+Without `FOUND_ROWS` the other rows are the same. An upsert that updated a row is keyed because MySQL reports that row's id (`mysql_insert_id()`: "the last of the inserted or updated values"), so `model.insert(InsertBehaviour.InsertOrUpdate)` on a model without a key gets the key of the row it updated.
 
-If any guard fails, no key is assigned. Re-select, or insert rows one at a time.
+**Several rows.** A plain `INSERT INTO t (...) VALUES (...), (...)` is a *simple insert* to InnoDB: its row count is known before it runs, so InnoDB reserves one block for it and `insertId` is the first value of that block, under every `innodb_autoinc_lock_mode` (the MySQL 8 default is `2`). The block advances by `auto_increment_increment`: row k gets `insertId + k * auto_increment_increment`. With step 3 and `auto_increment_offset = 2`, three rows got `2, 5, 8`. In a run of 360 concurrent statements with steps 1 and 2, and `INSERT ... SELECT` bulk inserts running alongside, every block matched this walk. The keys are reported only when all of these hold:
+
+1. The connection's step is known ([The step of a connection](#the-step-of-a-connection)).
+2. No `orIgnore()`, `orReplace()` or `onDuplicate()`: a skipped, replaced or updated row breaks the block.
+3. `affectedRows` equals the number of rows sent.
+4. No row carried an explicit key. With some keys supplied, InnoDB allocates values only for the others.
+5. The batch ran as one statement. A batch over `MaxBindings` (`65535` parameters) or `MaxInsertRows` is split, and separate statements get separate blocks.
+6. The last key of the walk is a safe integer.
+
+If any of them fails, no row gets a key. Re-select, or insert rows one at a time. The rule does not read the driver's `insertIdIsFirstOfBatch` flag.
+
+### The step of a connection
+
+`auto_increment_increment` is a session variable; multi-primary and Galera setups set it above 1. The driver learns it without a query per insert:
+
+- When `mysql2` opens a pooled connection, the driver adds `auto_increment_increment` to `session_track_system_variables` and sets the step to itself in the same `SET`, so the server reports the value in that statement's OK packet.
+- From then on the server reports every change the session makes (`SET SESSION auto_increment_increment = 3`, `SET @@session.auto_increment_increment = 3`, a `SET` inside a procedure) in the OK packet of the statement that made it, and the driver keeps the connection's step current from it.
+- Each insert response carries the step of the connection it ran on as `AutoIncrementStep`.
+
+The step is unknown, and a multi-row insert reports no keys, when the server has no session tracking (MySQL before 5.7, MariaDB before 10.2), when `Options.flags` drops `SESSION_TRACK`, when that `SET` fails, and on connections outside the pool (`openDedicatedConnection()`). A single row needs no step.
 
 ## Configuration
 
-No keys of its own. `innodb_autoinc_lock_mode` is a server variable; the guarantee above holds for `0`, `1` and `2`.
+No keys of its own. `MaxBindings` is `65535`, the server's prepared-statement limit; `mysql2`'s `query()` writes the bindings into the SQL text on the client, so a batch is bounded in practice by the server's `max_allowed_packet`. Multi-row keys need the `SESSION_TRACK` flag, which is among `mysql2`'s defaults.
 
 ## Services and extension points
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
-| Insert response mapper | `ServerResponseMapper` in the driver's child container; registered in `MySqlOrmDriver.resolve()`; resolved per insert | `MysqlServerResponseMapper` (exported) | | Extend `MysqlServerResponseMapper`, override `read(data, pkColumns?)`, register `.as(ServerResponseMapper)` after `super.resolve()` in a driver subclass. |
+| Insert response mapper | `ServerResponseMapper` in the driver's child container; registered in `MySqlOrmDriver.resolve()`; resolved per insert | `MysqlServerResponseMapper` (exported) | | Extend `MysqlServerResponseMapper`, override `read(data, pkColumns?)` or `insertedKeys(response, insert)`, register `.as(ServerResponseMapper)` after `super.resolve()` in a driver subclass. |
 | Insert compiler | `InsertQueryCompiler`; `@NewInstance()`, constructor `(container, builder)` | `MySqlInsertQueryCompiler` | `SqlInsertQueryCompiler` (no `REPLACE`, `IGNORE`) | Extend `SqlInsertQueryCompiler` from `@spinajs/orm-sql`, override `into()`, register `.as(InsertQueryCompiler)`. |
 | Upsert clause compiler | `OnDuplicateQueryCompiler`; constructor `(builder: OnDuplicateQueryBuilder)` | `SqlOnDuplicateQueryCompiler` | | Extend it and override `compile()`, register `.as(OnDuplicateQueryCompiler)`. |
-| Feature flags | `supportedFeatures()` on the driver | `{ events: true, insertReturning: false, insertIdIsFirstOfBatch: true, nativeJson: true, concurrentTransactions: true }` | | Override in a driver subclass. Set `insertIdIsFirstOfBatch: false` for a server where the guarantee does not hold. |
+| Feature flags | `supportedFeatures()` on the driver | `{ events: true, insertReturning: false, insertIdIsFirstOfBatch: true, nativeJson: true, concurrentTransactions: true, streaming: true }` | | Override in a driver subclass. The keys of inserted rows do not depend on `insertIdIsFirstOfBatch`. |
 
 ### Insert response mapper: custom implementation
 
@@ -130,13 +150,13 @@ export class ReportingMySqlDriver extends MySqlOrmDriver {
 - `orReplace()` wins over `onDuplicate()`: with both, the statement is `REPLACE INTO` with no update clause. `REPLACE` deletes the old row and inserts a new one, so it fires delete triggers and cascades foreign keys.
 - `orIgnore()` turns errors such as a duplicate key into warnings; the row is skipped and `RowsAffected` is lower.
 - The unit of work (`save()`) inserts one statement per row, so it does not depend on contiguous keys.
-- <!-- TODO(docs-hook): verify which LastInsertId model.insert(InsertBehaviour.InsertOrUpdate) reports when the row already existed and was updated -->
+- `model.insert(InsertBehaviour.InsertOrUpdate)` on a row that already existed reports that row's id as `LastInsertId`, and the model gets it as its key. When the update changed nothing, `LastInsertId` is `0` and the model gets no key.
 
 ## Best practices
 
 - Insert batches through `Model.insert([...])` with no keys set; every row gets its key from one statement.
 - Use `InsertBehaviour.InsertOrUpdate` on a single model, not on an array; arrays reject any behaviour.
-- Keep `innodb_autoinc_lock_mode` at a documented value and confirm it on MariaDB before relying on batch keys.
+- Set a session `auto_increment_increment` inside the transaction that inserts: outside one, `SET SESSION` lands on whichever pooled connection runs it and stays there. The keys are right either way; the ids are not the ones you meant.
 
 ## Patterns and antipatterns
 
@@ -178,7 +198,7 @@ export class Invoice extends ModelBase<Invoice> {
 export async function importInvoices(numbers: string[]): Promise<number[]> {
   const invoices = numbers.map((n) => new Invoice({ Number: n, Total: '0.00' }));
 
-  // one INSERT ... VALUES (...), (...) statement; ids are LAST_INSERT_ID() + index
+  // one INSERT ... VALUES (...), (...) statement; ids are LAST_INSERT_ID() + index * auto_increment_increment
   await Invoice.insert(invoices);
 
   return invoices.map((i) => i.Id);
