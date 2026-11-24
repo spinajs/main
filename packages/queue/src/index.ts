@@ -29,7 +29,7 @@ export * from './bootstrap.js';
 export { QUEUE_OUTBOX_CONFIGURATION_SCHEMA } from './schemas/queue.outbox.configuration.js';
 export { QUEUE_CONFIGURATION_SCHEMA } from './schemas/queue.configuration.js';
 export { QUEUE_ROUTING_CONFIGURATION_SCHEMA } from './schemas/queue.routing.configuration.js';
-export * from './tracing.js';
+export { isScheduledDelivery, markOutboxCreate, withConsumerSpan, withProducerSpan } from './tracing.js';
 export * from './decorators.js';
 export * from './hooks.js';
 export * from './tracking-hook.js';
