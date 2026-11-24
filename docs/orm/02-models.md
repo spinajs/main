@@ -158,20 +158,26 @@ Relation decorators are covered in [Relations](06-relations.md). Converter decor
 
 | `generated` | Who supplies the value | Insert behaviour |
 | --- | --- | --- |
-| `'auto'` (default) | The database (identity or auto-increment). | The insert asks for the key back: `RETURNING` when `supportedFeatures().insertReturning` is `true`, `LastInsertId` otherwise. |
+| `'auto'` (default) | The database (identity or auto-increment). | The insert asks for `RETURNING` when `supportedFeatures().insertReturning` is `true` and takes the key the connection's `ServerResponseMapper.insertedKeys()` reports. |
 | `'uuid'` | The ORM, client-side. | `generateClientSideKeys()` fills an empty key with a v4 UUID at construction and again before insert. A supplied value is never overwritten. |
 | `'assigned'` | The caller. | `assertAssignedKeys()` throws `OrmException` before any SQL runs when the key is `null`, `undefined` or `''`. |
 
-Multi-row `Model.insert([...])` backfills `auto` keys as follows:
+`model.insert()`, `Model.insert(...)` and the unit of work take generated keys from the
+connection's `ServerResponseMapper.insertedKeys(response, insert)`: one key per inserted row, in
+insert order, or none at all. A key the caller supplied is never overwritten. A connection package
+may override `insertedKeys` with its own rule. The default:
 
-- `RETURNING` rows, when the driver returns one per inserted row, are applied in insert order.
-- A single row takes `LastInsertId`.
-- Several rows take `LastInsertId + index` only when all of these hold: the driver reports
-  `insertIdIsFirstOfBatch`, the model has one `auto` key column, the insert behaviour is
-  `InsertBehaviour.None`, the batch ran as one statement (not split by the driver's `MaxBindings` or
-  `MaxInsertRows`), `LastInsertId` is a positive number, `RowsAffected` equals the row count, and
-  no row carried a key.
-- Otherwise no key is assigned. Re-select the rows or insert them one at a time.
+- `RETURNING` rows, when there is one per inserted row and each carries the whole key, are applied
+  in insert order.
+- Otherwise `LastInsertId`, only for a single-column `auto` key whose column is `AutoIncrement` (as
+  the table reports it, or as the manifest declares it). A single row takes `LastInsertId`. Several
+  rows take `LastInsertId + index` only when all of these hold: the driver reports
+  `insertIdIsFirstOfBatch`, the insert neither ignores, replaces nor updates on conflict, the batch
+  ran as one statement (not split by the driver's `MaxBindings` or `MaxInsertRows`), `LastInsertId`
+  is a positive integer, `RowsAffected` equals the row count, and no row carried a key.
+- Otherwise no key is assigned. A key column that is not `AutoIncrement` stays unset after an
+  insert without `RETURNING`, because `LastInsertId` is not its value. Re-select the rows or insert
+  them one at a time.
 
 `InsertBehaviour` selects the conflict handling of `model.insert()` and `Model.insert()`:
 

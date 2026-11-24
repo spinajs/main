@@ -12,6 +12,9 @@ import type { Constructor, IContainer } from '@spinajs/di';
 import type { ModelBase } from './model.js';
 import { MethodNotImplemented } from '@spinajs/exceptions';
 import { columnToDb } from './column-values.js';
+import type { InsertQueryBuilder } from './builders/insert.js';
+import { insertDescriptor, legacyIdentityKeys, returningRowKeys } from './inserted-keys.js';
+import { pkColumns } from './primary-keys.js';
 import type { Relation } from './relation-objects.js';
 import type { Lazy } from '@spinajs/util';
 import type { AggregateValue, ColumnName, ColumnRef, DeclaredColumn, LiteralColumn, ColumnTypeOf, Head, MinMaxValue, StrictAliasNarrowed, Narrowed, PickColumns, PopulateName, PopulatePath, PopulateTree, Project, RelationTarget, Reproject, SourceRow, StrictNarrowed, WhereCatchAllColumn, WhereColumn, WhereOperator, WhereValue, WithPopulated } from './typing.js';
@@ -192,6 +195,32 @@ export class ServerResponseMapper {
    */
   public read(_response: any, _pkNames?: string[]): DbServerResponse {
     throw new MethodNotImplemented(`no ServerResponseMapper is registered for this connection. Every driver must register one: container.register(MyMapper).as(ServerResponseMapper)`);
+  }
+
+  /**
+   * The primary key of every row this insert wrote, in insert order, as one object per row
+   * (primary key column name -> value); undefined when this dialect cannot tell.
+   *
+   * All or nothing: one entry per row of `insert.Values`, never a partial list. By default the
+   * keys {@link returnedKeys} gives, else keys read off `LastInsertId` for an auto-increment key.
+   *
+   * @param response - whatever the driver's executeOnDb resolved with, as {@link read} takes it
+   * @param insert - the executed insert; one without a model has no known keys
+   */
+  public insertedKeys(response: unknown, insert: InsertQueryBuilder): Array<Record<string, unknown>> | undefined {
+    const descriptor = insertDescriptor(insert);
+    if (!descriptor) return undefined;
+    const pk = pkColumns(descriptor);
+    const mapped = this.read(response, pk);
+    return returningRowKeys(mapped, insert.Values.length, pk) ?? legacyIdentityKeys(mapped, insert, descriptor);
+  }
+
+  /** The keys in the RETURNING rows of this insert, when there is one whole key per inserted row. */
+  protected returnedKeys(response: unknown, insert: InsertQueryBuilder): Array<Record<string, unknown>> | undefined {
+    const descriptor = insertDescriptor(insert);
+    if (!descriptor) return undefined;
+    const pk = pkColumns(descriptor);
+    return returningRowKeys(this.read(response, pk), insert.Values.length, pk);
   }
 }
 

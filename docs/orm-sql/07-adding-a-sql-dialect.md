@@ -66,7 +66,7 @@ Mandatory, because `SqlDriver` has no portable implementation:
 | `IdentifierQuoter` | Every compiler and statement quotes through it. | `BacktickIdentifierQuoter` (`@spinajs/orm-sql`), `BracketIdentifierQuoter`, `DoubleQuoteIdentifierQuoter` |
 | `LiteralQuoter` | View and event bodies. | `SqlLiteralQuoter` or a subclass |
 | `SqlExpressions` | Stores and migrations that write raw SQL resolve it; the base `OrmDriver.resolve()` registers throws `NotSupported` from every method. | `SqliteSqlExpressions`, `MySqlSqlExpressions`, `MsSqlSqlExpressions`, `PostgresSqlExpressions`; see [SQL helpers](../orm/17-sql-helpers.md#dialect-expressions) |
-| `ServerResponseMapper` | Turns your insert result into `DbServerResponse`. The base `read()` throws `MethodNotImplemented`. | one per driver |
+| `ServerResponseMapper` | Turns your insert result into `DbServerResponse`. The base `read()` throws `MethodNotImplemented`. `insertedKeys(response, insert)` reports the keys of the inserted rows; the default reads your `RETURNING` rows, else `LastInsertId` for an `AutoIncrement` key. Override it when your dialect knows the keys another way. | one per driver |
 | `TableExistsCompiler` | Migrations and `createTableIfAbsent` ask it. | one per driver |
 | `LimitQueryCompiler` | The select and delete compilers resolve it. | `SqlLimitQueryCompiler` or your own |
 | `CreateViewCompiler` | `SqlCreateViewQueryCompiler` refuses every optional clause. | a subclass per driver; see [View compiler hooks](06-view-compiler-hooks.md) |
