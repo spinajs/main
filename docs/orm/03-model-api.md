@@ -77,7 +77,7 @@ Every builder is lazy: awaiting it executes the query. See [Query builder](05-qu
 
 | Member | Behaviour |
 | --- | --- |
-| `constructor(data?)` | Sets defaults: column `DefaultValue`, a fresh uuid for `uuid` keys and, with `db.Models.Source: 'manifest'`, for `@Uuid()` columns (with columns read from the database the table info replaces the `@Uuid()` flag and the column stays empty), `@CreatedAt` = now, relation objects. Then calls `hydrate(data)`. |
+| `constructor(data?)` | Sets defaults: column `DefaultValue`, a fresh uuid for `uuid` keys and, when the model's columns come from the manifest, for `@Uuid()` columns (with columns read from the database the table info replaces the `@Uuid()` flag and the column stays empty), `@CreatedAt` = now, relation objects. Then calls `hydrate(data)`. |
 | `ModelDescriptor` | The class descriptor. |
 | `Container` | The DI container of the model's connection. |
 | `PrimaryKeyName` | Key column names (`string[]`). |
@@ -176,7 +176,7 @@ its connections and `OrmConnectionMissing` (with `connection`) when no connectio
 - `get()`, `first()`, `last()`, `newest()` and `oldest()` resolve `undefined` when nothing matches, although their return type is the model.
 - Static `insert()` is `async`: it returns a promise, not the `InsertQueryBuilder` its type declares. Pass everything through `data` and `behaviour`.
 - Static `update(data)` converts `data` through the column converters when it is called, so a value its converter refuses (a `@DateTime` string that is neither ISO 8601 nor SQL format) throws `InvalidArgument` synchronously, before the `where()` is chained.
-- `insertOrUpdate()` tests `PrimaryKeyValue` for truthiness. A `uuid` key is filled at construction, so is a `@Uuid()` key with `db.Models.Source: 'manifest'`, and a composite key is a non-empty array, so these models always take the `update()` path. A `@Uuid()` key whose columns are read from the database is empty after construction.
+- `insertOrUpdate()` tests `PrimaryKeyValue` for truthiness. A `uuid` key is filled at construction, so is a `@Uuid()` key of a model whose columns come from the manifest, and a composite key is a non-empty array, so these models always take the `update()` path. A `@Uuid()` key whose columns are read from the database is empty after construction.
 - `getOrCreate(pk, data)` uses `pk` only for the lookup. The new model gets its key from `data` or from the database.
 - `getOrNew(data)` with no key or `Unique` column in `data`, and `getOrCreate(null, data)` on a model without `Unique` columns, add no condition and return the first row of the table.
 - `findOrFail()` throws a plain `Error`, not `OrmNotFoundException`.

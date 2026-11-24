@@ -100,7 +100,7 @@ sequenceDiagram
 | `PrimaryKey` | `boolean` | Reflected key flag. It does **not** feed `descriptor.PrimaryKey`. |
 | `AutoIncrement` | `boolean` | Reflected identity flag. |
 | `Unique` | `boolean` | Unique constraint. `fresh()` falls back to unique columns when the model has no key; `getOrCreate()` and `getOrNew()` match on them. |
-| `Uuid` | `boolean \| undefined` | Set by `@Uuid()`. |
+| `Uuid` | `boolean \| undefined` | Set by `@Uuid()`. Table info resets it to `false`; a manifest descriptor keeps it. |
 | `Ignore` | `boolean` | Set by `@Ignore()`: the property is not persisted. Table info never changes it. |
 | `Converter` | `IValueConverter \| null \| undefined` | Resolved converter instance. |
 | `Schema` | `any` | Column JSON schema. |
@@ -144,7 +144,7 @@ are capped at 64 bits. An `unsigned` type raises the upper bound to the unsigned
 | `@Archived()` | property | none | Sets `Archived.ArchivedAt` and a `DatetimeValueConverter`. Selects filter archived rows out. `model.archive()` stamps it. |
 | `@Hidden()` | property or relation | none | Adds the name to `Hidden`. `dehydrate()` and `dehydrateWithRelations()` always omit it, and `ResponseSchema` drops it. `Schema` keeps it. |
 | `@Ignore()` | property | none | Sets `Ignore: true` on the column: the property is not persisted. No insert, update, upsert, bulk insert or `save()` writes it, `dehydrate()` omits it, relation queries do not select it, and it is absent from `Schema` and `ResponseSchema`. Throws `InvalidArgument` on a `@Primary()` property. |
-| `@Uuid()` | property | none | Sets `Uuid: true` on the column and a `UuidConverter`. The converter stores 16-byte binary. With `db.Models.Source: 'manifest'` the flag is kept and the constructor fills the column with a v4 UUID. With columns read from the database (the default source) the table info replaces the column entry, `Uuid` included, and the constructor leaves the column empty. A client-generated UUID key on every source is `@Primary({ generated: 'uuid' })`. |
+| `@Uuid()` | property | none | Sets `Uuid: true` on the column and a `UuidConverter`. The converter stores 16-byte binary. When the model's columns come from the manifest (`db.Models.Source: 'manifest'`, and the manifest has the model) the flag is kept and the constructor fills the column with a v4 UUID. With columns read from the database (the default source) the table info replaces the column entry, `Uuid` included, and the constructor leaves the column empty. A client-generated UUID key on every source is `@Primary({ generated: 'uuid' })`. |
 | `@JunctionTable()` | property | none | Records the property in `JunctionModelProperties`. See [Relations](06-relations.md). |
 | `@DiscriminationMap(field, entries)` | class | see [Discrimination maps](14-discrimination-maps.md) | Picks the class per row from a column value. |
 
@@ -174,13 +174,13 @@ export class Tag extends ModelBase<Tag> {
 }
 ```
 
-The key is empty after construction only because the table info replaces the `@Uuid()` flag. With
-`db.Models.Source: 'manifest'` the constructor gives the model a client v4 UUID and the column default never
+The key is empty after construction because the table info replaces the `@Uuid()` flag. When the model's
+columns come from the manifest the constructor gives the model a client v4 UUID and the column default never
 applies. Measured on the other servers: SQL Server inserts the row with its default (`binary(16) DEFAULT
 CAST(NEWID() AS binary(16))`) but reports no key, so the model stays without one and `save()` of a parent with
 new children throws `OrmException` (`... returned no generated key ...`). MySQL reads an expression default
 (`DEFAULT (UUID_TO_BIN(UUID()))`) as text, the constructor copies that text onto the key, and the row is written
-with 16 zero bytes; that is a separate defect.
+with 16 zero bytes.
 
 `model.insert()`, `Model.insert(...)` and the unit of work take generated keys from the
 connection's `ServerResponseMapper.insertedKeys(response, insert)`: one key per inserted row, in
