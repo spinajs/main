@@ -5,7 +5,7 @@ import { DI, NewInstance } from '@spinajs/di';
 import type { Class, Constructor, ResolveResult } from '@spinajs/di';
 import { DateTime } from 'luxon';
 import { createQuery, DeleteQueryBuilder, InsertQueryBuilder, SelectQueryBuilder, UpdateQueryBuilder } from './builders.js';
-import { junctionRow, settleJunction } from './junction-rows.js';
+import { constructedJunctionColumns, junctionRow, settleJunction } from './junction-rows.js';
 import type { QueryBuilder } from './builders.js';
 import type { ModelBase } from './model.js';
 import type { Orm } from './orm.js';
@@ -641,7 +641,9 @@ export class ManyToManyRelationList<T extends ModelBase, O extends ModelBase> ex
       query.returning(keyColumns);
     }
 
-    const response: unknown = await query.values(junctionRow(descriptor, columns, link));
+    // Unlike save(), which writes the two keys alone, a link without junction data gets what a new junction model is constructed with.
+    const constructed = link.junction ? {} : constructedJunctionColumns(this.Relation.JunctionModel!, descriptor, columns);
+    const response: unknown = await query.values({ ...constructed, ...junctionRow(descriptor, columns, link) });
 
     if (link.junction) {
       const key = needsKeyBack ? query.Container.resolve(ServerResponseMapper).insertedKeys(response, query)?.[0] : undefined;

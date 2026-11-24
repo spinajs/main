@@ -193,20 +193,36 @@ describe('Relation set operations against the database', function () {
       expect(given.IsDirty).to.eq(false);
     });
 
-    it('writes only the two keys for a member added without junction data, not the defaults of a new junction model, and holds none for it', async () => {
-      const { order, green } = await orderWithGreen();
+    async function withNoteDefault<T>(fn: () => Promise<T>): Promise<T> {
       const note = extractModelDescriptor(UowOrderTag)!.Columns.find((c) => c.Name === 'Note')!;
       const previous = note.DefaultValue;
       note.DefaultValue = 'default note';
       try {
-        order.Tags.push(green);
-        await order.Tags.update();
+        return await fn();
       } finally {
         note.DefaultValue = previous;
       }
+    }
+
+    for (const write of ['update', 'sync'] as const) {
+      it(`writes what a new junction model is constructed with for a member added without junction data through ${write}(), and holds none for it`, async () => {
+        const { order, green } = await orderWithGreen();
+        order.Tags.push(green);
+
+        await withNoteDefault(() => order.Tags[write]());
+
+        expect(await linkOf(3)).to.deep.include({ order_id: 1, tag_id: 3, Note: 'default note' });
+        expect(order.Tags.junction(green)).to.eq(undefined);
+      });
+    }
+
+    it('writes the two keys alone for a member added without junction data through save()', async () => {
+      const { order, green } = await orderWithGreen();
+      order.Tags.push(green);
+
+      await withNoteDefault(() => order.save());
 
       expect(await linkOf(3)).to.deep.include({ order_id: 1, tag_id: 3, Note: null });
-      expect(order.Tags.junction(green)).to.eq(undefined);
     });
 
     it('writes nothing for the same member on a second sync()', async () => {

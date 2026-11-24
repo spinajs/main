@@ -136,6 +136,9 @@ database's collation treats as the tenant column is not caught there.
   model, so a tenant junction model gets the tenant column from the middleware: inside a tenant the link is written for
   that tenant, also when the member is linked only in another tenant (that tenant's row is left as it is). Junction data
   of another tenant (`add(tag, { tenant_id: 't2' })` inside `t1`) throws `TenantMismatch` and nothing is written.
+- Junction data given to `add(member, data)` becomes a junction model instance, so it needs the tenant column too:
+  `add(tag, { note: 'urgent' })` makes `sync()` throw `OrmException: Field tenant_id cannot be null`; write
+  `add(tag, { note: 'urgent', tenant_id: 't1' })`, or add the member without junction data.
 - `relation.sync()` runs its select and orphan delete on the target or junction model, so inside a tenant they are
   confined like any other statement of the model.
 - In the all-tenants scope an upsert is not refused: its update half can rewrite the tenant column, and `orReplace()` can

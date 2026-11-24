@@ -2,7 +2,7 @@ import 'mocha';
 import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 import { InvalidArgument, InvalidOperation, NotSupported } from '@spinajs/exceptions';
-import { Orm } from '@spinajs/orm';
+import { Orm, OrmException } from '@spinajs/orm';
 import type { OrmDriver } from '@spinajs/orm';
 import type { TestApp } from '@spinajs/testing';
 import { TenantMismatch, TenantRequired, TenantSwitchDenied, runAcrossTenants, runInTenant } from '@spinajs/tenancy';
@@ -233,6 +233,18 @@ describe('.acrossTenants()', function () {
         a1.Tags.add(fresh, { tenant_id: 't2' });
         await expect(inTenant('t1', () => a1.Tags.sync())).to.be.rejectedWith(TenantMismatch, 'carries tenant_id "t2" inside tenant "t1"');
         expect(await links()).to.deep.eq(everyLink);
+      });
+
+      // A junction model the caller gives is serialised as a model instance, which needs its tenant column set.
+      it('refuses junction data without the tenant column inside a tenant and writes nothing', async () => {
+        a1.Tags.add(fresh, { note: 'urgent' });
+        await expect(inTenant('t1', () => a1.Tags.sync())).to.be.rejectedWith(OrmException, 'Field tenant_id cannot be null');
+        expect(await links()).to.deep.eq(everyLink);
+
+        a1.Tags.remove(fresh);
+        a1.Tags.add(fresh, { note: 'urgent', tenant_id: 't1' });
+        await inTenant('t1', () => a1.Tags.sync());
+        expect(await links()).to.deep.eq(['t1 A-1 fresh', 't1 A-1 kept', 't2 A-1 dropped', 't2 A-1 kept', 't2 B-1 dropped']);
       });
 
       it('needs the tenant column on the junction data inside runAcrossTenants()', async () => {
