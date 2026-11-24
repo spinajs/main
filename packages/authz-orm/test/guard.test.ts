@@ -122,6 +122,14 @@ describe('authz-orm runtime guard', function () {
     expect(callSite(undefined)).to.equal('unknown call site');
   });
 
+  it('skips the frame of a Promise combinator that awaited the query', () => {
+    const app = 'at async importTags (C:\\app\\src\\import.ts:30:3)';
+    for (const combinator of ['all', 'allSettled', 'any', 'race']) {
+      const stack = ['Error', 'at AccessGuardMiddleware.guardSync (C:\\repo\\packages\\authz-orm\\lib\\mjs\\guard\\middleware.js:129:23)', `at async Promise.${combinator} (index 1)`, app].join('\n');
+      expect(callSite(stack), combinator).to.equal(app);
+    }
+  });
+
   it('does not flag single-object loads by primary key', async () => {
     env('test');
     const T = Task as M & { get(pk: unknown): Promise<ModelBase>; findOrFail(pks: unknown[]): Promise<ModelBase[]> };

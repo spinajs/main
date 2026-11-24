@@ -76,6 +76,14 @@ declare module '@spinajs/orm' {
     /** Only rows that are one of `ref` or descend from one (authz_resource_ancestor); narrows, does not authorize. */
     within(ref: ResourceRef | readonly ResourceRef[]): this;
   }
+  interface IRelationSyncStatement {
+    /** @spinajs authz-scope accessible */
+    accessible(permission: Permission, opts?: AccessibleOptions): this;
+    /** @spinajs authz-scope unscoped */
+    unscoped(reason: string): this;
+    /** Only rows that are one of `ref` or descend from one (authz_resource_ancestor); narrows, does not authorize. */
+    within(ref: ResourceRef | readonly ResourceRef[]): this;
+  }
 }
 
 function requireResource(builder: QueryBuilder, what: string): void {
