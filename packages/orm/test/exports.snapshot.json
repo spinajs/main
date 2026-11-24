@@ -430,6 +430,7 @@
   "sql",
   "sqlDialectOf",
   "statementRecording",
+  "supportsRowLocks",
   "toInstant",
   "toRawQuery",
   "trackRawSql",

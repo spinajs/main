@@ -1563,8 +1563,10 @@ export interface ISelectQueryBuilder<T = unknown> extends ITypedColumnsBuilder<T
    */
   forUpdate(): this;
   /**
-   * Takes a shared lock on the rows read until the transaction ends; it also sees rows committed after the snapshot.
-   * Same PostgreSQL restrictions and relation caveat as `forUpdate()`.
+   * Takes a shared lock on the rows read until the transaction ends. On MySQL it also sees rows committed after the
+   * transaction's snapshot; on PostgreSQL REPEATABLE READ and SERIALIZABLE it sees only the snapshot, so a row another
+   * transaction committed after the snapshot is not returned. Same PostgreSQL restrictions and relation caveat as
+   * `forUpdate()`. `supportsRowLocks(driver)` tells whether the connection has a row lock clause.
    */
   forShare(): this;
   get RowLock(): RowLockMode | undefined;

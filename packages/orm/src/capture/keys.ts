@@ -82,10 +82,15 @@ const uniqueKeys = (values: readonly unknown[]): string[] => keyTexts(values).ke
 /** The value of a column whose name is only known at run time. */
 export const columnValue = (row: Readonly<Record<string, unknown>>, column: string): unknown => Reflect.get(row, column);
 
-// A dialect without a row lock clause (MSSQL) throws NotSupported from rowLock(); SQLite answers '' as its writes lock the database.
-function locksRows(driver: OrmDriver): boolean {
+/**
+ * Whether a select on `driver` may call `forUpdate()` and `forShare()`. A dialect without a row lock clause (MSSQL)
+ * throws NotSupported from `rowLock()`; SQLite answers '' as its writes lock the database.
+ */
+export function supportsRowLocks(driver: OrmDriver): boolean {
+  const expressions = driver.Container.resolve(SqlExpressions);
   try {
-    driver.Container.resolve(SqlExpressions).rowLock('update');
+    expressions.rowLock('update');
+    expressions.rowLock('share');
     return true;
   } catch (e) {
     if (e instanceof NotSupported) return false;
@@ -94,7 +99,7 @@ function locksRows(driver: OrmDriver): boolean {
 }
 
 /** Inside a transaction, the capture's reads of an update or delete lock what they read. */
-export const lockedReads = (driver: OrmDriver): boolean => driver.CurrentTransaction !== undefined && locksRows(driver);
+export const lockedReads = (driver: OrmDriver): boolean => driver.CurrentTransaction !== undefined && supportsRowLocks(driver);
 
 /**
  * The keys an update or delete reaches: a select with its where statements, soft-deleted and archived rows included.
