@@ -1,5 +1,6 @@
 import { MsSqlSqlExpressions } from './expressions.js';
-import { DatetimeValueConverter, DefaultValueBuilder, NowExpression, DeleteQueryCompiler, TableAliasCompiler, OnDuplicateQueryCompiler, OrderByQueryCompiler, TableQueryCompiler, ColumnQueryCompiler, InsertQueryCompiler, QueryContext, OrmDriver, IColumnDescriptor, TableExistsCompiler, LimitQueryCompiler, IDriverOptions, ISupportedFeature, IsolationLevel, ITransactionContext, ITransactionOptions, InSetStatement, InStatement, StartsWithStatement, IdentifierQuoter, TruncateTableQueryCompiler, CreateDatabaseCompiler, DropDatabaseCompiler, CreateViewCompiler, LiteralQuoter, EventQueryCompiler, DropEventQueryCompiler, TextWrapper, ServerResponseMapper, DbServerResponse, AlterTableQueryCompiler, AlterColumnQueryCompiler, SqlExpressions, LiveForeignKey, LiveIndex, groupIndexColumns, referentialRule, SqlDialect, MigrationLock, WhereStatement } from '@spinajs/orm';
+import { DatetimeValueConverter, DefaultValueBuilder, NowExpression, DeleteQueryCompiler, TableAliasCompiler, OnDuplicateQueryCompiler, OrderByQueryCompiler, TableQueryCompiler, ColumnQueryCompiler, InsertQueryCompiler, QueryContext, OrmDriver, IColumnDescriptor, TableExistsCompiler, LimitQueryCompiler, IDriverOptions, ISupportedFeature, IsolationLevel, ITransactionContext, ITransactionOptions, InSetStatement, InStatement, StartsWithStatement, IdentifierQuoter, TruncateTableQueryCompiler, CreateDatabaseCompiler, DropDatabaseCompiler, CreateViewCompiler, LiteralQuoter, EventQueryCompiler, DropEventQueryCompiler, TextWrapper, ServerResponseMapper, DbServerResponse, AlterTableQueryCompiler, AlterColumnQueryCompiler, SqlExpressions, LiveForeignKey, LiveIndex, groupIndexColumns, referentialRule, SqlDialect, MigrationLock, WhereStatement, extractModelDescriptor, pkColumns, pkGeneration } from '@spinajs/orm';
+import type { IModelDescriptor, InsertQueryBuilder } from '@spinajs/orm';
 import { MSSQL_SQL_DIALECT } from './sql-dialect.js';
 export { MSSQL_SQL_DIALECT } from './sql-dialect.js';
 /* eslint-disable security/detect-object-injection */
@@ -85,10 +86,34 @@ export function toNamedParameters(stmt: string, count: number): string {
   return out;
 }
 
+/** The key `SCOPE_IDENTITY()` reports: a single-column `auto` key that is the table's identity column. */
+function identityKey(descriptor: IModelDescriptor | null): string | undefined {
+  const pk = descriptor ? pkColumns(descriptor) : [];
+  if (!descriptor || pk.length !== 1 || pkGeneration(descriptor, pk[0]) !== 'auto') return undefined;
+  return descriptor.Columns.find((c) => c.Name === pk[0])?.AutoIncrement === true ? pk[0] : undefined;
+}
+
 /** `executeOnDb` already shapes an insert result; MSSQL has no RETURNING rows to read keys from. */
 export class MsSqlServerResponseMapper extends ServerResponseMapper {
+  /**
+   * The `SCOPE_IDENTITY()` value of a statement that inserted one row into a table whose key is its identity column.
+   * Several rows have no known keys: it is the last identity of the scope, and a multi-row insert gets no contiguous range.
+   * An upsert has none either: after a `MERGE` that updated, `SCOPE_IDENTITY()` can hold an identity an earlier statement
+   * of the session generated, in any table, so its value cannot tell an insert from an update.
+   */
+  public insertedKeys(response: unknown, insert: InsertQueryBuilder): Array<Record<string, unknown>> | undefined {
+    const pk = insert.Model === undefined ? undefined : identityKey(extractModelDescriptor(insert.Model));
+    if (pk === undefined || insert.Values.length !== 1 || insert.Update) return undefined;
+
+    const { RowsAffected, LastInsertId } = this.read(response);
+    // Only orIgnore() counts its own row; a plain insert's rowsAffected[0] is the count of an AFTER trigger's first statement when the table has one.
+    if (insert.Ignore && RowsAffected !== 1) return undefined;
+    // SCOPE_IDENTITY() is numeric(38,0), which tedious reads as a double: an id past 2^53 arrives rounded.
+    return Number.isSafeInteger(LastInsertId) && LastInsertId > 0 ? [Object.fromEntries([[pk, LastInsertId]])] : undefined;
+  }
+
   public read(data: any): DbServerResponse {
-    // An upsert resolves with the rows of `SELECT SCOPE_IDENTITY()`; ID is null when MERGE updated.
+    // An upsert resolves with the rows of `SELECT SCOPE_IDENTITY()`.
     if (Array.isArray(data)) {
       const id = data.length !== 0 ? data[data.length - 1]?.ID : undefined;
       return { RowsAffected: data.length, LastInsertId: typeof id === 'number' ? id : 0, Returning: [] };
