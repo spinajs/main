@@ -148,6 +148,81 @@ describe('Relation set operations against the database', function () {
     });
   });
 
+  describe('junction rows that update() and sync() write', () => {
+    interface LinkRow {
+      Id: number;
+      order_id: number;
+      tag_id: number;
+      Note: string | null;
+    }
+
+    async function orderWithGreen() {
+      await seededOrder();
+      await UowTag.insert({ Name: 'green' }); // 3
+      const order = await UowOrder.where({ Id: 1 }).populate('Tags').first();
+      const green = await UowTag.where({ Id: 3 }).first();
+      return { order, green };
+    }
+
+    const linkOf = async (tagId: number) => (await rows<LinkRow>('uow_order_tag')).find((l) => l.tag_id === tagId);
+
+    it('writes the columns given as plain data, and the list keeps the written junction model clean', async () => {
+      const { order, green } = await orderWithGreen();
+      order.Tags.add(green, { Note: 'from data' });
+
+      await order.Tags.update();
+
+      const link = await linkOf(3);
+      expect(link).to.deep.include({ order_id: 1, tag_id: 3, Note: 'from data' });
+      const junction = order.Tags.junction<UowOrderTag>(green)!;
+      expect([junction.Id, junction.order_id, junction.tag_id, junction.Note]).to.deep.eq([link!.Id, 1, 3, 'from data']);
+      expect(junction.IsDirty).to.eq(false);
+    });
+
+    it('writes the columns of a given junction model and keeps that instance', async () => {
+      const { order, green } = await orderWithGreen();
+      const given = new UowOrderTag({ Note: 'from model' });
+      order.Tags.add(green, given);
+
+      await order.Tags.sync();
+
+      const link = await linkOf(3);
+      expect(link).to.deep.include({ order_id: 1, tag_id: 3, Note: 'from model' });
+      expect(order.Tags.junction(green)).to.eq(given);
+      expect([given.Id, given.order_id, given.tag_id]).to.deep.eq([link!.Id, 1, 3]);
+      expect(given.IsDirty).to.eq(false);
+    });
+
+    it('writes only the two keys for a member added without junction data, and holds no junction model for it', async () => {
+      const { order, green } = await orderWithGreen();
+      const note = extractModelDescriptor(UowOrderTag)!.Columns.find((c) => c.Name === 'Note')!;
+      const previous = note.DefaultValue;
+      note.DefaultValue = 'default note';
+      try {
+        order.Tags.push(green);
+        await order.Tags.update();
+      } finally {
+        note.DefaultValue = previous;
+      }
+
+      expect(await linkOf(3)).to.deep.include({ order_id: 1, tag_id: 3, Note: 'default note' });
+      expect(order.Tags.junction(green)).to.eq(undefined);
+    });
+
+    it('writes nothing for the same member on a second sync()', async () => {
+      const { order, green } = await orderWithGreen();
+      order.Tags.add(green, { Note: 'once' });
+
+      await order.Tags.sync();
+      const first = await rows<LinkRow>('uow_order_tag');
+      await order.Tags.sync();
+      await order.Tags.update();
+
+      expect(await rows<LinkRow>('uow_order_tag')).to.deep.eq(first);
+      expect(first.filter((l) => l.tag_id === 3)).to.have.length(1);
+    });
+  });
+
   describe('statements of sync() and update()', () => {
     before(() => DI.register(StatementRecorder).as(QueryMiddleware));
     after(() => DI.unregister(StatementRecorder));
