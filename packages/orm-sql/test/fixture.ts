@@ -3,7 +3,7 @@
 /* eslint-disable prettier/prettier */
 
 import { SqlDropEventQueryCompiler, SqlDropTableQueryCompiler, SqlEventQueryCompiler, SqlOnDuplicateQueryCompiler, SqlIndexQueryCompiler, SqlWithRecursiveCompiler, SqlForeignKeyQueryCompiler, SqlGroupByCompiler, SqlSelectQueryCompiler, SqlUpdateQueryCompiler, SqlDeleteQueryCompiler, SqlInsertQueryCompiler, SqlTableQueryCompiler, SqlColumnQueryCompiler, SqlOrderByQueryCompiler, SqlAlterColumnQueryCompiler, SqlTableCloneQueryCompiler, SqlAlterTableQueryCompiler, SqlLimitQueryCompiler, SqlTableAliasCompiler, SqlTruncateTableQueryCompiler, SqlRawSchemaQueryCompiler, SqlCreateDatabaseQueryCompiler, SqlDropDatabaseQueryCompiler } from './../src/compilers.js';
-import { OrmDriver, IColumnDescriptor, InStatement, RawQueryStatement, BetweenStatement, WhereStatement, ColumnStatement, ColumnMethodStatement, ExistsQueryStatement, ColumnRawStatement, WhereQueryStatement, SelectQueryCompiler, UpdateQueryCompiler, DeleteQueryCompiler, InsertQueryCompiler, TableQueryCompiler, ColumnQueryCompiler, OrderByQueryCompiler, OnDuplicateQueryCompiler, JoinStatement, IndexQueryCompiler, RecursiveQueryCompiler, WithRecursiveStatement, ForeignKeyQueryCompiler, GroupByStatement, GroupByQueryCompiler, DateTimeWrapper, DateWrapper, ITransactionContext, ITransactionOptions, AlterColumnQueryCompiler, TableCloneQueryCompiler, AlterTableQueryCompiler, LimitQueryCompiler, TableAliasCompiler, TruncateTableQueryCompiler, DatetimeValueConverter, DropTableCompiler, DefaultValueBuilder, DropEventQueryCompiler, EventQueryCompiler, TimeValueConverter, RawSchemaQueryCompiler, ServerResponseMapper, IdentifierQuoter, LiteralQuoter, InSetStatement, CreateDatabaseCompiler, DropDatabaseCompiler, CreateViewCompiler } from '@spinajs/orm';
+import { OrmDriver, IColumnDescriptor, InStatement, RawQueryStatement, BetweenStatement, WhereStatement, ColumnStatement, ColumnMethodStatement, ExistsQueryStatement, ColumnRawStatement, WhereQueryStatement, SelectQueryCompiler, UpdateQueryCompiler, DeleteQueryCompiler, InsertQueryCompiler, TableQueryCompiler, ColumnQueryCompiler, OrderByQueryCompiler, OnDuplicateQueryCompiler, JoinStatement, IndexQueryCompiler, RecursiveQueryCompiler, WithRecursiveStatement, ForeignKeyQueryCompiler, GroupByStatement, GroupByQueryCompiler, DateTimeWrapper, DateWrapper, ITransactionContext, ITransactionOptions, AlterColumnQueryCompiler, TableCloneQueryCompiler, AlterTableQueryCompiler, LimitQueryCompiler, TableAliasCompiler, TruncateTableQueryCompiler, DatetimeValueConverter, DropTableCompiler, DefaultValueBuilder, DropEventQueryCompiler, EventQueryCompiler, TimeValueConverter, RawSchemaQueryCompiler, ServerResponseMapper, InsertQueryBuilder, extractModelDescriptor, pkColumns, IdentifierQuoter, LiteralQuoter, InSetStatement, CreateDatabaseCompiler, DropDatabaseCompiler, CreateViewCompiler } from '@spinajs/orm';
 import { SqlInSetStatement, SqlInStatement, SqlRawStatement, SqlBetweenStatement, SqlWhereStatement, SqlColumnStatement, SqlColumnMethodStatement, SqlExistsQueryStatement, SqlColumnRawStatement, SqlWhereQueryStatement, SqlJoinStatement, SqlWithRecursiveStatement, SqlGroupByStatement, SqlDateTimeWrapper, SqlDateWrapper } from '../src/statements.js';
 import { FrameworkConfiguration } from '@spinajs/configuration';
 import _ from 'lodash';
@@ -35,6 +35,15 @@ export class FakeServerResponseMapper extends ServerResponseMapper {
       LastInsertId: data?.LastInsertId ?? 0,
       Returning: Array.isArray(data?.Returning) ? data.Returning : [],
     };
+  }
+
+  /** RETURNING rows, else this fake dialect keys one inserted row of an auto-increment key by a positive `LastInsertId`. */
+  public insertedKeys(response: unknown, insert: InsertQueryBuilder): Array<Record<string, unknown>> | undefined {
+    const descriptor = insert.Model === undefined ? null : extractModelDescriptor(insert.Model);
+    const pk = descriptor ? pkColumns(descriptor) : [];
+    const autoIncrement = pk.length === 1 && descriptor?.Columns.find((c) => c.Name === pk[0])?.AutoIncrement === true;
+    const id = this.read(response).LastInsertId;
+    return this.returnedKeys(response, insert) ?? (autoIncrement && insert.Values.length === 1 && id > 0 ? [{ [pk[0]]: id }] : undefined);
   }
 }
 

@@ -70,8 +70,8 @@ Every builder is lazy: awaiting it executes the query. See [Query builder](05-qu
 2. A `ModelBase` row is converted with `toSql()`; a plain object with `ObjectToSqlConverter`, which skips `undefined` properties.
 3. `behaviour` maps to `orIgnore()`, `onDuplicate().update(<every non-key column>)` or `orReplace()`. An array with any behaviour other than `InsertBehaviour.None` throws `OrmException`; an empty array resolves without a query.
 4. When the key is database-generated and the driver supports `RETURNING`, the insert asks for the key columns.
-5. After execution, generated keys are written back onto every `ModelBase` row that has no key, from what the connection's `ServerResponseMapper.insertedKeys()` reports: by default `RETURNING`, else `LastInsertId` for an `AutoIncrement` key (see [Primary key strategies](02-models.md#primary-key-strategies)). Every `ModelBase` row is then re-baselined with `takeSnapshot()`.
-6. A batch larger than one statement can carry is split by `InsertQueryBuilder.splitByDriverLimits()` and runs in one transaction; generated keys come back from every statement's `RETURNING`, in insert order. A driver without `RETURNING` leaves the keys of a split batch unset: `LastInsertId` names one statement, and the ids of several statements are not contiguous.
+5. After execution, generated keys are written back onto every `ModelBase` row that has no key, from what the connection's `ServerResponseMapper.insertedKeys()` reports: by default the `RETURNING` rows, otherwise the connection package's own rule (see [Primary key strategies](02-models.md#primary-key-strategies)). Every `ModelBase` row is then re-baselined with `takeSnapshot()`.
+6. A batch larger than one statement can carry is split by `InsertQueryBuilder.splitByDriverLimits()` and runs in one transaction; generated keys come back from every statement's `RETURNING`, in insert order. Without `RETURNING`, the keys of a split batch are whatever the connection package's `insertedKeys()` reports; the MySQL, MSSQL and SQLite packages report none.
 
 ### Instance members
 

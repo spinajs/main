@@ -1,7 +1,7 @@
 import type { InsertQueryBuilder } from './builders/insert.js';
 import { extractModelDescriptor } from './descriptor.js';
 import type { DbServerResponse, IModelDescriptor } from './interfaces.js';
-import { pkColumns, pkGeneration } from './primary-keys.js';
+import { pkColumns } from './primary-keys.js';
 
 type InsertedKey = Record<string, unknown>;
 
@@ -25,28 +25,4 @@ export function returningRowKeys(response: DbServerResponse, rows: number, pk: r
   if (returning.length !== rows) return undefined;
   const keys = returning.map((row) => keyOf(row, pk));
   return keys.every((k): k is InsertedKey => k !== undefined) ? keys : undefined;
-}
-
-function identityColumn(descriptor: IModelDescriptor): string | undefined {
-  const pk = pkColumns(descriptor);
-  if (pk.length !== 1 || pkGeneration(descriptor, pk[0]) !== 'auto') return undefined;
-  return descriptor.Columns.find((c) => c.Name === pk[0])?.AutoIncrement === true ? pk[0] : undefined;
-}
-
-// A dialect whose reported id is the first of a contiguous block: one plain statement that inserted every row it sent.
-function isContiguousBatch(response: DbServerResponse, insert: InsertQueryBuilder, pk: string): boolean {
-  if (insert.Driver.supportedFeatures().insertIdIsFirstOfBatch !== true) return false;
-  if (insert.Ignore || insert.Replace || insert.Update) return false;
-  if (response.RowsAffected !== insert.Values.length) return false;
-  return insert.getColumnValues(pk).every((v) => v === null || v === undefined) && insert.splitByDriverLimits().length === 1;
-}
-
-/** The pre-driver rule for keys read off `LastInsertId`, kept until every connection package reports its own keys. */
-export function legacyIdentityKeys(response: DbServerResponse, insert: InsertQueryBuilder, descriptor: IModelDescriptor): InsertedKey[] | undefined {
-  const pk = identityColumn(descriptor);
-  const first = response.LastInsertId;
-  if (pk === undefined || !Number.isSafeInteger(first) || first <= 0) return undefined;
-  const rows = insert.Values.length;
-  if (rows !== 1 && !isContiguousBatch(response, insert, pk)) return undefined;
-  return Array.from({ length: rows }, (_, k) => Object.fromEntries([[pk, first + k]]));
 }

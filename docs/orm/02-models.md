@@ -165,19 +165,12 @@ Relation decorators are covered in [Relations](06-relations.md). Converter decor
 `model.insert()`, `Model.insert(...)` and the unit of work take generated keys from the
 connection's `ServerResponseMapper.insertedKeys(response, insert)`: one key per inserted row, in
 insert order, or none at all. A key the caller supplied is never overwritten. A connection package
-may override `insertedKeys` with its own rule. The default:
-
-- `RETURNING` rows, when there is one per inserted row and each carries the whole key, are applied
-  in insert order.
-- Otherwise `LastInsertId`, only for a single-column `auto` key whose column is `AutoIncrement` (as
-  the table reports it, or as the manifest declares it). A single row takes `LastInsertId`. Several
-  rows take `LastInsertId + index` only when all of these hold: the driver reports
-  `insertIdIsFirstOfBatch`, the insert neither ignores, replaces nor updates on conflict, the batch
-  ran as one statement (not split by the driver's `MaxBindings` or `MaxInsertRows`), `LastInsertId`
-  is a positive integer, `RowsAffected` equals the row count, and no row carried a key.
-- Otherwise no key is assigned. A key column that is not `AutoIncrement` stays unset after an
-  insert without `RETURNING`, because `LastInsertId` is not its value. Re-select the rows or insert
-  them one at a time.
+may override `insertedKeys` with its own rule. The default takes the `RETURNING` rows, when there is
+one per inserted row and each carries the whole key, in insert order; otherwise no key is
+assigned. A dialect without `RETURNING` reports keys only by its connection package's rule: see
+[MySQL](../orm-mysql/04-inserts-and-generated-keys.md), [MSSQL](../orm-mssql/04-inserts-and-upserts.md)
+and [SQLite](../orm-sqlite/05-inserts-and-upserts.md). Where no key is reported, re-select the rows
+or insert them one at a time.
 
 `InsertBehaviour` selects the conflict handling of `model.insert()` and `Model.insert()`:
 

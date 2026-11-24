@@ -138,7 +138,7 @@ Overridable members of `SqliteOrmDriver`:
 | `beginStatement(options?)` | protected | `BEGIN TRANSACTION` | `BEGIN IMMEDIATE TRANSACTION`; see [Transactions](03-transactions.md#transaction-primitives-custom-implementation) |
 | `lockTableShared(table)` | public | `DELETE FROM <table> WHERE 0` inside the transaction: takes the `RESERVED` lock | leave as is |
 | `openReadPool(filename)`, `closeReadPool()` | protected | open `Max - 1` read-only handles / close them | change how read handles open |
-| `supportedFeatures()` | public | `{ events: false, insertReturning: true, insertIdIsFirstOfBatch: false, nativeJson: false, concurrentTransactions: false }` | leave as is; the core picks key read-back and transaction queueing from it |
+| `supportedFeatures()` | public | `{ events: false, insertReturning: true, nativeJson: false, concurrentTransactions: false, streaming }` | leave as is; the core picks key read-back and transaction queueing from it |
 | `ping()` | public | `PRAGMA schema_version` on the writer; `false` without a writer or when it fails | probe something else |
 | `tableInfo(name, schema?)` | public | `PRAGMA` reflection above | read extra metadata, eg. column collations |
 | `poolMetrics()` | public | `{ Size: writer + read handles, InUse: 0, Waiting: 0 }` | report other gauges |

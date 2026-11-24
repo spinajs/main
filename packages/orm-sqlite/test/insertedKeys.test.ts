@@ -101,12 +101,6 @@ function keysOf(response: unknown, model: typeof ModelBase | undefined, values: 
   return mapperOf(insert).insertedKeys(response, insert);
 }
 
-/** The core default, which still falls back to the LastInsertId rule SQLite no longer uses. */
-function coreKeysOf(response: unknown, model: typeof ModelBase, values: Row | Row[]): Keys {
-  const insert = builder(model, values);
-  return ServerResponseMapper.prototype.insertedKeys.call(mapperOf(insert), response, insert);
-}
-
 /** Runs the insert on the database and asks the mapper for its keys. */
 async function inserted(model: typeof ModelBase | undefined, values: Row | Row[], configure?: Configure): Promise<{ keys: Keys; response: unknown }> {
   const insert = builder(model, values, configure);
@@ -155,10 +149,9 @@ describe('Sqlite - inserted keys', function () {
       expect(keysOf(packet(1, 7), IkRow, { Name: 'a' }, (q) => q.orReplace())).to.deep.eq([{ Id: 7 }]);
     });
 
-    it('reports no key for an insert that wrote no row, where the core rule reports the stale lastID', () => {
+    it('reports no key for an insert that wrote no row', () => {
       expect(keysOf({ LastInsertId: 7, RowsAffected: 0 }, IkRow, { Name: 'a' })).to.eq(undefined);
       expect(keysOf(packet(0, 7), IkRow, { Name: 'a' }, (q) => q.orIgnore())).to.eq(undefined);
-      expect(coreKeysOf({ LastInsertId: 7, RowsAffected: 0 }, IkRow, { Name: 'a' })).to.deep.eq([{ Id: 7 }]);
     });
 
     it('reports no key for a lastID that is not a positive safe integer', () => {
@@ -191,12 +184,10 @@ describe('Sqlite - inserted keys', function () {
       expect(keysOf(packet(1, 7), IkRow, { Id: 7, Name: 'a' })).to.deep.eq([{ Id: 7 }]);
       expect(keysOf(packet(1, 3), IkWithoutRowid, { Id: 7, Name: 'a' })).to.eq(undefined);
       expect(keysOf(packet(1, 7), IkRow, { Id: '7', Name: 'a' })).to.eq(undefined);
-      expect(coreKeysOf(packet(1, 3), IkWithoutRowid, { Id: 7, Name: 'a' })).to.deep.eq([{ Id: 3 }]);
     });
 
     it('reports no key for a key the column default fills', () => {
       expect(keysOf(packet(1, 3), IkWithoutRowidDefault, { Name: 'a' })).to.eq(undefined);
-      expect(coreKeysOf(packet(1, 3), IkWithoutRowidDefault, { Name: 'a' })).to.deep.eq([{ Id: 3 }]);
     });
   });
 

@@ -369,9 +369,6 @@ export class PostgresOrmDriver extends SqlDriver {
       // from its cause.
       events: false,
       insertReturning: true,
-      // With RETURNING every key comes back per row; the LAST_INSERT_ID batch walk is
-      // MySQL's workaround for not having it.
-      insertIdIsFirstOfBatch: false,
       concurrentTransactions: true,
       nativeJson: true,
       // pg-cursor submits to a real pg client; PGlite's pool adapter is not one, and PgliteOrmDriver brings its own cursor
