@@ -67,7 +67,7 @@ Every builder is lazy: awaiting it executes the query. See [Query builder](05-qu
 #### Insert
 
 1. `insert()` runs `generateClientSideKeys()` (fills `uuid` keys) and `assertAssignedKeys()` (throws when an `assigned` key is missing) on every row, before any SQL is built.
-2. A `ModelBase` row is converted with `toSql()`; a plain object with `ObjectToSqlConverter`, which skips `undefined` properties.
+2. A `ModelBase` row is converted with `toSql()`; a plain object with `ObjectToSqlConverter`, which skips `undefined` properties. The standard serializer behind `toSql()` leaves out an `auto` key that has no value (`null`, `undefined` or `''`), so the column default generates it; SQLite's serializer leaves out only `undefined`.
 3. `behaviour` maps to `orIgnore()`, `onDuplicate().update(<every non-key column>)` or `orReplace()`. An array with any behaviour other than `InsertBehaviour.None` throws `OrmException`; an empty array resolves without a query.
 4. When the key is database-generated and the driver supports `RETURNING`, the insert asks for the key columns.
 5. After execution, generated keys are written back onto every `ModelBase` row that has no key, from what the connection's `ServerResponseMapper.insertedKeys()` reports: by default the `RETURNING` rows, otherwise the connection package's own rule (see [Primary key strategies](02-models.md#primary-key-strategies)). Every `ModelBase` row is then re-baselined with `takeSnapshot()`.
@@ -77,7 +77,7 @@ Every builder is lazy: awaiting it executes the query. See [Query builder](05-qu
 
 | Member | Behaviour |
 | --- | --- |
-| `constructor(data?)` | Sets defaults: column `DefaultValue`, a fresh uuid for `@Uuid()` columns and `uuid` keys, `@CreatedAt` = now, relation objects. Then calls `hydrate(data)`. |
+| `constructor(data?)` | Sets defaults: column `DefaultValue`, a fresh uuid for `uuid` keys and, when the model's columns come from the manifest, for `@Uuid()` columns (with columns read from the database the table info replaces the `@Uuid()` flag and the column stays empty), `@CreatedAt` = now, relation objects. Then calls `hydrate(data)`. |
 | `ModelDescriptor` | The class descriptor. |
 | `Container` | The DI container of the model's connection. |
 | `PrimaryKeyName` | Key column names (`string[]`). |
@@ -176,7 +176,7 @@ its connections and `OrmConnectionMissing` (with `connection`) when no connectio
 - `get()`, `first()`, `last()`, `newest()` and `oldest()` resolve `undefined` when nothing matches, although their return type is the model.
 - Static `insert()` is `async`: it returns a promise, not the `InsertQueryBuilder` its type declares. Pass everything through `data` and `behaviour`.
 - Static `update(data)` converts `data` through the column converters when it is called, so a value its converter refuses (a `@DateTime` string that is neither ISO 8601 nor SQL format) throws `InvalidArgument` synchronously, before the `where()` is chained.
-- `insertOrUpdate()` tests `PrimaryKeyValue` for truthiness. A `@Uuid()` column or a `uuid` key is filled at construction, and a composite key is a non-empty array, so these models always take the `update()` path.
+- `insertOrUpdate()` tests `PrimaryKeyValue` for truthiness. A `uuid` key is filled at construction, so is a `@Uuid()` key of a model whose columns come from the manifest, and a composite key is a non-empty array, so these models always take the `update()` path. A `@Uuid()` key whose columns are read from the database is empty after construction.
 - `getOrCreate(pk, data)` uses `pk` only for the lookup. The new model gets its key from `data` or from the database.
 - `getOrNew(data)` with no key or `Unique` column in `data`, and `getOrCreate(null, data)` on a model without `Unique` columns, add no condition and return the first row of the table.
 - `findOrFail()` throws a plain `Error`, not `OrmNotFoundException`.

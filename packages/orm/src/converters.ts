@@ -6,6 +6,7 @@ import { ModelToSqlConverter, RelationType, ValueConverter, ObjectToSqlConverter
 import type { IUniversalConverterOptions, IColumnDescriptor, IModelDescriptor } from './interfaces.js';
 import { ModelBase } from './model.js';
 import { columnToDb } from './column-values.js';
+import { pkColumns, pkGeneration } from './primary-keys.js';
 
 /** How a datetime stored in a numeric column counts from the Unix epoch. */
 export type DateTimeUnit = 'seconds' | 'milliseconds';
@@ -226,6 +227,14 @@ export class UniversalValueConverter extends ValueConverter {
   }
 }
 
+/**
+ * An `auto` key without a value stays out of the row, so the column default generates it. A converter would
+ * turn the missing value into NULL ( `UuidConverter`, `Int64ValueConverter` ), and NULL is written over the default.
+ */
+function isKeyLeftToDatabase(descriptor: IModelDescriptor, column: string, value: unknown): boolean {
+  return (value === null || value === undefined || value === '') && pkColumns(descriptor).includes(column) && pkGeneration(descriptor, column) === 'auto';
+}
+
 export class StandardModelToSqlConverter extends ModelToSqlConverter {
   public toSql(model: ModelBase<unknown>): unknown {
     const obj = {};
@@ -243,6 +252,9 @@ export class StandardModelToSqlConverter extends ModelToSqlConverter {
       const val = (model as any)[c.Name];
       if (!c.PrimaryKey && !c.Nullable && (val === null || val === undefined || val === '')) {
         throw new OrmException(`Field ${c.Name} cannot be null`);
+      }
+      if (isKeyLeftToDatabase(model.ModelDescriptor!, c.Name, val)) {
+        return;
       }
       (obj as any)[c.Name] = c.Converter ? c.Converter.toDB(val, model, c, model.ModelDescriptor!.Converters.get(c.Name)?.Options) : val;
     });
