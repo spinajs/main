@@ -137,7 +137,7 @@ export class UuidConverter extends ValueConverter {
     return buffer;
   }
 
-  public fromDB(value: Buffer | string) {
+  public fromDB(value: Uint8Array | string | null | undefined) {
     if (!value) {
       return null;
     }
@@ -145,11 +145,12 @@ export class UuidConverter extends ValueConverter {
     // Rebuild the canonical dashed 36-char form (8-4-4-4-12) so a save/load
     // round-trip preserves the original key identity ( toDB strips the dashes
     // back to a 16-byte BINARY ).
-    const hex = Buffer.isBuffer(value) ? value.toString('hex') : String(value).replace(/-/g, '');
+    const isBytes = value instanceof Uint8Array;
+    const hex = isBytes ? Buffer.from(value.buffer, value.byteOffset, value.byteLength).toString('hex') : String(value).replace(/-/g, '');
 
     if (hex.length !== 32) {
-      // not a 16-byte uuid - return as-is rather than emit a malformed value
-      return Buffer.isBuffer(value) ? hex : String(value);
+      // not 16 bytes: adding the dashes would emit a malformed uuid
+      return isBytes ? hex : String(value);
     }
 
     return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
