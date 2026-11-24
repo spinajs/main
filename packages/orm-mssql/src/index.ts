@@ -13,6 +13,7 @@ import { MsSqlTableExistsCompiler, MsSqlLimitCompiler, MsSqlOrderByCompiler, MsS
 import { BracketIdentifierQuoter, MsSqlInSetStatement, MsSqlInStatement, MsSqlLiteralQuoter, MsSqlNowExpression, MsSqlStartsWithStatement, MsSqlTextWrapper, MsSqlWhereStatement } from './statements.js';
 import { mapMsSqlError } from './errors.js';
 import { MsSqlMigrationLock } from './migration-lock.js';
+import { columnDefault } from './column-default.js';
 
 export * from './errors.js';
 export { MsSqlStartsWithStatement, MsSqlWhereStatement } from './statements.js';
@@ -413,7 +414,7 @@ export class MsSqlOrmDriver extends SqlDriver {
         Type: r.DATA_TYPE,
         MaxLength: r.CHARACTER_MAXIMUM_LENGTH ?? -1,
         Comment: '',
-        DefaultValue: r.COLUMN_DEFAULT,
+        DefaultValue: columnDefault(r.COLUMN_DEFAULT, r.DATA_TYPE),
         NativeType: r.DATA_TYPE,
         Unsigned: false,
         Nullable: r.IS_NULLABLE === 'YES',
