@@ -46,9 +46,9 @@ sequenceDiagram
    - skips `Virtual` columns and foreign-key columns a relation manages;
    - throws `OrmException` (`Field <name> cannot be null`) for a non-key, non-nullable column holding `null`, `undefined` or `''`;
    - writes `column.Converter.toDB(value, model, column, options)`, or the raw value;
-   - writes each `@BelongsTo` foreign key from the related model's join column. Without a related model it writes the raw column; after a detach, `NULL`.
+   - writes each `@BelongsTo` foreign key from the related model's join column. Without a related model it writes the raw column; after a detach, `NULL`. The key goes through the foreign-key column's converter like any other column (`NULL` stays `NULL`); a driver's converter gets these keys from the protected `relationForeignKeys(model)` of the `ModelToSqlConverter` base class.
 3. `toSql(true)` keeps only the columns in `changeSet()`.
-4. Static `insert()` of a plain object uses `ObjectToSqlConverter` instead. `StandardObjectToSqlConverter` skips `undefined` properties, calls `toDB(value, undefined, column, options)`, and turns a model held under a `@BelongsTo` property into its key.
+4. Static `insert()` of a plain object uses `ObjectToSqlConverter` instead. `StandardObjectToSqlConverter` skips `undefined` properties, calls `toDB(value, undefined, column, options)`, and turns a model held under a `@BelongsTo` property into its key, converted the same way.
 
 ### Serializing a model
 
@@ -78,7 +78,7 @@ sequenceDiagram
 | Converter | Registered by | `toDB` | `fromDB` |
 | --- | --- | --- | --- |
 | `JsonValueConverter` | `OrmDriver.resolve()` | `JSON.stringify(value)`; `null` and `undefined` as they are, so the column holds SQL NULL | `null` for SQL NULL; objects and arrays as-is, strings through `JSON.parse` (the text `null` too) |
-| `UuidConverter` | `OrmDriver.resolve()` | A dashed uuid to a 16-byte `Buffer`; empty values to `null` | A 16-byte value to the dashed 36-character form; other lengths returned as a string; empty values to `null` |
+| `UuidConverter` | `OrmDriver.resolve()` | A dashed uuid to a 16-byte `Buffer`; a 16-byte `Buffer` or `Uint8Array` returned as it is, other byte lengths throw `InvalidArgument`; empty values to `null` | A 16-byte value to the dashed 36-character form; other lengths returned as a string; empty values to `null` |
 | `UniversalValueConverter` | `OrmDriver.resolve()` | By the model's type column: `boolean` to `'true'`/`'false'`, `datetime`/`date`/`time` to ISO text, `number`/`float` to decimal text, `json` to JSON, anything else as-is | By the row's type column: the reverse, with dates read by `DateTime.fromISO` |
 | `Int64ValueConverter` | `OrmDriver.resolve()` | A `bigint` to decimal text, a safe integer as is, a decimal string trimmed of surrounding whitespace; anything else throws `InvalidArgument` | Any driver form (string, number, bigint) to the decorator's `as`: `'string'` (default), `'number'` (throws `OrmException` beyond `Number.MAX_SAFE_INTEGER`) or `'bigint'`. A number that is not a safe integer throws `OrmException`: the driver already lost precision. |
 | `DatetimeValueConverter` | the driver (`SqlDatetimeValueConverter` on MySQL, `IsoDatetimeValueConverter` on PostgreSQL, SQLite and MSSQL) | luxon `DateTime` in any zone, `Date`, ISO 8601 or SQL text (no offset = UTC) to the dialect's UTC text; for a numeric column unix seconds, or milliseconds under `@DateTime({ unit: 'milliseconds' })`; ISO 8601 in UTC when dehydrating without `dateTimeFormat` | Any driver form (`Date`, `DateTime`, ISO 8601 or SQL text, a number or numeric text in the declared unit) to a `DateTime` in UTC; `null` for an empty value and for one that is not a valid datetime |
@@ -192,7 +192,8 @@ DI.register(JsonValueConverter).asMapValue('__orm_db_value_converters__', 'json'
 - `hydrate()` never changes the primary key of a model that has a snapshot, and never writes `null` or `undefined` into a key column. A body-supplied id cannot redirect an `UPDATE` to another row.
 - `hydrate()` accepts a model instance on a foreign-key column (stores its key) and under a `@BelongsTo` name (attaches it and sets the foreign key).
 - `dehydrate()` emits a relation's foreign-key column even when the relation is not populated; `dehydrateWithRelations()` never emits a `@BelongsTo` that holds no model, so the key is never typed as a number under the relation's name.
-- `@Uuid()` writes a 16-byte `Buffer`. Store it in a `BINARY(16)` column; the schema builder's `table.uuid()` creates one.
+- `@Uuid()` writes a 16-byte `Buffer`. Store it in a `BINARY(16)` column; the schema builder's `table.uuid()` creates one. A value that is already 16 bytes is written as it is, so a key copied from a raw row, or a database-generated key that `save()` read back through `RETURNING`, can be written to a foreign key.
+- A foreign key the ORM takes from a relation passes the foreign-key column's converter wherever it is written: `toSql()`, the junction rows of a relation's `sync()` / `update()`, and the keys `save()` resolves for children and junction rows. It is stored in the form `where()` binds, so a `@Uuid()` foreign key is 16 bytes whether it was assigned or came from the relation.
 - `whereInSet()` on a `@Set()` column throws `InvalidArgument` for a value containing `,` or `null`.
 - `SqliteModelToSqlConverter` leaves `undefined` columns out of the payload so table defaults apply; `StandardModelToSqlConverter` writes them. See [`@spinajs/orm-sqlite`](../orm-sqlite/README.md).
 - Converters and hydrators are shared instances. Keep them stateless.
@@ -426,6 +427,20 @@ await Product.update({ Attributes: attributes }).where('Id', id);
 ```
 
 A `@DateTime` value in `update(data)` must be a `DateTime`, a `Date`, a number of unix seconds (milliseconds under `unit: 'milliseconds'`) or ISO 8601 / SQL text; anything else throws `InvalidArgument` when `update()` is called.
+
+### Foreign keys taken from a relation pass the column converter
+
+A foreign key written from a relation (a `@BelongsTo` target, a junction row of `sync()`, `update()` or `save()`) was stored without its column's converter. Rows written that way keep the unconverted value: on SQLite a `@Uuid()` foreign key holds the dashed text instead of 16 bytes, and `where()` and `populate()` of the parent do not find them.
+
+Repair these rows before the first `sync()`, `update()` or `save()` of such a relation. If you skip the repair, the first `sync()` of an owner deletes every junction row of that owner still in text form, including the rows of the members it keeps, and does not write them again. The read of existing links accepts both forms, so a kept member counts as linked and is not inserted; the orphan delete binds the kept keys as bytes, so it matches the text row. Those links are lost. `update()` and `save()` delete no text row, but `save()` writes a second, converted row for a member linked in text form, so a repair after it leaves that link twice.
+
+On SQLite 3.41 or later, rewrite the rows once per table and column:
+
+```sql
+UPDATE note SET tag_id = unhex(replace(tag_id, '-', '')) WHERE typeof(tag_id) = 'text';
+```
+
+The statement covers `@Uuid()` foreign keys only. A foreign key column with another converter needs its own statement, one that writes what that converter's `toDB()` returns. On MySQL a `BINARY(16)` column never held the 36-character text. In strict mode the write was rejected. Without strict mode the text was truncated to its first 16 characters, and those rows cannot be repaired: the rest of the key is gone.
 
 ## Related
 

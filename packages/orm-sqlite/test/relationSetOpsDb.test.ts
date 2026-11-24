@@ -202,7 +202,7 @@ describe('Relation set operations against the database', function () {
       // Not populated, so the list holds no junction rows of its own and relies on the select of existing links.
       const order = await UkOrder.where({ Id: 1 }).first();
       order.Tags.push(...(await UkTag.query().whereIn('Name', ['a', 'b'])));
-      const links = async () => (await rows<{ Id: number; tag_id: Buffer }>('uk_order_tag')).map((l) => [l.Id, keyOf(l.tag_id)]);
+      const links = async () => (await rows<{ Id: number; tag_id: Buffer }>('uk_order_tag')).map((l) => [l.Id, Buffer.isBuffer(l.tag_id) ? keyOf(l.tag_id) : `not bytes: ${String(l.tag_id)}`]);
 
       await order.Tags.sync();
       expect(await links(), 'sync()').to.deep.eq([[1, a], [2, b]]);

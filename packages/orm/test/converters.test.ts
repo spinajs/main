@@ -1,5 +1,7 @@
-import { UuidConverter, StandardModelToSqlConverter } from './../src/converters.js';
+import { UuidConverter, StandardModelToSqlConverter, StandardObjectToSqlConverter, JsonValueConverter, Int64ValueConverter } from './../src/converters.js';
+import { InvalidArgument } from '@spinajs/exceptions';
 import { RelationType } from './../src/interfaces.js';
+import type { IModelDescriptor } from './../src/interfaces.js';
 import { OrmException } from './../src/exceptions.js';
 import { ModelBase } from './../src/model.js';
 import * as chai from 'chai';
@@ -59,6 +61,28 @@ describe('Orm converters', () => {
   it('uuid fromDB(null) should return null ( B15a guard )', () => {
     const converter = new UuidConverter();
     expect(converter.fromDB(null as any)).to.be.null;
+  });
+
+  it('uuid toDB of the database form returns it unchanged', () => {
+    const converter = new UuidConverter();
+    const bytes = converter.toDB('0db8f7f5-56cd-4801-ac23-ad6d78bfec3f') as Buffer;
+    const plain = new Uint8Array(bytes);
+
+    expect(converter.toDB(bytes), 'a Buffer').to.eq(bytes);
+    expect(converter.toDB(plain), 'a Uint8Array').to.eq(plain);
+    expect(() => converter.toDB(Buffer.alloc(4)), 'not 16 bytes').to.throw(InvalidArgument, /16 bytes, got 4/);
+  });
+
+  it('int64 toDB of its own output is the same value', () => {
+    const converter = new Int64ValueConverter();
+    for (const value of [9007199254740993n, 42, ' 42 ']) {
+      expect(converter.toDB(converter.toDB(value)), String(value)).to.eq(converter.toDB(value));
+    }
+  });
+
+  it('json toDB of its own output encodes it again: a string is itself a JSON value', () => {
+    const converter = new JsonValueConverter();
+    expect(converter.toDB(converter.toDB({ a: 1 }))).to.eq(JSON.stringify(JSON.stringify({ a: 1 })));
   });
 
   describe('StandardModelToSqlConverter foreign key handling', () => {
@@ -130,6 +154,42 @@ describe('Orm converters', () => {
       // managed FK comes from the relation, unmanaged FK is serialized as a column
       expect(result).to.have.property('relation_id', 5);
       expect(result).to.have.property('UserId', 42);
+    });
+
+    it('passes a FK value a relation decides through the FK column converter', () => {
+      const key = '0db8f7f5-56cd-4801-ac23-ad6d78bfec3f';
+      const columns = [column('Id', { PrimaryKey: true, Nullable: false }), column('tag_id', { IsForeignKey: true, Converter: new UuidConverter() })];
+      const relations = [{ Name: 'Tag', ForeignKey: 'tag_id', Type: RelationType.One, PrimaryKey: 'Id', Recursive: false }];
+      const toSql = (values: Record<string, unknown>) => new StandardModelToSqlConverter().toSql(mockModel(columns, relations, { Id: 1, ...values })) as Record<string, unknown>;
+
+      expect(toSql({ Tag: { Value: { Id: key } } }).tag_id, 'from the related model').to.deep.eq(new UuidConverter().toDB(key));
+      expect(toSql({ tag_id: key, Tag: { Value: undefined } }).tag_id, 'from the raw column').to.deep.eq(new UuidConverter().toDB(key));
+      expect(toSql({ tag_id: null, Tag: { Value: null } }), 'detached').to.have.property('tag_id', null);
+    });
+
+    it('passes the FK value of a recursive relation through the FK column converter', () => {
+      const key = '0db8f7f5-56cd-4801-ac23-ad6d78bfec3f';
+      const columns = [column('Id', { PrimaryKey: true, Nullable: false }), column('parent_id', { IsForeignKey: true, Converter: new UuidConverter() })];
+      const relations = [{ Name: 'Children', ForeignKey: 'parent_id', Type: RelationType.Many, PrimaryKey: 'Id', Recursive: true }];
+
+      const result = new StandardModelToSqlConverter().toSql(mockModel(columns, relations, { Id: 1, parent_id: key })) as Record<string, unknown>;
+
+      expect(result.parent_id).to.deep.eq(new UuidConverter().toDB(key));
+    });
+
+    it('passes the key of a model under a @BelongsTo property of a plain object through the FK column converter', () => {
+      const key = '0db8f7f5-56cd-4801-ac23-ad6d78bfec3f';
+      const tag = Object.create(ModelBase.prototype) as ModelBase;
+      Object.defineProperty(tag, 'PrimaryKeyValue', { value: key });
+      const descriptor = {
+        Columns: [column('Text'), column('tag_id', { IsForeignKey: true, Converter: new UuidConverter() })],
+        Relations: new Map([['Tag', { Name: 'Tag', ForeignKey: 'tag_id', Type: RelationType.One, PrimaryKey: 'Id', Recursive: false }]]),
+        Converters: new Map(),
+      } as unknown as IModelDescriptor;
+
+      const result = new StandardObjectToSqlConverter().toSql({ Text: 'note', Tag: tag }, descriptor) as Record<string, unknown>;
+
+      expect(result.tag_id).to.deep.eq(new UuidConverter().toDB(key));
     });
 
     it('should throw when an unrelated NOT NULL FK column is null', () => {

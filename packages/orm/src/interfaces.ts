@@ -11,6 +11,7 @@ import { NewInstance, Singleton } from '@spinajs/di';
 import type { Constructor, IContainer } from '@spinajs/di';
 import type { ModelBase } from './model.js';
 import { MethodNotImplemented } from '@spinajs/exceptions';
+import { columnToDb } from './column-values.js';
 import type { Relation } from './relation-objects.js';
 import type { Lazy } from '@spinajs/util';
 import type { AggregateValue, ColumnName, ColumnRef, DeclaredColumn, LiteralColumn, ColumnTypeOf, Head, MinMaxValue, StrictAliasNarrowed, Narrowed, PickColumns, PopulateName, PopulatePath, PopulateTree, Project, RelationTarget, Reproject, SourceRow, StrictNarrowed, WhereCatchAllColumn, WhereColumn, WhereOperator, WhereValue, WithPopulated } from './typing.js';
@@ -2002,8 +2003,52 @@ export interface IUniversalConverterOptions {
  */
 export abstract class QueryScope { }
 
+/** The foreign key a `BelongsTo` relation decides for the row, `undefined` when it decides none. */
+function belongsToKey(model: ModelBase<unknown>, relation: IRelationDescriptor): { value: unknown } | undefined {
+  const holder: unknown = Reflect.get(model, relation.Name);
+  const target: unknown = holder !== null && typeof holder === 'object' ? Reflect.get(holder, 'Value') : undefined;
+
+  if (target !== null && typeof target === 'object') {
+    // The join column, not the target's own primary key: @BelongsTo may name another one.
+    return { value: Reflect.get(target, relation.PrimaryKey) };
+  }
+
+  const column: unknown = Reflect.get(model, relation.ForeignKey);
+  if (column !== null && column !== undefined) {
+    // Never attached, or populate() found no row for the key the row carries: the raw column is the value. Without
+    // this, InsertOrUpdate emits the FK as an empty binding and orphans the row.
+    return { value: column };
+  }
+
+  // Detached: attach(null) cleared the relation and the column, and that is what a detach means for the row.
+  return holder && target === null ? { value: null } : undefined;
+}
+
 export abstract class ModelToSqlConverter {
   public abstract toSql(model: ModelBase<unknown>): unknown;
+
+  /**
+   * The value of every foreign-key column a relation of `model` manages, each through the column's converter. The
+   * column loop of `toSql()` leaves these columns out, so a driver's converter writes them from here.
+   */
+  protected relationForeignKeys(model: ModelBase<unknown>): Record<string, unknown> {
+    const descriptor = model.ModelDescriptor!;
+    const keys: Record<string, unknown> = {};
+
+    for (const relation of descriptor.Relations.values()) {
+      const decided = relation.Type === RelationType.One ? belongsToKey(model, relation) : undefined;
+      if (decided) {
+        keys[relation.ForeignKey] = columnToDb(descriptor, relation.ForeignKey, decided.value, model);
+      }
+
+      // A recursive relation usually has no @BelongsTo, only a @HasMany, so its raw column is the value.
+      if (relation.Recursive) {
+        keys[relation.ForeignKey] = columnToDb(descriptor, relation.ForeignKey, Reflect.get(model, relation.ForeignKey), model);
+      }
+    }
+
+    return keys;
+  }
 }
 
 export abstract class ObjectToSqlConverter {

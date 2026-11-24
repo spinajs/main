@@ -31,7 +31,7 @@ SQLite is the driver with `RETURNING` (`insertReturning: true`), so it reads gen
 3. Leaves out columns whose value is `undefined`, so the table default applies. SQLite does not accept `DEFAULT` inside `VALUES`.
 4. Writes the rest through the column's converter (`toDB`), if any.
 
-Then per `belongsTo` relation it writes the foreign key: the related model's join column when the relation holds a value, else the raw foreign-key property when set, else `NULL` after a detach (`attach(null)`). A recursive relation always copies the raw foreign-key property.
+Then per `belongsTo` relation it writes the foreign key: the related model's join column when the relation holds a value, else the raw foreign-key property when set, else `NULL` after a detach (`attach(null)`). A recursive relation always copies the raw foreign-key property. Both go through the foreign-key column's converter, as step 4 does; the base class `ModelToSqlConverter` does this in its protected `relationForeignKeys(model)`, so a subclass that overrides `toSql()` calls it for the relation keys.
 
 The only difference from `StandardModelToSqlConverter` in `@spinajs/orm` is step 3: the standard converter keeps `undefined` values.
 

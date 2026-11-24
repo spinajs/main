@@ -4,6 +4,7 @@ import _ from 'lodash';
 import type { Class } from '@spinajs/di';
 import { createQuery, DeleteQueryBuilder, InsertQueryBuilder, UpdateQueryBuilder } from './builders.js';
 import type { QueryBuilder } from './builders.js';
+import { columnToDb } from './column-values.js';
 import { extractModelDescriptor } from './descriptor.js';
 import type { OrmDriver } from './driver.js';
 import type { ModelBase } from './model.js';
@@ -205,7 +206,7 @@ export class SubjectExecutor {
 
     for (const { column, value } of pending) {
       // eslint-disable-next-line security/detect-object-injection
-      payload[column] = value;
+      payload[column] = columnToDb(subject.Descriptor, column, value, subject.Model);
     }
 
     return payload;
@@ -297,7 +298,11 @@ export class SubjectExecutor {
     const rows = delta.Added.map((target) => {
       const junction = delta.Junctions.get(target);
       const own = junction ? _.omit(junction.toSql() as Record<string, unknown>, generated) : {};
-      return { ...own, [sourceColumn]: ownerKey, [targetColumn]: target.PrimaryKeyValue };
+      return {
+        ...own,
+        [sourceColumn]: columnToDb(delta.JunctionDescriptor, sourceColumn, ownerKey, junction),
+        [targetColumn]: columnToDb(delta.JunctionDescriptor, targetColumn, target.PrimaryKeyValue, junction),
+      };
     });
 
     // `values()` takes the union of the rows' columns and binds undefined where a row lacks one,
