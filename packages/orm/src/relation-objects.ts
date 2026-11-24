@@ -4,10 +4,10 @@ import type { IRelationDescriptor, IModelDescriptor, ForwardRefFunction, IRelati
 import { DI, NewInstance } from '@spinajs/di';
 import type { Class, Constructor, ResolveResult } from '@spinajs/di';
 import { DateTime } from 'luxon';
-import { createQuery, DeleteQueryBuilder, InsertQueryBuilder, SelectQueryBuilder, UpdateQueryBuilder } from './builders.js';
+import { isThenable } from '@spinajs/util';
+import { createQuery, DeleteQueryBuilder, InsertQueryBuilder, QueryBuilder, SelectQueryBuilder, UpdateQueryBuilder } from './builders.js';
 import { autoKeyColumns, constructedJunctionColumns, junctionRow, settleJunction } from './junction-rows.js';
 import type { IJunctionColumns, IJunctionLink } from './junction-rows.js';
-import type { QueryBuilder } from './builders.js';
 import type { ModelBase } from './model.js';
 import type { Orm } from './orm.js';
 import _ from 'lodash';
@@ -26,6 +26,38 @@ const relationSyncs = new WeakMap<object, { readonly relation: string; readonly 
  */
 export function relationSyncOf(query: object): { readonly relation: string; readonly owner: Constructor<ModelBase> } | undefined {
   return relationSyncs.get(query);
+}
+
+/**
+ * Runs a `sync()` callback on the statement itself, so marks other packages put on it stay on it. The where statements
+ * the list built, and their connectors, are restored afterwards whatever the callback did to them; the ones it added become one
+ * group ANDed with them: the callback narrows what `sync()` reaches and cannot widen it past the owner.
+ */
+function applySyncCallback(statement: IRelationSyncStatement, callback?: (this: IRelationSyncStatement) => void): void {
+  if (!callback) {
+    return;
+  }
+
+  const own = [...statement.Statements];
+  const connectors = own.map((s) => s.Boolean);
+  // A `void` return type accepts an async function; what it adds after an await would land outside the group. A
+  // builder is a thenable too (`return this.where(...)`), and its `then` would run it.
+  const returned: unknown = callback.call(statement);
+  if (isThenable(returned) && !(returned instanceof QueryBuilder)) {
+    // Only a native promise can reject unhandled; `then` of any other thenable is never called, it could run it.
+    if (returned instanceof Promise) void returned.catch(() => undefined);
+    throw new OrmException('the sync() callback must be synchronous: it returned a promise, and conditions added after an await would not be confined to the owner');
+  }
+
+  const added = statement.Statements.filter((s) => !own.includes(s));
+  own.forEach((s, i) => (s.Boolean = connectors[i]));
+  statement.Statements.splice(0, statement.Statements.length, ...own);
+
+  if (added.length !== 0) {
+    statement.andWhere(function () {
+      this.Statements.push(...added);
+    });
+  }
 }
 
 /**
@@ -554,7 +586,7 @@ export class ManyToManyRelationList<T extends ModelBase, O extends ModelBase> ex
       query.whereNotIn(this.Relation.JunctionModelTargetModelFKey_Name!, toDelete);
     }
 
-    callback?.call(query);
+    applySyncCallback(query, callback);
     await query;
   }
 
@@ -758,7 +790,7 @@ export class OneToManyRelationList<T extends ModelBase, O extends ModelBase> ext
         whereNotAnyPk(update, this.TargetModelDescriptor!, toKeep);
       }
 
-      callback?.call(update);
+      applySyncCallback(update, callback);
       await update;
       return;
     }
@@ -770,7 +802,7 @@ export class OneToManyRelationList<T extends ModelBase, O extends ModelBase> ext
       whereNotAnyPk(query, this.TargetModelDescriptor!, toKeep);
     }
 
-    callback?.call(query);
+    applySyncCallback(query, callback);
     await query;
   }
 

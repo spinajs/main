@@ -4,9 +4,9 @@ import { DI } from '@spinajs/di';
 import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 import 'mocha';
-import { DeleteQueryBuilder, InsertQueryBuilder, OrmException, QueryBuilder, QueryMiddleware, SelectQueryBuilder, SortOrder, UpdateQueryBuilder, extractModelDescriptor, relationSyncOf } from '@spinajs/orm';
-import type { IModelDescriptor } from '@spinajs/orm';
-import { bootUow, registerUowConnection, rows, UowOrder, UowOrderItem, UowOrderTag, UowTag } from './uowFixture.js';
+import { DeleteQueryBuilder, InsertQueryBuilder, OrmException, QueryBuilder, QueryMiddleware, SelectQueryBuilder, SortOrder, UpdateQueryBuilder, WhereBoolean, extractModelDescriptor, relationSyncOf } from '@spinajs/orm';
+import type { IModelDescriptor, IRelationSyncStatement } from '@spinajs/orm';
+import { bootUow, captureStatements, registerUowConnection, rows, UowOrder, UowOrderItem, UowOrderTag, UowTag } from './uowFixture.js';
 import { SdOwner } from './models/sd/SdOwner.js';
 import { SdItem } from './models/sd/SdItem.js';
 import './migrations/SdMigration_2026_08_03_00_00_00.js';
@@ -44,6 +44,17 @@ class StatementRecorder extends QueryMiddleware {
     if (!statements.recording) return;
     statements.seen.push(statementOf(query));
     statements.origins.push(`${statementOf(query)}: ${originOf(query)}`);
+  }
+}
+
+/** Statements a sync() callback marked, as another package marks them, and the ones that ran with the mark. */
+const marks = { marked: new WeakSet<object>(), seen: [] as string[] };
+
+class MarkReader extends QueryMiddleware {
+  afterQueryCreation(): void {}
+
+  beforeQueryExecution(query: QueryBuilder): void {
+    if (marks.marked.has(query)) marks.seen.push(statementOf(query));
   }
 }
 
@@ -523,6 +534,246 @@ describe('Relation set operations against the database', function () {
       await expect(order.Tags.sync(refuse)).to.be.rejectedWith('refused by the callback');
       expect((await rows<{ Name: string }>('uow_tag')).map((t) => t.Name)).to.deep.eq(['red', 'blue']);
       expect((await rows<{ tag_id: number }>('uow_order_tag')).map((l) => l.tag_id)).to.deep.eq([1, 2]);
+    });
+  });
+
+  describe('the conditions of a sync() callback', () => {
+    before(() => DI.register(MarkReader).as(QueryMiddleware));
+    after(() => DI.unregister(MarkReader));
+
+    /** The compiled statements of `write` that start with `verb`. */
+    async function compiled(verb: string, write: () => Promise<void>): Promise<string[]> {
+      const capture = captureStatements();
+      try {
+        await write();
+      } finally {
+        capture.restore();
+      }
+      return capture.statements.filter((s) => s.expression.startsWith(verb)).map((s) => s.expression);
+    }
+
+    /** Order 1 has items A and B, order 2 has X and Y; B and X share `Qty` 9. Order 1 drops B. */
+    async function twoOrders() {
+      await UowOrder.insert({ Total: 10 });
+      await UowOrder.insert({ Total: 20 });
+      for (const [Sku, Qty, order_id] of [['A', 1, 1], ['B', 9, 1], ['X', 9, 2], ['Y', 1, 2]] as const) await UowOrderItem.insert({ Sku, Qty, order_id });
+      const order = await UowOrder.where({ Id: 1 }).populate('Items').first();
+      order.Items.remove((i) => i.Sku === 'B');
+      return order;
+    }
+
+    const items = async () => (await rows<{ Sku: string; order_id: number }>('uow_order_item')).map((r) => `${r.order_id}:${r.Sku}`);
+
+    it('keeps an orWhere of a one-to-many orphan delete inside the owner', async () => {
+      const order = await twoOrders();
+
+      const sql = await compiled('DELETE', () =>
+        order.Items.sync(function () {
+          this.orWhere('Qty', 9);
+        }),
+      );
+
+      expect(sql).to.deep.eq(['DELETE FROM `uow_order_item` WHERE `order_id` = ? AND `Id` NOT IN (?) AND ( `Qty` = ? )']);
+      expect(await items()).to.deep.eq(['1:A', '2:X', '2:Y']);
+    });
+
+    it('groups a where followed by an orWhere, inside the owner', async () => {
+      const order = await twoOrders();
+
+      const sql = await compiled('DELETE', () =>
+        order.Items.sync(function () {
+          this.where('Sku', 'B').orWhere('Qty', 9);
+        }),
+      );
+
+      expect(sql).to.deep.eq(['DELETE FROM `uow_order_item` WHERE `order_id` = ? AND `Id` NOT IN (?) AND ( `Sku` = ? OR `Qty` = ? )']);
+      expect(await items()).to.deep.eq(['1:A', '2:X', '2:Y']);
+    });
+
+    it('keeps an orWhere of the soft-delete stamp inside the owner', async () => {
+      await SdOwner.insert({ Name: 'one' });
+      await SdOwner.insert({ Name: 'two' });
+      for (const [Val, owner_id] of [['a', 1], ['b', 1], ['x', 2], ['y', 2]] as const) await SdItem.insert({ Val, owner_id });
+      const owner = await SdOwner.where({ Id: 1 }).populate('Items').first();
+      owner.Items.remove((i) => i.Val === 'b');
+
+      const sql = await compiled('UPDATE', () =>
+        owner.Items.sync(function () {
+          this.where('Val', 'b').orWhere('Val', 'x');
+        }),
+      );
+
+      expect(sql).to.deep.eq(['UPDATE `sd_item` SET `DeletedAt` = ? WHERE `owner_id` = ? AND `DeletedAt` IS NULL AND `Id` NOT IN (?) AND ( `Val` = ? OR `Val` = ? )']);
+      const stamped = (await rows<{ Val: string; owner_id: number; DeletedAt: string | null }>('sd_item')).filter((r) => r.DeletedAt !== null).map((r) => `${r.owner_id}:${r.Val}`);
+      expect(stamped).to.deep.eq(['1:b']);
+    });
+
+    it('keeps an orWhere of a many-to-many junction delete inside the owner', async () => {
+      await seededOrder();
+      await UowOrder.insert({ Total: 20 });
+      await UowOrderTag.insert({ order_id: 2, tag_id: 1 });
+      await UowOrderTag.insert({ order_id: 2, tag_id: 2 });
+      const order = await UowOrder.where({ Id: 1 }).populate('Tags').first();
+      order.Tags.remove((t) => t.Name === 'blue');
+
+      const sql = await compiled('DELETE', () =>
+        order.Tags.sync(function () {
+          this.orWhere('tag_id', 2);
+        }),
+      );
+
+      expect(sql).to.deep.eq(['DELETE FROM `uow_order_tag` WHERE `order_id` = ? AND `tag_id` NOT IN (?) AND ( `tag_id` = ? )']);
+      expect((await rows<{ order_id: number; tag_id: number }>('uow_order_tag')).map((l) => `${l.order_id}:${l.tag_id}`)).to.deep.eq(['1:1', '2:1', '2:2']);
+    });
+
+    it('compiles the orphan delete as before when the callback adds no condition, or there is no callback', async () => {
+      const today = ['DELETE FROM `uow_order_item` WHERE `order_id` = ? AND `Id` NOT IN (?)'];
+      const order = await twoOrders();
+
+      expect(await compiled('DELETE', () => order.Items.sync()), 'no callback').to.deep.eq(today);
+      expect(await compiled('DELETE', () => order.Items.sync(function () {})), 'an empty callback').to.deep.eq(today);
+      expect(
+        await compiled('DELETE', () =>
+          order.Items.sync(function () {
+            this.where(function () {});
+          }),
+        ),
+        'an empty group',
+      ).to.deep.eq(today);
+      expect(await items()).to.deep.eq(['1:A', '2:X', '2:Y']);
+    });
+
+    it('runs the statement the callback marked, with no condition added', async () => {
+      const order = await twoOrders();
+      marks.seen = [];
+
+      const sql = await compiled('DELETE', () =>
+        order.Items.sync(function () {
+          marks.marked.add(this);
+        }),
+      );
+
+      expect(marks.seen).to.deep.eq(['delete UowOrderItem']);
+      expect(sql).to.deep.eq(['DELETE FROM `uow_order_item` WHERE `order_id` = ? AND `Id` NOT IN (?)']);
+      expect(await items()).to.deep.eq(['1:A', '2:X', '2:Y']);
+    });
+
+    it('keeps the owner key and the keep list when the callback removes the statements it was handed', async () => {
+      const order = await twoOrders();
+      const grouped = ['DELETE FROM `uow_order_item` WHERE `order_id` = ? AND `Id` NOT IN (?) AND ( `Qty` = ? )'];
+
+      const spliced = await compiled('DELETE', () =>
+        order.Items.sync(function () {
+          this.Statements.splice(0).reverse().forEach((s) => this.Statements.push(s));
+          this.Statements.splice(0, 1);
+          this.orWhere('Qty', 9);
+        }),
+      );
+      expect(spliced, 'reordered and spliced').to.deep.eq(grouped);
+      expect(await items()).to.deep.eq(['1:A', '2:X', '2:Y']);
+
+      const cleared = await compiled('DELETE', () =>
+        order.Items.sync(function () {
+          this.clearWhere().orWhere('Qty', 9);
+        }),
+      );
+      expect(cleared, 'clearWhere()').to.deep.eq(grouped);
+      expect(await items()).to.deep.eq(['1:A', '2:X', '2:Y']);
+
+      const reconnected = await compiled('DELETE', () =>
+        order.Items.sync(function () {
+          this.Statements[1].Boolean = WhereBoolean.OR;
+          this.orWhere('Qty', 9);
+        }),
+      );
+      expect(reconnected, 'the keep list joined by OR').to.deep.eq(grouped);
+      expect(await items()).to.deep.eq(['1:A', '2:X', '2:Y']);
+    });
+
+    it('groups the conditions of a callback that returns the statement, which is a thenable but not a promise', async () => {
+      const order = await twoOrders();
+
+      const sql = await compiled('DELETE', () =>
+        order.Items.sync(function () {
+          return this.where('Sku', 'B').orWhere('Qty', 9);
+        }),
+      );
+
+      expect(sql).to.deep.eq(['DELETE FROM `uow_order_item` WHERE `order_id` = ? AND `Id` NOT IN (?) AND ( `Sku` = ? OR `Qty` = ? )']);
+      expect(await items()).to.deep.eq(['1:A', '2:X', '2:Y']);
+    });
+
+    describe('an async callback', () => {
+      const refused = 'the sync() callback must be synchronous: it returned a promise, and conditions added after an await would not be confined to the owner';
+      const unhandled: unknown[] = [];
+      const record = (reason: unknown) => unhandled.push(reason);
+      before(() => process.on('unhandledRejection', record));
+      after(() => process.off('unhandledRejection', record));
+      beforeEach(() => (unhandled.length = 0));
+
+      // The compiler accepts an async callback for a `void` return, and lint's no-misused-promises refuses it;
+      // `unchecked` stands for a caller lint does not see (JavaScript, an `any`).
+      const unchecked = (callback: (this: IRelationSyncStatement) => unknown): ((this: IRelationSyncStatement) => void) => callback;
+
+      it('is refused before the orphan delete runs, and the one-to-many sync() changes no row of either owner', async () => {
+        const order = await twoOrders();
+        order.Items.push(new UowOrderItem({ Sku: 'C', Qty: 3 }));
+
+        const sql = await compiled('DELETE', async () => {
+          const err = await order.Items.sync(
+            unchecked(async function () {
+              await Promise.resolve();
+              this.orWhere('Qty', 9);
+            }),
+          ).catch((e: unknown) => e);
+          expect(err).to.be.instanceOf(OrmException).with.property('message', refused);
+        });
+
+        expect(sql, 'no delete runs').to.deep.eq([]);
+        expect(await items(), 'the insert of C rolls back').to.deep.eq(['1:A', '1:B', '2:X', '2:Y']);
+      });
+
+      it('is refused when its own promise rejects, without an unhandled rejection', async () => {
+        const order = await twoOrders();
+
+        await expect(
+          order.Items.sync(
+            unchecked(async function () {
+              await Promise.resolve();
+              throw new Error('the callback failed');
+            }),
+          ),
+        ).to.be.rejectedWith(OrmException, refused);
+        await new Promise((resolve) => setImmediate(resolve));
+
+        expect(unhandled).to.deep.eq([]);
+        expect(await items()).to.deep.eq(['1:A', '1:B', '2:X', '2:Y']);
+      });
+
+      it('is refused by the soft-delete stamp and the many-to-many junction delete, which change nothing', async () => {
+        const late = unchecked(async function () {
+          await Promise.resolve();
+          this.orWhere('Id', '>', 0);
+        });
+
+        await SdOwner.insert({ Name: 'one' });
+        await SdOwner.insert({ Name: 'two' });
+        for (const [Val, owner_id] of [['a', 1], ['b', 1], ['x', 2]] as const) await SdItem.insert({ Val, owner_id });
+        const owner = await SdOwner.where({ Id: 1 }).populate('Items').first();
+        owner.Items.remove((i) => i.Val === 'b');
+        await expect(owner.Items.sync(late)).to.be.rejectedWith(OrmException, refused);
+        expect((await rows<{ DeletedAt: string | null }>('sd_item')).filter((r) => r.DeletedAt !== null), 'no row stamped').to.deep.eq([]);
+
+        await seededOrder();
+        await UowOrder.insert({ Total: 20 });
+        await UowOrderTag.insert({ order_id: 2, tag_id: 1 });
+        const order = await UowOrder.where({ Id: 1 }).populate('Tags').first();
+        order.Tags.remove((t) => t.Name === 'blue');
+        order.Tags.push(new UowTag({ Name: 'green' }));
+        await expect(order.Tags.sync(late)).to.be.rejectedWith(OrmException, refused);
+        expect((await rows<{ order_id: number; tag_id: number }>('uow_order_tag')).map((l) => `${l.order_id}:${l.tag_id}`)).to.deep.eq(['1:1', '1:2', '2:1']);
+        expect((await rows<{ Name: string }>('uow_tag')).map((t) => t.Name), 'the insert of green rolls back').to.deep.eq(['red', 'blue']);
+      });
     });
   });
 

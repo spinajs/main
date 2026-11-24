@@ -330,6 +330,40 @@ describe("authz-orm guard: a relation list's sync()", function () {
         expect(plan.firstCall.args.slice(0, 3)).to.deep.equal([alice, permission, kind.type]);
       });
 
+      it('.accessible(p) next to a condition group that keeps the denied orphan out of it: runs, the denied orphan stays', async () => {
+        env('test');
+        const permission = kind.permission;
+        await as(() =>
+          sync(false, function () {
+            this.accessible(permission);
+            this.where('flag', 'green').orWhere('flag', 'blue');
+          }),
+        );
+
+        expect(await kind.state()).to.deep.equal(kind.syncedKeepingRed);
+      });
+
+      it('.accessible(p) next to a condition group that reaches the denied orphan: AccessDenied after the write, rolled back', async () => {
+        env('test');
+        const executed = record(kind.model());
+        const permission = kind.permission;
+        const err = await as(() =>
+          settle(() =>
+            sync(false, function () {
+              this.accessible(permission);
+              this.where('flag', 'red').orWhere('flag', 'green');
+            }),
+          ),
+        );
+
+        expect(err).to.be.instanceOf(AccessDenied);
+        expect((err as Error).message).to.equal(`Access denied: ${permission} on ${kind.type} (no_access)`);
+        expect(await kind.state()).to.deep.equal(kind.before);
+        expect(executed.slice(0, kind.statements.length)).to.deep.equal(kind.statements);
+        // What follows the write is the check; how many reads it takes is its own business.
+        expect(executed.slice(kind.statements.length)).to.satisfy((reads: string[]) => reads.length > 0 && reads.every((s) => s === 'select'));
+      });
+
       it('.accessible(p) with a plan that allows every row: runs the statements of an unguarded sync() and no count', async () => {
         env('test');
         plan.resolves({ kind: 'filter', permit: 'all', deny: [] });
