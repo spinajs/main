@@ -1,5 +1,5 @@
 /* eslint-disable prettier/prettier */
-import { ITransactionContext, ITransactionOptions, ValueConverter, DatetimeValueConverter, QueryMiddleware } from './../src/interfaces.js';
+import { ITransactionContext, ITransactionOptions, ValueConverter, DatetimeValueConverter, QueryMiddleware, ServerResponseMapper } from './../src/interfaces.js';
 import { join, normalize, resolve } from 'path';
 import { IColumnDescriptor, ColumnQueryCompiler, DropTableCompiler, TableExistsCompiler, SelectQueryCompiler, ICompilerOutput, DeleteQueryCompiler, InsertQueryCompiler, UpdateQueryCompiler, TableQueryCompiler, QueryBuilder, Builder, SelectQueryBuilder, DefaultValueBuilder, RawQuery, IMigrationRecord, MIGRATION_TABLE_NAME, SlowQueryMiddleware } from '../src/index.js';
 import { OrmDriver } from './../src/driver.js';
@@ -1453,7 +1453,7 @@ export function stubDb(rows: IMigrationRecord[]) {
   });
 }
 
-export class FakeServerResponseMapper {
+export class FakeServerResponseMapper extends ServerResponseMapper {
   public read(response: any, _pkNames?: string[]): any {
     return {
       LastInsertId: response?.insertId || response?.lastID || 1,

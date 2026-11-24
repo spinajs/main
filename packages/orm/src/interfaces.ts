@@ -12,6 +12,10 @@ import type { Constructor, IContainer } from '@spinajs/di';
 import type { ModelBase } from './model.js';
 import { MethodNotImplemented } from '@spinajs/exceptions';
 import { columnToDb } from './column-values.js';
+import type { InsertQueryBuilder } from './builders/insert.js';
+import { extractModelDescriptor } from './descriptor.js';
+import { legacyIdentityKeys, returnedKeys } from './inserted-keys.js';
+import { pkColumns } from './primary-keys.js';
 import type { Relation } from './relation-objects.js';
 import type { Lazy } from '@spinajs/util';
 import type { AggregateValue, ColumnName, ColumnRef, DeclaredColumn, LiteralColumn, ColumnTypeOf, Head, MinMaxValue, StrictAliasNarrowed, Narrowed, PickColumns, PopulateName, PopulatePath, PopulateTree, Project, RelationTarget, Reproject, SourceRow, StrictNarrowed, WhereCatchAllColumn, WhereColumn, WhereOperator, WhereValue, WithPopulated } from './typing.js';
@@ -192,6 +196,24 @@ export class ServerResponseMapper {
    */
   public read(_response: any, _pkNames?: string[]): DbServerResponse {
     throw new MethodNotImplemented(`no ServerResponseMapper is registered for this connection. Every driver must register one: container.register(MyMapper).as(ServerResponseMapper)`);
+  }
+
+  /**
+   * The primary key of every row this insert wrote, in insert order, as one object per row
+   * (primary key column name -> value); undefined when this dialect cannot tell.
+   *
+   * All or nothing: one entry per row of `insert.Values`, never a partial list. By default the
+   * RETURNING rows of {@link read}, else keys read off `LastInsertId` for an auto-increment key.
+   *
+   * @param response - whatever the driver's executeOnDb resolved with, as {@link read} takes it
+   * @param insert - the executed insert; one without a model has no known keys
+   */
+  public insertedKeys(response: unknown, insert: InsertQueryBuilder): Array<Record<string, unknown>> | undefined {
+    const descriptor = insert.Model === undefined ? null : extractModelDescriptor(insert.Model);
+    const pk = descriptor ? pkColumns(descriptor) : [];
+    if (!descriptor || pk.length === 0) return undefined;
+    const mapped = this.read(response, pk);
+    return returnedKeys(mapped, insert.Values.length, pk) ?? legacyIdentityKeys(mapped, insert, descriptor);
   }
 }
 

@@ -67,8 +67,8 @@ export class SubjectExecutor {
    * back before moving on so the next subject's foreign keys can be resolved.
    *
    * One statement per row, deliberately, and NOT subject to `options.chunk`: a batched
-   * multi-row INSERT can only return keys where the dialect supports RETURNING or where
-   * `insertIdIsFirstOfBatch` holds, and a subject's key is needed by the very next subject in
+   * multi-row INSERT returns keys only where the connection's `ServerResponseMapper.insertedKeys`
+   * can report them, and a subject's key is needed by the very next subject in
    * the order. Batching here is a real feature — it has to carry the per-dialect key-backfill
    * rules with it — not something to fold into the chunking used for junction and orphan rows.
    */
@@ -104,9 +104,9 @@ export class SubjectExecutor {
       query.returning(pkColumns(descriptor));
     }
 
-    const response = mapper.read((await query.values(this.insertPayload(subject))), pkColumns(descriptor));
+    const response: unknown = await query.values(this.insertPayload(subject));
 
-    this.backfillKey(subject, response.Returning, response.LastInsertId, needsKeyBack);
+    this.backfillKey(subject, needsKeyBack ? mapper.insertedKeys(response, query)?.[0] : undefined);
 
     subject.Model.takeSnapshot();
   }
@@ -222,35 +222,16 @@ export class SubjectExecutor {
    *
    * A key the caller already supplied ( uuid / assigned strategies ) is never overwritten.
    */
-  protected backfillKey(subject: Subject, returning: any[], lastInsertId: number, needsKeyBack: boolean): void {
+  protected backfillKey(subject: Subject, key: Record<string, unknown> | undefined): void {
     const descriptor = subject.Descriptor;
-
-    if (pkColumns(descriptor).length === 0) {
-      return;
-    }
-
-    if ((returning ?? []).length !== 0) {
-      setPkValue(subject.Model, descriptor, pkValueOf(returning[0], descriptor));
-      return;
-    }
-
-    if (!needsKeyBack) {
-      return;
-    }
 
     // A composite key is a tuple, and a tuple is ALWAYS truthy — check every part.
     const current = subject.Model.PrimaryKeyValue;
     const missing = Array.isArray(current) ? current.some((v) => v === null || v === undefined) : current === null || current === undefined;
 
-    if (!missing) {
-      return;
+    if (key !== undefined && missing && pkColumns(descriptor).length !== 0) {
+      setPkValue(subject.Model, descriptor, pkValueOf(key, descriptor));
     }
-
-    if (lastInsertId === null || lastInsertId === undefined) {
-      throw new OrmException(`insert of ${subject.Identity} returned no generated key and the model set none itself`);
-    }
-
-    setPkValue(subject.Model, descriptor, lastInsertId);
   }
 
   /**

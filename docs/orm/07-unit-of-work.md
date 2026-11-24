@@ -62,7 +62,7 @@ sequenceDiagram
 | Junctions | `SubjectExecutor.runJunctions()` | Per many-to-many delta: junction `INSERT`s first, then junction `DELETE`s scoped to the owner. |
 | Orphans | `SubjectExecutor.runOrphans()` | `nullify` and `soft-delete` as `UPDATE`s first, then `delete` as `DELETE`s. |
 
-Before each insert, `generateClientSideKeys()` fills empty `uuid` keys and `assertAssignedKeys()` throws `OrmException` for an empty `assigned` key. When a key column is `auto`, the executor asks for `RETURNING` if the driver reports `insertReturning`, else it reads `LastInsertId`. An empty `auto` key with neither `RETURNING` rows nor a `LastInsertId` throws `OrmException` (`insert of <Model#key> returned no generated key ...`).
+Before each insert, `generateClientSideKeys()` fills empty `uuid` keys and `assertAssignedKeys()` throws `OrmException` for an empty `assigned` key. When a key column is `auto`, the executor asks for `RETURNING` if the driver reports `insertReturning`, and takes the key the connection's `ServerResponseMapper.insertedKeys()` reports (see [Primary key strategies](02-models.md#primary-key-strategies)). A key the model already holds is never overwritten. An empty `auto` key the mapper reports no key for stays empty, so children that reference it get no foreign key.
 
 Every inserted or updated model gets `takeSnapshot()` right after its statement, so it reads clean afterwards. When the save then fails, that snapshot is replaced by the one from before the call.
 
