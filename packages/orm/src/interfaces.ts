@@ -13,8 +13,7 @@ import type { ModelBase } from './model.js';
 import { MethodNotImplemented } from '@spinajs/exceptions';
 import { columnToDb } from './column-values.js';
 import type { InsertQueryBuilder } from './builders/insert.js';
-import { extractModelDescriptor } from './descriptor.js';
-import { legacyIdentityKeys, returnedKeys } from './inserted-keys.js';
+import { insertDescriptor, legacyIdentityKeys, returningRowKeys } from './inserted-keys.js';
 import { pkColumns } from './primary-keys.js';
 import type { Relation } from './relation-objects.js';
 import type { Lazy } from '@spinajs/util';
@@ -188,6 +187,9 @@ export interface DbServerResponse {
  * `read is not a function` several frames deep inside a result middleware.
  */
 export class ServerResponseMapper {
+  // One read per insert although returnedKeys() and the identity rule both need it; keyed weakly by the builder.
+  private readonly reads = new WeakMap<InsertQueryBuilder, { response: unknown; mapped: DbServerResponse }>();
+
   /**
    * Normalizes a driver's raw insert response.
    *
@@ -202,18 +204,31 @@ export class ServerResponseMapper {
    * The primary key of every row this insert wrote, in insert order, as one object per row
    * (primary key column name -> value); undefined when this dialect cannot tell.
    *
-   * All or nothing: one entry per row of `insert.Values`, never a partial list. By default the
-   * RETURNING rows of {@link read}, else keys read off `LastInsertId` for an auto-increment key.
+   * All or nothing: one entry per row of `insert.Values`, never a partial list. By default
+   * {@link returnedKeys}, else keys read off `LastInsertId` for an auto-increment key.
    *
    * @param response - whatever the driver's executeOnDb resolved with, as {@link read} takes it
    * @param insert - the executed insert; one without a model has no known keys
    */
   public insertedKeys(response: unknown, insert: InsertQueryBuilder): Array<Record<string, unknown>> | undefined {
-    const descriptor = insert.Model === undefined ? null : extractModelDescriptor(insert.Model);
-    const pk = descriptor ? pkColumns(descriptor) : [];
-    if (!descriptor || pk.length === 0) return undefined;
+    const descriptor = insertDescriptor(insert);
+    return this.returnedKeys(response, insert) ?? (descriptor && legacyIdentityKeys(this.mapped(response, insert, pkColumns(descriptor)), insert, descriptor));
+  }
+
+  /** The keys in the RETURNING rows of this insert, when there is one whole key per inserted row. */
+  protected returnedKeys(response: unknown, insert: InsertQueryBuilder): Array<Record<string, unknown>> | undefined {
+    const descriptor = insertDescriptor(insert);
+    if (!descriptor) return undefined;
+    const pk = pkColumns(descriptor);
+    return returningRowKeys(this.mapped(response, insert, pk), insert.Values.length, pk);
+  }
+
+  private mapped(response: unknown, insert: InsertQueryBuilder, pk: string[]): DbServerResponse {
+    const known = this.reads.get(insert);
+    if (known !== undefined && known.response === response) return known.mapped;
     const mapped = this.read(response, pk);
-    return returnedKeys(mapped, insert.Values.length, pk) ?? legacyIdentityKeys(mapped, insert, descriptor);
+    this.reads.set(insert, { response, mapped });
+    return mapped;
   }
 }
 

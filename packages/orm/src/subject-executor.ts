@@ -106,7 +106,7 @@ export class SubjectExecutor {
 
     const response: unknown = await query.values(this.insertPayload(subject));
 
-    this.backfillKey(subject, needsKeyBack ? mapper.insertedKeys(response, query)?.[0] : undefined);
+    this.backfillKey(subject, needsKeyBack ? mapper.insertedKeys(response, query)?.[0] : undefined, needsKeyBack);
 
     subject.Model.takeSnapshot();
   }
@@ -222,15 +222,25 @@ export class SubjectExecutor {
    *
    * A key the caller already supplied ( uuid / assigned strategies ) is never overwritten.
    */
-  protected backfillKey(subject: Subject, key: Record<string, unknown> | undefined): void {
+  protected backfillKey(subject: Subject, key: Record<string, unknown> | undefined, needsKeyBack: boolean): void {
     const descriptor = subject.Descriptor;
 
     // A composite key is a tuple, and a tuple is ALWAYS truthy — check every part.
     const current = subject.Model.PrimaryKeyValue;
     const missing = Array.isArray(current) ? current.some((v) => v === null || v === undefined) : current === null || current === undefined;
 
-    if (key !== undefined && missing && pkColumns(descriptor).length !== 0) {
+    if (!missing || pkColumns(descriptor).length === 0) {
+      return;
+    }
+
+    if (key !== undefined) {
       setPkValue(subject.Model, descriptor, pkValueOf(key, descriptor));
+      return;
+    }
+
+    // The next subjects resolve their foreign keys from this key; going on without it writes them wrong.
+    if (needsKeyBack) {
+      throw new OrmException(`insert of ${subject.Identity} returned no generated key and the model set none itself`);
     }
   }
 
