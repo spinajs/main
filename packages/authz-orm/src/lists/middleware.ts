@@ -1,9 +1,8 @@
 import { AccessDenied, AuthzConfigError, FALSE, authz, authzStorage, currentPrincipal } from '@spinajs/authz';
 import type { AuthzService, Decision, DenyReason, Permission, Principal, ResourceType } from '@spinajs/authz';
 import { Injectable } from '@spinajs/di';
-import { NotSupported } from '@spinajs/exceptions';
-import { QueryMiddleware, SelectQueryBuilder, SqlExpressions, WhereBuilder, captureReadScope, createQuery, extractModelDescriptor, relationSyncOf } from '@spinajs/orm';
-import type { IQueryStatement, IWhereBuilder, OrmDriver, QueryBuilder } from '@spinajs/orm';
+import { QueryMiddleware, SelectQueryBuilder, WhereBuilder, captureReadScope, createQuery, extractModelDescriptor, relationSyncOf, supportsRowLocks } from '@spinajs/orm';
+import type { IQueryStatement, IWhereBuilder, QueryBuilder } from '@spinajs/orm';
 
 import { auditUnscoped, ormDomain, ormLog } from '../host.js';
 import { marksOf } from '../marker.js';
@@ -95,22 +94,11 @@ function cloneInto(parent: QueryBuilder, statement: IQueryStatement): IQueryStat
   return c;
 }
 
-// MSSQL has no row lock clause and throws NotSupported; its READ COMMITTED reads see committed rows anyway.
-function locksRows(driver: OrmDriver): boolean {
-  try {
-    driver.Container.resolve(SqlExpressions).rowLock('share');
-    return true;
-  } catch (e) {
-    if (e instanceof NotSupported) return false;
-    throw e;
-  }
-}
-
 /**
  * The keys of the rows `conditions` still reach in the model of `query`, read as the write capture reads a write's
  * keys: as SYSTEM, so no guard or list fires on the read, soft-deleted and archived rows included, on the statement's
  * connection and so in its transaction, with these conditions only (none a middleware added to the select at creation).
- * A locking read: under REPEATABLE READ a plain one returns the transaction's snapshot and misses a row another
+ * A locking read: under MySQL REPEATABLE READ a plain one returns the transaction's snapshot and misses a row another
  * transaction committed after it. No aggregate, as PostgreSQL refuses one with a row lock.
  */
 function rowsLeft(query: SyncStatement, conditions: readonly IQueryStatement[], limit?: number): Promise<unknown[]> {
@@ -119,7 +107,8 @@ function rowsLeft(query: SyncStatement, conditions: readonly IQueryStatement[], 
   return captureReadScope().run(async () => {
     const { query: select } = createQuery(model, SelectQueryBuilder, true, query.Driver);
     select.withDeleted().withArchived().onPrimary();
-    if (locksRows(query.Driver)) select.forShare();
+    // MSSQL has no row lock clause; its READ COMMITTED reads see committed rows anyway.
+    if (supportsRowLocks(query.Driver)) select.forShare();
     select.Statements.splice(0, select.Statements.length, ...conditions.map((s) => cloneInto(select, s)));
     const keys = extractModelDescriptor(model)?.PrimaryKey ?? [];
     if (keys.length > 0) select.columns(keys);

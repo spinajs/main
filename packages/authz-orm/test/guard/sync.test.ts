@@ -202,6 +202,19 @@ describe("authz-orm guard: a relation list's sync()", function () {
     register(Recorder);
     return executed;
   };
+  /** The row lock of every select on `model` that executed, in order. */
+  const recordLocks = (model: Model): string[] => {
+    const locks: string[] = [];
+    class LockRecorder extends QueryMiddleware {
+      afterQueryCreation(): void {}
+      beforeQueryExecution(): void {}
+      afterQueryExecution(query: QueryBuilder): void {
+        if (query.Model === model && query instanceof SelectQueryBuilder) locks.push(query.RowLock ?? 'none');
+      }
+    }
+    register(LockRecorder);
+    return locks;
+  };
 
   const kinds: readonly Kind[] = [
     {
@@ -349,6 +362,7 @@ describe("authz-orm guard: a relation list's sync()", function () {
         env('test');
         const warn = sinon.stub(DI.resolve<Log>(Log, ['authz-orm']), 'warn');
         const executed = record(kind.model());
+        const locks = recordLocks(kind.model());
         const permission = kind.permission;
         const err = await as(() =>
           settle(() =>
@@ -359,6 +373,8 @@ describe("authz-orm guard: a relation list's sync()", function () {
         );
 
         expect(err).to.be.instanceOf(AccessDenied);
+        // a plain read of a REPEATABLE READ snapshot misses rows committed since
+        expect(locks.slice(-2)).to.deep.equal(['share', 'share']);
         expect((err as Error).message).to.equal(`Access denied: ${permission} on ${kind.type} (no_access)`);
         expect((err as AccessDenied).decision.permission).to.equal(permission);
         expect((err as AccessDenied).decision.reason).to.deep.equal({ code: 'no_access' });
