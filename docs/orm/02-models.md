@@ -144,7 +144,7 @@ are capped at 64 bits. An `unsigned` type raises the upper bound to the unsigned
 | `@Archived()` | property | none | Sets `Archived.ArchivedAt` and a `DatetimeValueConverter`. Selects filter archived rows out. `model.archive()` stamps it. |
 | `@Hidden()` | property or relation | none | Adds the name to `Hidden`. `dehydrate()` and `dehydrateWithRelations()` always omit it, and `ResponseSchema` drops it. `Schema` keeps it. |
 | `@Ignore()` | property | none | Sets `Ignore: true` on the column: the property is not persisted. No insert, update, upsert, bulk insert or `save()` writes it, `dehydrate()` omits it, relation queries do not select it, and it is absent from `Schema` and `ResponseSchema`. Throws `InvalidArgument` on a `@Primary()` property. |
-| `@Uuid()` | property | none | Sets `Uuid: true` on the column and a `UuidConverter`. The constructor fills it with a v4 UUID. The converter stores 16-byte binary. |
+| `@Uuid()` | property | none | Sets `Uuid: true` on the column and a `UuidConverter`. The converter stores 16-byte binary. With `db.Models.Source: 'manifest'` the flag is kept and the constructor fills the column with a v4 UUID. With columns read from the database (the default source) the table info replaces the column entry, `Uuid` included, and the constructor leaves the column empty. A client-generated UUID key on every source is `@Primary({ generated: 'uuid' })`. |
 | `@JunctionTable()` | property | none | Records the property in `JunctionModelProperties`. See [Relations](06-relations.md). |
 | `@DiscriminationMap(field, entries)` | class | see [Discrimination maps](14-discrimination-maps.md) | Picks the class per row from a column value. |
 
@@ -158,13 +158,13 @@ Relation decorators are covered in [Relations](06-relations.md). Converter decor
 
 | `generated` | Who supplies the value | Insert behaviour |
 | --- | --- | --- |
-| `'auto'` (default) | The database (identity, auto-increment or a column default). | A key without a value is left out of the insert row. The insert asks for `RETURNING` when `supportedFeatures().insertReturning` is `true` and takes the key the connection's `ServerResponseMapper.insertedKeys()` reports. |
+| `'auto'` (default) | The database (identity, auto-increment or a column default). | A key without a value (`null`, `undefined` or `''`) is left out of the insert row; SQLite's serializer leaves out only `undefined`. On a column with neither a default nor auto-increment the insert then fails in the database with `ConstraintViolation` (kind `not_null`), where it used to fail before the statement with `InvalidArgument: value column <name> cannot be null`: on PostgreSQL the failed statement aborts the caller's transaction, and MySQL without a strict `sql_mode` writes the column's implicit default instead. The insert asks for `RETURNING` when `supportedFeatures().insertReturning` is `true` and takes the key the connection's `ServerResponseMapper.insertedKeys()` reports. |
 | `'uuid'` | The ORM, client-side. | `generateClientSideKeys()` fills an empty key with a v4 UUID at construction and again before insert. A supplied value is never overwritten. |
 | `'assigned'` | The caller. | `assertAssignedKeys()` throws `OrmException` before any SQL runs when the key is `null`, `undefined` or `''`. |
 
 An `auto` key whose column converter would write `NULL` for a missing value, such as `@Uuid()` or `@Int64()`, is
 left out of the row too, so the column default applies. A binary UUID key the database generates
-(`"Id" bytea PRIMARY KEY DEFAULT uuid_send(gen_random_uuid())` on PostgreSQL):
+(`"Id" bytea PRIMARY KEY DEFAULT uuid_send(gen_random_uuid())` on PostgreSQL), with columns read from the database:
 
 ```ts
 @Model('tags')
@@ -173,6 +173,14 @@ export class Tag extends ModelBase<Tag> {
   public Name: string;
 }
 ```
+
+The key is empty after construction only because the table info replaces the `@Uuid()` flag. With
+`db.Models.Source: 'manifest'` the constructor gives the model a client v4 UUID and the column default never
+applies. Measured on the other servers: SQL Server inserts the row with its default (`binary(16) DEFAULT
+CAST(NEWID() AS binary(16))`) but reports no key, so the model stays without one and `save()` of a parent with
+new children throws `OrmException` (`... returned no generated key ...`). MySQL reads an expression default
+(`DEFAULT (UUID_TO_BIN(UUID()))`) as text, the constructor copies that text onto the key, and the row is written
+with 16 zero bytes; that is a separate defect.
 
 `model.insert()`, `Model.insert(...)` and the unit of work take generated keys from the
 connection's `ServerResponseMapper.insertedKeys(response, insert)`: one key per inserted row, in

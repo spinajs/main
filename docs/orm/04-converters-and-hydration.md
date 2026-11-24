@@ -126,7 +126,7 @@ Column lookup lowercases the native type, so only the lowercase keys match a col
 | `@Int64(as = 'string')` | property typed `string`, `number` or `bigint` | `as`: `'string'`, `'number'` or `'bigint'` | Attaches `Int64ValueConverter` with `{ as }`, so a 64-bit integer column hydrates to the same JS type on every driver (pg returns `int8` as text, sqlite3 and mysql2 as a number). Throws `InvalidArgument` for another mode or a second converter. Named `Int64`, not `BigInt`, so it does not shadow the global. |
 | `@UniversalConverter(typeColumn?)` | property | `typeColumn`, default `'Type'` | Attaches `UniversalValueConverter` with `{ TypeColumn }`. |
 | `@Set()` | property typed as an array | none | Attaches `SetValueConverter`. Throws `Error` for a non-array type, `InvalidArgument` for a second converter. |
-| `@Uuid()` | property | none | Marks the column `Uuid` (a fresh uuid at construction) and attaches `UuidConverter`. |
+| `@Uuid()` | property | none | Marks the column `Uuid` and attaches `UuidConverter`. The constructor fills the column with a fresh uuid only with `db.Models.Source: 'manifest'`; with columns read from the database the table info replaces the flag and the column stays empty. |
 | `@CreatedAt()`, `@UpdatedAt()`, `@SoftDelete()`, `@Archived()` | property typed `DateTime` | none | Attach `DatetimeValueConverter` as well as their own feature. See [Models](02-models.md). |
 
 Import `DateTime` and `Set` under an alias (`DateTime as DateTimeColumn`, `Set as SetColumn`) next to luxon's `DateTime` and the global `Set`.

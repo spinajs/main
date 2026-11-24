@@ -3,7 +3,7 @@ import { expect } from 'chai';
 import { FrameworkConfiguration } from '@spinajs/configuration';
 import '@spinajs/log';
 // Relation and SingleRelation are value imports: the decorator metadata of a relation property names its class.
-import { BelongsTo, Connection, HasMany, Int64, Model, ModelBase, Orm, Primary, QueryContext, Relation, SingleRelation, Uuid, UuidConverter } from '@spinajs/orm';
+import { BelongsTo, Connection, ConstraintViolation, HasMany, Int64, Model, ModelBase, Orm, Primary, QueryContext, Relation, SingleRelation, Uuid, UuidConverter } from '@spinajs/orm';
 import { createTestApp, type TestApp } from '@spinajs/testing';
 
 import { PgliteOrmDriver } from '../src/index.js';
@@ -75,6 +75,16 @@ class PglBigSerialItem extends ModelBase {
   public Name: string;
 }
 
+@Connection(CONNECTION)
+@Model('pgl_no_default_item')
+class PglNoDefaultItem extends ModelBase {
+  @Primary()
+  @Uuid()
+  public Id: string;
+
+  public Name: string;
+}
+
 describe('a primary key the database generates on PGlite', function () {
   this.timeout(60000);
 
@@ -100,6 +110,7 @@ describe('a primary key the database generates on PGlite', function () {
     await driver.executeOnDb('CREATE TABLE pgl_client_uuid_item ("Id" bytea PRIMARY KEY, "Name" text)', [], QueryContext.Schema);
     await driver.executeOnDb('CREATE TABLE pgl_serial_item ("Id" serial PRIMARY KEY, "Name" text)', [], QueryContext.Schema);
     await driver.executeOnDb('CREATE TABLE pgl_bigserial_item ("Id" bigserial PRIMARY KEY, "Name" text)', [], QueryContext.Schema);
+    await driver.executeOnDb('CREATE TABLE pgl_no_default_item ("Id" bytea PRIMARY KEY, "Name" text)', [], QueryContext.Schema);
     await orm.reloadTableInfo();
   });
 
@@ -114,7 +125,7 @@ describe('a primary key the database generates on PGlite', function () {
   describe('@Uuid() key without a value', () => {
     it('insert() leaves the key to the column default and the model reads its row back by the key it holds', async () => {
       const tag = new PglGenTag({ Name: 'urgent' });
-      expect(tag.Id, 'no key before the insert').to.be.undefined;
+      expect(tag.Id, 'no key before the insert: the table info replaces the column entry @Uuid() marked, so the constructor does not fill it').to.be.undefined;
 
       await tag.insert();
 
@@ -150,6 +161,47 @@ describe('a primary key the database generates on PGlite', function () {
       expect(tag.Id, 'the key the model holds').to.exist;
       expect((await PglGenTag.where({ Id: tag.Id }).first())?.Name, 'read by the key the model holds').to.eq('parent');
       expect((await PglGenNote.where({ tag_id: tag.Id })).map((n) => n.Text), 'children found through the key of the parent').to.deep.eq(['note']);
+    });
+
+    for (const empty of [null, '']) {
+      it(`a key holding ${JSON.stringify(empty)} is left to the column default too`, async () => {
+        const tag = new PglGenTag({ Name: 'empty' });
+        (tag as unknown as { Id: unknown }).Id = empty;
+
+        await tag.insert();
+
+        const [row] = await tagRows();
+        expect(row.Id.byteLength).to.eq(16);
+        expect((await PglGenTag.where({ Id: tag.Id }).first())?.Name, 'read by the key the model holds').to.eq('empty');
+      });
+    }
+  });
+
+  describe('an auto key without a value on a column without a default', () => {
+    async function failureOfInsert(): Promise<unknown> {
+      return new PglNoDefaultItem({ Name: 'no default' }).insert().then(
+        () => undefined,
+        (err: unknown) => err,
+      );
+    }
+
+    it('fails in the database with a not_null ConstraintViolation', async () => {
+      const err = await failureOfInsert();
+
+      expect(err).to.be.instanceOf(ConstraintViolation);
+      expect((err as ConstraintViolation).kind).to.eq('not_null');
+    });
+
+    it('aborts the transaction of the caller', async () => {
+      const next = await driver.transaction(async () => {
+        await failureOfInsert();
+        return PglSerialItem.all().then(
+          () => 'the next statement ran',
+          (err: Error) => err.message,
+        );
+      });
+
+      expect(next).to.match(/current transaction is aborted/);
     });
   });
 
