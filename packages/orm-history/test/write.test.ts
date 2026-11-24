@@ -539,6 +539,34 @@ describe('history writes', function () {
       expect(db.warnings()).to.deep.eq(['orm-history: Device matches audit.data.rules but its primary key id is stored as bytes by @Uuid(), so it is not tracked']);
     });
 
+    describe('an insert of one row whose key the database fills and does not return', () => {
+      // sqlite reports the rowid as LastInsertId, which is not this key.
+      const define = () => db.define({ name: 'Filled', table: 'filled', filledKey: true, columns: { v: 'TEXT' }, decorate: (c) => registerHistory(c) }, 'sqlite');
+      const insert = (model: Awaited<ReturnType<typeof define>>) => createQuery(model, InsertQueryBuilder).query.values({ v: 'a' });
+
+      it('marks the entity lost for unknown keys', async () => {
+        const Filled = await define();
+        await insert(Filled);
+
+        expect(await db.rows('filled', 'sqlite')).to.have.length(1);
+        expect((await db.rows('orm_history', 'sqlite')).map((r) => [r.action, r.subject_id, JSON.parse(String(r.data)) as unknown])).to.deep.eq([['lost', LOST_SUBJECT_ID, { reason: 'unknown_keys' }]]);
+        expect(db.warnings()).to.deep.eq([UNKNOWN_KEYS_WARNING.replace('auto', 'filled')]);
+      });
+
+      it('fails with onUnknownKeys: throw', async () => {
+        db.config.set('audit.data.onUnknownKeys', 'throw');
+        try {
+          const Filled = await define();
+          expect(await rejection(insert(Filled)))
+            .to.be.instanceOf(HistoryWriteError)
+            .and.have.property('message', UNKNOWN_KEYS_REFUSED.replace('auto', 'filled'));
+          expect(await db.rows('filled', 'sqlite')).to.have.length(0);
+        } finally {
+          db.config.set('audit.data.onUnknownKeys', 'warn');
+        }
+      });
+    });
+
     describe('a write whose key has no text', () => {
       // Above 2^53 a JS number is not a safe integer; sqlite stores this one exactly.
       const UNSAFE = 2 ** 53 + 2;

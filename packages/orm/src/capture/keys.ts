@@ -5,6 +5,7 @@ import { InvalidArgument, NotSupported } from '@spinajs/exceptions';
 
 import { SelectQueryBuilder, createQuery } from '../builders.js';
 import type { DeleteQueryBuilder, InsertQueryBuilder, UpdateQueryBuilder } from '../builders.js';
+import { extractModelDescriptor } from '../descriptor.js';
 import type { OrmDriver } from '../driver.js';
 import { SqlExpressions } from '../expressions.js';
 import { CaptureReadScope } from './contracts.js';
@@ -49,7 +50,7 @@ export function keyTexts(values: readonly unknown[]): KeyTexts {
 }
 
 /** Tells keyless values apart without comparing them pairwise; not a key text, so it never reaches `rows`. */
-function keylessIdentity(value: unknown): string | undefined {
+export function keylessIdentity(value: unknown): string | undefined {
   if (Buffer.isBuffer(value)) return `b:${value.toString('hex')}`;
   if (value instanceof Uint8Array) return `u:${Buffer.from(value.buffer, value.byteOffset, value.byteLength).toString('hex')}`;
   if (value instanceof Date) return `d:${String(value.getTime())}`;
@@ -158,11 +159,15 @@ export function insertedKeyTexts(query: InsertQueryBuilder, result: unknown, pk:
   const returning = Array.isArray(r.Returning) ? r.Returning.filter(isRow) : [];
   const returned = returning.map((x) => columnValue(x, pk));
   if (returned.length === rows && returned.every((v) => v !== undefined && v !== null)) return keyTexts(returned);
-  const keys = keysFromLastInsertId(query, r, supplied);
+  const keys = keysFromLastInsertId(query, r, supplied, pk);
   return keys && { keys, keyless: [] };
 }
 
-function keysFromLastInsertId(query: InsertQueryBuilder, r: InsertResult, supplied: readonly unknown[]): string[] | undefined {
+// LastInsertId is the identity value a driver reports (the rowid on SQLite), the row's key only when that key is it.
+const keyIsAutoIncrement = (query: InsertQueryBuilder, pk: string): boolean => query.Model !== undefined && extractModelDescriptor(query.Model)?.Columns.find((c) => c.Name === pk)?.AutoIncrement === true;
+
+function keysFromLastInsertId(query: InsertQueryBuilder, r: InsertResult, supplied: readonly unknown[], pk: string): string[] | undefined {
+  if (!keyIsAutoIncrement(query, pk)) return undefined;
   const rows = query.Values.length;
   const last = r.LastInsertId;
   if (typeof last !== 'number' || !Number.isSafeInteger(last) || last <= 0) return undefined;
