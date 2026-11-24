@@ -35,10 +35,16 @@ import { IForeignKeyList, IIndexInfo, IIndexInfoList, ITableInfo } from './types
 import { format } from '@spinajs/configuration';
 import { SqlLiteDefaultValueBuilder } from './builders.js';
 import { SqliteDatetimeValueConverter, SqliteModelToSqlConverter } from './converters.js';
-import type { QueryPlan } from '@spinajs/orm';
+import type { InsertQueryBuilder, QueryPlan } from '@spinajs/orm';
 import { normalizeSqlitePlan } from './explain.js';
+import { rowidKeys } from './inserted-keys.js';
 
 export class SqliteServerResponseMapper extends ServerResponseMapper {
+  /** The RETURNING rows, else SQLite's rowid rule in docs/orm-sqlite/05-inserts-and-upserts.md. */
+  public insertedKeys(response: unknown, insert: InsertQueryBuilder): Array<Record<string, unknown>> | undefined {
+    return this.returnedKeys(response, insert) ?? rowidKeys(this.read(response), insert);
+  }
+
   public read(data: any, pkNames?: string[]) {
     // Upsert and returning-inserts resolve with the RETURNING rows; plain runs resolve with
     // { RowsAffected, LastInsertId }.
