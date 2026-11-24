@@ -34,7 +34,7 @@ An insert that came back without them, such as a builder made with `createQuery(
 4. `lastID` is a positive safe integer.
 5. The row supplies no key and the key column has no default, or the row supplies the number `lastID` holds. In a `WITHOUT ROWID` table, which the table info does not tell apart, an `INTEGER PRIMARY KEY` is not the rowid, so a row there either supplies its key or takes the column default, and `lastID` is stale.
 
-Otherwise the insert reports no keys: several rows (`lastID` names only the last), a composite, `uuid`, `assigned` or text key (a text or `BLOB` key the database fills has a rowid that is not the key), or an insert without a model. Such an insert reaches write observers with `unknownKeys: true`. The rule does not read the driver's `insertIdIsFirstOfBatch` flag.
+Otherwise the insert reports no keys: several rows (`lastID` names only the last), a composite, `uuid`, `assigned` or text key (a text or `BLOB` key the database fills has a rowid that is not the key), or an insert without a model. Such an insert reaches write observers with `unknownKeys: true`.
 
 Measured with `sqlite3` 5.x (SQLite 3.44.2) on a table `t (Id INTEGER PRIMARY KEY, Email TEXT UNIQUE, Name TEXT)` unless the row says otherwise:
 
@@ -71,7 +71,7 @@ The only difference from `StandardModelToSqlConverter` in `@spinajs/orm` is step
 
 ## Configuration
 
-No keys. `supportedFeatures()` is fixed: `{ events: false, insertReturning: true, insertIdIsFirstOfBatch: false, nativeJson: false, concurrentTransactions: false }`, and `MaxBindings` is `32766`. `insertIdIsFirstOfBatch` is `false` because `sqlite3`'s `lastID` is the **last** row id of a multi-row insert; SQLite gets every key from `RETURNING` instead, and its keys of inserted rows do not depend on the flag. `MaxBindings` sets where a multi-row insert is split. `concurrentTransactions: false` makes the core queue outermost transactions (see [Transactions](03-transactions.md)).
+No keys. `supportedFeatures()` is fixed: `{ events: false, insertReturning: true, nativeJson: false, concurrentTransactions: false, streaming }` (`streaming` is `true` with a read pool on a WAL file), and `MaxBindings` is `32766`. `MaxBindings` sets where a multi-row insert is split. `concurrentTransactions: false` makes the core queue outermost transactions (see [Transactions](03-transactions.md)).
 
 ## Services and extension points
 

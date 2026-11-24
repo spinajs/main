@@ -3,7 +3,7 @@ import { expect } from 'chai';
 
 import { DI } from '@spinajs/di';
 import { extractModelDescriptor, InsertQueryBuilder, Model, ModelBase, Primary, ServerResponseMapper } from '@spinajs/orm';
-import type { IColumnDescriptor, ISupportedFeature } from '@spinajs/orm';
+import type { IColumnDescriptor } from '@spinajs/orm';
 
 import { MySqlOrmDriver } from '../src/index.js';
 import { reportedAutoIncrementStep } from '../src/inserted-keys.js';
@@ -72,12 +72,6 @@ extractModelDescriptor(PairKey)!.Columns = [column('A', true, true), column('B',
 
 class TwoRowMySqlDriver extends MySqlOrmDriver {
   public readonly MaxInsertRows: number = 2;
-}
-
-class NoFirstOfBatchMySqlDriver extends MySqlOrmDriver {
-  public supportedFeatures(): ISupportedFeature {
-    return { ...super.supportedFeatures(), insertIdIsFirstOfBatch: false };
-  }
 }
 
 type Driver = typeof MySqlOrmDriver;
@@ -210,21 +204,6 @@ describe('mysql inserted keys', function () {
     it('is unknown when the last key of the walk is not a safe integer', async () => {
       expect(await keysOf(packet(3, 2 ** 53 - 2, 1), AutoKey, rows(3))).to.eq(undefined);
     });
-  });
-
-  it('does not depend on the insertIdIsFirstOfBatch flag', async () => {
-    const cases: Array<[unknown, Row[]]> = [
-      [packet(1, 7), rows(1)],
-      [packet(3, 10, 1), rows(3)],
-      [packet(3, 22, 3), rows(3)],
-      [packet(3, 10), rows(3)],
-      [packet(2, 10, 1), rows(3)],
-    ];
-
-    for (const [response, values] of cases) {
-      expect(await keysOf(response, AutoKey, values, undefined, NoFirstOfBatchMySqlDriver)).to.deep.eq(await keysOf(response, AutoKey, values));
-    }
-    expect(await keysOf(packet(3, 10, 1), AutoKey, rows(3), undefined, NoFirstOfBatchMySqlDriver)).to.deep.eq([{ Id: 10 }, { Id: 11 }, { Id: 12 }]);
   });
 
   describe('the step a statement reports', () => {

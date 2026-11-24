@@ -15,16 +15,16 @@ import { Relation } from '../src/relation-objects.js';
 import { MODELS } from '../src/tokens.js';
 import { ServerResponseMapper } from '../src/interfaces.js';
 import type { DbServerResponse, IColumnDescriptor } from '../src/interfaces.js';
-import { insertedKeys as captureInsertedKeys } from '../src/capture/index.js';
+import { WriteObserver, insertedKeys as captureInsertedKeys } from '../src/capture/index.js';
+import type { CaptureInterest, CapturedWrite, WriteStatement } from '../src/capture/index.js';
 import { FakeSqliteDriver, ormApp } from './misc.js';
 
 chai.use(chaiAsPromised);
 const expect = chai.expect;
 
 let RESPONSE: DbServerResponse = { RowsAffected: 0, LastInsertId: 0, Returning: [] };
-let FIRST_ID = true;
-let MAX_INSERT_ROWS: number | undefined;
 let INSERTED: string[] = [];
+let OBSERVED: CapturedWrite[] | undefined;
 
 const column = (Name: string, PrimaryKey: boolean, AutoIncrement: boolean): IColumnDescriptor => ({
   Type: PrimaryKey ? 'INT' : 'VARCHAR',
@@ -110,16 +110,6 @@ class ParentRow extends ModelBase<ParentRow> {
 }
 
 class KeysDriver extends FakeSqliteDriver {
-  constructor(options: ConstructorParameters<typeof FakeSqliteDriver>[0]) {
-    super(options);
-    // MaxInsertRows is a readonly field fixed at construction; tests change the limit after the driver exists
-    Object.defineProperty(this, 'MaxInsertRows', { get: () => MAX_INSERT_ROWS ?? Infinity });
-  }
-
-  public supportedFeatures() {
-    return { ...super.supportedFeatures(), insertReturning: false, insertIdIsFirstOfBatch: FIRST_ID };
-  }
-
   public async tableInfo(table: string, schema: string): Promise<IColumnDescriptor[]> {
     return TABLES.get(table) ?? (await super.tableInfo(table, schema));
   }
@@ -153,6 +143,17 @@ class DriverOwnedKeysMapper extends PassthroughResponseMapper {
   }
 }
 
+class RecordingObserver extends WriteObserver {
+  interest(statement: WriteStatement): CaptureInterest | undefined {
+    return OBSERVED && statement.model === AutoKey ? { columns: '*', transactional: false } : undefined;
+  }
+
+  observe(write: CapturedWrite): Promise<void> {
+    OBSERVED?.push(write);
+    return Promise.resolve();
+  }
+}
+
 function insertOf<M extends ModelBase>(model: new () => M, rows: Array<Record<string, unknown>>): InsertQueryBuilder {
   const { query } = createQuery(model, InsertQueryBuilder);
   return query.values(rows);
@@ -163,10 +164,9 @@ const keysOf = (insert: InsertQueryBuilder): Array<Record<string, unknown>> | un
 describe('inserted keys', () => {
   beforeEach(() => {
     RESPONSE = { RowsAffected: 0, LastInsertId: 0, Returning: [] };
-    FIRST_ID = true;
-    MAX_INSERT_ROWS = undefined;
     DRIVER_OWNED_KEYS = false;
     INSERTED = [];
+    OBSERVED = undefined;
   });
 
   useTestApp(() =>
@@ -174,6 +174,7 @@ describe('inserted keys', () => {
       register: (c) => {
         c.register(KeysDriver).as('sqlite');
         c.register(DriverOwnedKeysMapper).as(ServerResponseMapper);
+        c.register(RecordingObserver).as(WriteObserver);
       },
       resolve: [Orm],
     }),
@@ -211,80 +212,40 @@ describe('inserted keys', () => {
     });
   });
 
-  describe('ServerResponseMapper.insertedKeys by default, from LastInsertId', () => {
-    it('one row of an auto-increment key is the reported id', () => {
-      RESPONSE = { RowsAffected: 1, LastInsertId: 55, Returning: [] };
-      expect(keysOf(insertOf(AutoKey, [{ Bar: 'a' }]))).to.deep.equal([{ Id: 55 }]);
-    });
-
-    it('a key column that is not auto-increment gets nothing from the reported id', () => {
-      RESPONSE = { RowsAffected: 1, LastInsertId: 55, Returning: [] };
-      expect(keysOf(insertOf(PlainKey, [{ Bar: 'a' }]))).to.equal(undefined);
-    });
-
-    it('no reported id gives no keys', () => {
-      RESPONSE = { RowsAffected: 1, LastInsertId: 0, Returning: [] };
-      expect(keysOf(insertOf(AutoKey, [{ Bar: 'a' }]))).to.equal(undefined);
-    });
-
-    it('several rows walk from the first id on a dialect that reports it', () => {
-      RESPONSE = { RowsAffected: 3, LastInsertId: 10, Returning: [] };
-      expect(keysOf(insertOf(AutoKey, [{ Bar: 'a' }, { Bar: 'b' }, { Bar: 'c' }]))).to.deep.equal([{ Id: 10 }, { Id: 11 }, { Id: 12 }]);
-    });
-
-    it('several rows get nothing on a dialect whose id is the last of the batch', () => {
-      FIRST_ID = false;
-      RESPONSE = { RowsAffected: 3, LastInsertId: 12, Returning: [] };
-      expect(keysOf(insertOf(AutoKey, [{ Bar: 'a' }, { Bar: 'b' }, { Bar: 'c' }]))).to.equal(undefined);
-    });
-
-    it('several rows of a key that is not auto-increment get nothing', () => {
-      RESPONSE = { RowsAffected: 2, LastInsertId: 10, Returning: [] };
-      expect(keysOf(insertOf(PlainKey, [{ Bar: 'a' }, { Bar: 'b' }]))).to.equal(undefined);
-    });
-
-    it('several rows get nothing when one of them supplied its key', () => {
-      RESPONSE = { RowsAffected: 2, LastInsertId: 10, Returning: [] };
-      expect(keysOf(insertOf(AutoKey, [{ Id: null, Bar: 'a' }, { Id: 4, Bar: 'b' }]))).to.equal(undefined);
-    });
-
-    it('several rows get nothing from INSERT IGNORE', () => {
-      RESPONSE = { RowsAffected: 2, LastInsertId: 10, Returning: [] };
-      expect(keysOf(insertOf(AutoKey, [{ Bar: 'a' }, { Bar: 'b' }]).orIgnore())).to.equal(undefined);
-    });
-
-    it('several rows get nothing when the insert is split into several statements', () => {
-      MAX_INSERT_ROWS = 2;
-      RESPONSE = { RowsAffected: 3, LastInsertId: 10, Returning: [] };
-      expect(keysOf(insertOf(AutoKey, [{ Bar: 'a' }, { Bar: 'b' }, { Bar: 'c' }]))).to.equal(undefined);
-    });
-
-    it('several rows get nothing when the server inserted a different number of rows', () => {
-      RESPONSE = { RowsAffected: 2, LastInsertId: 10, Returning: [] };
-      expect(keysOf(insertOf(AutoKey, [{ Bar: 'a' }, { Bar: 'b' }, { Bar: 'c' }]))).to.equal(undefined);
-    });
-
-    it('a composite key gets nothing from the reported id', () => {
-      RESPONSE = { RowsAffected: 1, LastInsertId: 10, Returning: [] };
-      expect(keysOf(insertOf(PairKey, [{ Bar: 'a' }]))).to.equal(undefined);
-    });
-  });
-
-  describe('a key column that is not auto-increment, on a dialect without RETURNING', () => {
+  describe('ServerResponseMapper.insertedKeys by default, without RETURNING rows', () => {
     beforeEach(() => {
       RESPONSE = { RowsAffected: 1, LastInsertId: 7, Returning: [] };
     });
 
-    it('keeps its key unset after insert()', async () => {
-      const model = new PlainKey({ Bar: 'a' });
+    it('gives no keys for one row, whatever LastInsertId says', () => {
+      expect(keysOf(insertOf(AutoKey, [{ Bar: 'a' }]))).to.equal(undefined);
+    });
+
+    it('gives no keys for several rows', () => {
+      RESPONSE = { RowsAffected: 3, LastInsertId: 10, Returning: [] };
+      expect(keysOf(insertOf(AutoKey, [{ Bar: 'a' }, { Bar: 'b' }, { Bar: 'c' }]))).to.equal(undefined);
+    });
+
+    it('keeps the key unset after insert()', async () => {
+      const model = new AutoKey({ Bar: 'a' });
       await model.insert();
       expect(model.Id).to.equal(null);
     });
 
-    it('keeps its key unset after the static insert', async () => {
-      const model = new PlainKey({ Bar: 'a' });
-      await PlainKey.insert(model);
+    it('keeps the key unset after the static insert', async () => {
+      const model = new AutoKey({ Bar: 'a' });
+      await AutoKey.insert(model);
       expect(model.Id).to.equal(null);
+    });
+
+    it('fails a unit-of-work save', async () => {
+      await expect(new AutoKey({ Bar: 'a' }).save()).to.be.rejectedWith(OrmException, /returned no generated key and the model set none itself/);
+    });
+
+    it('reaches write observers with unknownKeys', async () => {
+      OBSERVED = [];
+      await new AutoKey({ Bar: 'a' }).insert();
+      expect(OBSERVED.map((w) => [w.kind, w.unknownKeys, w.rows.length])).to.deep.equal([['insert', true, 0]]);
     });
   });
 
@@ -318,7 +279,7 @@ describe('inserted keys', () => {
   });
   describe('a unit-of-work save', () => {
     it('fails when the connection reports no key for an auto key, and inserts no child', async () => {
-      RESPONSE = { RowsAffected: 1, LastInsertId: 0, Returning: [] };
+      RESPONSE = { RowsAffected: 1, LastInsertId: 7, Returning: [] };
       const parent = new ParentRow({ Bar: 'p' });
       parent.Children.push(new ChildRow({ Bar: 'c' }));
       await expect(parent.save()).to.be.rejectedWith(OrmException, /returned no generated key and the model set none itself/);
@@ -326,7 +287,7 @@ describe('inserted keys', () => {
     });
 
     it('writes the reported key onto the children', async () => {
-      RESPONSE = { RowsAffected: 1, LastInsertId: 7, Returning: [] };
+      RESPONSE = { RowsAffected: 1, LastInsertId: 0, Returning: [{ Id: 7 }] };
       const parent = new ParentRow({ Bar: 'p' });
       const child = new ChildRow({ Bar: 'c' });
       parent.Children.push(child);
@@ -345,7 +306,7 @@ describe('inserted keys', () => {
       expect(keys(insertOf(AutoKey, [{ Bar: 'a' }, { Bar: 'b' }]))).to.deep.equal([{ Id: 7 }, { Id: 8 }]);
     });
 
-    it('takes its own rule otherwise, never the LastInsertId one', () => {
+    it('takes its own rule otherwise', () => {
       RESPONSE = { RowsAffected: 1, LastInsertId: 55, Returning: [] };
       expect(keys(insertOf(AutoKey, [{ Bar: 'a' }]))).to.deep.equal([{ Id: 500 }]);
     });

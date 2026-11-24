@@ -16,9 +16,10 @@ A new database gets its own driver package: a class that extends `SqlDriver`, se
    6. Run the whole send through `this.withReconnect(...)` so transport failures retry.
 5. **Dialect registrations.** In `resolve()`, call `super.resolve()`, then register every token `SqlDriver` leaves out and every shared class the engine cannot run. See [What to register](#what-to-register).
 6. **Feature flags.** Implement `supportedFeatures()` and set `SupportedIsolationLevels`. They switch core behaviour; see [Feature flags](#feature-flags).
-7. **Transactions.** Implement the seven primitives. `OrmDriver.transaction()` calls them, keeps nesting depth, names savepoints `sp_1`, `sp_2`, ... and runs the callback inside `TransactionStorage`.
-8. **Schema reflection.** Implement `tableInfo(name, schema?)`. `Orm.reloadTableInfo()` calls it for every model at boot to fill columns that have no decorator.
-9. **Use.** Import the package once so the decorator registers the class, and point a connection at it: `{ Driver: 'orm-driver-<dialect>', Name: 'main', Host: ..., Database: ... }`. `Orm` resolves the driver with that entry, `resolve()` runs, then `connect()`.
+7. **Keys of inserted rows.** With `insertReturning: true` the ORM asks for the key columns with `RETURNING`, and the default `ServerResponseMapper.insertedKeys()` reads them from the returned rows. An engine without `RETURNING` must override `insertedKeys()` in its mapper: the default then reports no keys, so models keep an empty key after `insert()`, `save()` throws `OrmException` (`insert of <Model#key> returned no generated key ...`), and write observers get `unknownKeys: true`. See [Keys of inserted rows without RETURNING](#keys-of-inserted-rows-without-returning).
+8. **Transactions.** Implement the seven primitives. `OrmDriver.transaction()` calls them, keeps nesting depth, names savepoints `sp_1`, `sp_2`, ... and runs the callback inside `TransactionStorage`.
+9. **Schema reflection.** Implement `tableInfo(name, schema?)`. `Orm.reloadTableInfo()` calls it for every model at boot to fill columns that have no decorator.
+10. **Use.** Import the package once so the decorator registers the class, and point a connection at it: `{ Driver: 'orm-driver-<dialect>', Name: 'main', Host: ..., Database: ... }`. `Orm` resolves the driver with that entry, `resolve()` runs, then `connect()`.
 
 Errors on the way: `Orm` throws `OrmException('ORM connection driver <Driver> not registerd')` when nothing is registered under the string, and wraps a failed resolve or connect in `OrmException`. A token you forgot to register fails when the feature is first used.
 
@@ -45,7 +46,7 @@ sequenceDiagram
 | `executeOnDb(stmt, params, context)` | Send one statement; return by `QueryContext`. | `PostgresOrmDriver._executeOnDbOnce()`: placeholders, pool or transaction connection, `mapPostgresError()` |
 | `connect()`, `disconnect()` | Open, test, set state; stop health check, close. Run the session in UTC: SQL-side `now()` and datetime text follow the session zone. | `PostgresOrmDriver.poolConfig()` (`TimeZone=UTC`), `MySqlOrmDriver.pinSessionZone()` (`SET time_zone` from the `TimeZone` option) |
 | `ping()` | `true` when a trivial query succeeds. Bypass `withReconnect()`. | `MySqlOrmDriver.ping()`: `SELECT 1` through `_executeOnDbOnce()` |
-| `supportedFeatures()` | `{ events, insertReturning, insertIdIsFirstOfBatch?, concurrentTransactions?, nativeJson? }`; see [Feature flags](#feature-flags) | all four drivers |
+| `supportedFeatures()` | `{ events, insertReturning, concurrentTransactions?, nativeJson?, streaming? }`; see [Feature flags](#feature-flags) | all four drivers |
 | Error mapping | `executeOnDb()` rejects with `UniqueViolation` (extends `ResourceDuplicated`) for a unique or primary-key violation only, `ConstraintViolation` with its `kind` (`not_null`, `check`, `foreign_key`, `other`) for another constraint, `OrmException` for the rest. Fill `table`, `constraint` and `columns` where the client reports them. | `mapPostgresError()` (`code` `23505`, the rest of class `23`), `mapMySqlError()` (`errno` `1062`), `mapMsSqlError()` (`number` `2627` / `2601`), `mapSqliteError()` (`UNIQUE constraint failed`) |
 | `MaxBindings`, `MaxInsertRows` | The server's parameters per statement and rows per `VALUES` list, read by `InsertQueryBuilder.splitByDriverLimits()`, `insertChunked()` and `deleteChunked()`. | `MaxBindings`: SQLite `32766`, MySQL and PostgreSQL `65535`, MSSQL `2000`. `MaxInsertRows`: MSSQL `1000` |
 | `lockTableShared(table)` | Keep other writers off `table` until the transaction ends. Start with `this.assertInTransaction('lockTableShared')`. | PostgreSQL `LOCK TABLE ... IN SHARE MODE`, MySQL `SELECT COUNT(*) ... FOR UPDATE`, MSSQL `SELECT COUNT(*) ... WITH (TABLOCK, HOLDLOCK)`, SQLite `DELETE FROM ... WHERE 0` |
@@ -66,7 +67,7 @@ Mandatory, because `SqlDriver` has no portable implementation:
 | `IdentifierQuoter` | Every compiler and statement quotes through it. | `BacktickIdentifierQuoter` (`@spinajs/orm-sql`), `BracketIdentifierQuoter`, `DoubleQuoteIdentifierQuoter` |
 | `LiteralQuoter` | View and event bodies. | `SqlLiteralQuoter` or a subclass |
 | `SqlExpressions` | Stores and migrations that write raw SQL resolve it; the base `OrmDriver.resolve()` registers throws `NotSupported` from every method. | `SqliteSqlExpressions`, `MySqlSqlExpressions`, `MsSqlSqlExpressions`, `PostgresSqlExpressions`; see [SQL helpers](../orm/17-sql-helpers.md#dialect-expressions) |
-| `ServerResponseMapper` | Turns your insert result into `DbServerResponse`. The base `read()` throws `MethodNotImplemented`. `insertedKeys(response, insert)` reports the keys of the inserted rows; the default reads your `RETURNING` rows, else `LastInsertId` for an `AutoIncrement` key. Override it when your dialect knows the keys another way. | one per driver |
+| `ServerResponseMapper` | Turns your insert result into `DbServerResponse`. The base `read()` throws `MethodNotImplemented`. `insertedKeys(response, insert)` reports the keys of the inserted rows; the default reads your `RETURNING` rows and nothing else. Override it when your dialect knows the keys another way; without `RETURNING` you must (see [Keys of inserted rows without RETURNING](#keys-of-inserted-rows-without-returning)). | one per driver |
 | `TableExistsCompiler` | Migrations and `createTableIfAbsent` ask it. | one per driver |
 | `LimitQueryCompiler` | The select and delete compilers resolve it. | `SqlLimitQueryCompiler` or your own |
 | `CreateViewCompiler` | `SqlCreateViewQueryCompiler` refuses every optional clause. | a subclass per driver; see [View compiler hooks](06-view-compiler-hooks.md) |
@@ -133,13 +134,12 @@ On top of `SqlDriver.resolve()`. "shared" means the `@spinajs/orm-sql` class, cl
 | Member | Effect in the core | SQLite | MySQL | MSSQL | PostgreSQL |
 | --- | --- | --- | --- | --- | --- |
 | `insertReturning` | `true`: the ORM asks for primary keys with `RETURNING` and assigns them. `false`: `InsertQueryBuilder.returning()` throws `NotSupported`. | `true` | `false` | `false` | `true` |
-| `insertIdIsFirstOfBatch` | `true`: after a multi-row `INSERT ... VALUES`, `LastInsertId` is the first row's key and the rest follow contiguously, so keys are backfilled. Optional, defaults to `false`. | `false` | `true` | `false` | `false` |
 | `events` | Whether `EventQueryBuilder` is supported. | `false` | `true` | `false` | `false` |
 | `concurrentTransactions` | `false`: `transaction()` queues outermost transactions and runs them one at a time. Optional, defaults to `true`. | `false` | `true` | `true` | `true` |
 | `nativeJson` | Whether the engine has a JSON column type; without it `json()` is stored as text. Migrations branch on it. Optional, defaults to `false`. | `false` | `true` | `false` | `true` |
 | `SupportedIsolationLevels` | `transaction(cb, { isolation })` rejects a level not listed. Empty rejects every explicit level. | `['SERIALIZABLE']` | all four | all four | all four |
 
-Declare only what the engine guarantees: a wrong `insertIdIsFirstOfBatch` assigns wrong keys to models. The same holds for `MaxBindings`: a value above the engine's limit makes large inserts fail instead of splitting.
+Declare only what the engine guarantees: a `MaxBindings` above the engine's limit makes large inserts fail instead of splitting.
 
 ## Important behaviour
 
@@ -546,7 +546,7 @@ export class AnsiDbOrmDriver extends SqlDriver {
   }
 
   public supportedFeatures(): ISupportedFeature {
-    return { events: false, insertReturning: true, insertIdIsFirstOfBatch: false, nativeJson: true };
+    return { events: false, insertReturning: true, nativeJson: true };
   }
 
   public async lockTableShared(table: string): Promise<void> {
@@ -676,6 +676,31 @@ export default {
   },
 };
 ```
+
+### Keys of inserted rows without RETURNING
+
+The core takes no key from `LastInsertId`: what the counter of your engine means after an `INSERT IGNORE`, an upsert, a trigger or a multi-row statement is the dialect's to decide. Override `insertedKeys()` and report a key only where the response proves it; return `undefined` otherwise, never a partial list. This mapper keys one inserted row of a single-column identity key:
+
+```ts sample
+import { DbServerResponse, InsertQueryBuilder, ServerResponseMapper, extractModelDescriptor, pkColumns } from '@spinajs/orm';
+
+export class CounterServerResponseMapper extends ServerResponseMapper {
+  public read(data: any): DbServerResponse {
+    return { RowsAffected: data?.RowsAffected ?? 0, LastInsertId: data?.LastInsertId ?? 0, Returning: [] };
+  }
+
+  public insertedKeys(response: unknown, insert: InsertQueryBuilder): Array<Record<string, unknown>> | undefined {
+    const descriptor = insert.Model ? extractModelDescriptor(insert.Model) : undefined;
+    const pk = descriptor ? pkColumns(descriptor) : [];
+    const identity = pk.length === 1 && descriptor?.Columns.find((c) => c.Name === pk[0])?.AutoIncrement === true;
+    const { RowsAffected, LastInsertId } = this.read(response);
+    if (!identity || insert.Values.length !== 1 || insert.Update || RowsAffected !== 1) return undefined;
+    return Number.isSafeInteger(LastInsertId) && LastInsertId > 0 ? [{ [pk[0]]: LastInsertId }] : undefined;
+  }
+}
+```
+
+An engine with `RETURNING` on some statements only starts with `this.returnedKeys(response, insert)`, the keys of the returned rows, and falls back to its own rule. The shipped rules: [MySQL](../orm-mysql/04-inserts-and-generated-keys.md) (walks a multi-row insert by the session's `auto_increment_increment`), [MSSQL](../orm-mssql/04-inserts-and-upserts.md) (`SCOPE_IDENTITY()` of one row), [SQLite](../orm-sqlite/05-inserts-and-upserts.md) (`RETURNING`, else the rowid of one row).
 
 ### Test the dialect without a server
 

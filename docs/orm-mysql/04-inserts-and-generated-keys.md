@@ -46,7 +46,7 @@ Without `FOUND_ROWS` the other rows are the same. An upsert that updated a row i
 5. The batch ran as one statement. A batch over `MaxBindings` (`65535` parameters) or `MaxInsertRows` is split, and separate statements get separate blocks.
 6. The last key of the walk is a safe integer.
 
-If any of them fails, no row gets a key. Re-select, or insert rows one at a time. The rule does not read the driver's `insertIdIsFirstOfBatch` flag.
+If any of them fails, no row gets a key. Re-select, or insert rows one at a time.
 
 ### The step of a connection
 
@@ -69,7 +69,7 @@ No keys of its own. `MaxBindings` is `65535`, the server's prepared-statement li
 | Insert response mapper | `ServerResponseMapper` in the driver's child container; registered in `MySqlOrmDriver.resolve()`; resolved per insert | `MysqlServerResponseMapper` (exported) | | Extend `MysqlServerResponseMapper`, override `read(data, pkColumns?)` or `insertedKeys(response, insert)`, register `.as(ServerResponseMapper)` after `super.resolve()` in a driver subclass. |
 | Insert compiler | `InsertQueryCompiler`; `@NewInstance()`, constructor `(container, builder)` | `MySqlInsertQueryCompiler` | `SqlInsertQueryCompiler` (no `REPLACE`, `IGNORE`) | Extend `SqlInsertQueryCompiler` from `@spinajs/orm-sql`, override `into()`, register `.as(InsertQueryCompiler)`. |
 | Upsert clause compiler | `OnDuplicateQueryCompiler`; constructor `(builder: OnDuplicateQueryBuilder)` | `SqlOnDuplicateQueryCompiler` | | Extend it and override `compile()`, register `.as(OnDuplicateQueryCompiler)`. |
-| Feature flags | `supportedFeatures()` on the driver | `{ events: true, insertReturning: false, insertIdIsFirstOfBatch: true, nativeJson: true, concurrentTransactions: true, streaming: true }` | | Override in a driver subclass. The keys of inserted rows do not depend on `insertIdIsFirstOfBatch`. |
+| Feature flags | `supportedFeatures()` on the driver | `{ events: true, insertReturning: false, nativeJson: true, concurrentTransactions: true, streaming: true }` | | Override in a driver subclass. |
 
 ### Insert response mapper: custom implementation
 

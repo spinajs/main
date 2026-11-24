@@ -18,25 +18,22 @@ const expect = chai.expect;
 /** What the fake server "replies" with. Each test sets this before inserting. */
 let RESPONSE: DbServerResponse | ((builder: InsertQueryBuilder) => DbServerResponse) = { RowsAffected: 0, LastInsertId: 0, Returning: [] };
 
-/**
- * Whether the fake dialect's LastInsertId is the FIRST id of a multi-row statement ( MySQL ) or
- * the last one ( MSSQL's SCOPE_IDENTITY(), sqlite3's `lastID` ).
- */
-let FIRST_ID = true;
+/** The keys the fake connection package reports when there are no RETURNING rows; undefined reports none. */
+let OWN_KEYS: Array<Record<string, unknown>> | undefined;
 
 let MAX_INSERT_ROWS: number | undefined;
 
-/**
- * Returns whatever the driver resolved with, so a test can express "the server said it inserted
- * 3 rows starting at id 10" without going near a real database.
- */
-class PassthroughResponseMapper extends ServerResponseMapper {
+class OwnKeysResponseMapper extends ServerResponseMapper {
   public read(response: Partial<DbServerResponse> | undefined): DbServerResponse {
     return {
       LastInsertId: response?.LastInsertId ?? 0,
       RowsAffected: response?.RowsAffected ?? 0,
       Returning: response?.Returning ?? [],
     };
+  }
+
+  public insertedKeys(response: unknown, insert: InsertQueryBuilder): Array<Record<string, unknown>> | undefined {
+    return this.returnedKeys(response, insert) ?? OWN_KEYS;
   }
 }
 
@@ -45,10 +42,6 @@ class BatchInsertDriver extends FakeSqliteDriver {
     super(options);
     // MaxInsertRows is a readonly field fixed at construction; tests change the limit after the driver exists
     Object.defineProperty(this, 'MaxInsertRows', { get: () => MAX_INSERT_ROWS ?? Infinity });
-  }
-
-  public supportedFeatures() {
-    return { ...super.supportedFeatures(), insertReturning: false, insertIdIsFirstOfBatch: FIRST_ID };
   }
 
   public async execute(builder: InsertQueryBuilder): Promise<DbServerResponse> {
@@ -60,7 +53,7 @@ class BatchInsertDriver extends FakeSqliteDriver {
 describe('batch insert key backfill', () => {
   beforeEach(() => {
     RESPONSE = { RowsAffected: 0, LastInsertId: 0, Returning: [] };
-    FIRST_ID = true;
+    OWN_KEYS = undefined;
     MAX_INSERT_ROWS = undefined;
   });
 
@@ -68,7 +61,7 @@ describe('batch insert key backfill', () => {
     ormApp({
       register: (c) => {
         c.register(BatchInsertDriver).as('sqlite');
-        c.register(PassthroughResponseMapper).as(ServerResponseMapper);
+        c.register(OwnKeysResponseMapper).as(ServerResponseMapper);
       },
       resolve: [Orm],
     }),
@@ -78,8 +71,9 @@ describe('batch insert key backfill', () => {
     sinon.restore();
   });
 
-  it('a multi-row VALUES insert backfills LastInsertId + index on a first-id dialect', async () => {
+  it('assigns the keys the mapper reports to the rows, in order', async () => {
     RESPONSE = { RowsAffected: 3, LastInsertId: 10, Returning: [] };
+    OWN_KEYS = [{ Id: 10 }, { Id: 11 }, { Id: 12 }];
 
     const models = [new Model1(), new Model1(), new Model1()];
     await Model1.insert(models);
@@ -87,60 +81,27 @@ describe('batch insert key backfill', () => {
     expect(models.map((m) => m.Id)).to.deep.equal([10, 11, 12]);
   });
 
-  it('does not backfill on a dialect whose insert id is the last of the batch', async () => {
-    FIRST_ID = false;
-    RESPONSE = { RowsAffected: 3, LastInsertId: 12, Returning: [] };
-
-    const models = [new Model1(), new Model1(), new Model1()];
-    await Model1.insert(models);
-
-    expect(models.map((m) => m.Id)).to.deep.equal([null, null, null]);
-  });
-
-  it('does not backfill when the server inserted fewer rows than were sent', async () => {
-    RESPONSE = { RowsAffected: 2, LastInsertId: 10, Returning: [] };
-
-    const models = [new Model1(), new Model1(), new Model1()];
-    await Model1.insert(models);
-
-    expect(models.map((m) => m.Id)).to.deep.equal([null, null, null]);
-  });
-
-  it('does not backfill when any row already carries a key ( mixed-mode insert )', async () => {
+  it('assigns nothing when the mapper reports no keys', async () => {
     RESPONSE = { RowsAffected: 3, LastInsertId: 10, Returning: [] };
+
+    const models = [new Model1(), new Model1(), new Model1()];
+    await Model1.insert(models);
+
+    expect(models.map((m) => m.Id)).to.deep.equal([null, null, null]);
+  });
+
+  it('keeps a key the row already carries', async () => {
+    RESPONSE = { RowsAffected: 3, LastInsertId: 10, Returning: [] };
+    OWN_KEYS = [{ Id: 10 }, { Id: 11 }, { Id: 12 }];
 
     const models = [new Model1(), new Model1(), new Model1()];
     models[1].Id = 99;
     await Model1.insert(models);
 
-    expect(models.map((m) => m.Id)).to.deep.equal([null, 99, null]);
+    expect(models.map((m) => m.Id)).to.deep.equal([10, 99, 12]);
   });
 
-  it('does not backfill when the dialect reported no identity value', async () => {
-    RESPONSE = { RowsAffected: 3, LastInsertId: 0, Returning: [] };
-
-    const models = [new Model1(), new Model1(), new Model1()];
-    await Model1.insert(models);
-
-    expect(models.map((m) => m.Id)).to.deep.equal([null, null, null]);
-  });
-
-  it('does not backfill a batch split into several statements', async () => {
-    MAX_INSERT_ROWS = 2;
-    let firstId = 10;
-    RESPONSE = (builder: InsertQueryBuilder) => {
-      const response = { RowsAffected: builder.Values.length, LastInsertId: firstId, Returning: [] };
-      firstId += 100;
-      return response;
-    };
-
-    const models = [new Model1(), new Model1(), new Model1()];
-    await Model1.insert(models);
-
-    expect(models.map((m) => m.Id)).to.deep.equal([null, null, null]);
-  });
-
-  it('RETURNING still backfills a batch split into several statements', async () => {
+  it('RETURNING backfills a batch split into several statements', async () => {
     MAX_INSERT_ROWS = 2;
     let nextId = 7;
     RESPONSE = (builder: InsertQueryBuilder) => ({ RowsAffected: builder.Values.length, LastInsertId: 0, Returning: builder.Values.map(() => ({ Id: nextId++ })) });
@@ -151,22 +112,14 @@ describe('batch insert key backfill', () => {
     expect(models.map((m) => m.Id)).to.deep.equal([7, 8, 9]);
   });
 
-  it('RETURNING still wins when the dialect supplies it', async () => {
+  it('RETURNING wins over the connection package rule', async () => {
     RESPONSE = { RowsAffected: 3, LastInsertId: 10, Returning: [{ Id: 7 }, { Id: 21 }, { Id: 34 }] };
+    OWN_KEYS = [{ Id: 10 }, { Id: 11 }, { Id: 12 }];
 
     const models = [new Model1(), new Model1(), new Model1()];
     await Model1.insert(models);
 
     expect(models.map((m) => m.Id)).to.deep.equal([7, 21, 34]);
-  });
-
-  it('a single-row insert still reads the identity value directly', async () => {
-    RESPONSE = { RowsAffected: 1, LastInsertId: 55, Returning: [] };
-
-    const m = new Model1();
-    await Model1.insert(m);
-
-    expect(m.Id).to.equal(55);
   });
 
   it('an array insert still refuses a non-default insert behaviour', async () => {

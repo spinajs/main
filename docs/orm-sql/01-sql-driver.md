@@ -41,7 +41,7 @@ The SQL is the log message; bindings go to the structured `bindings` field only,
 | `executeOnDb(stmt, params, context)` | `SqlDriver` | always | Send one statement with `?` placeholders; shape the result by `QueryContext`. Reject a unique or primary-key violation with `UniqueViolation`, another constraint failure with `ConstraintViolation`, anything else with `OrmException`. |
 | `connect()`, `disconnect()` | `OrmDriver` | always | Open and close the handle or pool. |
 | `ping()` | `OrmDriver` | always | Liveness probe for the health check. |
-| `supportedFeatures()` | `OrmDriver` | always | `{ events, insertReturning, insertIdIsFirstOfBatch?, concurrentTransactions?, nativeJson? }`. |
+| `supportedFeatures()` | `OrmDriver` | always | `{ events, insertReturning, concurrentTransactions?, nativeJson?, streaming? }`. |
 | `tableInfo(name, schema?)` | `OrmDriver` | always | Reflect a table into `IColumnDescriptor[]`, or `null` when it does not exist. |
 | `_begin`, `_commit`, `_rollback`, `_savepoint`, `_releaseSavepoint`, `_rollbackToSavepoint`, `_dispose` | `OrmDriver` | always | Transaction primitives. |
 | `resolve()` | `OrmDriver`, `SqlDriver` | always | Call `super.resolve()`, then register the dialect. |

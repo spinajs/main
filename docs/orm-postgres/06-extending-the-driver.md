@@ -67,7 +67,7 @@ Overridable members:
 | `isRetryableError(err)` | protected | `false` in a transaction; transport codes; PostgreSQL connection SQLSTATEs | retry more codes |
 | `ping()` | public | `SELECT 1` without retry | probe something else (a replica lag check) |
 | `tableInfo(name, schema?)` | public | reads `information_schema` | fill more descriptor fields |
-| `supportedFeatures()` | public | `{ events: false, insertReturning: true, insertIdIsFirstOfBatch: false, concurrentTransactions: true, nativeJson: true }` | declare `events: true` after registering event compilers |
+| `supportedFeatures()` | public | `{ events: false, insertReturning: true, concurrentTransactions: true, nativeJson: true, streaming }` | declare `events: true` after registering event compilers |
 | `lockTableShared(table)` | public | `LOCK TABLE <table> IN SHARE MODE` inside the transaction | take another lock mode |
 | `MaxBindings` | public readonly field | `65535` parameters per statement | lower it for a proxy with a smaller limit |
 | `poolMetrics()` | public | `pg.Pool` counters | report a different pool |
