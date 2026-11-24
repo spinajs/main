@@ -171,6 +171,7 @@ export class InvokerViewsMySqlDriver extends MySqlOrmDriver {
 - A view body has no placeholders: its bindings are inlined by `MySqlLiteralQuoter`, which escapes backslashes (`'it\'s'`).
 - `algorithm()`, `security()` and `checkOption()` reject values outside their lists, because those values reach the SQL unquoted.
 - A column written by hand as plain `DATETIME` or `TIMESTAMP` keeps second precision: MySQL rounds the milliseconds `SqlDatetimeValueConverter` writes, so a value read back differs from the one saved. `dateTime()` and `timestamp()` create `(3)` columns.
+- `time()` creates a plain `TIME`, which keeps second precision too: a `TimeSpan` of `00:00:01.600` is stored as `00:00:02`. Create the column as `TIME(3)` with raw DDL to keep the milliseconds `SqlTimeValueConverter` writes.
 - `driver.lockTableShared(t)` is `SELECT COUNT(*) FROM <t> FOR UPDATE`, not `LOCK TABLES`, which would commit the open transaction. It is exclusive, so the locks reach the clustered records even when the count scans a secondary index. Its row locks keep writers out until commit under `REPEATABLE READ`; plain (non-locking) reads go on. Outside a transaction it throws `InvalidOperation`. See [Shared table lock](../orm/08-transactions.md#shared-table-lock).
 
 ## Best practices
