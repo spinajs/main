@@ -700,7 +700,7 @@ export class CounterServerResponseMapper extends ServerResponseMapper {
 }
 ```
 
-An engine with `RETURNING` on some statements only starts with `this.returnedKeys(response, insert)`, the keys of the returned rows, and falls back to its own rule. The shipped rules: [MySQL](../orm-mysql/04-inserts-and-generated-keys.md) (walks a multi-row insert by the session's `auto_increment_increment`), [MSSQL](../orm-mssql/04-inserts-and-upserts.md) (`SCOPE_IDENTITY()` of one row), [SQLite](../orm-sqlite/05-inserts-and-upserts.md) (`RETURNING`, else the rowid of one row).
+An engine with `RETURNING` on some statements only starts with `this.returnedKeys(response, insert)`, the keys of the returned rows, and falls back to its own rule. The shipped rules: [MySQL](../orm-mysql/04-inserts-and-generated-keys.md) (walks a multi-row insert by the session's `auto_increment_increment`), [MSSQL](../orm-mssql/04-inserts-and-upserts.md) (`OUTPUT inserted.<key>` of one row, upserts included), [SQLite](../orm-sqlite/05-inserts-and-upserts.md) (`RETURNING`, else the rowid of one row).
 
 ### Test the dialect without a server
 

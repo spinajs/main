@@ -16,10 +16,10 @@
 | `QueryContext` | `executeOnDb()` returns |
 | --- | --- |
 | `Update`, `Delete` | `{ RowsAffected: <last entry of result.rowsAffected> }` |
-| `Insert` | `{ RowsAffected: <INSERTED of the last result set> ?? result.rowsAffected[0], LastInsertId: result.recordset[0].ID ?? 0, Returning: [] }` |
-| `Select`, `Upsert`, `Schema`, `Transaction`, other | `result.recordset`: the rows of the first result set, or `undefined` for a statement with none |
+| `Insert`, and `Upsert` when the last result set has `INSERTED` | `{ RowsAffected: <INSERTED of the last result set>, LastInsertId: <ID of the last result set> ?? 0, Returning: [], InsertedKeys?: <the result set before the last one> }`; without `INSERTED` (a raw statement): `{ RowsAffected: result.rowsAffected[0], LastInsertId: result.recordset[0].ID ?? 0, Returning: [] }` |
+| `Select`, `Upsert` without `INSERTED` (an upsert without a model), `Schema`, `Transaction`, other | `result.recordset`: the rows of the first result set, or `undefined` for a statement with none |
 
-`LastInsertId` comes from the `SELECT SCOPE_IDENTITY() as ID, @@ROWCOUNT as INSERTED` that the insert compiler appends; see [Inserts and upserts](04-inserts-and-upserts.md).
+`LastInsertId` comes from the `SCOPE_IDENTITY()` value that the insert compiler selects as `ID` with `INSERTED`. `InsertedKeys` is there only for [the keys batch](04-inserts-and-upserts.md#the-keys-batch) of a one-row model insert or upsert, and only when its row reports `KEYS_EXACT = 1`: the rows of `OUTPUT inserted.<key columns>`, one per row written, or the statement's identity for a login without `SELECT` on the key.
 
 `RowsAffected` is the count of the statement itself, on tables with triggers too. `result.rowsAffected` holds one count per statement that reports one, a trigger's statements included and before the statement's own: on a table with an `AFTER` trigger, its first entry is the count of the trigger's first statement. So an update or a delete reads the last entry, and an insert batch reports its own `@@ROWCOUNT` as `INSERTED`, read from the batch's last result set (a trigger can return result sets before it). Only a raw statement run with `QueryContext.Insert` and no `INSERTED` column falls back to `result.rowsAffected[0]`. A connection with `SET NOCOUNT ON` sends no counts at all, so an update or a delete then reports `RowsAffected: undefined`.
 
