@@ -184,3 +184,40 @@ describe('SqlTimeValueConverter time spans', () => {
     expect(converter.fromDB('-00:00:01')!.totalMilliseconds).to.equal(-1000);
   });
 });
+
+describe('SqlTimeValueConverter milliseconds', () => {
+  const converter = new SqlTimeValueConverter();
+  const spans: [string, string][] = [
+    ['00:01:23.456', '00:01:23.456'],
+    ['00:00:00.001', '00:00:00.001'],
+    ['26:00:00.250', '26:00:00.250'],
+    ['-00:00:00.500', '-00:00:00.500'],
+    ['-02:30:00.125', '-02:30:00.125'],
+  ];
+
+  for (const [span, text] of spans) {
+    it(`writes ${span} with its milliseconds`, () => {
+      expect(converter.toDB(TimeSpan.parse(span))).to.equal(text);
+      expect(converter.toDB(span)).to.equal(text);
+      expect(converter.toDB(TimeSpan.parse(span)!.totalMilliseconds)).to.equal(text);
+    });
+
+    it(`reads back what it writes for ${span}`, () => {
+      const written = TimeSpan.parse(span)!;
+
+      expect(converter.fromDB(converter.toDB(written))!.totalMilliseconds).to.equal(written.totalMilliseconds);
+    });
+  }
+
+  it('writes a span without milliseconds as HH:MM:SS, with no fraction', () => {
+    expect(converter.toDB(TimeSpan.fromHours(8))).to.equal('08:00:00');
+    expect(converter.toDB('-02:30:00.000')).to.equal('-02:30:00');
+    expect(converter.toDB(83 * TimeSpan.MILLIS_PER_SECOND)).to.equal('00:01:23');
+  });
+
+  it('truncates a fraction of a millisecond toward zero', () => {
+    expect(converter.toDB(new TimeSpan(1001.9))).to.equal('00:00:01.001');
+    expect(converter.toDB(new TimeSpan(-1001.9))).to.equal('-00:00:01.001');
+    expect(converter.toDB(new TimeSpan(1000.5))).to.equal('00:00:01');
+  });
+});

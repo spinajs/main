@@ -45,7 +45,8 @@ The column text comes from one protected method, `write(dt)`, which receives a v
 
 ### `SqlTimeValueConverter`
 
-- `toDB(TimeSpan | string | number)` writes `[-]HH:MM:SS`, with hours above 24 allowed (MySQL `TIME` spans `-838:59:59` to `838:59:59`). A negative span is the positive text with a minus sign: `-02:30` writes `-02:30:00`. A value `TimeSpan.parse()` cannot read becomes `null`.
+- `toDB(TimeSpan | string | number)` writes `[-]HH:MM:SS[.fff]`, with hours above 24 allowed (MySQL `TIME` spans `-838:59:59` to `838:59:59`). The three-digit fraction is written only when the span has milliseconds: `00:01:23.456` writes `00:01:23.456`, `00:01:23` writes `00:01:23`. A fraction of a millisecond is dropped. `toJSON()` and `dehydrate()` call the same method, so a serialized time column carries the fraction too. A negative span is the positive text with a minus sign: `-02:30` writes `-02:30:00`. A value `TimeSpan.parse()` cannot read becomes `null`.
+- A column without fractional precision rounds the milliseconds to the second: MySQL `TIME` (what `time()` creates on MySQL) stores `00:00:01.600` as `00:00:02`, and so do PostgreSQL and MSSQL `time(0)`. Create the column as `TIME(3)` on MySQL to keep them; PostgreSQL `time`, MSSQL `time` and SQLite text keep them as they are.
 - `fromDB('[-]H{1,3}:MM:SS[.ffffff]')` returns a `TimeSpan`; other strings fall back to `TimeSpan.parse()`.
 - `snapshotValue()` and `snapshotEquals()` compare by total milliseconds, so a `time` column is only reported as changed when its value changed.
 

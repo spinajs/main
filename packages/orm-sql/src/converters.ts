@@ -63,7 +63,8 @@ export class SqlBooleanValueConverter extends BooleanValueConverter {
 
 export class SqlTimeValueConverter extends TimeValueConverter {
   /**
-   * Converts TimeSpan to MySQL TIME format (HH:MM:SS or HHH:MM:SS for values > 24 hours)
+   * Converts TimeSpan to MySQL TIME format (HH:MM:SS or HHH:MM:SS for values above 24 hours),
+   * with `.fff` appended when the span has a millisecond part.
    * MySQL TIME can range from '-838:59:59' to '838:59:59'
    * @param value - TimeSpan object or string/number that can be parsed as TimeSpan
    * @returns MySQL TIME format string or null
@@ -99,8 +100,10 @@ export class SqlTimeValueConverter extends TimeValueConverter {
     const hoursStr = String(absHours).padStart(2, '0');
     const minutesStr = String(Math.abs(minutes)).padStart(2, '0');
     const secondsStr = String(Math.abs(seconds)).padStart(2, '0');
-    
-    return `${sign}${hoursStr}:${minutesStr}:${secondsStr}`;
+    const milliseconds = Math.abs(timeSpan.milliseconds);
+    const fraction = milliseconds === 0 ? '' : `.${String(milliseconds).padStart(3, '0')}`;
+
+    return `${sign}${hoursStr}:${minutesStr}:${secondsStr}${fraction}`;
   }
 
   /**
