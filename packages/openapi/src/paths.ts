@@ -203,7 +203,7 @@ function errorMapOf(manifest: Manifest, controller: ControllerEntry): Record<str
   return map;
 }
 
-function buildOperation(scope: RequestScope, errorSchemaId: string): OpenAPIV3_1.OperationObject {
+function buildOperation(scope: RequestScope, options: { errorSchemaId: string; etag: boolean }): OpenAPIV3_1.OperationObject {
   const { controller, route, manifest, registry } = scope;
   const { parameters, requestBody } = buildRequest(scope);
   const operation = {
@@ -214,13 +214,13 @@ function buildOperation(scope: RequestScope, errorSchemaId: string): OpenAPIV3_1
     ...(route.doc?.deprecated ? { deprecated: true } : {}),
     parameters,
     ...(requestBody ? { requestBody } : {}),
-    responses: buildResponses(route, controller, errorMapOf(manifest, controller), registry, errorSchemaId),
+    responses: buildResponses(route, controller, errorMapOf(manifest, controller), registry, options.errorSchemaId, options.etag),
   } as unknown as OpenAPIV3_1.OperationObject;
   applyAccess(operation, route, controller);
   return operation;
 }
 
-export function buildPaths(manifest: Manifest, registry: ComponentRegistry, options: { errorSchemaId: string; basePath: string; routePrefix?: string }): OpenAPIV3_1.PathsObject {
+export function buildPaths(manifest: Manifest, registry: ComponentRegistry, options: { errorSchemaId: string; basePath: string; routePrefix?: string; etag: boolean }): OpenAPIV3_1.PathsObject {
   const paths: Record<string, Record<string, unknown>> = {};
   const entries = manifest.controllers.flatMap((controller) => controller.routes.map((route) => ({ controller, route })));
   entries.sort((a, b) => (a.route.fullPath < b.route.fullPath ? -1 : a.route.fullPath > b.route.fullPath ? 1 : a.route.method < b.route.method ? -1 : a.route.method > b.route.method ? 1 : 0));
@@ -230,7 +230,7 @@ export function buildPaths(manifest: Manifest, registry: ComponentRegistry, opti
     const method = route.method === 'file' ? 'get' : route.method;
     const operation = (paths[path] ??= {});
     if (operation[method]) throw new Error(`duplicate operation ${method.toUpperCase()} ${path}: ${(operation[method] as { operationId: string }).operationId} and ${operationId(controller, route)}`);
-    operation[method] = buildOperation({ controller, route, path, manifest, registry }, options.errorSchemaId);
+    operation[method] = buildOperation({ controller, route, path, manifest, registry }, options);
   }
   return paths;
 }

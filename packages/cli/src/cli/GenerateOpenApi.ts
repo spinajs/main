@@ -29,6 +29,10 @@ export class GenerateOpenApi extends CliCommand {
   @Config('http.controllers.route.prefix', { defaultValue: '' })
   protected RoutePrefix: string;
 
+  // HttpEtag of @spinajs/http, which the cli does not depend on
+  @Config('http.etag', { defaultValue: 'express' })
+  protected Etag: unknown;
+
   public async execute(options: GenerateOpenApiOptions): Promise<void> {
     // Loaded lazily: @spinajs/openapi is an optional peer, command discovery must not need it.
     const { readManifest } = await import('@spinajs/manifest');
@@ -44,6 +48,7 @@ export class GenerateOpenApi extends CliCommand {
       servers: options.serverUrl ? [{ url: options.serverUrl }] : undefined,
       basePath: options.basePath,
       routePrefix: options.routePrefix ?? this.RoutePrefix,
+      etag: this.Etag !== false,
     });
 
     const out = resolve(options.out);

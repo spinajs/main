@@ -21,6 +21,8 @@ export interface OpenApiOptions {
   basePath?: string;
   /** The app's `http.controllers.route.prefix`, applied to every route as the router applies it. */
   routePrefix?: string;
+  /** false when the app runs with `http.etag: false`: no `ETag` and no 304 are documented. Default true. */
+  etag?: boolean;
 }
 
 const DEFAULT_ERROR_SCHEMA_ID = 'spinajs/http/ProblemDetails';
@@ -40,7 +42,7 @@ export function manifestToOpenApi(fullManifest: Manifest, options: OpenApiOption
   const manifest = publishedManifest(fullManifest);
   const errorSchemaId = options.errorSchemaId ?? DEFAULT_ERROR_SCHEMA_ID;
   const registry = createComponentRegistry(schemasWithError(manifest, errorSchemaId, options.errorSchema));
-  const paths = buildPaths(manifest, registry, { errorSchemaId, basePath: options.basePath ?? '', routePrefix: options.routePrefix });
+  const paths = buildPaths(manifest, registry, { errorSchemaId, basePath: options.basePath ?? '', routePrefix: options.routePrefix, etag: options.etag !== false });
   const tagNames = manifest.controllers.flatMap((c) => [c.className.replace(/Controller$/, ''), ...c.routes.flatMap((r) => r.doc?.tags ?? [])]);
   const tags = [...new Set(tagNames)].sort().map((name) => ({ name }));
   const security = topLevelSecurity(options);

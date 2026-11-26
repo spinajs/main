@@ -1,6 +1,6 @@
 import 'mocha';
 import { expect } from 'chai';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
@@ -20,6 +20,17 @@ class GenerateConf extends FrameworkConfiguration {
       system: { dirs: { cli: [resolve(process.cwd(), 'src/cli')] } },
     };
   }
+}
+
+const withHttp = (http: Record<string, unknown>) =>
+  class extends GenerateConf {
+    protected onLoad() {
+      return { ...super.onLoad(), http };
+    }
+  };
+
+interface Responses {
+  paths: Record<string, { get: { responses: Record<string, { headers?: Record<string, unknown> }> } }>;
 }
 
 describe('generate:openapi', function () {
@@ -61,5 +72,43 @@ describe('generate:openapi', function () {
     const doc = JSON.parse(await readFile(out, 'utf8')) as { info: { title: string }; paths: Record<string, unknown> };
     expect(doc.info.title).to.equal('Custom');
     expect(doc.paths).to.have.property('/proxy/api/users/{id}');
+  });
+
+  describe('http.etag of the configuration', () => {
+    // the responses of GET /users/:id, declared with CacheControl, in a document generated under `http`
+    const generate = async (http: Record<string, unknown> | undefined) => {
+      const source = join(dir, 'app.manifest.json');
+      const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as { controllers: { routes: { fullPath: string; middlewares: unknown[] }[] }[] };
+      manifest.controllers.flatMap((c) => c.routes).find((r) => r.fullPath === '/users/:id')!.middlewares.push({ type: 'CacheControl', options: [60] });
+      await writeFile(source, JSON.stringify(manifest));
+      if (http) {
+        DI.clearCache();
+        DI.register(withHttp(http)).as(Configuration);
+        await DI.resolve(Configuration);      }
+      const out = join(dir, 'openapi.json');
+      DI.register(() => ['node', 'script.js', 'generate:openapi', '--manifest', source, '--out', out]).as('__cli_argv_provider__');
+
+      await DI.resolve(Cli);
+
+      return (JSON.parse(await readFile(out, 'utf8')) as Responses).paths['/users/{id}'].get.responses;
+    };
+
+    it('documents the ETag and the 304 when it is not set', async () => {
+      const responses = await generate(undefined);
+      expect(Object.keys(responses['200'].headers ?? {})).to.deep.equal(['Cache-Control', 'ETag']);
+      expect(responses).to.have.property('304');
+    });
+
+    it("documents them under 'strong'", async () => {
+      const responses = await generate({ etag: 'strong' });
+      expect(Object.keys(responses['200'].headers ?? {})).to.deep.equal(['Cache-Control', 'ETag']);
+      expect(responses).to.have.property('304');
+    });
+
+    it('documents no ETag and no 304 under false', async () => {
+      const responses = await generate({ etag: false });
+      expect(Object.keys(responses['200'].headers ?? {})).to.deep.equal(['Cache-Control']);
+      expect(responses).to.not.have.property('304');
+    });
   });
 });

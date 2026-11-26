@@ -6,7 +6,7 @@ It documents what the build recorded. For the live document of a running server,
 
 Routes a controller inherits are documented on the controller, under its path, with the types it binds (`ArticlesController extends BaseCrud<ArticleDto>` documents `GET /articles/{id}` returning `ArticleDto`, as `Articles_get`). A controller replaced with an unconditional `DI.register(Sub).as(Base)` is left out, because the runtime mounts only the subclass. A registration inside `bootstrap()`, a function, a loop or a `try` is conditional: both controllers stay, so on a path both serve generation fails with `duplicate operation` and `spinajs doctor` reports HTTP001. Register an override at module top level.
 
-Options: `title`, `version`, `servers`, `securitySchemes` (the first scheme becomes the document-wide `security`; `security` overrides it; anonymous operations keep `security: []`), `basePath`, `routePrefix`, `errorSchema`/`errorSchemaId` (default: the built-in RFC 9457 `ProblemDetails`).
+Options: `title`, `version`, `servers`, `securitySchemes` (the first scheme becomes the document-wide `security`; `security` overrides it; anonymous operations keep `security: []`), `basePath`, `routePrefix`, `etag` (default `true`; `false` when the app runs with `http.etag: false`, so no `ETag` and no 304 are documented; `generate:openapi` reads it from the configuration), `errorSchema`/`errorSchemaId` (default: the built-in RFC 9457 `ProblemDetails`).
 
 ## Install
 
@@ -33,6 +33,8 @@ spinajs generate:openapi --title "Notes API" --doc-version 1.2.0 --server-url ht
 | `--server-url <url>` | none | One entry in `servers` |
 | `--base-path <path>` | none | Literal prefix for every path, for example where a proxy mounts the app |
 | `--route-prefix <prefix>` | `http.controllers.route.prefix` of the configuration | The prefix the router applies |
+
+The command also reads `http.etag` of the configuration: with `false` it passes `etag: false`, so the document shows no `ETag` and no 304 ([Caching headers](#caching-headers)).
 
 A route served only by a registration (a manifest entry with `mountedBy`) is left out: nothing static says that the registration runs.
 
@@ -130,8 +132,23 @@ A parameter without `wire` throws: the manifest was built by a compiler that doe
 | A route with permissions that is not anonymous | `401` and `403` |
 | Status of each entry in the controller's `__http_error_map__` | That status |
 | `RouteEntry.idempotency` (`@Idempotent`) | `400`, `409` with a `Retry-After` header and `422`, each only when no row above gave that status; `Idempotent-Replayed` on the `2xx` responses |
+| `CacheControl` or `NoStore` on the route or its controller | `Cache-Control`, `Pragma`, `Vary` and `ETag` headers on the `2xx` responses and a `304`, as [Caching headers](#caching-headers) says |
 
 Every problem response uses `application/problem+json` and a `$ref` to `ProblemDetails`, the RFC 9457 body that `@spinajs/http` emits ([Error handling](../http/11-error-handling.md)). When the manifest holds a schema with `$id` `spinajs/http/ProblemDetails` it is used, else the `errorSchema` option, else the built-in RFC 9457 shape. Response codes are sorted. The default descriptions are `Bad request` (400), `Unauthorized` (401), `Forbidden` (403), `Not found` (404), `Conflict` (409), `Payload too large` (413), `Validation error` (422) and `Internal server error` (500).
+
+### Caching headers
+
+A route with `@Middleware(CacheControl, …)` on it or on its controller documents, on its `2xx` responses, what [`CacheControl`](../http/14-route-middlewares.md) sends:
+
+- `Cache-Control`, with the exact value as `example` when the arguments are literals in the source (`public, max-age=300, stale-while-revalidate=60`). The route's declaration wins over its controller's, as at run time. The description says what the example cannot: a reply to a request with `Authorization`, or one that sets a cookie, goes out `private`, and a `Cache-Control` set before (the `no-store` `@spinajs/authn-http` puts on an authenticated reply) is kept.
+- `Vary`, when a declaration names `vary`: the fields of the route's and the controller's declarations, each once, as both hooks add them.
+- Only GET, HEAD and FILE routes: `CacheControl` does not run on the others.
+
+A route or controller with `NoStore` documents `Cache-Control: no-store` and `Pragma: no-cache` instead, on any method; the `Vary` of a `CacheControl` still applies.
+
+On such a route the `2xx` responses with a body (not `204`) also document `ETag`, which Express computes for them, and a GET, HEAD or FILE route gets a `304` without a body that carries the same headers: Express answers it when `If-None-Match` names the current `ETag`, also under `NoStore`. With the option `etag: false` (the app runs with `http.etag: false`) neither is documented. A file sent with `Last-Modified` may still be answered 304 to `If-Modified-Since`; the document does not show that.
+
+The headers are added to those a response already documents: `Idempotent-Replayed` of an `@Idempotent` route stays first, and its `304` carries it too, because a replay is checked against `If-None-Match` as well. The caching headers are those of the first answer: a replayed reply carries `Idempotent-Replayed` and not `Cache-Control`. A `CacheControl` mounted through `http.routes.middlewares` is not documented: the manifest records those entries without their options.
 
 ### Access: `@Access`, `@AllowAnonymous` and `@Public`
 
@@ -167,6 +184,7 @@ const doc = manifestToOpenApi(manifest, {
 | `securitySchemes` | Placed under `components.securitySchemes`. The first one becomes the document-wide `security`; operations marked anonymous or `@Public` opt out with `security: []` |
 | `security` | Overrides the document-wide requirement |
 | `basePath`, `routePrefix` | As the CLI options above |
+| `etag` | `false` when the app runs with `http.etag: false`: no `ETag` header and no 304 are documented. Default `true`; the CLI reads it from the configuration |
 | `errorSchema`, `errorSchemaId` | The `$id` of the problem+json schema (default `spinajs/http/ProblemDetails`) and its body when the manifest lacks it |
 
 The CLI passes no security schemes: call the function to add them.
@@ -176,7 +194,7 @@ The CLI passes no security schemes: call the function to add them.
 ## Known limits
 
 - The document is as precise as the derived types. [JSDoc constraint tags](../validation/09-dto-constraints-jsdoc.md) on DTO properties carry `format`, `minLength` and the like into the schemas.
-- The document has no middleware answers: the manifest holds no runtime middleware, so there is no `429` of `@RateLimit`, no `X-RateLimit-*` header and no `x-rate-limit`. Document such an answer with `@response` when a generated client needs it ([middleware answers](../http-swagger/07-openapi-builder.md#important-behaviour)).
+- The document has no middleware answers other than the caching headers above: the manifest holds route middlewares by name and literal arguments only, so there is no `429` of `@RateLimit`, no `X-RateLimit-*` header and no `x-rate-limit`. Document such an answer with `@response` when a generated client needs it ([middleware answers](../http-swagger/07-openapi-builder.md#important-behaviour)).
 
 ## Related
 

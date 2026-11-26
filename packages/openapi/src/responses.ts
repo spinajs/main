@@ -1,5 +1,6 @@
 import type { ControllerEntry, RouteEntry } from '@spinajs/manifest';
 import type { OpenAPIV3_1 } from 'openapi-types';
+import { applyCacheHeaders } from './cache-headers.js';
 import type { ComponentRegistry } from './components.js';
 import { IDEMPOTENCY_ANSWERS, REPLAYED_HEADER, REPLAYED_HEADER_NAME, RETRY_AFTER_HEADER } from './idempotency.js';
 import { isAnonymous, permissionsOf } from './security.js';
@@ -88,7 +89,7 @@ function idempotent(route: RouteEntry, registry: ComponentRegistry, errorSchemaI
   }
 }
 
-export function buildResponses(route: RouteEntry, controller: ControllerEntry, errorMap: Record<string, number>, registry: ComponentRegistry, errorSchemaId: string): OpenAPIV3_1.ResponsesObject {
+export function buildResponses(route: RouteEntry, controller: ControllerEntry, errorMap: Record<string, number>, registry: ComponentRegistry, errorSchemaId: string, etag: boolean): OpenAPIV3_1.ResponsesObject {
   const responses: OpenAPIV3_1.ResponsesObject = {};
   const text = route.returnType.text;
   if (text === 'void' || text === 'undefined') responses['204'] = { description: 'No content' };
@@ -99,6 +100,7 @@ export function buildResponses(route: RouteEntry, controller: ControllerEntry, e
     if (!responses[String(status)]) responses[String(status)] = problem(status, undefined, registry, errorSchemaId);
   }
   idempotent(route, registry, errorSchemaId, responses);
+  applyCacheHeaders(responses, route, controller, etag);
 
   return Object.fromEntries(Object.entries(responses).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)));
 }
