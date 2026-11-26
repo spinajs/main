@@ -27,6 +27,22 @@ class CountingStore extends MemoryCacheStore {
   }
 }
 
+@NewInstance()
+@Injectable(CacheStore)
+class RefusingStore extends MemoryCacheStore {
+  public async bump(): Promise<void> {
+    throw new Error('store down');
+  }
+}
+
+@NewInstance()
+@Injectable(CacheStore)
+class UnreachableStore extends MemoryCacheStore {
+  public async configure(): Promise<void> {
+    throw new Error('connection refused');
+  }
+}
+
 class TenantScope extends CacheScope {
   public static current: string[] | null = [];
   public segments(): readonly string[] | null {
@@ -34,7 +50,13 @@ class TenantScope extends CacheScope {
   }
 }
 
-const CONFIG = { cache: { ttlJitter: 0, maxTtl: '10m', caches: { default: {}, reports: {}, broken: { store: BrokenStore.name }, missing: { store: 'NoSuchStore' }, counted: { store: CountingStore.name } } } };
+const CONFIG = { cache: { ttlJitter: 0, maxTtl: '10m', caches: { default: {}, reports: {}, broken: { store: BrokenStore.name }, missing: { store: 'NoSuchStore' }, counted: { store: CountingStore.name }, refusing: { store: RefusingStore.name }, unreachable: { store: UnreachableStore.name } } } };
+
+function gate<T>(): { promise: Promise<T>; open: (value: T) => void } {
+  let open: (value: T) => void = () => undefined;
+  const promise = new Promise<T>((resolve) => (open = resolve));
+  return { promise, open };
+}
 
 async function rejection(promise: Promise<unknown>): Promise<unknown> {
   try {
@@ -202,5 +224,32 @@ describe('cache()', () => {
   it('bumps the store of every configured cache, also one this process never used, and survives one it cannot open', async () => {
     await cache().invalidate(['any:t']);
     expect(CountingStore.bumped).to.include('any:t');
+  });
+
+  // Fails when the versions are read after compute() instead of before it.
+  it('stores a value whose computation an invalidation overlapped as already invalid', async () => {
+    const started = gate<void>();
+    const value = gate<string>();
+    const first = cache().wrap('k', { ttl: '1m', tags: ['any:t'] }, () => {
+      started.open();
+      return value.promise;
+    });
+    await started.promise;
+    await cache().invalidate(['any:t']);
+    value.open('old');
+    expect(await first).to.eq('old');
+    expect(await cache().get('k')).to.eq(undefined);
+  });
+
+  it('resolves an invalidation that one store refuses, and still bumps the others', async () => {
+    await cache().set('k', 1, { ttl: '1m', tags: ['any:t'] });
+    await cache().invalidate(['any:t']);
+    expect([await cache().get('k'), CountingStore.bumped]).to.deep.eq([undefined, ['any:t']]);
+  });
+
+  it('reads a store that fails to open as a miss and still returns the computed value', async () => {
+    expect(await cache('unreachable').wrap('k', { ttl: '1m' }, async () => 'fresh')).to.eq('fresh');
+    await cache('unreachable').set('k', 1, { ttl: '1m' });
+    expect(await cache('unreachable').get('k')).to.eq(undefined);
   });
 });

@@ -4,6 +4,7 @@ import { decodeValue, encodeValue } from './codec.js';
 import { Cache } from './contracts.js';
 import type { CacheEntry, CacheHit, CacheLookup, CacheOptions, CacheReadOptions, CacheSettings, CacheStore, CacheStoreRead, TagBump } from './contracts.js';
 import { parseDuration } from './duration.js';
+import { CacheConfigError } from './errors.js';
 import { cacheKey } from './keys.js';
 import { cacheLog } from './log.js';
 import { scopeSegments } from './scope.js';
@@ -107,7 +108,7 @@ export class NamedCache extends Cache {
   /** Bumps the tags in this cache's store, which it opens when this process has not used the cache yet. Never throws. */
   public async applyBumps(bumps: readonly TagBump[]): Promise<void> {
     if (bumps.length === 0) return;
-    const opened = await this.opened().catch((error: unknown) => this.unopenable(error));
+    const opened = await this.opened().catch((error: unknown) => (error instanceof CacheConfigError ? this.unopenable(error) : this.failed('bump', error)));
     if (opened === undefined) return;
     await this.guard('bump', undefined, () => opened.store.bump(bumps));
   }
@@ -116,10 +117,20 @@ export class NamedCache extends Cache {
     return this.opening ?? this.open();
   }
 
+  /** The opened store, undefined when opening it failed; a configuration error is thrown. */
+  private async usable(): Promise<OpenedStore | undefined> {
+    try {
+      return await this.opened();
+    } catch (error) {
+      if (error instanceof CacheConfigError) throw error;
+      return this.failed('open', error);
+    }
+  }
+
   private open(): Promise<OpenedStore> {
     const opening = this.host.openStore(this.name);
     this.opening = opening;
-    // A configuration error reaches the caller; the next call opens again.
+    // A failed opening is not kept: the next call opens again.
     void opening.catch(() => {
       if (this.opening === opening) this.opening = undefined;
     });
@@ -141,7 +152,9 @@ export class NamedCache extends Cache {
 
   /** A valid entry younger than ttl + swr, decoded; undefined otherwise. An undecodable entry is deleted. */
   private async read<T>(storeKey: string, options: CacheReadOptions): Promise<CacheHit<T> | undefined> {
-    const { store, settings } = await this.opened();
+    const opened = await this.usable();
+    if (opened === undefined) return undefined;
+    const { store, settings } = opened;
     const consistency = options.consistency ?? settings.consistency;
     const found = await this.guard<CacheStoreRead | undefined>('get', undefined, () => store.get(storeKey, { consistency }));
     if (found === undefined || !found.valid) return undefined;
@@ -165,26 +178,28 @@ export class NamedCache extends Cache {
   }
 
   private async versionsOf(tags: readonly string[]): Promise<Reading | undefined> {
-    const { store } = await this.opened();
+    const opened = await this.usable();
+    if (opened === undefined) return undefined;
     const at = Date.now();
-    const versions = await this.guard<readonly string[] | undefined>('versions', undefined, () => store.versions(tags));
+    const versions = await this.guard<readonly string[] | undefined>('versions', undefined, () => opened.store.versions(tags));
     return versions === undefined ? undefined : { versions, at };
   }
 
   private async save(storeKey: string, bytes: Uint8Array, tags: readonly string[], reading: Reading, life: Lifetime): Promise<void> {
-    const { store } = await this.opened();
+    const opened = await this.usable();
+    if (opened === undefined) return;
     const now = Date.now();
     // Counted from the reading, so maxTtl bounds every bump a store missed, however long the computation took.
     const left = this.host.config.maxTtlMs - (now - reading.at);
     if (left <= 0) return;
     const ttlMs = Math.min(life.ttlMs, left);
     const entry: CacheEntry = { value: bytes, tags, versions: reading.versions, storedAt: now, ttlMs, swrMs: Math.min(life.swrMs, left - ttlMs) };
-    await this.guard('set', undefined, () => store.set(storeKey, entry));
+    await this.guard('set', undefined, () => opened.store.set(storeKey, entry));
   }
 
   private async remove(storeKey: string): Promise<void> {
-    const { store } = await this.opened();
-    await this.guard('delete', undefined, () => store.delete(storeKey));
+    const opened = await this.usable();
+    if (opened !== undefined) await this.guard('delete', undefined, () => opened.store.delete(storeKey));
   }
 
   private async guard<R>(op: string, fallback: R, call: () => Promise<R>): Promise<R> {
@@ -196,8 +211,10 @@ export class NamedCache extends Cache {
     }
   }
 
-  private failed(op: string, error: unknown): void {
-    cacheLog.warn({ cache: this.name, op, error }, `cache ${this.name}: ${op} failed; read as a miss`);
+  private failed(op: string, error: unknown): undefined {
+    const outcome = op === 'bump' ? 'entries of these tags may still be served from this store until they end' : 'read as a miss';
+    cacheLog.warn({ cache: this.name, op, error }, `cache ${this.name}: ${op} failed; ${outcome}`);
+    return undefined;
   }
 
   /** A store this process cannot open (its package is not imported here) misses every invalidation; said once. */
