@@ -144,7 +144,7 @@ export class Encoder {
     if (rel.source.kind === 'self') return a.caveat === undefined && a.relation === undefined && !a.wildcard && a.type === object.type && label(object) === label(p);
     if (rel.source.kind === 'column' && (a.caveat !== undefined || a.relation !== undefined || a.wildcard)) return false;
     if (a.relation !== undefined) {
-      if (!own(this.ir.types, a.type)) return false;
+      if (!own(this.ir.types, a.type)) throw notDefined(a.type, a.relation);
       return or(...this.universe.objects[a.type].map((y) => and(this.tuple(object, name, { ...y, relation: a.relation, ...caveat }), when, this.node(y, a.relation!, depth + 1))));
     }
     if (a.type !== p.type) return false;

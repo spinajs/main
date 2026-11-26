@@ -129,10 +129,12 @@ async function never(ir: PolicyIR, holder: string, glob: string, options: Bounde
     if (sure !== undefined) {
       const counterexample = await confirm(ir, sure.witness, { [permission]: 'allow' }, sure.paths[0]);
       verdicts.push({ result: 'violated', engine: 'exact', counterexample, opaque: [] });
-    } else if (hits.length === 0) {
-      verdicts.push({ result: 'holds', engine: 'exact', opaque: ex === undefined ? [] : opaqueOf(ir, ex) });
+    } else if (hits.length === 0 && (ex === undefined || ex.opaque.length === 0)) {
+      // No hit is a proof only when the reachers are an upper bound; what answers an opaque part may grant anyone.
+      verdicts.push({ result: 'holds', engine: 'exact', opaque: [] });
     } else {
-      verdicts.push(await bounded(ir, { checks: [{ permission, allowed: true }], admit: holderAdmits(ir, [holder], 'only') }, options));
+      const b = await bounded(ir, { checks: [{ permission, allowed: true }], admit: holderAdmits(ir, [holder], 'only') }, options);
+      verdicts.push(ex === undefined ? b : { ...b, opaque: mergeOpaque(opaqueOf(ir, ex), b.opaque) });
     }
   }
   return combine(verdicts, ir);

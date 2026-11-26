@@ -59,7 +59,7 @@ interface StateInfo {
 
 const own = (o: object, k: string): boolean => Object.prototype.hasOwnProperty.call(o, k);
 const isDirect = (a: ParsedSubjectType): boolean => a.relation === undefined && !a.wildcard;
-// What answers a name the IR does not define (validateIR: IR001, IR005) is out of the analysis' sight, as an opaque term is.
+// What answers a name the IR does not define (validateIR: IR001, IR002, IR005) is out of the analysis' sight, as an opaque term is.
 const undefinedName = (type: TypeName, name: string): string => `undefined ${type}#${name}`;
 
 /**
@@ -153,6 +153,7 @@ export class RewriteAutomaton {
       const letter = { object: typeName, relation: name, subject: a.type, wildcard: a.wildcard, ...(a.relation === undefined ? {} : { subjectRelation: a.relation }), ...(a.caveat === undefined ? {} : { caveat: a.caveat }) };
       if (a.relation === undefined) out.edges.push({ ...step, to: ACCEPT, letter, conditional: cond });
       else if (own(this.ir.types, a.type)) out.edges.push({ ...step, to: stateKey(a.type, a.relation), letter, conditional: cond });
+      else out.opaque.push(undefinedName(a.type, a.relation));
     }
   }
 

@@ -3,7 +3,7 @@ import { expect } from 'chai';
 
 import { validateIR } from '@spinajs/authz-ir';
 import type { PolicyIR } from '@spinajs/authz-ir';
-import { Encoder, RewriteAutomaton, Unsupported, defineAssertions, permissionMatrix, releaseSolver, universes, verifyAssertion } from '../src/index.js';
+import { ACCEPT, ANYONE, Encoder, RewriteAutomaton, Unsupported, defineAssertions, permissionMatrix, releaseSolver, universes, verifyAssertion } from '../src/index.js';
 import type { SatSolver } from '../src/index.js';
 import { z3Solver } from '../src/smt/z3.js';
 import { invoicesIR } from './fixtures/invoices.js';
@@ -33,11 +33,29 @@ describe('a rewrite that names a relation the IR does not define', () => {
     const v = await verifyAssertion(ir, accountantsOnly, options);
     expect([v.result, v.engine, v.message]).to.deep.equal(['unknown', 'bounded', MESSAGE]);
     expect(v.opaque).to.deep.include({ kind: 'rewrite', name: 'undefined invoice#owner' });
-    // never() with no holder on any path keeps holds, and must carry the part it cannot see (AZV003).
     const [publicNever] = defineAssertions(({ never }) => [never({ holder: 'public', permission: 'invoice:read' })]).assertions;
     const n = await verifyAssertion(ir, publicNever, options);
-    expect([n.result, n.engine]).to.deep.equal(['holds', 'exact']);
+    expect([n.result, n.engine, n.message]).to.deep.equal(['unknown', 'bounded', MESSAGE]);
     expect(n.opaque).to.deep.include({ kind: 'rewrite', name: 'undefined invoice#owner' });
+  });
+
+  it('leaves never unproved where the only path to the permission runs through it', async () => {
+    const ir = dangling('intersection');
+    ir.types.invoice.permissions.read = { computed: 'owner' };
+    const holders = defineAssertions(({ never }) => [never({ holder: 'public', permission: 'invoice:read' }), never({ holder: 'role:clerk', permission: 'invoice:read' })]).assertions;
+    for (const a of holders) {
+      const v = await verifyAssertion(ir, a, options);
+      expect([v.result, v.engine, v.message], a.kind === 'never' ? a.holder : '').to.deep.equal(['unknown', 'bounded', MESSAGE]);
+    }
+  });
+
+  it('leaves never proved for a permission that does not reach the undefined name', async () => {
+    const ir = invoicesIR();
+    ir.types.invoice.permissions.audit = { computed: 'nosuch' };
+    ir.permissions['invoice:audit'] = { type: 'invoice', relation: 'audit', list: false, source: { origin: 'config:authz' } };
+    const [read, audit] = defineAssertions(({ never }) => [never({ holder: 'public', permission: 'invoice:read' }), never({ holder: 'public', permission: 'invoice:audit' })]).assertions;
+    expect(await verifyAssertion(ir, read, options)).to.deep.equal({ result: 'holds', engine: 'exact', opaque: [] });
+    expect((await verifyAssertion(ir, audit, options)).message).to.equal('invoice#nosuch is not defined in the IR');
   });
 
   it('is refused by the bounded engine under an intersection, as RBAC compiles a relation grant', async () => {
@@ -48,26 +66,37 @@ describe('a rewrite that names a relation the IR does not define', () => {
     expect([v.result, v.message]).to.deep.equal(['unknown', MESSAGE]);
   });
 
-  it('is out of sight as stored tuples, a tupleset, the target of an arrow and the relation a permission is bound to', async () => {
+  it('is out of sight as stored tuples, a tupleset, the target of an arrow, the relation a permission is bound to and a subject set of an undeclared type', async () => {
     const cases: ReadonlyArray<readonly [string, (ir: PolicyIR) => void]> = [
       ['invoice#read', (ir) => (ir.types.invoice.permissions.read = { union: [viaParent, { this: true }] })],
       ['invoice#reviewer', (ir) => (ir.types.invoice.permissions.read = { union: [viaParent, { tupleToUserset: { tupleset: 'reviewer', computed: 'can_invoice_read' } }] })],
       ['project#auditor', (ir) => (ir.types.invoice.permissions.read = { union: [viaParent, { tupleToUserset: { tupleset: 'parent', computed: 'auditor' } }] })],
       ['invoice#reader', (ir) => (ir.permissions['invoice:read'] = { ...ir.permissions['invoice:read'], relation: 'reader' })],
+      [
+        'ghost#member',
+        (ir) => {
+          ir.types.invoice.relations.reviewer = { allowed: ['ghost#member'], source: { kind: 'tuples', store: 'authz_rebac_tuple' } };
+          ir.types.invoice.permissions.read = { union: [viaParent, { computed: 'reviewer' }] };
+        },
+      ],
     ];
+    const [publicNever] = defineAssertions(({ never }) => [never({ holder: 'public', permission: 'invoice:read' })]).assertions;
     for (const [name, edit] of cases) {
       const ir = invoicesIR();
       edit(ir);
       expect(validateIR(ir), name).to.not.deep.equal([]);
-      const v = await verifyAssertion(ir, accountantsOnly, options);
-      expect([v.result, v.message], name).to.deep.equal(['unknown', `${name} is not defined in the IR`]);
-      expect(v.opaque, name).to.deep.include({ kind: 'rewrite', name: `undefined ${name}` });
+      for (const a of [accountantsOnly, publicNever]) {
+        const v = await verifyAssertion(ir, a, options);
+        expect([v.result, v.message], `${name} ${a.kind}`).to.deep.equal(['unknown', `${name} is not defined in the IR`]);
+        expect(v.opaque, `${name} ${a.kind}`).to.deep.include({ kind: 'rewrite', name: `undefined ${name}` });
+      }
     }
   });
 
   it('leaves a policy that defines every name as it was', async () => {
     expect(validateIR(invoicesIR())).to.deep.equal([]);
     expect(permissionMatrix(invoicesIR()).opaque).to.deep.equal({});
+    expect([ACCEPT, ANYONE].map((s) => new RewriteAutomaton(invoicesIR()).opaqueAt(s))).to.deep.equal([[], []]);
     const exact = defineAssertions(({ onlyVia, never }) => [onlyVia('invoice:approve', ['role:accountant']), never({ holder: 'public', permission: 'invoice:*' })]).assertions;
     for (const a of exact) expect(await verifyAssertion(invoicesIR(), a, options)).to.deep.equal({ result: 'holds', engine: 'exact', opaque: [] });
   });
