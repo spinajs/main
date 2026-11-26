@@ -90,7 +90,10 @@ export abstract class Replayer {
    *
    * The service watches the reads of `view` only. A replayer that reads through its own `ReplayHistory` lets every
    * failure of those reads escape, or answers `'unknown'` naming them in `missing`: it never answers a determined
-   * outcome after one of its reads failed or while one is still running.
+   * outcome after one of its reads failed or while one is still running. It must honour `signal`: past the timeout or
+   * the caller's abort the service answers without it, yet the domain's concurrency slot stays taken until its promise
+   * settles, so one that never settles holds its slot forever. Await or catch every read of `view`: it rejects once the
+   * replay has ended.
    */
   abstract replay(recording: Recording, view: StateView, signal: AbortSignal, budget: ReplayBudget): Promise<ReplayOutcome>;
 }
@@ -106,7 +109,7 @@ export interface ReplayReport {
 }
 
 export interface ReplayRunOptions {
-  /** Cancels the replay: it rejects with the signal's reason. */
+  /** Cancels the replay: it rejects with the signal's reason. Loading the recording is not cancelled: an abort during it is seen when it returns. */
   signal?: AbortSignal;
   /** The `maxChanges` of this replay instead of the domain's, at most `REPLAY_MAX_CHANGES_LIMIT`. */
   maxChanges?: number;
