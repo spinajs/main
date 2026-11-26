@@ -102,7 +102,7 @@ export class TenantSettings {
     if (hit === undefined) return undefined;
     const ttl = this.ttlMs();
     if (ttl > 0 && this.now() - hit.at >= ttl && !this.reading.has(tenant)) {
-      void this.load(tenant).catch((error: unknown) => this.onRefreshFailed(tenant, error));
+      void this.load(tenant).catch((error: unknown) => this.refreshFailed(tenant, error));
     }
     return hit.settings;
   }
@@ -126,9 +126,11 @@ export class TenantSettings {
     return read;
   }
 
-  public forget(tenant?: string): void {
-    if (tenant === undefined) this.loaded.clear();
-    else this.loaded.delete(tenant);
+  // Stamped as fresh again: during an outage every stale read would otherwise read the registry and warn once more.
+  private refreshFailed(tenant: string, error: unknown): void {
+    const last = this.loaded.get(tenant);
+    if (last !== undefined) this.loaded.set(tenant, { settings: last.settings, at: this.now() });
+    this.onRefreshFailed(tenant, error);
   }
 
   private async read(tenant: string): Promise<Readonly<Record<string, unknown>>> {

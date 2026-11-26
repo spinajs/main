@@ -6,7 +6,8 @@ import type { IConfigLike } from '@spinajs/configuration';
 import { InvalidOperation } from '@spinajs/exceptions';
 import { createTestApp } from '@spinajs/testing';
 import type { TestApp } from '@spinajs/testing';
-import { MemoryTenantRegistry, TenantConfigurationOverlay, TenantRegistry, TenantSettingsUnavailable, TenantUnavailable, admitTenant, checkTenantSettings, forEachTenant, loadTenantSettings, runAcrossTenants, runInTenant, tenantRegistry } from '../src/index.js';
+import type { TenantRecord } from '../src/index.js';
+import { MemoryTenantRegistry, TenantConfigurationOverlay, TenantRegistry, TenantSettings, TenantSettingsUnavailable, TenantUnavailable, admitTenant, checkTenantSettings, forEachTenant, loadTenantSettings, runAcrossTenants, runInTenant, tenantRegistry } from '../src/index.js';
 
 chai.use(chaiAsPromised);
 const expect = chai.expect;
@@ -260,6 +261,39 @@ describe('tenant configuration overrides', () => {
     expect(await runInTenant('acme', async () => config.get('mail.from'))).to.equal('old@acme.test');
     await wait(10);
     expect(await runInTenant('acme', async () => config.get('mail.from'))).to.equal('new@acme.test');
+  });
+
+  it('reads a failing registry again one tenancy.registryCacheMs after a failed refresh, sharing one read, with one warning per failure', async () => {
+    class FailingRegistry extends MemoryTenantRegistry {
+      public down = false;
+      public calls = 0;
+      public override get(id: string): Promise<TenantRecord | undefined> {
+        this.calls += 1;
+        return this.down ? Promise.reject(new Error('registry down')) : super.get(id);
+      }
+    }
+    const registry = new FailingRegistry();
+    registry.add({ id: 'acme', settings: { plan: 'pro' } });
+    let now = 0;
+    const failures: string[] = [];
+    const settings = new TenantSettings(registry, () => 100, (tenant) => void failures.push(tenant), () => now);
+    await settings.load('acme');
+    registry.down = true;
+    const readFor = async (n: number) => {
+      for (let i = 0; i < n; i++) {
+        expect(settings.settingsOf('acme')).to.deep.equal({ plan: 'pro' });
+        await new Promise(setImmediate);
+      }
+    };
+
+    now = 100;
+    await readFor(50);
+    now = 199;
+    await readFor(50);
+    expect([registry.calls, failures.length]).to.deep.equal([2, 1]);
+    now = 200;
+    await readFor(50);
+    expect([registry.calls, failures.length]).to.deep.equal([3, 2]);
   });
 
   it('picks up a tenant changed by another process once the registry cache of tenancy.registryCacheMs lets it through', async () => {
