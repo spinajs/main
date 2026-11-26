@@ -6,7 +6,7 @@ import { DeleteQueryBuilder, InsertQueryBuilder, UpdateQueryBuilder } from '../b
 import type { QueryBuilder } from '../builders.js';
 import { extractModelDescriptor } from '../descriptor.js';
 import type { LiveIndex } from '../introspection.js';
-import { WriteCaptureLimitExceeded } from '../exceptions.js';
+import { WriteCaptureLimitExceeded, WriteCaptureRequired } from '../exceptions.js';
 import { QueryMiddleware } from '../interfaces.js';
 import { sqlDialectOf } from '../sql-dialect.js';
 import { WriteObserver } from './contracts.js';
@@ -67,6 +67,14 @@ export function requiredTables(value: unknown): readonly string[] {
   return value;
 }
 
+function refuseUnobserved(statement: WriteStatement): void {
+  const required = requiredTables(DI.get(Configuration)?.get<unknown>('db.WriteCapture.Required'));
+  if (required.length === 0) return;
+  const table = extractModelDescriptor(statement.model)?.TableName;
+  if (table === undefined || !required.includes(table)) return;
+  throw new WriteCaptureRequired(`write capture: ${statement.model.name} writes ${table}, a table db.WriteCapture.Required lists, and no WriteObserver takes this ${statement.kind}; load the package that observes ${table} in this process or take the table off the list`);
+}
+
 function planOf(query: QueryBuilder): Plan | undefined {
   const statement = writeStatementOf(query);
   if (!statement) return undefined;
@@ -74,7 +82,10 @@ function planOf(query: QueryBuilder): Plan | undefined {
     const interest = observer.interest(statement);
     return interest ? [{ observer, interest }] : [];
   });
-  if (watches.length === 0) return undefined;
+  if (watches.length === 0) {
+    refuseUnobserved(statement);
+    return undefined;
+  }
   const d = extractModelDescriptor(statement.model);
   if (!d || d.PrimaryKey.length !== 1) throw new InvalidOperation(`write capture: ${statement.model.name} needs a single-column primary key, it has ${d?.PrimaryKey.length ?? 0}`);
   return { statement, table: d.TableName, pk: d.PrimaryKey[0], watches, columns: unionColumns(watches) };
