@@ -17,6 +17,10 @@ describe('the fields option of @Access', () => {
     expect([filtered('constant'), filtered('shorthand'), filtered('shorthandNone'), filtered('none'), filtered('plain')]).to.deep.equal([true, true, false, false, false]);
   });
 
+  it('reads options in a const and through satisfies', () => {
+    expect([filtered('constOptions'), filtered('satisfiesOptions')]).to.deep.equal([true, true]);
+  });
+
   it('counts options that may set fields where the build cannot read them as filtering', () => {
     expect([filtered('variable'), filtered('optionsCall'), filtered('spread'), filtered('spreadAfterNone'), filtered('computedKey')]).to.deep.equal([true, true, true, true, true]);
   });
