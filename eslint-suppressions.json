@@ -1364,11 +1364,6 @@
       "count": 2
     }
   },
-  "packages/authz-orm/src/ancestors/cleanup.ts": {
-    "@typescript-eslint/no-unnecessary-type-assertion": {
-      "count": 1
-    }
-  },
   "packages/authz-orm/src/ancestors/full.ts": {
     "max-depth": {
       "count": 1
