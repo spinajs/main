@@ -1,4 +1,5 @@
 import { isDeepStrictEqual } from 'node:util';
+import { InvalidArgument } from '@spinajs/exceptions';
 import { FIELD_NAME_PATTERN, ReplayedResponse, _setHeaders } from '@spinajs/http';
 import type { CapturedJsonReply, IRouteOutcome, ResponseFunction } from '@spinajs/http';
 import type { ResponseCacheScope } from './options.js';
@@ -100,8 +101,10 @@ export class CachedResponse extends ReplayedResponse {
   // compared with data after the hooks: a hook may change the parsed body in place
   private readonly original: unknown;
 
+  /** Throws InvalidArgument for a reply `replayableReply` refuses: a hit runs that check first and misses instead. */
   constructor(reply: CapturedJsonReply) {
-    const sent = { ...reply, headers: replayedHeaders(reply.headers) };
+    const sent = replayableReply(reply);
+    if (sent === undefined) throw new InvalidArgument('a cached response needs a reply replayableReply accepts');
     super(sent);
     this.reply = sent;
     this.original = sent.body === null ? null : (JSON.parse(sent.body) as unknown);
@@ -120,8 +123,6 @@ export class CachedResponse extends ReplayedResponse {
         res.json(data);
         return;
       }
-      // res.send would label a string without a content type text/html
-      if (res.getHeader('content-type') === undefined) res.type('application/json');
       if (this.reply.body === null) {
         res.json();
       } else {

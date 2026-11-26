@@ -5,6 +5,7 @@ import { request } from 'node:http';
 import type { IncomingHttpHeaders } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import express from 'express';
+import { InvalidArgument } from '@spinajs/exceptions';
 import type { CapturedJsonReply } from '@spinajs/http';
 import { CachedResponse, replayableReply, replyToStore } from '../src/index.js';
 
@@ -93,9 +94,9 @@ describe('CachedResponse', () => {
     expect(sent.headers.etag).to.not.eq('W/"b-stored"');
   });
 
-  it('labels a stored body JSON even when the stored reply has no content type', async () => {
-    const sent = await replay({ status: 200, headers: {}, body: '"<script>alert(1)</script>"' });
-    expect(sent.headers['content-type']).to.eq(JSON_TYPE);
+  it('refuses a stored reply it may not send: one without a JSON content type, unsafe headers or a body that does not parse', () => {
+    const refused: CapturedJsonReply[] = [{ status: 200, headers: {}, body: '"<script>alert(1)</script>"' }, { ...STORED, headers: { 'content-type': 'text/html' } }, { ...STORED, headers: { ...STORED.headers, 'x-a': 'a\r\nset-cookie: sid=1' } }, { ...STORED, body: '{' }, { ...STORED, status: 500 }];
+    for (const reply of refused) expect(() => new CachedResponse(reply), JSON.stringify(reply)).to.throw(InvalidArgument);
   });
 });
 
