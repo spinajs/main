@@ -55,6 +55,24 @@ Values are stored with `node:v8`: `Date`, `Buffer`, `BigInt`, `Map` and `Set` co
 gets its own copy. A function, a symbol or an instance of a class (which would come back without its methods) is
 refused with `CacheValueNotSerializable`. Bytes that cannot be read back are a miss.
 
+## Keys
+
+`hashKey(parts)` is the SHA-256, base64url, of a type-tagged text of `parts`. Equal parts give one key, so `delete`
+and `invalidate` by a key reach the entry however its parts were built:
+
+- a string by its value: one cut from Polish text, rebuilt by `split`, `replace` or a `Buffer`, hashes as a literal;
+- object keys, `Map` entries and `Set` items in any order; a property that holds `undefined` as a missing one;
+- `-0` as `0`, `NaN` as `NaN`, a `Date` by its time, a `Buffer` as a `Uint8Array` of the same bytes.
+
+Parts of different types never share a key: `1`, `1n` and `'1'` are three keys, `['a', 'b']`, `['ab']` and `['a,b']`
+are three, and `undefined` and `null` are two. A function, a symbol, an instance of a class and a cyclic object are
+refused with `InvalidArgument`, which names the part (`$[0].id`).
+
+```ts
+const key = hashKey(['users', sql, bindings]);
+await cache().wrap(key, { ttl: '5m', tags: [anyTag('users')] }, () => run(sql, bindings));
+```
+
 ## Scope
 
 Every registered `CacheScope` adds segments to every key (a tenant scope adds the tenant, for example). A scope that
