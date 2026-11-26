@@ -12,6 +12,8 @@ import { CLOSED_CONFIGURATION_ROOTS, overridablePaths, overridesOf } from './set
 
 const MAX_TENANTS = 10_000;
 
+const MAX_REPORTED_PATHS = 20;
+
 const isPrefix = (a: readonly string[], b: readonly string[]): boolean => {
   const n = Math.min(a.length, b.length);
   for (let i = 0; i < n; i++) if (a[i] !== b[i]) return false;
@@ -163,7 +165,9 @@ export class TenantConfigurationOverlay extends ConfigurationOverlay {
     const last = this.reported.get(tenant);
     if (last?.settings === settings || this.configuration === undefined) return;
     const root = this.configuration.RootConfig;
-    const paths = unservedPaths(settings, this.paths, (key) => Object.hasOwn(root, key)).join(', ');
+    const found = unservedPaths(settings, this.paths, (key) => Object.hasOwn(root, key));
+    const named = found.slice(0, MAX_REPORTED_PATHS).join(', ');
+    const paths = found.length > MAX_REPORTED_PATHS ? `${named} and ${found.length - MAX_REPORTED_PATHS} more` : named;
     keep(this.reported, tenant, { settings, paths });
     if (paths !== '' && paths !== last?.paths) {
       this.Log.warn({ tenant, paths }, 'Tenant ${tenant}: its settings hold ${paths}, which tenancy.config.overridable does not list; they are never laid over the configuration');

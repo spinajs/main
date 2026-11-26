@@ -145,6 +145,14 @@ describe('tenant configuration overrides', () => {
       expect(warnings.map((w) => w.data)).to.deep.equal([{ tenant: 'sneaky', paths: 'mail.retries, intl.defaultLocale, authn, db' }]);
     });
 
+    it('names at most 20 unserved paths in its warning and counts the rest', async () => {
+      (await memory()).add({ id: 'wide', settings: { mail: Object.fromEntries(Array.from({ length: 25 }, (_, i) => [`k${i}`, i])) } });
+      await admitTenant('wide');
+      await runInTenant('wide', async () => config.get('mail.from'));
+
+      expect(warnings.map((w) => w.data.paths)).to.deep.equal([`${Array.from({ length: 20 }, (_, i) => `mail.k${i}`).join(', ')} and 5 more`]);
+    });
+
     // The overlay serves what check() returned, never the stored input.
     it("serves the value the schema accepted: a stored 'false' at a boolean path reads as false", async () => {
       (await memory()).add({ id: 'coerced', settings: { mail: { enabled: 'false' } } });
