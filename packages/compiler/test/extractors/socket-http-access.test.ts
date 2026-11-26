@@ -232,8 +232,9 @@ describe('a guard decorator of the other transport', function () {
     });
   });
 
-  // Known gap, closed by a later branch: the options of a socket entry come from the first of @Access / @SocketAccess.
-  it('takes the options of an @Access written above @SocketAccess, which makes the manifest stricter than the run time, and warns there', () => {
+  // Known gap, closed by a later branch: the options of a socket entry come from the first of @Access / @SocketAccess,
+  // so the manifest can be stricter or looser than the run time. This pins the stricter case.
+  it('takes the options of an @Access written above @SocketAccess, which can differ from the run time in either direction, and warns there', () => {
     expect(command(lib, 'GapSocket', 'peek').policies).to.deep.equal([[{ type: 'SocketAccessPolicy', options: ['handler'] }]]);
     expect(entryPoint(lib, 'gap.peek')?.access).to.deep.equal([[{ type: 'SocketAccessPolicy', options: ['gap:socket'] }]]);
     expect(lib.diagnostics.some((d) => d.code === 'AUTHZ013' && lineAt(d.source!.line) === "@Access('gap:http')")).to.equal(true);
