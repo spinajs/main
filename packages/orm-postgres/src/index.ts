@@ -704,13 +704,7 @@ export class PostgresOrmDriver extends SqlDriver {
     // A COMMIT of an aborted transaction raises no error: PostgreSQL rolls it back and answers with this tag.
     if (result.command === 'ROLLBACK') {
       const failure = (ctx as IPostgresTransactionContext).failure;
-      throw new OrmException(
-        `transaction on connection ${this.Options.Name} was aborted by an earlier failed statement whose error was caught; PostgreSQL rolled it back when it was asked to commit, and nothing of it was written; the first failure: ${failure?.message ?? 'unknown'}`,
-        undefined,
-        undefined,
-        undefined,
-        failure,
-      );
+      throw new OrmException(`transaction on connection ${this.Options.Name} was aborted by an earlier failed statement whose error was caught; PostgreSQL rolled it back when it was asked to commit, and nothing of it was written; the first failure: ${failure?.message ?? 'unknown'}`, undefined, undefined, undefined, failure);
     }
   }
 
