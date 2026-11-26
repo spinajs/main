@@ -173,6 +173,15 @@ describe('LruTtlCache weight', () => {
     expect(cache.weight).to.eq(0);
   });
 
+  it('gives back the weight of every entry on clear', () => {
+    const cache = new LruTtlCache<string, number>({ maxEntries: 10, maxWeight: 100 });
+    cache.set('a', 1, { weight: 5 });
+    cache.set('b', 1, { weight: 7 });
+    cache.clear();
+    expect(cache.weight).to.eq(0);
+    expect([cache.size, cache.has('a'), cache.has('b')]).to.deep.eq([0, false, false]);
+  });
+
   it('bounds by count alone without maxWeight, whatever the weights', () => {
     const cache = new LruTtlCache<string, number>({ maxEntries: 2 });
     cache.set('a', 1, { weight: 1e12 });
