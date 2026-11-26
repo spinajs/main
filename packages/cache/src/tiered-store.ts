@@ -98,6 +98,8 @@ export class TieredCacheStore extends CacheStore {
       this.lowerFailed('bump', error);
       this.distrust(bumps, Date.now());
     }
+    // A read during the lower bump may have copied an entry from before it up under the first bump's versions.
+    this.upper.bumpNow(bumps);
   }
 
   private async fromLower<R>(op: string, call: () => Promise<R>): Promise<R | undefined> {

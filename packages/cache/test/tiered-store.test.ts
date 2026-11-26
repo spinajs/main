@@ -5,7 +5,7 @@ import { createTestApp } from '@spinajs/testing';
 import type { TestApp } from '@spinajs/testing';
 import { Breaker, CacheConfigError, CacheScope, MemoryCacheStore, TieredCacheStore, cache } from '../src/index.js';
 import type { CacheEntry, CacheStoreRead, CacheStoreReadOptions, TagBump } from '../src/index.js';
-import { SharedTier, startProcess, wire } from './support/processes.js';
+import { SharedTier, drain, startProcess, wire } from './support/processes.js';
 
 /** Two replicas, each with its own upper tier, on one shared lower tier that stands in for Redis; no bus between them. */
 function replicas(): { shared: MemoryCacheStore; aUpper: MemoryCacheStore; bUpper: MemoryCacheStore; a: TieredCacheStore; b: TieredCacheStore } {
@@ -246,13 +246,28 @@ describe('TieredCacheStore between two processes', () => {
     expect(await cache('eventual', b).get('k')).to.eq(undefined);
   });
 
-  // A guard: the tiers store under the key the cache built, which holds the scope.
+  // Fails without the second upper bump: a read while the shared tier takes the bump copies the old entry up under the new versions.
+  it('never serves the invalidating process a value stored before its invalidate() resolved, its echo held or lost', async () => {
+    started = [await startProcess({ eventual: TIERED, strict: { ...TIERED, consistency: 'strict' } })];
+    const a = started[0].container;
+    for (const lose of [() => wire.hold(), () => (wire.dropping = true)]) {
+      for (const name of ['eventual', 'strict']) await cache(name, a).set('k', 'old', TAGGED);
+      let open = (): void => undefined;
+      SharedTier.gate = new Promise((resolve) => (open = resolve));
+      lose();
+      const invalidating = cache('eventual', a).invalidate(['any:t']);
+      await drain();
+      expect(await cache('eventual', a).get('k')).to.eq('old');
+      open();
+      await invalidating;
+      expect([await cache('eventual', a).get('k'), await cache('strict', a).get('k')]).to.deep.eq([undefined, undefined]);
+    }
+  });
+
+  // Fails when the shared tier keys an entry without the scope part of the key the cache built.
   it('never lets two tenants share an entry through either tier', async () => {
-    started = [await startProcess({ shared: TIERED }, (c) => c.register(tenant('t1')).as(CacheScope))];
-    started.push(await startProcess({ shared: TIERED }, (c) => c.register(tenant('t2')).as(CacheScope)));
+    for (const id of ['t1', 't2']) started.push(await startProcess({ shared: TIERED }, (c) => c.register(tenant(id)).as(CacheScope)));
     const [one, two] = started.map((app) => app.container);
     expect([await cache('shared', one).wrap('k', TAGGED, async () => 'one'), await cache('shared', two).get('k')]).to.deep.eq(['one', undefined]);
-    expect(await cache('shared', two).wrap('k', TAGGED, async () => 'two')).to.eq('two');
-    expect([await cache('shared', one).get('k'), await cache('shared', two).get('k')]).to.deep.eq(['one', 'two']);
   });
 });

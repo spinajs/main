@@ -44,14 +44,15 @@ export class WireBus extends TagBus {
   public subscribe(fn: (bumps: readonly TagBump[]) => void): () => void { return wire.subscribe(fn); }
 }
 
-/** The tier every process reaches (Redis in production): `down` rejects every call, `refusing` rejects bumps only. */
+/** The tier every process reaches (Redis in production): `down` rejects every call, `refusing` rejects bumps only, a bump waits for `gate`. */
 export class SharedTier extends CacheStore {
   public static store = new MemoryCacheStore();
   public static down = false;
   public static refusing = false;
+  public static gate = Promise.resolve();
 
   public static reset(): void {
-    Object.assign(SharedTier, { store: new MemoryCacheStore(), down: false, refusing: false });
+    Object.assign(SharedTier, { store: new MemoryCacheStore(), down: false, refusing: false, gate: Promise.resolve() });
   }
 
   private static reach(refused = false): MemoryCacheStore {
@@ -63,7 +64,7 @@ export class SharedTier extends CacheStore {
   public async set(key: string, entry: CacheEntry): Promise<void> { await SharedTier.reach().set(key, entry); }
   public async delete(key: string): Promise<void> { await SharedTier.reach().delete(key); }
   public async versions(tags: readonly string[]): Promise<readonly string[]> { return SharedTier.reach().versions(tags); }
-  public async bump(bumps: readonly TagBump[]): Promise<void> { await SharedTier.reach(SharedTier.refusing).bump(bumps); }
+  public async bump(bumps: readonly TagBump[]): Promise<void> { await SharedTier.gate.then(() => SharedTier.reach(SharedTier.refusing).bump(bumps)); }
 }
 
 /** A process of its own: a child container with its own CacheService, on the wire and the shared tier. */
