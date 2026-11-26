@@ -7,6 +7,7 @@ import { ModelBase, Orm, extractModelDescriptor } from '@spinajs/orm';
 import type { ModelBaseClass } from '@spinajs/orm';
 
 import { asOfFrom, assertInstant } from './as-of.js';
+import { currentRows, currentWhere, tableOf } from './current.js';
 import { HISTORY_OPS } from './encode.js';
 import { toHistoryEntry } from './entry.js';
 import { latestOf } from './latest.js';
@@ -27,9 +28,7 @@ function limitOf(q: HistoryQuery | undefined): number {
 
 /** Transactional events live on the connection of the write, so that is where a model's history is read. */
 function sourceOf(spec: HistorySpec): string {
-  const d = extractModelDescriptor(spec.model)?.Driver;
-  if (!d) throw new HistoryConfigError(`orm-history: ${spec.model.name} has no ORM connection yet (is the ORM booted?)`);
-  return d.Options.Name;
+  return tableOf(spec).driver.Options.Name;
 }
 
 // The same text as the write side's captureKeyText for a string, a safe integer and a bigint, the only keys recorded.
@@ -119,6 +118,8 @@ function modelHistory(model: ModelBaseClass, spec: HistorySpec | undefined): Mod
       return latestOf(trail(), spec.entity, sourceOf(spec), ids, at);
     },
     latest: async (ids) => latestOf(trail(), spec.entity, sourceOf(spec), ids),
+    current: async (ids) => currentRows(spec, ids),
+    currentWhere: async (where, limit) => currentWhere(spec, where, limit),
   };
 }
 
