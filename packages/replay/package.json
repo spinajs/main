@@ -8,6 +8,10 @@
     ".": {
       "types": "./lib/index.d.ts",
       "import": "./lib/index.js"
+    },
+    "./testing": {
+      "types": "./lib/testing.d.ts",
+      "import": "./lib/testing.js"
     }
   },
   "type": "module",
