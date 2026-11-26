@@ -2,7 +2,7 @@ import type { PrincipalRef, ResourceRef, ResourceType } from '@spinajs/authz';
 
 import { TupleCaveatConflict, TupleStore } from '../contracts.js';
 import type { Tuple, TupleCaveat, TuplePage, TupleQuery, TupleSubject } from '../contracts.js';
-import { caveatKey, readTuple, sameCaveat, sameRef, sortKey, subjectKey, tupleKey } from '../keys.js';
+import { caveatKey, isSubjectSet, readTuple, sameCaveat, sameRef, sortKey, subjectKey, tupleKey } from '../keys.js';
 
 /** What one write changed: the tuples it actually added and removed. */
 export interface TupleWriteResult {
@@ -96,15 +96,24 @@ export class MemoryTupleStore extends TupleStore {
   async find(query: TupleQuery, page?: TuplePage): Promise<{ readonly items: readonly Tuple[]; readonly total: number }> {
     const subject = query.subject ? subjectKey(query.subject) : undefined;
     const object = query.object;
-    const all = [...this.tuples.values()]
-      .filter((t) => !object || (t.object.type === object.type && (object.id == null || t.object.id === object.id)))
-      .filter((t) => query.relation === undefined || t.relation === query.relation)
-      .filter((t) => subject === undefined || subjectKey(t.subject) === subject)
-      .map((t) => [sortKey(t), t] as const)
-      .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
-      .map(([, t]) => t);
+    const all = inFindOrder(
+      [...this.tuples.values()]
+        .filter((t) => !object || (t.object.type === object.type && (object.id == null || t.object.id === object.id)))
+        .filter((t) => query.relation === undefined || t.relation === query.relation)
+        .filter((t) => subject === undefined || subjectKey(t.subject) === subject),
+    );
     const items = page ? all.slice(page.offset, page.offset + page.limit) : all;
     return { items: items.map(copy), total: all.length };
+  }
+
+  /** The tuples whose subject is `ref` itself or a subject set of it, in `find` order. */
+  async withSubjectObject(ref: ResourceRef): Promise<readonly Tuple[]> {
+    if (ref.id == null) return [];
+    const about = (t: Tuple): boolean => {
+      const s = isSubjectSet(t.subject) ? t.subject.object : t.subject;
+      return s.type === ref.type && s.id === ref.id;
+    };
+    return inFindOrder([...this.tuples.values()].filter(about)).map(copy);
   }
 
   version(): string {
@@ -118,3 +127,9 @@ export class MemoryTupleStore extends TupleStore {
 }
 
 const copy = (t: Tuple): Tuple => structuredClone(t);
+
+const inFindOrder = (tuples: readonly Tuple[]): Tuple[] =>
+  tuples
+    .map((t) => [sortKey(t), t] as const)
+    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+    .map(([, t]) => t);

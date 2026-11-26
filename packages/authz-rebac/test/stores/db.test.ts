@@ -9,7 +9,7 @@ import type { OrmDriver, QueryContext } from '@spinajs/orm';
 
 import { fakeModelInitContext } from '@spinajs/authz-testing';
 
-import { AUTHZ_REBAC_TUPLE_TABLE, AuthzRebacCaveats_2026_11_06_00_00_00, AuthzRebac_2026_10_21_00_00_00, CAVEAT_CONTEXT_MAX, DbTupleStore, RebacModel, RebacTupleHandler, TupleCaveatConflict, TupleStore, caveatKey } from '../../src/index.js';
+import { AUTHZ_REBAC_TUPLE_TABLE, AuthzRebacCaveats_2026_11_06_00_00_00, AuthzRebac_2026_10_21_00_00_00, CAVEAT_CONTEXT_MAX, DbTupleStore, RebacModel, RebacScopeForgetter, RebacTupleHandler, TupleCaveatConflict, TupleStore, caveatKey } from '../../src/index.js';
 import type { Tuple } from '../../src/index.js';
 import { bootDb, rawQuery } from '../support/db.js';
 import type { TestDb } from '../support/db.js';
@@ -290,6 +290,19 @@ for (const pg of [false, true]) {
         ]),
       ).to.equal(undefined);
       expect(await store.read(d1, 'viewer')).to.deep.equal([dave(other)]);
+    });
+
+    it('scope.forget removes the rows on the node and the rows whose subject is the node or a set of it', async () => {
+      await rawQuery(db.driver, `DELETE FROM ${AUTHZ_REBAC_TUPLE_TABLE}`);
+      const eng = ref('group', 'eng');
+      const kept = tuple(d2, 'viewer', set('group', 'engineering', 'member'));
+      await store.write([tuple(eng, 'member', user('bob')), tuple(d1, 'viewer', set('group', 'eng', 'member')), tuple(ref('group', 'all'), 'member', set('group', 'eng', 'member')), kept], [], user('admin'));
+      const container = DI.child();
+      container.register(() => store).as(TupleStore);
+      const ctx: AdminCallContext = { domain: 'test', now: new Date(), authz: { models: () => [] } as unknown as AuthzService, actor: SYSTEM, container, dryRun: false };
+      const out = await db.driver.transaction((tx) => new RebacScopeForgetter().forget(eng, ctx, { driver: tx }));
+      expect(out.affected).to.equal(3);
+      expect((await store.find({})).items).to.deep.equal([kept]);
     });
   });
 }
