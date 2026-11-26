@@ -78,9 +78,26 @@ export class DbPolicyStore extends PolicyStore {
 
   /** Every row, in code-unit order of the ids: neither the order nor the version depends on a collation. */
   private async records(): Promise<PolicyRecord[]> {
-    const rows = await hydrateRecords(PolicyRecord.query());
+    const query = PolicyRecord.query()
+      .select('*')
+      .selectCondition(EXPIRY_SET, function () {
+        this.whereNotNull('expires_at');
+      });
+    const rows = await hydrateRecords(query);
+    refuseUnreadableExpiry(rows);
     return rows.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
   }
+}
+
+const EXPIRY_SET = 'expires_at_set';
+
+/**
+ * The datetime converters read a stored value that is no datetime (text, a MySQL zero date, a Postgres infinity) as
+ * null, which would load the policy as one that never expires. The same select tells whether the column holds a value.
+ */
+function refuseUnreadableExpiry(rows: readonly (PolicyFields & Pick<PolicyRecord, typeof EXPIRY_SET>)[]): void {
+  const hit = rows.find((r) => r.expires_at_set === true && r.expires_at === null);
+  if (hit) throw new AuthzConfigError(`${AUTHZ_POLICY_TABLE}: the expires_at of policy ${JSON.stringify(hit.id)} is not a datetime the store can read`);
 }
 
 /**

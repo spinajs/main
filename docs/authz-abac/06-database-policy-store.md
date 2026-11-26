@@ -10,7 +10,7 @@
 2. `DbPolicyStore.load()` reads through `PolicyRecord`, and a model loads its policies at domain boot. The store is built with `new`, not by DI, so it cannot inject the `Orm`: `AbacModel.init` resolves the `Orm` from the domain's container when one of its stores is a `DbPolicyStore`, so the CLI and the app get it with the boot. That boot fails while a migration is pending. Code that reads a `DbPolicyStore` outside the model before the `Orm` resolved fails with the `AuthzConfigError` below.
 3. It reads every `PolicyRecord` row, sorts them by id in code-unit order and maps each with `recordToPolicy` (source `'db'`).
 4. `version()` hashes the same rows (SHA-256, first 16 hex characters), so it changes with every write, also one made by another process.
-5. A JSON column that does not parse fails the read with `AuthzConfigError` naming `authz_policy`.
+5. A JSON column that does not parse fails the read with `AuthzConfigError` naming `authz_policy`. The same holds for an `expires_at` that is set but is no datetime the driver can read (a MySQL zero date, a value written by hand): the load fails with `AuthzConfigError` instead of loading a policy that never expires.
 
 ### Writes
 
@@ -131,7 +131,7 @@ export class DenyOnlyPolicyStore extends DbPolicyStore {
 - **No constructor arguments.** `new DbPolicyStore()` reads the `authz` alias through `PolicyRecord`; it has no driver or connection option.
 - **Import before the ORM boots.** The ORM binds `PolicyRecord` when it boots, so import `@spinajs/authz-abac` before the `Orm` resolves. After a migration run that creates `authz_policy` once the ORM booted, call `orm.reloadTableInfo({ strict: true })` before the store reads.
 - **Strict table check.** With `db.StrictTableCheck` on, the `Orm` boot fails until `authz_policy` exists on the connection `db.Aliases.authz` names.
-- **One bad row stops every reload.** A row that does not parse fails `load` and `version`; the model keeps routing on its last good index and retries with backoff.
+- **One bad row stops every reload.** A row that does not parse, or whose `expires_at` is no readable datetime, fails `load` and `version`. At boot the domain does not start; in a running process the model keeps routing on its last good index, its decisions fail with that `AuthzConfigError` instead of using the old policies, and it retries with backoff until the row is repaired.
 - **Order and version** do not depend on the database collation: rows are sorted in code.
 - **Same connection as the batch.** `AuthzAdmin` must run its batch on the `authz` connection (`DbAuthzAdminBackend` does), or every write is refused.
 
