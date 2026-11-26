@@ -3,7 +3,7 @@ import 'mocha';
 import { OrmException } from '@spinajs/orm';
 
 import './migrations/PgTypesMigration_2026_10_15_00_02_00.js';
-import { IPgSuite, openSuite } from './harness.js';
+import { IPgSuite, openSuite, sqlState } from './harness.js';
 import { PgTxUser } from './models/types.js';
 
 const expect = chai.expect;
@@ -48,6 +48,8 @@ describe('postgres integration - a transaction aborted by a caught statement err
 
     expect(err).to.be.instanceOf(OrmException);
     expect((err as Error).message).to.include('aborted by an earlier failed statement');
+    expect(sqlState((err as OrmException).inner)).to.equal('42P01');
+    expect((err as Error).message).to.include('no_such_table');
     expect(ran).to.deep.equal([]);
     expect(await names()).to.deep.equal([]);
 
@@ -88,6 +90,29 @@ describe('postgres integration - a transaction aborted by a caught statement err
 
     expect(await names()).to.deep.equal(['outer']);
     expect(ran).to.deep.equal(['outer']);
+  });
+
+  it('names the later failure, not one rolled back to its savepoint, when a commit is refused', async () => {
+    const err = await suite.driver
+      .transaction(async () => {
+        await PgTxUser.create({ Name: 'lost' });
+        await suite.driver
+          .transaction(async () => {
+            await suite.raw('SELECT * FROM "no_such_table"');
+          })
+          .catch(() => undefined);
+        await suite.raw('SELECT "no_such_column" FROM "pg_tx_user"').catch(() => undefined);
+      })
+      .then(
+        () => undefined,
+        (e: unknown) => e,
+      );
+
+    expect(err).to.be.instanceOf(OrmException);
+    expect(sqlState((err as OrmException).inner)).to.equal('42703');
+    expect((err as Error).message).to.include('no_such_column');
+    expect((err as Error).message).to.not.include('no_such_table');
+    expect(await names()).to.deep.equal([]);
   });
 
   it('commits a transaction without a failed statement as before', async () => {

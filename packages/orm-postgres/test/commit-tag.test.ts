@@ -1,5 +1,5 @@
 import { DI } from '@spinajs/di';
-import { OrmException } from '@spinajs/orm';
+import { OrmException, QueryContext } from '@spinajs/orm';
 import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 import 'mocha';
@@ -9,13 +9,19 @@ import { PostgresOrmDriver } from '../src/index.js';
 const expect = chai.expect;
 chai.use(chaiAsPromised);
 
-/** A pooled client whose COMMIT reports `commitTag` as the server's command tag (none when undefined). */
-function fakeClient(commitTag: string | undefined) {
+/** A server error as node-postgres raises it. */
+function pgError(code: string, message: string): Error {
+  return Object.assign(new Error(message), { code });
+}
+
+/** A pooled client whose COMMIT reports `commitTag` as the server's command tag (none when undefined); a statement in `failing` rejects with its error. */
+function fakeClient(commitTag: string | undefined, failing: Record<string, Error> = {}) {
   const statements: string[] = [];
   const release = sinon.spy();
   const client = {
     query: (sql: string) => {
       statements.push(sql);
+      if (failing[sql]) return Promise.reject(failing[sql]);
       return Promise.resolve(sql === 'COMMIT' && commitTag !== undefined ? { rows: [], rowCount: 0, command: commitTag } : { rows: [], rowCount: 0 });
     },
     release,
@@ -100,5 +106,55 @@ describe('postgres commit command tag (unit)', function () {
       expect(fake.statements).to.deep.equal(['BEGIN', 'COMMIT']);
       expect(fake.release.calledOnce).to.equal(true);
     }
+  });
+
+  it('carries the first failed statement of the refused transaction as inner', async () => {
+    const missing = pgError('42P01', 'relation "no_such_table" does not exist');
+    const fake = fakeClient('ROLLBACK', { 'SELECT * FROM no_such_table': missing, 'SELECT 1': pgError('25P02', 'current transaction is aborted') });
+    usePool(fake.client);
+
+    const err = await driver
+      .transaction(async () => {
+        await driver.executeOnDb('SELECT * FROM no_such_table', [], QueryContext.Select).catch(() => undefined);
+        await driver.executeOnDb('SELECT 1', [], QueryContext.Select).catch(() => undefined);
+      })
+      .then(
+        () => undefined,
+        (e: unknown) => e,
+      );
+
+    expect(err).to.be.instanceOf(OrmException);
+    const inner = (err as OrmException).inner;
+    expect(inner).to.be.instanceOf(OrmException);
+    expect((inner as OrmException).inner).to.equal(missing);
+    expect((err as Error).message).to.include('no_such_table');
+  });
+
+  it('forgets a failure rolled back to its savepoint: a later refusal names the later failure', async () => {
+    const healed = pgError('42P01', 'relation "healed_table" does not exist');
+    const later = pgError('42703', 'column "no_such_column" does not exist');
+    const fake = fakeClient('ROLLBACK', { 'SELECT * FROM healed_table': healed, 'SELECT no_such_column': later });
+    usePool(fake.client);
+
+    const err = await driver
+      .transaction(async () => {
+        await driver
+          .transaction(async () => {
+            await driver.executeOnDb('SELECT * FROM healed_table', [], QueryContext.Select);
+          })
+          .catch(() => undefined);
+        await driver.executeOnDb('SELECT no_such_column', [], QueryContext.Select).catch(() => undefined);
+      })
+      .then(
+        () => undefined,
+        (e: unknown) => e,
+      );
+
+    expect(err).to.be.instanceOf(OrmException);
+    const inner = (err as OrmException).inner;
+    expect(inner).to.be.instanceOf(OrmException);
+    expect((inner as OrmException).inner).to.equal(later);
+    expect((err as Error).message).to.include('no_such_column');
+    expect((err as Error).message).to.not.include('healed_table');
   });
 });
