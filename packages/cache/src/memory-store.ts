@@ -32,6 +32,7 @@ export class MemoryCacheStore extends CacheStore {
   private readonly tagVersions = new Map<string, TagVersion>();
   private readonly id = randomBytes(6).toString('base64url');
   private counter = 0;
+  private bumpsApplied = 0;
   private maxTtlMs: number;
   private maxTags: number;
   private clock: Clock | undefined;
@@ -41,6 +42,11 @@ export class MemoryCacheStore extends CacheStore {
     super();
     this.givenMaxTags = options.maxTags;
     this.open(options);
+  }
+
+  /** Changes with every bump; a tiered store compares it around a read of its lower tier. */
+  public get epoch(): number {
+    return this.bumpsApplied;
   }
 
   public async configure(settings: CacheSettings): Promise<void> {
@@ -94,6 +100,7 @@ export class MemoryCacheStore extends CacheStore {
   }
 
   public bumpNow(bumps: readonly TagBump[]): void {
+    if (bumps.length > 0) this.bumpsApplied += 1;
     const now = this.now();
     for (const { tag } of bumps) this.keep(tag, this.token(), now);
     this.forget(now);

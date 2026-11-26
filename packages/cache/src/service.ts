@@ -1,15 +1,17 @@
 import { AsyncService, Autoinject, Container, DI, Injectable, Singleton } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
-import { Configuration } from '@spinajs/configuration';
+import { Configuration, resolveNamedService } from '@spinajs/configuration';
 import { stampBumps } from './bumps.js';
+import { TagBus, preferredTagBus } from './bus.js';
 import { Cache } from './contracts.js';
 import type { CacheLookup, CacheOptions, CacheReadOptions, TagBump } from './contracts.js';
+import { cacheLog } from './log.js';
 import { NamedCache } from './named-cache.js';
 import type { CacheHost, OpenedStore } from './named-cache.js';
 import { DEFAULT_CACHE, cacheSettings, readCacheConfig, resolveStore } from './settings.js';
 import type { CacheConfig } from './settings.js';
 
-/** The caches of one container. cache() resolves it on first use. */
+/** The caches of one container and their bus. cache() resolves it on first use. */
 @Singleton()
 @Injectable()
 export class CacheService extends AsyncService implements CacheHost {
@@ -21,11 +23,26 @@ export class CacheService extends AsyncService implements CacheHost {
 
   public config: CacheConfig;
 
+  public bus: TagBus;
+
   private readonly caches = new Map<string, NamedCache>();
+
+  private unsubscribe: (() => void) | undefined;
 
   public async resolve(): Promise<void> {
     this.config = readCacheConfig(this.Configuration);
+    this.bus = await resolveNamedService(this.Container, 'cache.bus', TagBus, { default: preferredTagBus });
+    this.unsubscribe = this.bus.subscribe((bumps) => {
+      // A bus that delivers to a snapshot of its subscribers may still call a service disposed during the delivery.
+      if (this.unsubscribe !== undefined) void this.apply(bumps);
+    });
     await super.resolve();
+  }
+
+  public async dispose(): Promise<void> {
+    this.unsubscribe?.();
+    this.unsubscribe = undefined;
+    await super.dispose();
   }
 
   public cache(name = DEFAULT_CACHE): Cache {
@@ -39,10 +56,19 @@ export class CacheService extends AsyncService implements CacheHost {
     return { store, settings };
   }
 
-  /** Bumps `tags` in every configured cache of this service. */
+  /**
+   * Bumps `tags` here at once, then publishes the bumps. The bus delivers them back to this process too and they are
+   * applied again: a bus that delivers after a commit thereby invalidates what was filled before it.
+   */
   public async invalidate(tags: readonly string[]): Promise<void> {
     if (tags.length === 0) return;
-    await this.apply(stampBumps(tags));
+    const bumps = stampBumps(tags);
+    await this.apply(bumps);
+    try {
+      await this.bus.publish(bumps);
+    } catch (error) {
+      cacheLog.warn({ error, tags: bumps.length }, `cache: publishing ${bumps.length} tag bumps failed; other processes keep their entries until they end`);
+    }
   }
 
   /** Applies bumps to the store of every configured cache, also one this process never used. Never throws. */

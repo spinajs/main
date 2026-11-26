@@ -13,6 +13,15 @@ export const CACHE_CONFIGURATION_SCHEMA = {
   properties: {
     maxTtl: { anyOf: [DURATION, MILLISECONDS], default: '1h', description: 'Cap of ttl + swr of every entry, counted from the reading of its tag versions' },
     ttlJitter: { type: 'number', minimum: 0, maximum: 0.5, default: 0.1, description: 'Every ttl is shortened by a random fraction of itself up to this, after the cap of maxTtl' },
+    bus: { type: 'string', minLength: 1, description: 'Class name of the TagBus; unset: the registered bus with the highest preferTagBus rank' },
+    breaker: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        failures: { type: 'integer', minimum: 1, default: 5, description: 'Store failures in a row after which it is not called for resetAfter' },
+        resetAfter: { anyOf: [DURATION, MILLISECONDS], default: '10s', description: 'How long an open breaker skips the store before it lets one call through' },
+      },
+    },
     caches: {
       type: 'object',
       description: 'Named caches; an entry is open for the keys of its store',
@@ -23,6 +32,8 @@ export const CACHE_CONFIGURATION_SCHEMA = {
           maxEntries: { type: 'integer', minimum: 0 },
           maxBytes: { type: 'integer', minimum: 0 },
           consistency: { enum: ['eventual', 'strict'] },
+          upper: { type: 'string', minLength: 1, description: 'TieredCacheStore: the upper tier, a MemoryCacheStore' },
+          lower: { type: 'string', minLength: 1, description: 'TieredCacheStore: the shared store behind it' },
         },
       },
     },

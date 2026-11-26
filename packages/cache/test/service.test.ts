@@ -244,7 +244,9 @@ describe('cache()', () => {
   it('resolves an invalidation that one store refuses, and still bumps the others', async () => {
     await cache().set('k', 1, { ttl: '1m', tags: ['any:t'] });
     await cache().invalidate(['any:t']);
-    expect([await cache().get('k'), CountingStore.bumped]).to.deep.eq([undefined, ['any:t']]);
+    // The bump and the bus echo of it, which applies the bump again.
+    await new Promise((resolve) => setImmediate(resolve));
+    expect([await cache().get('k'), CountingStore.bumped]).to.deep.eq([undefined, ['any:t', 'any:t']]);
   });
 
   it('reads a store that fails to open as a miss and still returns the computed value', async () => {

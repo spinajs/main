@@ -8,11 +8,13 @@ import { CacheConfigError } from './errors.js';
 export const DEFAULT_CACHE = 'default';
 
 /** What applies where cache.* leaves a key unset; the schema defaults say the same for a validated configuration. */
-export const CACHE_DEFAULTS = Object.freeze({ maxTtl: '1h', ttlJitter: 0.1, store: 'MemoryCacheStore', maxEntries: 50_000, maxBytes: 134_217_728 });
+export const CACHE_DEFAULTS = Object.freeze({ maxTtl: '1h', ttlJitter: 0.1, store: 'MemoryCacheStore', maxEntries: 50_000, maxBytes: 134_217_728, breakerFailures: 5, breakerResetAfter: '10s' });
 
 export interface CacheConfig {
   readonly maxTtlMs: number;
   readonly ttlJitter: number;
+  readonly breakerFailures: number;
+  readonly breakerResetMs: number;
   readonly caches: Readonly<Partial<Record<string, Readonly<Record<string, unknown>>>>>;
 }
 
@@ -26,7 +28,14 @@ export function readCacheConfig(configuration: Configuration): CacheConfig {
   const section: Record<string, unknown> = isRecord(root) ? root : {};
   const entries = isRecord(section.caches) ? Object.entries(section.caches) : [];
   const caches = Object.fromEntries(entries.flatMap(([name, entry]) => (isRecord(entry) ? [[name, entry] as const] : [])));
-  return { maxTtlMs: timeOf(section.maxTtl, CACHE_DEFAULTS.maxTtl, 'cache.maxTtl'), ttlJitter: numberOf(section.ttlJitter, CACHE_DEFAULTS.ttlJitter), caches };
+  const breaker: Record<string, unknown> = isRecord(section.breaker) ? section.breaker : {};
+  return {
+    maxTtlMs: timeOf(section.maxTtl, CACHE_DEFAULTS.maxTtl, 'cache.maxTtl'),
+    ttlJitter: numberOf(section.ttlJitter, CACHE_DEFAULTS.ttlJitter),
+    breakerFailures: numberOf(breaker.failures, CACHE_DEFAULTS.breakerFailures),
+    breakerResetMs: timeOf(breaker.resetAfter, CACHE_DEFAULTS.breakerResetAfter, 'cache.breaker.resetAfter'),
+    caches,
+  };
 }
 
 /** Only the cache `default` exists without an entry in cache.caches. */
@@ -42,6 +51,8 @@ export function cacheSettings(config: CacheConfig, name: string): CacheSettings 
     maxBytes: numberOf(own.maxBytes, CACHE_DEFAULTS.maxBytes),
     maxTtlMs: config.maxTtlMs,
     consistency: own.consistency === 'strict' ? 'strict' : 'eventual',
+    breakerFailures: config.breakerFailures,
+    breakerResetMs: config.breakerResetMs,
     raw: own,
   };
 }

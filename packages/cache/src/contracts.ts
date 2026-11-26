@@ -98,6 +98,9 @@ export interface CacheSettings {
   readonly maxBytes: number;
   readonly maxTtlMs: number;
   readonly consistency: CacheConsistency;
+  /** Failures in a row after which the store, or a lower tier, is not called for breakerResetMs. */
+  readonly breakerFailures: number;
+  readonly breakerResetMs: number;
   /** Every key of cache.caches.<name>, those of the store included. */
   readonly raw: Readonly<Record<string, unknown>>;
 }
