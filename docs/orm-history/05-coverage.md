@@ -15,6 +15,8 @@ export async function completeSince(instant: Date): Promise<boolean> {
 
 `since(trail, connection, entity)` takes the trail's name, the connection the model is on (a configured name, an alias or `default`) and the entity: the table name, unless `@History({ entity })` names another. It answers `undefined` for an entity that was never covered or a connection without the table, rejects with `HistoryConfigError` for a connection the ORM does not have and with `AuditConfigError` for a trail this process has no configuration for.
 
+Read the entries first, then `since()`: a retention run in between only moves the answer forward, so the range it claims is one the entries you read still held. In the other order a run that starts after `since()` has answered can delete the oldest entries of that range before you read them.
+
 The claim is about the columns the registration records, never about the whole row. A column it excludes, masks or does not track (column mode, `@History({ columns })`) is never covered: an update that writes only such columns leaves no entry at all, inside the covered range too. Before a replay reads a column from the trail, check that the model's registration records it.
 
 ## What sets and moves it
@@ -26,7 +28,7 @@ The claim is about the columns the registration records, never about the whole r
 | An insert whose keys are not reported, or a statement that reaches a key without a text (a [`lost` event](01-tracking-models.md#inserts-whose-keys-are-not-reported)) | the instant of that event, when the write commits |
 | A boot whose registration records a column that was excluded, masked or not tracked before | that boot |
 | A retention run over the trail (`pruneAudit`, the `audit.retention` task) | the run's cutoff, when it is later; moved before the older events are deleted |
-| A trail with `retentionDays`, at every read | never earlier than `retentionDays` before the read, also before the first retention run ([Retention](#retention)) |
+| A trail with `retentionDays`, at every read | never earlier than `retentionDays` before the read, plus 5 seconds, also before the first retention run ([Retention](#retention)) |
 | A column added to the table, a column the registration no longer records | unchanged |
 | `@History(false)` / `registerHistory(Model, false)` | no coverage: the row is deleted at the next boot |
 
@@ -69,10 +71,13 @@ On a connection without the table the tracked models have no coverage: `since()`
 
 A trail with `retentionDays` loses its older events to `pruneAudit()`. Before the events of a connection are deleted, the coverage of that trail on that connection moves up to the cutoff, so a row whose entries were pruned is never taken for an unchanged one. When the coverage cannot be moved, the events of that connection stay and the run reports it as failed (`AuditPruneFailed`). On a sealed trail retention removes whole sealed ranges, so events younger than the cutoff can remain for a while; coverage still starts at the cutoff. Calling a reader's `prune` yourself moves nothing.
 
-The coverage is moved by the process that runs retention, and only when that process has imported `@spinajs/orm-history`: run retention in a process that loads the package. `since()` does not trust the row alone. For a trail with `retentionDays` it never answers earlier than that many days before the read, also before the first retention run, so a worker that runs `AuditRetentionTask` without loading a tracked model, and leaves the row where it was, still gets no claim over the events it deleted. The bound is taken from the configuration and the clock of the process that reads. It does not help in two cases, where `since()` can answer an instant whose events are gone:
+The coverage is moved by the process that runs retention, and only when that process has imported `@spinajs/orm-history`: run retention in a process that loads the package. `since()` does not trust the row alone. For a trail with `retentionDays` it never answers earlier than that many days before the read, plus 5 seconds, also before the first retention run, so a worker that runs `AuditRetentionTask` without loading a tracked model, and leaves the row where it was, still gets no claim over the events it deleted. The bound is taken from the configuration and the clock of the process that reads, while the cutoff of a run is taken from the clock of the process that prunes; the 5 seconds cover a pruning clock that runs up to that much ahead. The bound does not help in three cases, where `since()` can answer an instant whose events are gone:
 
-- `retentionDays` was raised or removed after such a run, or the reading process is configured with a longer one than the process that pruned, or with none;
-- a reader's `prune` was called directly with a cutoff later than `retentionDays` allows, or `pruneAudit({ now })` with a `now` later than the clock of the process that reads.
+- **Configuration.** `retentionDays` was raised or removed after a run by a process that has not loaded `@spinajs/orm-history`, or the reading process is configured with a longer one than the process that pruned, or with none.
+- **Clocks.** The clock of a process that has not loaded `@spinajs/orm-history` ran more than 5 seconds ahead of the reader's when it pruned. For a while after that run, `since()` can be too early by the excess. The same holds for `pruneAudit({ now })` called with a `now` more than 5 seconds later than the clock of the process that reads.
+- **A direct prune.** A reader's `prune` was called directly with a cutoff later than `retentionDays` allows. It tells no listener, wherever it runs.
+
+The first two cannot happen when retention runs in a process that loads `@spinajs/orm-history`: the run moves the row to its own cutoff. Otherwise keep the clocks of the processes that prune and that read within 5 seconds of each other.
 
 ## What is not covered
 
@@ -84,8 +89,8 @@ The coverage is moved by the process that runs retention, and only when that pro
 - **A rolling deploy.** The first node of a release that introduces tracking (a new `@History()`, or the removal of `@History(false)`) writes the row at its boot, while nodes of the old version keep writing the table untracked until they stop; a release that starts recording a column has the same window for that column. Deploy such a release without overlap, or delete the row from `history_coverage` once the last old node has stopped: the next boot writes it again.
 - **Writes the capture does not see** ([Limits](04-limits.md#what-is-not-recorded)): raw SQL, builders without a model, cascades and triggers.
 - **A data migration.** A migration that rewrites a covered table with a builder or raw SQL runs after the row exists, so its writes are inside the covered range for good, and no call restarts coverage. Delete the row from `history_coverage` in the same migration; the next boot of the application writes it again.
-- **Clocks.** Every instant is the clock of the process that stamps it, never the database's: the row takes the clock of the booting process, a `lost` marker the clock of its writer, before its transaction commits. A writer whose clock lags, or a transaction that commits late, makes coverage start before the lost write was visible. Keep the clocks of every node synchronised, and keep a margin when replaying near the start of coverage.
-- **Retention in two cases.** After a run by a process that has not loaded `@spinajs/orm-history`, once `retentionDays` was raised or removed, and after a reader's `prune` called directly, `since()` can claim a range whose events are gone ([Retention](#retention)).
+- **Clocks.** Every instant is the clock of the process that stamps it, never the database's: the row takes the clock of the booting process, a `lost` marker the clock of its writer, before its transaction commits, the retention bound the clock of the reader and a retention cutoff the clock of the pruner. A writer whose clock lags, or a transaction that commits late, makes coverage start before the lost write was visible. Keep the clocks of every node synchronised, and keep a margin when replaying near the start of coverage.
+- **Retention, in three cases** ([Retention](#retention)): `retentionDays` raised or removed after a run by a process that has not loaded `@spinajs/orm-history`; such a run by a process whose clock runs more than 5 seconds ahead of the reader's; and a reader's `prune` called directly. In each, `since()` can claim a range whose events are gone.
 - **A renamed column** reads as a new one: it restarts nothing, and the entries before the rename hold the old name.
 - **A shipping trail** (`OutboxAuditStore`): an event reaches the archive some time after its write, so `since` can be earlier than what the archive already holds, and a `lost` marker counts only once it is archived.
 - `asOf` does not read coverage; it keeps its own rule ([As-of and erasure](03-as-of-and-erasure.md)).
