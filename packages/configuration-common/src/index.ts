@@ -1,4 +1,5 @@
 export * from './definitions.js';
+export * from './overlay.js';
 export * from './environment.js';
 export * from './app-env.js';
 export * from './variables-common.js';

@@ -94,6 +94,11 @@ export abstract class Configuration extends AsyncService {
    */
   public abstract merge(path: string[] | string, value: unknown): void;
 
+  /** Whether a registered ConfigurationOverlay may answer reads of `path`: the value read there can differ per unit of work. */
+  public isOverlaid(_path: string[] | string): boolean {
+    return false;
+  }
+
   /**
    *
    * Loads & merge configuration loaded from specific source.
