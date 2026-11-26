@@ -29,7 +29,7 @@ class FullHistory extends WriteObserver {
   public readonly keepsHistory = true;
 
   public interest(statement: WriteStatement): CaptureInterest | undefined {
-    return entryOf(statement.model) ? { columns: '*', transactional: true } : undefined;
+    return entryOf(statement.model) ? { columns: '*', transactional: true, unrecorded: [] } : undefined;
   }
 
   public observe(): Promise<void> {
@@ -52,6 +52,13 @@ function historyWith(interest: CaptureInterest): Class<WriteObserver> {
       return entryOf(statement.model) ? interest : undefined;
     }
   };
+}
+
+/** Keeps history of every write of an `@AccessResource` model, as an observer written before `unrecorded` existed. */
+class UnstatedHistory extends FullHistory {
+  public interest(statement: WriteStatement): CaptureInterest | undefined {
+    return entryOf(statement.model) ? { columns: '*', transactional: true } : undefined;
+  }
 }
 
 /** Takes the same writes and keeps no history, as a cache does. */
@@ -92,6 +99,9 @@ const refusal = (kind: keyof typeof PHRASES, model: { readonly name: string }, t
 
 const gap = (kind: keyof typeof PHRASES, model: { readonly name: string }, type: string, columns: readonly string[]): string =>
   `authz-orm: ${PHRASES[kind]} of ${model.name} (resource '${type}') is kept by a history observer that does not record ${columns.join(', ')}, and authz.orm.requireHistory refuses it; make the model's history record every relation and type column, or opt the model out with @AccessResource('${type}', { changelog: false })`;
+
+const unstated = (kind: keyof typeof PHRASES, model: { readonly name: string }, type: string, observer: { readonly name: string }): string =>
+  `authz-orm: ${PHRASES[kind]} of ${model.name} (resource '${type}') is taken by the history observer ${observer.name}, which does not say which columns it records, and authz.orm.requireHistory refuses it; make its interest() set unrecorded to the columns it reads but does not keep ([] when it keeps them all), or opt the model out with @AccessResource('${type}', { changelog: false })`;
 
 // rejectedWith(Class, text) matches a fragment; the messages are asserted whole.
 async function rejection(write: PromiseLike<unknown>): Promise<unknown> {
@@ -263,7 +273,7 @@ describe('ResourceHistoryGuard', function () {
 
     it('refuses a write a history takes without recording a relation or type column: column mode, exclude, a masked @Hidden() column', async () => {
       testHost.config().set(FLAG, true);
-      undo.push(observing(historyWith({ columns: ['title'], transactional: true })));
+      undo.push(observing(historyWith({ columns: ['title'], transactional: true, unrecorded: [] })));
       expect(await rejection(Doc.insert(D1))).to.be.instanceOf(UnrecordedResourceWrite).with.property('message', gap('insert', Doc, 'doc', RELATION_COLUMNS));
       await db.insertRaw(Doc, D1);
       expect(await rejection(Doc.update({ title: 'b', owner_id: 'u2' }).where('id', 'd1'))).to.be.instanceOf(UnrecordedResourceWrite).with.property('message', gap('update', Doc, 'doc', RELATION_COLUMNS));
@@ -273,6 +283,15 @@ describe('ResourceHistoryGuard', function () {
       undo.push(observing(historyWith({ columns: '*', transactional: true, unrecorded: ['secret', 'owner_id'] })));
       expect(await rejection(Doc.update({ owner_id: 'u2' }).where('id', 'd1'))).to.be.instanceOf(UnrecordedResourceWrite).with.property('message', gap('update', Doc, 'doc', ['owner_id']));
       expect(await rejection(Doc.destroy('d1'))).to.be.instanceOf(UnrecordedResourceWrite).with.property('message', gap('delete', Doc, 'doc', ['owner_id']));
+      expect(await db.rows(Doc)).to.deep.equal([D1]);
+    });
+
+    it('refuses a write a history-keeping observer takes without stating unrecorded, which makes no claim about the columns it records', async () => {
+      testHost.config().set(FLAG, true);
+      undo.push(observing(UnstatedHistory));
+      expect(await rejection(Doc.insert(D1))).to.be.instanceOf(UnrecordedResourceWrite).with.property('message', unstated('insert', Doc, 'doc', UnstatedHistory));
+      await db.insertRaw(Doc, D1);
+      expect(await rejection(Doc.update({ owner_id: 'u2' }).where('id', 'd1'))).to.be.instanceOf(UnrecordedResourceWrite).with.property('message', unstated('update', Doc, 'doc', UnstatedHistory));
       expect(await db.rows(Doc)).to.deep.equal([D1]);
     });
 
@@ -293,7 +312,7 @@ describe('ResourceHistoryGuard', function () {
       const Job = (await db.define({ name: 'Job', columns: { owner_id: 'TEXT', title: 'TEXT' } })) as M;
       registerAccessResource(Job, 'job', { owner: 'owner_id' });
       expect(await rejection(Job.insert({ id: 'j1', owner_id: 'u1', title: 'a' }))).to.be.instanceOf(UnrecordedResourceWrite).with.property('message', refusal('insert', Job, 'job'));
-      undo.push(observing(historyWith({ columns: ['owner_id'], transactional: true })));
+      undo.push(observing(historyWith({ columns: ['owner_id'], transactional: true, unrecorded: [] })));
       await Job.insert({ id: 'j1', owner_id: 'u1', title: 'a' });
       expect(await db.rows(Job)).to.have.length(1);
     });
@@ -343,7 +362,7 @@ describe('ResourceHistoryGuard in a process that boots no authz domain', functio
   it('refuses and lets through a write as a worker that only imports its models does', async () => {
     testHost.config().set(FLAG, true);
     expect(await rejection(Doc.insert(D1))).to.be.instanceOf(UnrecordedResourceWrite).with.property('message', refusal('insert', Doc, 'doc'));
-    undo.push(observing(historyWith({ columns: ['title'], transactional: true })));
+    undo.push(observing(historyWith({ columns: ['title'], transactional: true, unrecorded: [] })));
     expect(await rejection(Doc.insert(D1))).to.be.instanceOf(UnrecordedResourceWrite).with.property('message', gap('insert', Doc, 'doc', RELATION_COLUMNS));
     undo.push(observing(FullHistory));
     await Doc.insert(D1);
