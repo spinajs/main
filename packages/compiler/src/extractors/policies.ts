@@ -38,15 +38,21 @@ export function accessOf(node: ts.HasDecorators, ctx: ExtractorContext): AccessI
   return info;
 }
 
-export function policyGroupsOf(node: ts.HasDecorators, ctx: ExtractorContext, scope: 'route' | 'class'): PolicyRef[][] {
+/**
+ * The policy groups `node`'s transport mounts: each transport reads only its own descriptor, which only its own policy
+ * decorator writes, and `@Access` writes http's.
+ */
+export function policyGroupsOf(node: ts.HasDecorators, ctx: ExtractorContext, scope: 'route' | 'class', transport: 'http' | 'socket'): PolicyRef[][] {
+  const policyDecorator = transport === 'http' ? 'Policy' : 'SocketPolicy';
   const groups: PolicyRef[][] = [];
   for (const d of decoratorsOf(node)) {
-    if (d.name !== 'Policy' && d.name !== 'SocketPolicy') continue;
+    if (d.name !== policyDecorator) continue;
     const first = d.args[0];
     const members = first && ts.isArrayLiteralExpression(first) ? [...first.elements] : first ? [first] : [];
     const options = d.args.slice(1).map((a) => literalValue(a, ctx));
     if (members.length) groups.push(members.map((m) => ({ type: refOf(m, ctx), options })));
   }
+  if (transport === 'socket') return groups;
   const { access, also } = accessOf(node, ctx);
   if (access) groups.push([{ type: 'AccessPolicy', options: [scope] }, ...also.map((type) => ({ type, options: [] as unknown[] }))]);
   return groups;
