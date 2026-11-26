@@ -37,7 +37,7 @@ On a connection with tenant settings, step 4 also applies the [one scope per tra
 | --- | --- | --- | --- |
 | `isolation` | `'row' \| 'schema'` | `tenancy.orm.isolation` | `'schema'` throws `NotSupported`: schema placements are not available yet |
 | `column` | `string \| false` | `tenancy.orm.column` | Name of the tenant column, `[A-Za-z_][A-Za-z0-9_]*`. `false` throws `InvalidArgument` in row mode |
-| `rls` | `boolean` | `tenancy.orm.rls` | Turns on the [transaction rule](04-transactions.md) for the model's connection and, on PostgreSQL and PGlite, the tenant session settings |
+| `rls` | `boolean` | `tenancy.orm.rls` | Turns on the [transaction rule](04-transactions.md) for the model's connection and, on PostgreSQL and PGlite, the tenant session settings for [row level security](06-row-level-security.md) |
 
 An unknown option, or a value of the wrong type, throws `InvalidArgument` at declaration. Registering a class twice with
 the same options is a no-op; with other options it throws `InvalidArgument`.
@@ -46,9 +46,10 @@ the same options is a no-op; with other options it throws `InvalidArgument`.
 
 | Key | Type | Default | Allowed values | Meaning |
 | --- | --- | --- | --- | --- |
-| `tenancy.orm.isolation` | `string` | `row` | `row`, `schema` | Isolation of a model that sets none. `schema` throws `NotSupported` at the first statement on a tenant model |
+| `tenancy.orm.isolation` | `string` | `row` | `row`, `schema` | Isolation of a model that sets none. `schema` throws `NotSupported` at the first statement of a transaction (so at boot, in a migration's transaction) and at every statement inside a tenant scope |
 | `tenancy.orm.column` | `string | false` | `tenant_id` | column name; `false` is refused in row mode, `true` by the schema | Tenant column of a model that sets none |
 | `tenancy.orm.rls` | `boolean` | `false` | `true`, `false` | `rls` of a model that sets none |
+| `tenancy.orm.rlsBypassRole` | `string` | unset | a role name | Role the all-tenants scope lets through under [row level security](06-row-level-security.md) |
 
 ```json
 { "tenancy": { "orm": { "isolation": "row", "column": "tenant_id", "rls": false } } }
@@ -117,6 +118,9 @@ It also does not look into:
 
 Put the tenant condition into those by hand. Such a statement reads the rows of every tenant, with or without a tenant
 scope, and nothing throws.
+
+On PostgreSQL and PGlite, a model with `rls` and the migration of `tenant:rls` make the database confine such a
+statement to the tenant in scope: see [Row level security](06-row-level-security.md).
 
 Schema builders are not checked: a view over a tenant table, or a table clone with data, carries every tenant's rows.
 An update without a model (all-tenants scope only) is checked by the spelling of its keys, so a name that only the
