@@ -383,17 +383,19 @@ describe('DomainReplayService', function () {
     loading.open(recording('pricing', 'slow'));
     expect(await slow).to.equal(gone);
     expect([world.views, world.budgets]).to.deep.equal([[], []]);
-    const caller = new AbortController();
-    world.step = (_r, _v, signal) => untilAborted(signal);
-    const pending = failure(s.replay('pricing', 'r1', { signal: caller.signal }));
-    caller.abort(gone);
-    expect(await pending).to.equal(gone);
     const held = gate<ReplayOutcome>();
-    world.step = () => held.promise;
-    const ignored = new AbortController();
-    const ignoring = failure(within(2_000, s.replay('pricing', 'r1', { signal: ignored.signal })));
-    ignored.abort(gone);
-    expect(await ignoring).to.equal(gone);
+    const steps: Step[] = [(_r, _v, signal) => untilAborted(signal), () => held.promise];
+    for (const step of steps) {
+      const [caller, started] = [new AbortController(), gate<undefined>()];
+      world.step = (r, view, signal, budget) => {
+        started.open(undefined);
+        return step(r, view, signal, budget);
+      };
+      const pending = failure(within(2_000, s.replay('pricing', 'r1', { signal: caller.signal })));
+      await started.promise;
+      caller.abort(gone);
+      expect(await pending).to.equal(gone);
+    }
     held.open({ outcome: { price: 12 }, missing: [], divergences: [] });
   });
 
