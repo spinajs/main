@@ -12,7 +12,7 @@ export { acrossTenantsReason } from './marker.js';
 export { TenantDeleteExtension, TenantSelectExtension, TenantUpdateExtension } from './across.js';
 export type { SameQuery, TenantQueryMethods } from './across.js';
 export { carriesTenantSettings } from './transaction.js';
-export { TENANT_ISOLATION_POLICY, TENANT_OPEN_POLICY, TENANT_RLS_SETTINGS, generateTenantRls, tenantRlsStatements, tenantRlsTables } from './rls.js';
+export { TENANT_ISOLATION_POLICY, TENANT_OPEN_POLICY, TENANT_RLS_SETTINGS, generateTenantRls, tenantRlsMigrationSource, tenantRlsStatements, tenantRlsTables } from './rls.js';
 export type { TenantRlsOptions, TenantRlsOutput, TenantRlsTable } from './rls.js';
 // Registers TenantSessionSettings as a ConnectionSessionSettings.
 export { TenantSessionSettings, sendsTenantSettings } from './session.js';
