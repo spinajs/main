@@ -107,6 +107,13 @@ describe('authz-rebac: DbTupleStore (sqlite)', function () {
     expect(rows).to.deep.equal([{ namespace: 'doc', object_id: 'd1', relation: 'viewer', subject_key: 'group:eng#member', subject_type: 'group', subject_id: 'eng', subject_relation: 'member', created_by: 'user:admin' }]);
   });
 
+  it('withSubjectObject answers the tuples whose subject is the object or one of its sets, in find order', async () => {
+    const store = new DbTupleStore();
+    const tuples = [tuple(d2, 'viewer', set('doc', 'd1', 'member')), tuple(d2, 'parent', { type: 'doc', id: 'd1' }), tuple(d2, 'viewer', set('doc', 'd10', 'member')), tuple(d2, 'viewer', user('d1')), tuple(d1, 'viewer', user('dave'))];
+    await db.driver.transaction((tx) => store.writeIn({ driver: tx }, tuples, [], user('admin')));
+    expect(await store.withSubjectObject(d1)).to.deep.equal([tuples[1], tuples[0]]);
+  });
+
   it('writeIn joins a transaction: a rollback undoes the write', async () => {
     const store = new DbTupleStore();
     const out = await db.driver

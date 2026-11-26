@@ -5,9 +5,9 @@ import { AuthzConfigError } from '@spinajs/authz';
 import type { AuthzAdminQuery, AuthzCommand, AuthzCommandOf } from '@spinajs/authz';
 
 import { RebacExpandReader, RebacScopeForgetter, RebacTupleHandler, RebacTupleReader } from '../../src/index.js';
-import type { Tuple, TupleDeleteCommand, TupleWriteCommand, TuplesAdminQuery } from '../../src/index.js';
+import type { Tuple, TupleDeleteCommand, TupleSubject, TupleWriteCommand, TuplesAdminQuery } from '../../src/index.js';
 import { CAVEATS, CAVEAT_TUPLES, NS } from '../support/caveat-world.js';
-import { TUPLES, d1, d2, ref, set, tuple, user } from '../support/world.js';
+import { TUPLES, d1, d2, d3, f1, ref, set, tuple, user } from '../support/world.js';
 import { AuthzAdminFailure, failure, installHost, ok, rebacDomain, remove, resetHost, uninstallHost, write } from './support.js';
 import type { RebacDomain } from './support.js';
 
@@ -155,6 +155,52 @@ describe('authz-rebac: tuple commands through AuthzAdmin', function () {
       ok(await d.admin.execute(alice, [{ kind: 'scope.forget', scope: d1 }]));
       expect(d.store.has(tuple(d1, 'viewer', user('dave')))).to.equal(false);
       expect(d.store.has(tuple(d2, 'viewer', user('dave')))).to.equal(true);
+    });
+
+    const eng = ref('group', 'eng');
+    const mallory = userPrincipal('mallory');
+    const folder = (id: string): TupleSubject => ({ type: 'folder', id });
+
+    it('removes the tuples whose subject is a set of the scope: a group re-created with its id is granted nothing', async () => {
+      await resetHost();
+      const viaEng = tuple(d1, 'viewer', set('group', 'eng', 'member'));
+      const nested = tuple(ref('group', 'all'), 'member', set('group', 'eng', 'member'));
+      const prefixed = tuple(d2, 'viewer', set('group', 'engineering', 'member'));
+      d = await rebacDomain('test', { tuples: [viaEng, nested, prefixed, tuple(eng, 'member', user('bob')), tuple(d3, 'viewer', set('group', 'all', 'member'))] });
+      const [result] = ok(await d.admin.execute(alice, [{ kind: 'scope.forget', scope: eng }]));
+      expect(result.affected).to.equal(3);
+      expect(d.store.has(viaEng)).to.equal(false);
+      expect(d.store.has(nested)).to.equal(false);
+      expect(d.store.has(prefixed)).to.equal(true);
+      ok(await d.admin.execute(alice, [write(tuple(eng, 'member', user('mallory')))]));
+      expect(await d.service.can(mallory, 'doc:read', d1)).to.equal(false);
+      expect(await d.service.can(mallory, 'doc:read', d3)).to.equal(false);
+    });
+
+    it('removes the tuples whose subject is the scope itself: a folder re-created with its id is granted nothing', async () => {
+      await resetHost();
+      const inF1 = tuple(d2, 'parent', folder('f1'));
+      d = await rebacDomain('test', { tuples: [inF1, tuple(f1, 'viewer', user('frank')), tuple(d3, 'parent', folder('f10'))] });
+      const [result] = ok(await d.admin.execute(alice, [{ kind: 'scope.forget', scope: f1 }]));
+      expect(result.affected).to.equal(2);
+      expect(d.store.has(inF1)).to.equal(false);
+      expect(d.store.has(tuple(d3, 'parent', folder('f10')))).to.equal(true);
+      expect([...d.bus.published[d.bus.published.length - 1].tags].sort()).to.deep.equal(['model:rebac', 'rebac', 'rebac:doc', 'rebac:folder', 'scope:folder:f1']);
+      expect(d.sink.events.filter((e) => e.type === 'TupleChanged').map((e) => e.data)).to.have.deep.members([
+        { object: d2, relation: 'parent', subject: folder('f1'), op: 'delete' },
+        { object: f1, relation: 'viewer', subject: user('frank'), op: 'delete' },
+      ]);
+      ok(await d.admin.execute(alice, [write(tuple(f1, 'viewer', user('mallory')))]));
+      expect(await d.service.can(mallory, 'doc:read', d2)).to.equal(false);
+    });
+
+    it('removes a tuple that is both on the scope and about it once', async () => {
+      await resetHost();
+      const self = tuple(f1, 'parent', folder('f1'));
+      d = await rebacDomain('test', { tuples: [self] });
+      const [result] = ok(await d.admin.execute(alice, [{ kind: 'scope.forget', scope: f1 }]));
+      expect(result.affected).to.equal(1);
+      expect(d.store.has(self)).to.equal(false);
     });
   });
 
