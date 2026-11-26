@@ -3,6 +3,7 @@ import chaiAsPromised from 'chai-as-promised';
 import 'mocha';
 import { audit } from '@spinajs/audit';
 import type { AuditInput } from '@spinajs/audit';
+import { rowsOf } from '@spinajs/audit-orm';
 
 import { HistoryConfigError, registerHistory } from '../src/index.js';
 import type { HistoryEntry } from '../src/index.js';
@@ -122,4 +123,50 @@ describe('the last entries of many rows', function () {
       });
     });
   }
+
+  describe('a trail whose subject_id ignores trailing spaces, as on MySQL and MSSQL (sqlite)', () => {
+    let Invoice: TrackedClass;
+    const write = (inputs: readonly AuditInput[]): Promise<void> => db.driver('sqlite').transaction((tx) => audit().record(inputs, { trail: 'history', mode: 'transactional', transaction: tx, onFailure: 'reject' }));
+
+    // MySQL's utf8mb4_bin and MSSQL's BIN2 are PAD SPACE; sqlite's RTRIM collation compares the same way.
+    const padSpaceTrail = async (): Promise<void> => {
+      const driver = db.driver('sqlite');
+      const ddl = rowsOf(await driver.select().from('sqlite_master').where('tbl_name', 'orm_history').whereNotNull('sql').orderByDescending('type')).map((row) => String(row.sql));
+      await driver.schema().dropTable('orm_history');
+      for (const sql of ddl) await driver.schema().raw(sql.replace('`subject_id` TEXT,', '`subject_id` TEXT COLLATE RTRIM,'));
+    };
+
+    beforeEach(async () => {
+      await padSpaceTrail();
+      Invoice = await db.define({ name: 'Invoice', table: 'invoice', columns: { status: 'TEXT' }, decorate: (c) => registerHistory(c) }, 'sqlite');
+    });
+
+    afterEach(async () => {
+      await db.clear();
+    });
+
+    it('answers each id with its own entry, never the entry of an id that differs by trailing spaces', async () => {
+      await write([event('invoice', 'k', 'insert', T(10), 'k'), event('invoice', 'k ', 'insert', T(20), 'k '), event('invoice', 'm ', 'insert', T(10), 'm '), event('invoice', 'm', 'insert', T(20), 'm')]);
+      expect((await Invoice.history().of('k')).map((e) => e.id), 'the trail collides').to.deep.eq(['k', 'k ']);
+      const asked = ['k', 'k ', 'm', 'm ', 'n '];
+      const own = [
+        ['k', 'k', 'k'],
+        ['k ', 'k ', 'k '],
+        ['m', 'm', 'm'],
+        ['m ', 'm ', 'm '],
+      ];
+      const triples = (found: ReadonlyMap<string, HistoryEntry>): unknown[] => [...found].map(([id, e]) => [id, e.id, e.after?.status]);
+      expect(triples(await Invoice.history().latest(asked))).to.deep.eq(own);
+      expect(triples(await Invoice.history().latestBefore(asked, T(20)))).to.deep.eq(own);
+      expect(triples(await Invoice.history().latestBefore(['k', 'm '], T(15)))).to.deep.eq([['k', 'k', 'k'], ['m ', 'm ', 'm ']]);
+    });
+
+    it('reads one page past the other id, and refuses when a full page holds no entry of the asked one', async () => {
+      await write([event('invoice', 'k', 'insert', T(10), 'own'), ...Array.from({ length: 999 }, () => event('invoice', 'k ', 'update', T(20), 'other'))]);
+      expect(statusOf(await Invoice.history().latest(['k']), 'k')).to.eq('own');
+      await write([event('invoice', 'k ', 'update', T(30), 'other')]);
+      await expect(Invoice.history().latest(['k'])).to.be.rejectedWith(HistoryConfigError, `orm-history: the trail's subject_id comparison takes "k " for "k" of invoice, and the last 1000 entries it matches are not "k"'s`);
+      expect(statusOf(await Invoice.history().latestBefore(['k'], T(10)), 'k')).to.eq('own');
+    });
+  });
 });
