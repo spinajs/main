@@ -2,7 +2,7 @@ import { audit } from '@spinajs/audit';
 import { Autoinject, DI, Injectable, Singleton } from '@spinajs/di';
 import { Logger } from '@spinajs/log-common';
 import type { Log } from '@spinajs/log-common';
-import { ModelBase, Orm, extractModelDescriptor } from '@spinajs/orm';
+import { ModelBase, Orm, OrmMigrationGuard, extractModelDescriptor } from '@spinajs/orm';
 import type { ModelBaseClass, OrmDriver } from '@spinajs/orm';
 
 import { coverageColumns, restarts, sameColumns } from './coverage-columns.js';
@@ -108,6 +108,12 @@ export class TableHistoryCoverage extends HistoryCoverage {
     return pass;
   }
 
+  /** What an application's boot runs. A migration tool's Orm serves no writes and boots before the table exists. */
+  public boot(orm: Orm): void {
+    if (orm.Container.get(OrmMigrationGuard)?.Enabled === false) return;
+    this.record().catch((error: unknown) => this.Log.warn({ error }, 'orm-history: the coverage of the tracked models could not be recorded at boot'));
+  }
+
   private async recordNow(models: readonly ModelBaseClass[] | undefined, now: Date): Promise<void> {
     const orm = DI.get(Orm);
     if (!orm) throw new HistoryConfigError('orm-history: coverage is recorded once the ORM is booted');
@@ -162,3 +168,15 @@ export class TableHistoryCoverage extends HistoryCoverage {
     this.Log.warn(fields, message);
   }
 }
+
+// Orm.resolve() has no hook of its own; the container tells when it has finished. Not awaited by the boot: `since`
+// waits for the pass.
+DI.on('di.resolved.Orm', (_container: unknown, orm: unknown) => {
+  // The container emits inside the resolution of the Orm: a throw here would reject that resolution.
+  try {
+    const coverage = DI.resolve(HistoryCoverage);
+    if (orm instanceof Orm && coverage instanceof TableHistoryCoverage) coverage.boot(orm);
+  } catch (error) {
+    process.emitWarning(`orm-history: the coverage of the tracked models could not be recorded at boot: ${error instanceof Error ? error.message : String(error)}`);
+  }
+});
