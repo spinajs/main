@@ -136,7 +136,7 @@ describe('MemoryCacheStore', () => {
 
   it('takes its bounds from the settings of its cache', async () => {
     const store = new MemoryCacheStore();
-    const settings: CacheSettings = { name: 'default', store: 'MemoryCacheStore', maxEntries: 1, maxBytes: 1000, maxTtlMs: 1000, consistency: 'eventual', raw: {} };
+    const settings: CacheSettings = { name: 'default', store: 'MemoryCacheStore', maxEntries: 1, maxBytes: 1000, maxTtlMs: 1000, consistency: 'eventual', breakerFailures: 5, breakerResetMs: 10_000, raw: {} };
     await store.configure(settings);
     const entry = (): CacheEntry => ({ value: new Uint8Array([1]), tags: [], versions: [], storedAt: Date.now(), ttlMs: 500, swrMs: 0 });
     await store.set('a', entry());
@@ -147,7 +147,7 @@ describe('MemoryCacheStore', () => {
 
   it('keeps a maxTags given to the constructor when configured', async () => {
     const { store, entry } = setup({ maxTags: 1 });
-    await store.configure({ name: 'default', store: 'MemoryCacheStore', maxEntries: 10, maxBytes: 1000, maxTtlMs: HOUR, consistency: 'eventual', raw: {} });
+    await store.configure({ name: 'default', store: 'MemoryCacheStore', maxEntries: 10, maxBytes: 1000, maxTtlMs: HOUR, consistency: 'eventual', breakerFailures: 5, breakerResetMs: 10_000, raw: {} });
     await store.set('k', entry(['a']));
     store.versionsNow(['b']);
     expect((await store.get('k'))?.valid).to.eq(false);

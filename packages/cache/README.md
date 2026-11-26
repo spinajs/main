@@ -7,6 +7,7 @@ invalid.
 - `cache(name).wrap(key, { ttl, tags }, compute)`, `get`, `set`, `lookup`, `delete`, `invalidate`: named caches
   configured under `cache.caches`.
 - `wrap` runs one computation per key and tag versions, and serves a stale value while one refresh runs (`swr`).
-- `MemoryCacheStore` (count and byte bounds).
+- `MemoryCacheStore` (count and byte bounds); `TieredCacheStore`, memory in front of a shared store, `eventual` or `strict`.
+- `TagBus` carries invalidations between processes; `InProcessTagBus` by default.
 
 Nothing is cached unless the application asks for it. See `docs/cache/README.md`.
