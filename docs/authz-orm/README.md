@@ -14,7 +14,7 @@ npm install @spinajs/authz-orm
 import '@spinajs/authz-orm';
 ```
 
-The import registers `OrmResourceAdapter`, `AuthzOrmContributor`, the write observers (`AncestorObserver`, `ColumnChangeObserver`, `ResourceHistoryGuard`), the query middlewares (`AccessGuardMiddleware`, `AccessListMiddleware`), the `owner` and `self` plan term compilers and the `authz.orm` config schema. Its package config maps `db.Aliases.authz` to `default` and adds the `authz:ancestors-*` commands to `system.dirs.cli`.
+The import registers `OrmResourceAdapter`, `AuthzOrmContributor`, the write observers (`AncestorObserver`, `ColumnChangeObserver`, `ResourceHistoryGuard`), the query middlewares (`AccessGuardMiddleware`, `AccessListMiddleware`, `PastModelResourceWriteGuard`), the `owner` and `self` plan term compilers and the `authz.orm` config schema. Its package config maps `db.Aliases.authz` to `default` and adds the `authz:ancestors-*` commands to `system.dirs.cli`.
 
 | Entry point | Holds |
 | --- | --- |

@@ -1,10 +1,11 @@
 import { AuthzConfigError } from '@spinajs/authz';
 import { Configuration } from '@spinajs/configuration';
 import { DI, Injectable } from '@spinajs/di';
-import { WriteObserver } from '@spinajs/orm';
-import type { CaptureInterest, WriteStatement } from '@spinajs/orm';
+import { DeleteQueryBuilder, InsertQueryBuilder, MODELS, QueryMiddleware, TruncateTableQueryBuilder, UpdateQueryBuilder, WriteObserver, extractModelDescriptor } from '@spinajs/orm';
+import type { CaptureInterest, QueryBuilder, WriteStatement } from '@spinajs/orm';
 
-import { changelogColumns, entryOf, nameOf } from './registry.js';
+import { changelogColumns, entryOf, nameOf, registeredClasses } from './registry.js';
+import type { ModelClass, ResourceEntry } from './registry.js';
 
 /** A write of an `@AccessResource` model that no history observer records, refused under `authz.orm.requireHistory`. */
 export class UnrecordedResourceWrite extends AuthzConfigError {}
@@ -19,18 +20,26 @@ export function historyRequired(value: unknown): boolean {
 const requireHistory = (): boolean => historyRequired(DI.get(Configuration)?.get<unknown>(['authz', 'orm', 'requireHistory']));
 
 /**
- * The relation and type columns decision replay reads of the model, when the write changes them: the row itself,
- * its key, or one of those columns. Undefined for a write that changes none.
+ * The relation and type columns decision replay reads of a resource, when the write changes them: the row itself, its
+ * key, or one of those columns. `written` holds an update's columns, undefined for any other write; the result is
+ * undefined for a write that changes none.
  */
-function judgedColumns({ kind, model, query }: WriteStatement): readonly string[] | undefined {
-  const entry = entryOf(model);
-  if (!entry || entry.changelog === false) return undefined;
+function judged(entry: ResourceEntry, written: ReadonlySet<string> | undefined): readonly string[] | undefined {
+  if (entry.changelog === false) return undefined;
   const columns = changelogColumns(entry).flatMap((c) => (c.typeColumn ? [c.column, c.typeColumn] : [c.column]));
   if (columns.length === 0) return undefined;
-  if (kind !== 'update') return columns;
-  const written = new Set([...Object.keys(query.Value ?? {}), ...query.Increments.keys()]);
+  if (written === undefined) return columns;
   // The key too: row history takes an update that writes it, and replay keys a row's state by it.
   return [entry.idColumn, ...columns].some((c) => written.has(c)) ? columns : undefined;
+}
+
+const writtenBy = (query: UpdateQueryBuilder<unknown>): ReadonlySet<string> => new Set([...Object.keys(query.Value ?? {}), ...query.Increments.keys()]);
+
+function judgedColumns({ kind, model, query }: WriteStatement): readonly string[] | undefined {
+  const entry = entryOf(model);
+  if (!entry) return undefined;
+  if (kind === 'update') return judged(entry, writtenBy(query));
+  return judged(entry, undefined);
 }
 
 const observers = (): WriteObserver[] => DI.resolve(Array.ofType(WriteObserver));
@@ -93,5 +102,45 @@ export class ResourceHistoryGuard extends WriteObserver {
 
   public observe(): Promise<void> {
     return Promise.resolve();
+  }
+}
+
+function pastWrite(query: QueryBuilder): 'an insert' | 'an update' | 'a delete' | 'a truncate' | undefined {
+  if (query instanceof InsertQueryBuilder) return 'an insert';
+  if (query instanceof UpdateQueryBuilder) return 'an update';
+  if (query instanceof DeleteQueryBuilder) return 'a delete';
+  if (query instanceof TruncateTableQueryBuilder) return 'a truncate';
+  return undefined;
+}
+
+// SQLite, MSSQL and MySQL with lower_case_table_names name one table in any case.
+const sameTable = (a: string | undefined, b: string): boolean => a !== undefined && a.toLowerCase() === b.toLowerCase();
+
+/** The ORM's models, which hold a resource's subclasses that map a table of their own, and the registered resources. */
+const knownModels = (): Set<ModelClass> => new Set([...(DI.getRegisteredTypes(MODELS.key) ?? []), ...registeredClasses()]);
+
+/**
+ * With `authz.orm.requireHistory` on, refuses a judged write of a resource table that does not go through the table's
+ * own model: the capture hands it to no `WriteObserver`, so no history records it. Raw SQL stays the one way out.
+ */
+@Injectable(QueryMiddleware)
+export class PastModelResourceWriteGuard extends QueryMiddleware {
+  public afterQueryCreation(_query: QueryBuilder): void {}
+
+  public beforeQueryExecution(query: QueryBuilder): void {
+    const phrase = pastWrite(query);
+    if (phrase === undefined) return;
+    if (query.Model !== undefined && sameTable(extractModelDescriptor(query.Model)?.TableName, query.Table)) return;
+    const written = query instanceof UpdateQueryBuilder ? writtenBy(query) : undefined;
+    for (const model of knownModels()) {
+      if (!sameTable(extractModelDescriptor(model)?.TableName, query.Table)) continue;
+      const entry = entryOf(model);
+      const columns = entry ? judged(entry, written) : undefined;
+      if (!entry || !columns) continue;
+      if (!requireHistory()) return;
+      throw new UnrecordedResourceWrite(
+        `authz-orm: ${phrase} of ${query.Table} (resource '${entry.type}') goes past its model ${nameOf(model)}, so no history observer records ${columns.join(', ')}, and authz.orm.requireHistory refuses it; write it through the model in a process that imports @spinajs/authz-replay, or with raw SQL where it must not be recorded`,
+      );
+    }
   }
 }

@@ -31,6 +31,7 @@ import './changelog/column-hook.js';
 export { ColumnChangeObserver } from './changelog/column-hook.js';
 // Registers SystemCaptureReadScope as the CaptureReadScope: the write capture's key select runs as SYSTEM.
 import './capture-scope.js';
-// Registers ResourceHistoryGuard as a WriteObserver: under authz.orm.requireHistory a resource write no history observer takes is refused.
+// Registers ResourceHistoryGuard (a WriteObserver) and PastModelResourceWriteGuard (a QueryMiddleware): under
+// authz.orm.requireHistory a resource write no history can record is refused.
 import './history-guard.js';
-export { ResourceHistoryGuard, UnrecordedResourceWrite } from './history-guard.js';
+export { PastModelResourceWriteGuard, ResourceHistoryGuard, UnrecordedResourceWrite } from './history-guard.js';
