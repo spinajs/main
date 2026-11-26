@@ -31,8 +31,34 @@ export function keyPartsOf(parts: readonly ResponseCacheKeyPart[], storage: IAct
     .sort();
 }
 
-const isPrincipal = (value: unknown): value is Principal =>
-  typeof value === 'object' && value !== null && 'type' in value && typeof value.type === 'string' && 'id' in value && typeof value.id === 'string' && 'authenticated' in value && typeof value.authenticated === 'boolean';
+type Check = (value: unknown) => boolean;
+const read = (value: object, name: string): unknown => Reflect.get(value, name);
+const isObject = (value: unknown): value is object => typeof value === 'object' && value !== null;
+const isText: Check = (value) => typeof value === 'string';
+const absentOr = (check: Check): Check => (value) => value == null || check(value);
+const listOf = (check: Check): Check => (value) => Array.isArray(value) && value.every(check);
+const isRef: Check = (value) => isObject(value) && isText(read(value, 'type')) && isText(read(value, 'id'));
+const isCeiling: Check = (value) =>
+  isObject(value) &&
+  absentOr(listOf(isText))(read(value, 'roles')) &&
+  absentOr(listOf(isText))(read(value, 'permissions')) &&
+  absentOr(listOf((r) => isObject(r) && isText(read(r, 'type')) && absentOr(isText)(read(r, 'id'))))(read(value, 'resources')) &&
+  absentOr((date) => date instanceof Date)(read(value, 'expiresAt')) &&
+  absentOr(isText)(read(value, 'reason'));
+const isSignIn: Check = (value) => isObject(value) && ['method', 'strategy', 'assurance'].every((name) => isText(read(value, name))) && listOf(isText)(read(value, 'mfa')) && absentOr(isRef)(read(value, 'impersonator'));
+
+// every field responsePrincipal reads, so a malformed principal gets no key instead of a TypeError or a half-read key
+function isPrincipal(value: unknown, outer: readonly object[] = []): value is Principal {
+  if (!isRef(value) || !isObject(value) || outer.includes(value) || typeof read(value, 'authenticated') !== 'boolean') return false;
+  const onBehalfOf = read(value, 'onBehalfOf');
+  return (
+    (onBehalfOf == null || isPrincipal(onBehalfOf, [...outer, value])) &&
+    absentOr(isText)(read(value, 'delegation')) &&
+    absentOr(isCeiling)(read(value, 'ceiling')) &&
+    absentOr(isSignIn)(read(value, 'authn')) &&
+    absentOr(listOf(isRef))(read(value, 'companions'))
+  );
+}
 
 /** The principal `@spinajs/authz-http` resolved for the request (`req.storage.Principal`), when there is one. */
 export function principalIn(storage: IActionLocalStoregeContext): Principal | undefined {

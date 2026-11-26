@@ -112,6 +112,14 @@ describe('response cache key', () => {
     expect(principalIn(store({ Principal: ANONYMOUS }))?.id).to.eq('anonymous');
   });
 
+  it('never keys, and never throws on, a principal it cannot read whole', () => {
+    const cyclic: { -readonly [K in keyof Principal]: Principal[K] } = user('alice');
+    cyclic.onBehalfOf = cyclic;
+    const malformed: object[] = [{ authn: { ...SIGNED_IN, mfa: 1 } }, { authn: { ...SIGNED_IN, mfa: 'totp' } }, { authn: { ...SIGNED_IN, assurance: 2 } }, { authn: { ...SIGNED_IN, impersonator: { id: 'root' } } }, { onBehalfOf: { id: 'bob' } }, { onBehalfOf: { type: 'user', id: 'bob', authenticated: true, ceiling: { roles: 'admin' } } }, { ceiling: { expiresAt: '2027-01-01' } }, { ceiling: { roles: 'admin' } }, { ceiling: { resources: [{ id: 'f1' }] } }, { ceiling: 'none' }, { companions: [{ id: 'bob' }] }, { delegation: 1, onBehalfOf: user('bob') }];
+    malformed.forEach((more) => expect(keyOf({ storage: { Principal: { ...ALICE, ...more } } }), JSON.stringify(more)).to.eq(undefined));
+    expect(keyOf({ storage: { Principal: cyclic } }), 'cycle').to.eq(undefined);
+  });
+
   it('keys a tenant or shared route without the principal, and never as a per-principal route', () => {
     for (const scope of ['tenant', 'shared'] as const) {
       const keys = [{ Principal: ALICE }, { Principal: user('bob') }, { Principal: ANONYMOUS }, {}].map((storage) => keyOf({ route: { scope }, storage }));
