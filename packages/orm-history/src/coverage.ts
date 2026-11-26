@@ -19,7 +19,9 @@ export abstract class HistoryCoverage {
    * From when every observed write of `entity` on `connection` (a configured name, an alias or `default`) is in
    * `trail`, for the columns its registration records; undefined when it was never covered. A column the registration
    * excludes, masks or does not track (column mode) is never covered: an update of only such columns leaves no entry.
-   * For a trail with `retentionDays` it is never earlier than that many days before the call. Rejects with `HistoryConfigError` for an unknown connection, `AuditConfigError` for an unknown trail.
+   * For a trail with `retentionDays` it is never earlier than that many days (less 5 s) before the call. Read the
+   * entries first, then `since()`: a retention run in between only moves the answer forward. Rejects with
+   * `HistoryConfigError` for an unknown connection, `AuditConfigError` for an unknown trail.
    */
   abstract since(trail: string, connection: string, entity: string): Promise<Date | undefined>;
 
@@ -48,11 +50,15 @@ const isModel = (c: unknown): c is ModelBaseClass => typeof c === 'function' && 
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-// The cutoff pruneAudit takes at `now`, none for a trail that keeps everything. The process that pruned may never have imported this package, so no listener
-// moved the row; the configuration both processes share still says what is gone.
+// The clock of a process that pruned may run ahead of the reader's: a cutoff up to this much later than the reader's
+// own is still not claimed.
+export const CLOCK_SKEW_MARGIN_MS = 5000;
+
+// The cutoff pruneAudit takes at `now`, none for a trail that keeps everything. The process that pruned may never have
+// imported this package, so no listener moved the row; the configuration both processes share still says what is gone.
 function retentionFloor(trail: string, now: Date): number[] {
   const days = trailConfig(trail).retentionDays;
-  return days === undefined ? [] : [now.getTime() - days * DAY_MS];
+  return days === undefined ? [] : [now.getTime() - days * DAY_MS + CLOCK_SKEW_MARGIN_MS];
 }
 
 // By driver: `default` and an alias name the connection of another entry.

@@ -5,15 +5,18 @@ import type { AuditInput } from '@spinajs/audit';
 import { AuditPruneFailed, AuditRetentionListener, pruneAudit } from '@spinajs/audit-orm';
 import { DI } from '@spinajs/di';
 
-import { TableHistoryCoverage } from '../src/coverage.js';
+import { CLOCK_SKEW_MARGIN_MS, TableHistoryCoverage } from '../src/coverage.js';
 import { HISTORY_COVERAGE_TABLE, insertCoverage, readCoverage } from '../src/coverage-table.js';
 import type { CoverageKey } from '../src/coverage-table.js';
+import { LOST_SUBJECT_ID } from '../src/encode.js';
 import { HistoryCoverage, registerHistory } from '../src/index.js';
 import { HistoryDb } from './support/db.js';
 
 const DAY = 24 * 60 * 60 * 1000;
 const NOW = new Date('2026-11-25T00:00:00.000Z');
 const ago = (days: number): Date => new Date(NOW.getTime() - days * DAY);
+// What since() at NOW answers for a trail that keeps `days` days and a row older than that.
+const floor = (days: number): Date => new Date(ago(days).getTime() + CLOCK_SKEW_MARGIN_MS);
 const COLUMNS = { recorded: ['id', 'status'], skipped: [] };
 
 function tableCoverage(): TableHistoryCoverage {
@@ -80,7 +83,7 @@ describe('history coverage under retention', function () {
         expect(await pruneAudit({ trail: 'history', now: NOW })).to.eq(1);
         // The row itself: the floor alone already makes since() answer the cutoff.
         expect(await row()).to.deep.eq(ago(30));
-        expect(await since()).to.deep.eq(ago(30));
+        expect(await since()).to.deep.eq(floor(30));
         expect(await held()).to.deep.eq(['new']);
       });
 
@@ -128,7 +131,7 @@ describe('history coverage under retention', function () {
         expect(await since()).to.eq(undefined);
         await tableCoverage().record(undefined, ago(100));
         expect(await row()).to.deep.eq(ago(100));
-        expect(await since()).to.deep.eq(ago(30));
+        expect(await since()).to.deep.eq(floor(30));
 
         retention();
         expect(await since()).to.deep.eq(ago(100));
@@ -142,18 +145,31 @@ describe('history coverage under retention', function () {
         expect(await held()).to.deep.eq(['new']);
         // Nothing moved the row, so this test cannot pass through the listener.
         expect(await row()).to.deep.eq(ago(100));
-        expect(await since()).to.deep.eq(ago(30));
+        expect(await since()).to.deep.eq(floor(30));
       });
 
-      // The two limits 05-coverage.md states under "Retention". A change that makes one of these fail changes those docs.
-      it('over-claims when retentionDays is raised after such a prune', async () => {
+      it('claims nothing pruned by a process whose clock runs up to the margin ahead', async () => {
+        await tableCoverage().record(undefined, ago(100));
+        const skew = CLOCK_SKEW_MARGIN_MS - 1000;
+        const cutoff = ago(30).getTime() + skew;
+        await write([{ ...change('edge', 30), at: new Date(cutoff - 500) }, change('new', 1)]);
+
+        expect(await withoutListeners(() => pruneAudit({ trail: 'history', now: new Date(NOW.getTime() + skew) }))).to.eq(1);
+        expect(await held()).to.deep.eq(['new']);
+        expect((await since())?.getTime()).to.be.at.least(cutoff);
+      });
+
+      // The limits 05-coverage.md states under "Retention". A change that makes one of these fail changes those docs.
+      it('over-claims when retentionDays is raised or removed after such a prune', async () => {
         await tableCoverage().record(undefined, ago(100));
         await write([change('old', 40), change('new', 1)]);
         await withoutListeners(() => pruneAudit({ trail: 'history', now: NOW }));
         retention(90);
 
         expect(await held()).to.deep.eq(['new']);
-        expect(await since()).to.deep.eq(ago(90));
+        expect(await since()).to.deep.eq(floor(90));
+        retention();
+        expect(await since()).to.deep.eq(ago(100));
       });
 
       it('over-claims after a reader prune called directly with a cutoff later than the retention', async () => {
@@ -165,8 +181,56 @@ describe('history coverage under retention', function () {
 
         expect(await reader.prune(trail, ago(10), connection())).to.eq(1);
         expect(await held()).to.deep.eq(['new']);
-        expect(await since()).to.deep.eq(ago(30));
+        expect(await since()).to.deep.eq(floor(30));
       });
     });
   }
+
+  describe('sqlite, the clock of since()', () => {
+    beforeEach(async () => {
+      await db.migrateHistory('sqlite');
+      await db.migrateCoverage('sqlite');
+      await db.define({ name: 'Invoice', table: 'invoice', columns: { status: 'TEXT' }, decorate: (c) => registerHistory(c) }, 'sqlite');
+      db.config.set('audit.trails.history', { retentionDays: 30 });
+    });
+
+    afterEach(async () => {
+      db.config.set('audit.trails.history', {});
+      await db.driver('sqlite').schema().dropTable(HISTORY_COVERAGE_TABLE).ifExists();
+      await db.clear();
+    });
+
+    it('reads its clock after the reads: a prune without the listener during since() leaves no claim over a deleted lost marker', async () => {
+      const driver = db.driver('sqlite');
+      await tableCoverage().record(undefined, new Date(Date.now() - 100 * DAY));
+      const start = Date.now();
+      // 1 s past a floor taken when since() starts, so only a floor taken after the prune below covers the marker.
+      const markerAt = new Date(start - 30 * DAY + CLOCK_SKEW_MARGIN_MS + 1000);
+      const lost: AuditInput = { kind: 'data', action: 'lost', subject: { type: 'invoice', id: LOST_SUBJECT_ID }, at: markerAt };
+      await driver.transaction((tx) => audit().record([lost], { trail: 'history', mode: 'transactional', transaction: tx, onFailure: 'reject' }));
+      expect(Date.now()).to.be.below(start + 1000);
+
+      const original = driver.execute.bind(driver);
+      let pruned = -1;
+      let armed = true;
+      driver.execute = async (builder): Promise<unknown> => {
+        if (armed) {
+          armed = false;
+          await new Promise((resolve) => setTimeout(resolve, CLOCK_SKEW_MARGIN_MS + 2000));
+          pruned = await withoutListeners(() => pruneAudit({ trail: 'history' }));
+        }
+        const result: unknown = await original(builder);
+        return result;
+      };
+      let since: Date | undefined;
+      try {
+        since = await tableCoverage().since('history', db.connectionName('sqlite'), 'invoice');
+      } finally {
+        driver.execute = original;
+      }
+
+      expect(pruned).to.eq(1);
+      expect(since?.getTime()).to.be.at.least(markerAt.getTime());
+    });
+  });
 });
