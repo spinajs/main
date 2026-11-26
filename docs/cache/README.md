@@ -57,21 +57,38 @@ refused with `CacheValueNotSerializable`. Bytes that cannot be read back are a m
 
 ## Keys
 
-`hashKey(parts)` is the SHA-256, base64url, of a type-tagged text of `parts`. Equal parts give one key, so `delete`
-and `invalidate` by a key reach the entry however its parts were built:
+`hashKey(parts)` is the SHA-256, base64url, of a type-tagged text of `parts`. Equal parts give one key, so `get`, `wrap`
+and `delete` by a key reach the entry however its parts were built (`invalidate` works by tags and takes no key):
 
-- a string by its value: one cut from Polish text, rebuilt by `split`, `replace` or a `Buffer`, hashes as a literal;
+- a string by its value: one cut from Polish text, rebuilt by `split`, `replace` or a `Buffer`, hashes as a literal.
+  The NFC and NFD forms of `é` are different strings and give different keys: normalise first (`s.normalize('NFC')`)
+  when the input can come in either form;
 - object keys, `Map` entries and `Set` items in any order; a property that holds `undefined` as a missing one;
-- `-0` as `0`, `NaN` as `NaN`, a `Date` by its time, a `Buffer` as a `Uint8Array` of the same bytes.
+- `-0` as `0`, `NaN` as `NaN`, a `Date` by its time, a `Buffer` as a `Uint8Array` of the same bytes. A typed array is
+  keyed by its kind and its bytes, so `new Float64Array([-0])` and `new Float64Array([0])` are two keys.
 
-Parts of different types never share a key: `1`, `1n` and `'1'` are three keys, `['a', 'b']`, `['ab']` and `['a,b']`
-are three, and `undefined` and `null` are two. A function, a symbol, an instance of a class and a cyclic object are
-refused with `InvalidArgument`, which names the part (`$[0].id`).
+Only own enumerable string keys count: symbol keys, non-enumerable properties and extra properties on an array or on a
+`Map` subclass are ignored, so `{ [sym]: 1 }` and `{}` share a key.
+
+Parts of different types never share a key: `1`, `1n` and `'1'` are three keys, `['a', 'b']`, `['ab']`, `['a,b']` and
+`['a","b']` are four, and `undefined` and `null` are two.
+
+A function, a symbol, an instance of a class and a cyclic object are refused with `InvalidArgument`, which names the
+part (`$[0].id`) and says what to pass instead: a plain value, such as `dt.toISO()` or `dt.toMillis()` for a luxon
+`DateTime`, or a model's primary key. An instance is not hashed by its fields: two classes with equal fields would share
+a key, and state an instance keeps inside itself changes its fields (a luxon `DateTime` fills lazy caches when
+`.weekNumber` or `.toFormat()` is read, so a field-by-field hash of it changes). A cycle has no value to compare. A
+plain object made in another realm (`node:vm`) or by `Object.create(proto)` is refused too.
 
 ```ts
 const key = hashKey(['users', sql, bindings]);
 await cache().wrap(key, { ttl: '5m', tags: [anyTag('users')] }, () => run(sql, bindings));
 ```
+
+The cost grows with the size of the parts and with sorting object, `Map` and `Set` entries. Measured per call: a
+typical key (three short strings and a three-key object) takes 8 µs, 1.7x faster than `v8.serialize` plus SHA-256 of
+the same parts; a 10 kB string with a 1,000-entry object takes 1.1 ms, 3x to 6x slower; an object of 1,000, 4,000 or
+16,000 entries takes 0.8, 3.6 or 25 ms. Hash a statement and its bindings, not a result set.
 
 ## Scope
 
