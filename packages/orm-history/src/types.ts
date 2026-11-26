@@ -56,6 +56,15 @@ export interface ModelHistory {
    */
   byActor(actor: string, query?: HistoryQuery): Promise<readonly HistoryEntry[]>;
   forget(id: string | number | bigint): Promise<number>;
+  /**
+   * For each distinct id, its entry with the highest `seq` at or before `at` (inclusive); an id without one is absent, and
+   * the map holds asked ids only. Row entries only, no `lost` marker and no erasure record; a forgotten row's entry comes
+   * back redacted. One read of the trail per id. Absent is not "no row": the row may be older than its tracking, or
+   * retention pruned its entries; read `HistoryCoverage.since()` after these entries to tell.
+   */
+  latestBefore(ids: readonly string[], at: Date): Promise<ReadonlyMap<string, HistoryEntry>>;
+  /** For each id, its last entry: `latestBefore` without an instant. */
+  latest(ids: readonly string[]): Promise<ReadonlyMap<string, HistoryEntry>>;
 }
 
 /** What `row.history()` and `historyOf(row)` return: the history of one row, bound to its primary key. */

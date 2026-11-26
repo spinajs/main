@@ -9,6 +9,7 @@ import type { ModelBaseClass } from '@spinajs/orm';
 import { asOfFrom, assertInstant } from './as-of.js';
 import { HISTORY_OPS } from './encode.js';
 import { toHistoryEntry } from './entry.js';
+import { latestOf } from './latest.js';
 import { HistoryConfigError } from './errors.js';
 import { HistorySpecs } from './registry.js';
 import type { HistorySpec } from './registry.js';
@@ -113,6 +114,11 @@ function modelHistory(model: ModelBaseClass, spec: HistorySpec | undefined): Mod
     byActor: async (actor, q) => listed((query) => trail().byActor(actor, query), { ...windowOf(spec, q, q?.afterSeq), subjectType: spec.entity }, q),
     asOf: async (id, at) => asOfFrom(trail(), spec, sourceOf(spec), keyOf(id), at),
     forget: async (id) => forgetOn(trail(), spec, { type: spec.entity, id: keyOf(id) }),
+    latestBefore: async (ids, at) => {
+      assertInstant('at', at);
+      return latestOf(trail(), spec.entity, sourceOf(spec), ids, at);
+    },
+    latest: async (ids) => latestOf(trail(), spec.entity, sourceOf(spec), ids),
   };
 }
 
