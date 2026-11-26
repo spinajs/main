@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { PostgresSqlExpressions } from './expressions.js';
 import { Injectable, NewInstance } from '@spinajs/di';
-import { SessionSettingsQueryCompiler, QueryContext, OrmDriver, IColumnDescriptor, TableExistsCompiler, ServerResponseMapper, ISupportedFeature, IsolationLevel, ITransactionContext, ITransactionOptions, ConnectionState, IPoolMetrics, IdentifierQuoter, InStatement, OnDuplicateQueryCompiler, ColumnQueryCompiler, AlterColumnQueryCompiler, AlterTableQueryCompiler, RawQuery, LimitQueryCompiler, TruncateTableQueryCompiler, RecursiveQueryCompiler, DefaultValueBuilder, InsertQueryCompiler, CreateDatabaseCompiler, DropDatabaseCompiler, TableAliasCompiler, CreateViewCompiler, LiteralQuoter, EventQueryCompiler, DropEventQueryCompiler, DatetimeValueConverter, JsonValueConverter, NowExpression, JoinStatement, DateTimeWrapper, SqlExpressions, IndexQueryCompiler, LiveForeignKey, LiveIndex, groupIndexColumns, SqlDialect, MigrationLock } from '@spinajs/orm';
+import { SessionSettingsQueryCompiler, QueryContext, OrmDriver, IColumnDescriptor, TableExistsCompiler, ServerResponseMapper, ISupportedFeature, IsolationLevel, ITransactionContext, ITransactionOptions, ConnectionState, IPoolMetrics, IdentifierQuoter, InStatement, OnDuplicateQueryCompiler, ColumnQueryCompiler, AlterColumnQueryCompiler, AlterTableQueryCompiler, RawQuery, LimitQueryCompiler, TruncateTableQueryCompiler, RecursiveQueryCompiler, DefaultValueBuilder, InsertQueryCompiler, CreateDatabaseCompiler, DropDatabaseCompiler, TableAliasCompiler, CreateViewCompiler, LiteralQuoter, EventQueryCompiler, DropEventQueryCompiler, DatetimeValueConverter, JsonValueConverter, NowExpression, JoinStatement, DateTimeWrapper, SqlExpressions, IndexQueryCompiler, LiveForeignKey, LiveIndex, groupIndexColumns, SqlDialect, MigrationLock, OrmException } from '@spinajs/orm';
 import { POSTGRES_SQL_DIALECT } from './sql-dialect.js';
 export { POSTGRES_SQL_DIALECT } from './sql-dialect.js';
 import { SqlDriver, SqlTruncateTableQueryCompiler, SqlWithRecursiveCompiler, SqlAlterTableQueryCompiler, SqlDropDatabaseQueryCompiler, UnsupportedEventQueryCompiler, UnsupportedDropEventQueryCompiler } from '@spinajs/orm-sql';
@@ -696,7 +696,11 @@ export class PostgresOrmDriver extends SqlDriver {
   }
 
   protected async _commit(ctx: ITransactionContext): Promise<void> {
-    await this.txConnection(ctx).query('COMMIT');
+    const result = await this.txConnection(ctx).query('COMMIT');
+    // A COMMIT of an aborted transaction raises no error: PostgreSQL rolls it back and answers with this tag.
+    if (result.command === 'ROLLBACK') {
+      throw new OrmException(`transaction on connection ${this.Options.Name} was aborted by an earlier failed statement whose error was caught; PostgreSQL rolled it back when it was asked to commit, and nothing of it was written`);
+    }
   }
 
   protected async _rollback(ctx: ITransactionContext): Promise<void> {
