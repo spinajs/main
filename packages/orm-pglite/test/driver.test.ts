@@ -10,7 +10,7 @@ import '@spinajs/log';
 import { Connection, ConnectionState, Model, ModelBase, Orm, Primary, QueryContext, UniqueViolation } from '@spinajs/orm';
 import { createTestApp, type TestApp } from '@spinajs/testing';
 
-import { PgliteOrmDriver } from '../src/index.js';
+import { PgliteOrmDriver, type PglitePool } from '../src/index.js';
 
 const expect = chai.expect;
 chai.use(chaiAsPromised);
@@ -100,6 +100,63 @@ describe('PgliteOrmDriver', function () {
       });
 
       expect(await select(driver, 'SELECT "Id" FROM pgl_tx ORDER BY "Id"')).to.deep.equal([{ Id: 1 }]);
+    });
+  });
+
+  /** Lets `stage` change each statement a leased client sends: run something before it, or fail it unsent. */
+  function staged(driver: PgliteOrmDriver, stage: (text: string, query: (text: string) => Promise<unknown>) => Promise<void>): void {
+    const pool = (driver as unknown as { Pool: PglitePool }).Pool;
+    const lease = pool.connect.bind(pool);
+    pool.connect = async (searchPath?: string) => {
+      const client = await lease(searchPath);
+      const query = client.query.bind(client);
+      client.query = async (text: string, params?: unknown[]) => {
+        await stage(text, query);
+        return query(text, params);
+      };
+      return client;
+    };
+  }
+
+  it('leaves the session usable after a transaction fails to open', async () => {
+    await withDriver({}, async ({ driver }) => {
+      // one query before SET TRANSACTION makes PostgreSQL refuse it (25001), as a hot standby refuses SERIALIZABLE
+      staged(driver, async (text, query) => {
+        if (text.startsWith('SET TRANSACTION')) {
+          await query('SELECT 1');
+        }
+      });
+
+      await expect(driver.transaction(async () => 1, { isolation: 'SERIALIZABLE' })).to.be.rejectedWith(/before any query/);
+      expect(await select(driver, 'SELECT 1 AS ok')).to.deep.equal([{ ok: 1 }]);
+      expect(await driver.transaction(() => select(driver, 'SELECT 2 AS ok'))).to.deep.equal([{ ok: 2 }]);
+    });
+  });
+
+  it('leaves the session outside the failed transaction when its ROLLBACK fails', async () => {
+    await withDriver({}, async ({ driver }) => {
+      await driver.schema().createTable('pgl_abandoned', (t) => {
+        t.int('Id').primaryKey();
+      });
+      let refuse = true;
+      staged(driver, (text) => {
+        if (text === 'ROLLBACK' && refuse) {
+          refuse = false;
+          return Promise.reject(new Error('the ROLLBACK failed'));
+        }
+        return Promise.resolve();
+      });
+
+      const failed = driver.transaction(async () => {
+        await driver.executeOnDb('INSERT INTO pgl_abandoned ("Id") VALUES (?)', [1], QueryContext.Insert);
+        throw new Error('the work failed');
+      });
+      await expect(failed).to.be.rejectedWith('the work failed');
+      expect(refuse, 'the driver sent its ROLLBACK').to.equal(false);
+
+      expect(await select(driver, 'SELECT "Id" FROM pgl_abandoned')).to.deep.equal([]);
+      await driver.transaction(() => driver.executeOnDb('INSERT INTO pgl_abandoned ("Id") VALUES (?)', [2], QueryContext.Insert));
+      expect(await select(driver, 'SELECT "Id" FROM pgl_abandoned')).to.deep.equal([{ Id: 2 }]);
     });
   });
 

@@ -14,6 +14,7 @@ export interface PgliteQueryResult {
 const FIRST_USER_OID = 16384;
 
 const ENDED = 'Cannot use a pool after calling end on the pool';
+const BROKEN = 'Cannot use a pool whose PGlite session failed to roll back a client released with an error';
 
 /**
  * One parser for every OID that pg or PGlite would parse, each the one the postgres driver's pool uses. It is passed
@@ -66,7 +67,7 @@ export class PglitePoolClient {
   public constructor(
     private readonly db: PGlite,
     private readonly parsers: ParserOptions,
-    private readonly onRelease: () => void,
+    private readonly onRelease: (destroy: boolean) => void,
   ) {}
 
   public async query(text: string, params: unknown[] = []): Promise<PgliteQueryResult | PgliteQueryResult[]> {
@@ -82,13 +83,14 @@ export class PglitePoolClient {
     return toPgResult(await this.db.query<Record<string, unknown>>(text, values, { parsers: this.parsers }));
   }
 
-  public release(): void {
+  /** pg-pool destroys a client released with an error (`release(err)`, `release(true)`); the one session is rolled back instead. */
+  public release(destroy?: Error | boolean): void {
     if (this.released) {
       throw new Error('Release called on client which has already been released to the pool.');
     }
 
     this.released = true;
-    this.onRelease();
+    this.onRelease(destroy !== undefined && destroy !== false);
   }
 
   /** There is no socket to fail between statements; an error reaches the statement that caused it. */
@@ -111,6 +113,7 @@ export class PglitePool {
 
   private busy = false;
   private ended = false;
+  private failedRollback: { cause: unknown } | undefined;
   private readonly waiting: Waiter[] = [];
   private searchPath: string | undefined;
 
@@ -147,7 +150,7 @@ export class PglitePool {
 
   private lease(): Promise<PglitePoolClient> {
     if (this.ended) {
-      return Promise.reject(new Error(ENDED));
+      return Promise.reject(this.endedError());
     }
 
     if (!this.busy) {
@@ -196,14 +199,40 @@ export class PglitePool {
 
     this.ended = true;
     for (const waiter of this.waiting.splice(0)) {
-      waiter.fail(new Error(ENDED));
+      waiter.fail(this.endedError());
     }
 
     await this.db.close();
   }
 
+  private endedError(): Error {
+    return this.failedRollback === undefined ? new Error(ENDED) : new Error(BROKEN, this.failedRollback);
+  }
+
   private client(): PglitePoolClient {
-    return new PglitePoolClient(this.db, this.parsers, () => this.handOver());
+    return new PglitePoolClient(this.db, this.parsers, (destroy) => {
+      if (destroy) {
+        void this.rollBackAndHandOver();
+      } else {
+        this.handOver();
+      }
+    });
+  }
+
+  // The lease stays busy until the ROLLBACK ran, so the next lease starts outside any transaction (outside one,
+  // PostgreSQL only warns). A session whose ROLLBACK failed may still be inside the transaction: nobody gets it.
+  private async rollBackAndHandOver(): Promise<void> {
+    try {
+      await this.db.exec('ROLLBACK');
+    } catch (cause) {
+      if (!this.ended) {
+        this.failedRollback = { cause };
+        await this.end().catch(() => undefined);
+      }
+      return;
+    }
+
+    this.handOver();
   }
 
   private handOver(): void {
