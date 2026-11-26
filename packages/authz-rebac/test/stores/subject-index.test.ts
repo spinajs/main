@@ -1,7 +1,7 @@
 import * as chai from 'chai';
 import 'mocha';
 import { AUTHZ_CONNECTION } from '@spinajs/authz';
-import { MIGRATION_DESCRIPTION_SYMBOL, QueryContext } from '@spinajs/orm';
+import { QueryContext, extractMigrationDescriptor } from '@spinajs/orm';
 import type { LiveIndex } from '@spinajs/orm';
 
 import { AUTHZ_REBAC_TUPLE_TABLE, AuthzRebacSubjectIndex_2026_11_26_00_00_00, DbTupleStore } from '../../src/index.js';
@@ -15,7 +15,7 @@ const INDEX = 'authz_rebac_tuple_subject_object';
 
 describe('authz-rebac: AuthzRebacSubjectIndex migration', () => {
   it('runs on the connection alias authz', () => {
-    expect((AuthzRebacSubjectIndex_2026_11_26_00_00_00 as unknown as Record<symbol, { Connection: string }>)[MIGRATION_DESCRIPTION_SYMBOL].Connection).to.equal(AUTHZ_CONNECTION);
+    expect(extractMigrationDescriptor(AuthzRebacSubjectIndex_2026_11_26_00_00_00)?.Connection).to.equal(AUTHZ_CONNECTION);
   });
 
   for (const dialect of DIALECTS) {
@@ -59,6 +59,14 @@ describe('authz-rebac: AuthzRebacSubjectIndex migration', () => {
         expect(await store.withSubjectObject(ref('group', 'eng'))).to.deep.equal([tuples[0]]);
       });
 
+      it('down without the index does nothing; up then builds it', async () => {
+        await migration.down(db.driver);
+        await migration.down(db.driver);
+        expect(await subjectIndex()).to.deep.equal([]);
+        await migration.up(db.driver);
+        expect(await subjectIndex()).to.have.length(1);
+      });
+
       if (dialect === 'postgres') {
         it('the catalog holds the index on exactly these columns of authz_rebac_tuple', async () => {
           const rows = (await rawQuery(db.driver, `SELECT tablename, indexdef FROM pg_indexes WHERE indexname = ?`, [INDEX])) as { tablename: string; indexdef: string }[];
@@ -72,6 +80,21 @@ describe('authz-rebac: AuthzRebacSubjectIndex migration', () => {
           await rawQuery(db.driver, `CREATE INDEX CONCURRENTLY ${INDEX} ON ${AUTHZ_REBAC_TUPLE_TABLE} (subject_type, subject_id)`, [], QueryContext.Schema);
           await migration.up(db.driver);
           expect(await subjectIndex()).to.have.length(1);
+        });
+
+        it('up refuses an invalid index of that name (a failed CONCURRENTLY build) and builds it once it is dropped', async () => {
+          const valid = async () => ((await rawQuery(db.driver, `SELECT indisvalid FROM pg_index WHERE indexrelid = ?::regclass`, [INDEX])) as { indisvalid: boolean }[])[0]?.indisvalid;
+          await rawQuery(db.driver, `UPDATE pg_index SET indisvalid = false WHERE indexrelid = ?::regclass`, [INDEX], QueryContext.Update);
+          expect(await valid()).to.equal(false);
+
+          let error: Error | undefined;
+          await migration.up(db.driver).catch((err: Error) => (error = err));
+          expect(error?.message).to.contain(`${INDEX} exists but is INVALID`).and.to.contain(`DROP INDEX CONCURRENTLY ${INDEX};`);
+
+          await migration.down(db.driver);
+          await migration.up(db.driver);
+          expect(await subjectIndex()).to.have.length(1);
+          expect(await valid()).to.equal(true);
         });
       }
     });
