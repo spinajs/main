@@ -207,6 +207,21 @@ describe('PGlite pool adapter: a client released with an error', function () {
     }
   });
 
+  it('rolls the session back before the next lease when the client is released with an Error', async () => {
+    const { pool, events } = await session();
+    const failed = await pool.connect();
+    await abort(failed);
+
+    failed.release(new Error('the transaction failed'));
+    const client = await pool.connect();
+    try {
+      expect(await ok(client, 1)).to.deep.equal([{ ok: 1 }]);
+    } finally {
+      client.release();
+    }
+    expect(events.filter((e) => e === 'ROLLBACK')).to.have.length(1);
+  });
+
   it('sends no ROLLBACK on release() and release(false)', async () => {
     const { pool, events } = await session();
 
