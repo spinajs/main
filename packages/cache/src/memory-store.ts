@@ -9,7 +9,7 @@ export interface MemoryCacheStoreOptions {
   readonly maxEntries?: number;
   readonly maxBytes?: number;
   readonly maxTtlMs?: number;
-  /** How many tag versions are kept; default 4 * maxEntries. Dropping one early costs misses only. */
+  /** How many tag versions are kept, also after configure(); default 4 * maxEntries. Dropping one early costs misses only. */
   readonly maxTags?: number;
   readonly clock?: Clock;
 }
@@ -35,14 +35,16 @@ export class MemoryCacheStore extends CacheStore {
   private maxTtlMs: number;
   private maxTags: number;
   private clock: Clock | undefined;
+  private readonly givenMaxTags: number | undefined;
 
   constructor(options: MemoryCacheStoreOptions = {}) {
     super();
+    this.givenMaxTags = options.maxTags;
     this.open(options);
   }
 
   public async configure(settings: CacheSettings): Promise<void> {
-    this.open({ maxEntries: settings.maxEntries, maxBytes: settings.maxBytes, maxTtlMs: settings.maxTtlMs, clock: this.clock });
+    this.open({ maxEntries: settings.maxEntries, maxBytes: settings.maxBytes, maxTtlMs: settings.maxTtlMs, maxTags: this.givenMaxTags, clock: this.clock });
   }
 
   public async get(key: string): Promise<CacheStoreRead | undefined> {
@@ -65,11 +67,16 @@ export class MemoryCacheStore extends CacheStore {
     this.bumpNow(bumps);
   }
 
-  /** get() without a promise; an invalid entry is dropped as it is read. A tag without a version never matches. */
+  /** get() without a promise; an invalid entry is dropped as it is read. A tag without a version never matches, and an entry must hold exactly one version per tag. */
   public read(key: string): CacheStoreRead | undefined {
     const entry = this.entries.get(key);
     if (entry === undefined) return undefined;
-    const valid = entry.tags.every((tag, i) => this.tagVersions.get(tag)?.version === entry.versions[i]);
+    const valid =
+      entry.tags.length === entry.versions.length &&
+      entry.tags.every((tag, i) => {
+        const held = this.tagVersions.get(tag)?.version;
+        return held !== undefined && held === entry.versions.at(i);
+      });
     if (!valid) this.entries.delete(key);
     return { entry, valid };
   }

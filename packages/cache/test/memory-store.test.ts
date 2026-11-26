@@ -100,7 +100,15 @@ describe('MemoryCacheStore', () => {
     expect(await count.store.get('a')).to.eq(undefined);
   });
 
-  // A store that answers a fixed version for a tag it holds none for (the first version of this plan: '0') fails this.
+  it('reads an entry whose versions do not pair up with its tags as invalid', async () => {
+    const { store, entry } = setup();
+    await store.set('fewer', entry(['x'], { versions: [] }));
+    await store.set('more', entry(['a'], { versions: [...store.versionsNow(['a']), 'extra'] }));
+    expect((await store.get('fewer'))?.valid).to.eq(false);
+    expect((await store.get('more'))?.valid).to.eq(false);
+  });
+
+  // A store that answers a fixed version (such as '0') for a tag it holds none for fails this.
   it('reads an entry as invalid once the store dropped a version it holds, and gives the tag a new one', async () => {
     const { store, entry } = setup({ maxTags: 1 });
     const kept = entry(['a']);
@@ -135,5 +143,13 @@ describe('MemoryCacheStore', () => {
     await store.set('b', entry());
     expect(await store.get('a')).to.eq(undefined);
     expect((await store.get('b'))?.valid).to.eq(true);
+  });
+
+  it('keeps a maxTags given to the constructor when configured', async () => {
+    const { store, entry } = setup({ maxTags: 1 });
+    await store.configure({ name: 'default', store: 'MemoryCacheStore', maxEntries: 10, maxBytes: 1000, maxTtlMs: HOUR, consistency: 'eventual', raw: {} });
+    await store.set('k', entry(['a']));
+    store.versionsNow(['b']);
+    expect((await store.get('k'))?.valid).to.eq(false);
   });
 });
