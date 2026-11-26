@@ -1,12 +1,16 @@
 import { registerConfigurationSchemaAtImport } from '@spinajs/configuration';
 import { TENANT_STATES } from './contracts.js';
 import { TENANT_ID_PATTERN } from './scope.js';
+import { OVERRIDABLE_PATH_PATTERN } from './settings.js';
 
 /** What the code uses where the configuration says nothing. */
 export const TENANCY_DEFAULTS = {
   registry: 'ConfigTenantRegistry',
   access: 'PrincipalAttributeTenantAccess',
   registryCacheMs: 5000,
+  config: {
+    overridable: [],
+  },
   http: {
     resolvers: ['domain', 'subdomain', 'path', 'header', 'principal', 'session'],
     header: 'x-tenant',
@@ -21,7 +25,7 @@ export const TENANCY_DEFAULTS = {
 const text = { type: 'string', minLength: 1 };
 const texts = { type: 'array', items: text };
 
-// Open at the root and inside `http`: tenancy.orm, tenancy.config and later sections belong to the packages that read them.
+// Open at the root and inside `http`: tenancy.orm and later sections belong to the packages that read them.
 export const TENANCY_CONFIGURATION_SCHEMA = {
   $id: 'spinajs/tenancy.configuration.schema.json',
   $configurationModule: 'tenancy',
@@ -31,6 +35,12 @@ export const TENANCY_CONFIGURATION_SCHEMA = {
     registry: text,
     access: text,
     registryCacheMs: { type: 'integer', minimum: 0 },
+    config: {
+      type: 'object',
+      properties: {
+        overridable: { type: 'array', items: { type: 'string', pattern: OVERRIDABLE_PATH_PATTERN }, default: [] },
+      },
+    },
     tenants: {
       type: 'array',
       items: {

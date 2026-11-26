@@ -1,8 +1,9 @@
+import { DI } from '@spinajs/di';
 import { InvalidArgument } from '@spinajs/exceptions';
 import type { TenantRecord, TenantRunFailure, TenantRunReport, TenantState } from './contracts.js';
 import { TenantIterationAborted, TenantSwitchDenied } from './errors.js';
 import { runInTenant, tenantScope } from './scope.js';
-import { tenantRegistry } from './services.js';
+import { TenancyServices } from './services.js';
 
 export interface ForEachTenantOptions {
   /** Tenants handled at once; default 1. */
@@ -29,8 +30,8 @@ export async function forEachTenant(fn: (tenant: TenantRecord) => Promise<void>,
   }
 
   const states = options.states ?? ['active'];
-  const registry = await tenantRegistry();
-  const tenants = registry.list({ states })[Symbol.asyncIterator]();
+  const services = await DI.RootContainer.resolve(TenancyServices);
+  const tenants = services.registry.list({ states })[Symbol.asyncIterator]();
   const failed: TenantRunFailure[] = [];
   let total = 0;
 
@@ -54,6 +55,7 @@ export async function forEachTenant(fn: (tenant: TenantRecord) => Promise<void>,
         if (!states.includes(tenant.state)) continue;
         total += 1;
         try {
+          services.settings.remember(tenant);
           await runInTenant(tenant.id, () => fn(tenant));
         } catch (error) {
           failed.push({ tenant: tenant.id, error });
