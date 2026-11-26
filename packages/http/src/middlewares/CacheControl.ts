@@ -1,5 +1,7 @@
 import { Injectable, NewInstance } from '@spinajs/di';
 import { InvalidArgument } from '@spinajs/exceptions';
+import { appendVary } from '../caching.js';
+import { FIELD_NAME_PATTERN } from '../headers.js';
 import { RouteMiddleware, RouteType } from '../interfaces.js';
 import type { IController, IMiddlewareContext, IReplyContext, IResponseHeader, IRoute } from '../interfaces.js';
 
@@ -7,7 +9,7 @@ import type { IController, IMiddlewareContext, IReplyContext, IResponseHeader, I
 export const NO_STORE: IResponseHeader = Object.freeze({ Name: 'Cache-Control', Value: 'no-store' });
 
 export interface ICacheControlOptions {
-  /** `public`: a shared cache may keep the reply even to a request with `Authorization`. Off by default. */
+  /** `public`: shared caches may keep the reply. A reply to a request with `Authorization`, or one that sets a cookie, is still `private`. Off by default. */
   public?: boolean;
   /** `private`: only the browser may keep the reply. */
   private?: boolean;
@@ -17,6 +19,8 @@ export interface ICacheControlOptions {
   immutable?: boolean;
   /** Marks 3xx replies (other than 304) too; by default a redirect is left alone. */
   redirects?: boolean;
+  /** Request headers the reply depends on, added to `Vary` on every reply except an error reply marked `no-store` here. `['*']` alone: no cache may reuse it. */
+  vary?: readonly string[];
 }
 
 function seconds(name: string, value: unknown): number {
@@ -24,6 +28,21 @@ function seconds(name: string, value: unknown): number {
     throw new InvalidArgument(`CacheControl ${name} must be a non-negative integer of seconds, got ${String(value)}`);
   }
   return value;
+}
+
+function varyOf(value: unknown): string[] {
+  if (value === undefined) {
+    return [];
+  }
+  const items: readonly unknown[] = Array.isArray(value) ? value : [];
+  const fields = items.filter((f): f is string => typeof f === 'string' && (f === '*' || FIELD_NAME_PATTERN.test(f)));
+  if (!Array.isArray(value) || fields.length !== items.length) {
+    throw new InvalidArgument(`CacheControl vary must be a list of request header names, got ${JSON.stringify(value)}`);
+  }
+  if (fields.length > 1 && fields.includes('*')) {
+    throw new InvalidArgument("CacheControl vary takes '*' alone");
+  }
+  return fields;
 }
 
 function hasCacheControl(response: IReplyContext['response']): boolean {
@@ -35,11 +54,12 @@ function hasCacheControl(response: IReplyContext['response']): boolean {
  * 304, `no-store` on an error reply or a status of 400 and above; a redirect is left alone unless `redirects` is set.
  * A reply to a request with `Authorization`, or one that sets a cookie, is downgraded to `private`. A `Cache-Control`
  * the answer or an earlier step already set (an authenticated reply's `no-store`) is kept. With a route and a
- * controller declaration, the route's wins.
+ * controller declaration, the route's wins. `vary` adds to the `Vary` of every reply except an error reply marked
+ * `no-store` here.
  *
  * ```ts
  * @Get()
- * @Middleware(CacheControl, 300, { staleWhileRevalidate: 60 })
+ * @Middleware(CacheControl, 300, { staleWhileRevalidate: 60, vary: ['Accept-Language'] })
  * public categories() { ... }
  * ```
  */
@@ -49,6 +69,7 @@ export class CacheControl extends RouteMiddleware {
   protected readonly scope: 'public' | 'private' | undefined;
   protected readonly directives: string;
   protected readonly redirects: boolean;
+  protected readonly vary: readonly string[];
 
   constructor(maxAge: number = 0, options: ICacheControlOptions = {}) {
     super();
@@ -65,6 +86,7 @@ export class CacheControl extends RouteMiddleware {
     }
     this.directives = parts.join(', ');
     this.redirects = options.redirects === true;
+    this.vary = varyOf(options.vary);
   }
 
   public override isEnabled(route: IRoute, _controller: IController): boolean {
@@ -72,22 +94,32 @@ export class CacheControl extends RouteMiddleware {
   }
 
   public onAfter({ req, res, response, error }: IReplyContext): void {
-    if (res.hasHeader('Cache-Control') || hasCacheControl(response)) {
-      return;
-    }
     const status = response.statusCode ?? 200;
-    if (error !== undefined || status >= 400) {
-      res.setHeader('Cache-Control', 'no-store');
+    const failed = error !== undefined || status >= 400;
+    const kept = res.hasHeader('Cache-Control') || hasCacheControl(response);
+    // an error reply that brought its own Cache-Control may be kept by a cache, so it needs the Vary too
+    if (!failed || kept) {
+      appendVary(res, response, this.vary);
+    }
+    if (kept) {
       return;
     }
+    const value = failed ? 'no-store' : this.cacheControlFor(req, res, response, status);
+    if (value !== undefined) {
+      res.setHeader('Cache-Control', value);
+    }
+  }
+
+  /** The value of a reply that did not fail; undefined leaves a redirect alone. */
+  protected cacheControlFor(req: IReplyContext['req'], res: IReplyContext['res'], response: IReplyContext['response'], status: number): string | undefined {
     if (status >= 300 && status !== 304 && !this.redirects) {
-      return;
+      return undefined;
     }
-    // RFC 9111 3.5 keeps a reply to an Authorization request out of shared caches unless public; a cookie would be
-    // handed to every client of a shared cache
+    // RFC 9111 3.5: a shared cache keeps a reply to an Authorization request only when told to, and this middleware
+    // never tells it so; a cookie would be handed to every client of a shared cache
     const personal = req.headers.authorization !== undefined || res.hasHeader('Set-Cookie') || response.cookies.length > 0;
     const scope = personal ? 'private' : this.scope;
-    res.setHeader('Cache-Control', scope ? `${scope}, ${this.directives}` : this.directives);
+    return scope ? `${scope}, ${this.directives}` : this.directives;
   }
 }
 

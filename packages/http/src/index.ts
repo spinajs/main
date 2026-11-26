@@ -18,6 +18,7 @@ export * from './problem.js';
 export * from './contract.js';
 export type { Page, CursorPage, PageQuery, CursorQuery } from './pagination.js';
 export * from './headers.js';
+export * from './caching.js';
 export * from './cookie.js';
 export { defaultMiddlewares, missingDefaultMiddlewares } from './default-middlewares.js';
 export * from './cidr.js';

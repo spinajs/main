@@ -508,13 +508,14 @@ export class SearchController extends BaseController {
 
 | Option | Directive |
 | --- | --- |
-| `public: true` | `public`: a shared cache may keep the reply even to a request with `Authorization` (RFC 9111 §3.5); off by default |
+| `public: true` | `public`: shared caches may keep the reply. A reply to a request with `Authorization`, or one that sets a cookie, still goes out `private`; off by default |
 | `private: true` | `private`: only the browser may keep the reply |
 | `redirects: true` | 3xx replies get the directives too |
 | `staleWhileRevalidate: <seconds>` | `stale-while-revalidate=<seconds>` (RFC 5861) |
 | `immutable: true` | `immutable` (RFC 8246) |
+| `vary: ['Cookie', 'Accept-Language']` | `Vary: Cookie, Accept-Language` on every reply except an error reply `CacheControl` marks `no-store`, added to what CORS, the answer or another hook already put in `Vary`, each field once. `['*']` alone sends `Vary: *` |
 
-`maxAge` and `staleWhileRevalidate` must be non-negative integers, and `public` and `private` exclude each other; another value throws `InvalidArgument` when the route is built. A `Cache-Control` the answer set itself (`IResponseOptions.Headers`) or an earlier step set on `res` (the `no-store` of an authenticated request) is kept. With `CacheControl` on both the controller and the route, the route's wins: its `onAfter` runs first.
+`maxAge` and `staleWhileRevalidate` must be non-negative integers, and `public` and `private` exclude each other; another value throws `InvalidArgument` when the route is built. A `Cache-Control` the answer set itself (`IResponseOptions.Headers`) or an earlier step set on `res` (the `no-store` of an authenticated request) is kept. With `CacheControl` on both the controller and the route, the route's wins: its `onAfter` runs first. A reply that depends on a request header (a session cookie, `Accept-Language`) must name it in `vary`, or a shared cache serves one client's reply to another. A field name that is not an HTTP token, an empty string, or `*` next to a name throws `InvalidArgument` when the route is built. In your own `onAfter` hook, `appendVary(res, ctx.response, ['X-Tenant'])` adds fields the same way.
 
 `NoStore` sets `Cache-Control: no-store` and `Pragma: no-cache` on every reply of the route: in `onBefore`, so a reply the action writes to `res` itself has them, and again in `onAfter`, so they win over a `Cache-Control` the answer set itself and go out with error replies. Use it for answers that hold a secret: a token, a share link. A refusal of the policy gate comes before it and does not get them.
 
