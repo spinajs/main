@@ -165,7 +165,7 @@ describe('the last entries of many rows', function () {
       await write([event('invoice', 'k', 'insert', T(10), 'own'), ...Array.from({ length: 999 }, () => event('invoice', 'k ', 'update', T(20), 'other'))]);
       expect(statusOf(await Invoice.history().latest(['k']), 'k')).to.eq('own');
       await write([event('invoice', 'k ', 'update', T(30), 'other')]);
-      await expect(Invoice.history().latest(['k'])).to.be.rejectedWith(HistoryConfigError, `orm-history: the trail's subject_id comparison takes "k " for "k" of invoice, and the last 1000 entries it matches are not "k"'s`);
+      await expect(Invoice.history().latest(['k'])).to.be.rejectedWith(HistoryConfigError, `orm-history: the trail's subject_id comparison takes "k " for "k" of invoice, and the last 1000 entries it matches are not "k"'s; ask the other ids without "k": history cannot tell its last entry until the trail compares subject_id exactly, trailing spaces included`);
       expect(statusOf(await Invoice.history().latestBefore(['k'], T(10)), 'k')).to.eq('own');
     });
 

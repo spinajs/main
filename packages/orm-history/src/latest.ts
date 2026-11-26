@@ -15,7 +15,7 @@ async function lastOwn(trail: AuditTrail, subject: AuditSubject, query: AuditQue
   const own = page.find((event) => event.subject?.id === subject.id);
   if (own !== undefined || page.length < PAGE) return own;
   const [asked, other] = [subject.id, last.subject?.id].map((id) => JSON.stringify(id));
-  throw new HistoryConfigError(`orm-history: the trail's subject_id comparison takes ${other} for ${asked} of ${subject.type}, and the last ${PAGE} entries it matches are not ${asked}'s`);
+  throw new HistoryConfigError(`orm-history: the trail's subject_id comparison takes ${other} for ${asked} of ${subject.type}, and the last ${PAGE} entries it matches are not ${asked}'s; ask the other ids without ${asked}: history cannot tell its last entry until the trail compares subject_id exactly, trailing spaces included`);
 }
 
 /**
