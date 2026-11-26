@@ -302,7 +302,8 @@ primary key of an `@AccessResource` model that no history observer records (`Wri
 and type column (column mode that leaves one out, `exclude`, a masked `@Hidden()` relation column), or whose interest does not
 state `unrecorded`, does not count. Off by default. Set it in the configuration
 every process shares, so that a process writing resource rows without `@spinajs/authz-replay` cannot leave holes in the
-history replay reads. Writes the capture does not see (a builder without a model, raw SQL, `Model.truncate()`) are not
+history replay reads. A write of a resource table past its model (a builder without a model, `insertChunked`,
+`deleteChunked`, `purgeBatch`, `Model.truncate()`) is refused too, because no history can record it; raw SQL is not
 checked ([docs/authz-orm/04-access-resources.md](../../docs/authz-orm/04-access-resources.md#writes-that-must-reach-the-history)).
 
 ## Config

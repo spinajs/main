@@ -1,0 +1,5 @@
+---
+"@spinajs/authz-orm": minor
+---
+
+With `authz.orm.requireHistory: true`, `PastModelResourceWriteGuard` refuses with `UnrecordedResourceWrite`, before it runs, a write of an `@AccessResource` table that does not go through the table's model: an insert, update, delete or truncate builder without a model, `insertChunked`, `deleteChunked`, `purgeBatch`, `Model.truncate()`, or a model builder pointed at the table. An update is refused only when it writes a relation column, a type column or the primary key. Such a write is handed to no write observer, so no history records it, and it is refused whatever history the process has. The message names the table, its model and the columns replay would miss. Raw SQL is not checked. With the key unset or `false` nothing changes. Known effect: when an application's user model is an access resource with a relation column, the clean-up of a half-created account in `@spinajs/users` is refused and logged, and the account row stays.
