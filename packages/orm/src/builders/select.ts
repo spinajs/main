@@ -949,12 +949,18 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
    * the same data error can come from the query's own conditions or from a relation load.
    */
   private async _cursorRefused(columns: KeysetColumn[], values: unknown[], side: 'after' | 'before'): Promise<boolean> {
-    const probe = new SelectQueryBuilder<T>(this._container, this._driver, this._model, undefined, false);
-    // no row of the probe reaches the caller, so the query middlewares (row filters, translation) have nothing to guard
-    probe._queryMiddlewares = [];
+    // with the model's row filters: on a database that refuses a value per row, rows the caller may not read must not decide
+    const probe = new SelectQueryBuilder<T>(this._container, this._driver, this._model);
     probe.setTable(this._table);
     if (this._database) {
       probe.database(this._database);
+    }
+    // createQuery's visibility filters, which this module cannot import
+    const descriptor = extractModelDescriptor(this._model);
+    for (const hidden of [descriptor?.SoftDelete?.DeletedAt, descriptor?.Archived?.ArchivedAt]) {
+      if (hidden && descriptor?.Columns?.some((c) => c.Name === hidden)) {
+        probe.whereNull(hidden);
+      }
     }
     // not `*`: a column computed at read time can refuse its own row data, which says nothing about the cursor
     probe.select(columns[0].column);
