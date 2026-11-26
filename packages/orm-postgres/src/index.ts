@@ -26,6 +26,8 @@ export * from './migration-lock.js';
 
 export interface IPostgresTransactionContext extends ITransactionContext {
   connection: pg.PoolClient;
+  /** ROLLBACK failed: the session may still be inside the transaction, with its transaction-local settings. */
+  rollbackFailed?: boolean;
 }
 
 /**
@@ -701,7 +703,13 @@ export class PostgresOrmDriver extends SqlDriver {
   }
 
   protected async _rollback(ctx: ITransactionContext): Promise<void> {
-    await this.txConnection(ctx).query('ROLLBACK');
+    const tx = ctx as IPostgresTransactionContext;
+    try {
+      await tx.connection.query('ROLLBACK');
+    } catch (err) {
+      tx.rollbackFailed = true;
+      throw err;
+    }
   }
 
   // savepoint names cannot be bound parameters, so they are inlined through this driver's
@@ -719,7 +727,8 @@ export class PostgresOrmDriver extends SqlDriver {
   }
 
   protected _dispose(ctx: ITransactionContext): Promise<void> {
-    this.txConnection(ctx).release();
+    const tx = ctx as IPostgresTransactionContext;
+    tx.connection.release(tx.rollbackFailed === true);
     return Promise.resolve();
   }
 }

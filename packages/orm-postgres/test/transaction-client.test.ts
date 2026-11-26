@@ -56,4 +56,25 @@ describe('postgres transaction client (unit)', function () {
     await expect(driver.transaction(async () => 1)).to.be.rejectedWith('connection reset');
     expect(fake.release.args).to.deep.equal([[true]]);
   });
+
+  it('destroys the client when ROLLBACK fails, and still throws what the transaction threw', async () => {
+    const fake = fakeClient({ ROLLBACK: new Error('rollback failed') });
+    usePool(fake.client);
+
+    await expect(
+      driver.transaction(async () => {
+        throw new Error('the work failed');
+      }),
+    ).to.be.rejectedWith('the work failed');
+    expect(fake.statements).to.deep.equal(['BEGIN', 'ROLLBACK']);
+    expect(fake.release.args).to.deep.equal([[true]]);
+  });
+
+  it('pools the client after a rollback that succeeded', async () => {
+    const fake = fakeClient();
+    usePool(fake.client);
+
+    await expect(driver.transaction(async () => Promise.reject(new Error('the work failed')))).to.be.rejectedWith('the work failed');
+    expect(fake.release.args).to.deep.equal([[false]]);
+  });
 });
