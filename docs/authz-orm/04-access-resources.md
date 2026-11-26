@@ -64,7 +64,7 @@ When a class has both decorators and a registration, they merge. A column declar
 | --- | --- | --- | --- |
 | `authz.orm.requireHistory` | `boolean` | `false` | Refuse a write of an `@AccessResource` model that no history observer records ([Writes that must reach the history](#writes-that-must-reach-the-history)). |
 
-Declaring resources has no other config keys. The section `authz.orm` keeps only the keys its schema declares: any other key under it (a misspelt `requireHistory`, for one) is removed when the configuration is validated. The permissions resources add still need `list: true` before `.accessible()` or `.withAccess()` uses them ([Access lists](01-access-lists.md#configuration)).
+Declaring resources has no other config keys. The section `authz.orm` keeps only the keys its schema declares: any other key under it (a misspelt `requireHistory`, or a key of the application's own) is removed when the configuration is validated. A misspelt `requireHistory` therefore leaves the check off, and nothing says so: the configuration does not yet log the keys it removes. The permissions resources add still need `list: true` before `.accessible()` or `.withAccess()` uses them ([Access lists](01-access-lists.md#configuration)).
 
 ## Writes that must reach the history
 
@@ -86,12 +86,12 @@ await Doc.update({ folder_id: 'f2' }).where('id', 'd1');
 | Write | Judged |
 | --- | --- |
 | an insert or a delete of the model | always |
-| an update, `reparent()`, a relation list's `sync()` | when it writes a `@Parent`, `@Owner` or `@Relation` column, the type column of one, or the primary key; an update of any other column (`@Self`, a soft delete) passes |
+| an update, `reparent()`, a relation list's `sync()` | when it writes a `@Parent`, `@Owner` or `@Relation` column, the type column of one, or the primary key; an update of any other column (`@Self`, a soft delete, a restore) passes |
 | a model with `{ changelog: false }`, or without relation columns | never |
 | a builder without a model (`driver.update()`, `insertChunked`, `deleteChunked`, `purgeBatch`), raw SQL, `Model.truncate()`, a cascade or trigger in the database | never: the write capture does not see them |
 | a model class on the same table that is no access resource in this process | never |
 
-A write passes when a `WriteObserver` with `keepsHistory: true` takes the statement ([Write capture](../orm/25-write-capture.md#an-observer)). The row history observer of `@spinajs/orm-history` is one, and `@spinajs/authz-replay` registers every `@AccessResource` model with it. A model the application tracks itself with `@History({ columns })` must list its relation columns there, or their updates are refused. The check runs before the statement is sent and adds no query. `null`, or a value of the key that is no boolean, refuses every judged write; with the key unset or `false` nothing is checked.
+A write passes when a `WriteObserver` with `keepsHistory: true` takes the statement and records every relation and type column of the model ([Write capture](../orm/25-write-capture.md#an-observer)). The row history observer of `@spinajs/orm-history` is one, and `@spinajs/authz-replay` registers every `@AccessResource` model with it. A history that does not record a relation column does not satisfy the key: with `@History({ columns })` that leaves one out, `@History({ exclude })` that names one, or a `@Hidden()` relation column the history masks, every judged write of the model is refused, and the message names the column. List every relation and type column in `columns`, exclude none, and give a hidden one `hidden: 'record'`. The check runs before the statement is sent and adds no query. `null`, or a value of the key that is no boolean, refuses every judged write; with the key unset or `false` nothing is checked.
 
 The guard is registered when `@spinajs/authz-orm` is imported, so it also runs in a CLI command, a seed or a queue worker that boots no authz domain. It knows a model as a resource only where the model was registered in that process: prefer the decorator on the class, and when a model is registered with `registerAccessResource()` in another module (the queue's job model, by `@spinajs/authz-queue/jobs`), import that module in every process that writes the model. A run without refusals shows that every model write of a registered resource was recorded in the processes that have the key; it says nothing about the writes in the last two rows of the table.
 
@@ -101,7 +101,7 @@ The guard is registered when `@spinajs/authz-orm` is imported, so it also runs i
 | --- | --- | --- | --- | --- |
 | Resource registry | module state, not in DI; one per process | `registry.ts` | none | Not replaceable. Declare models with the decorators or `registerAccessResource()`. |
 | `AuthzOrmContributor` | `AuthzContributor`, `@Singleton()`, registered when `@spinajs/authz-orm` is imported | `AuthzOrmContributor` | none | Not meant to be replaced. It runs `checkResourceConnections()` and returns `{ listTypes: registeredTypes() }` at every domain boot once the `Orm` is resolved. |
-| `ResourceHistoryGuard` | `WriteObserver`, singleton, registered when `@spinajs/authz-orm` is imported | `ResourceHistoryGuard` | none | Not meant to be replaced. With `authz.orm.requireHistory` on it refuses a resource write no history observer takes; with it off it takes no statement. |
+| `ResourceHistoryGuard` | `WriteObserver`, singleton, registered when `@spinajs/authz-orm` is imported | `ResourceHistoryGuard` | none | Not meant to be replaced. With `authz.orm.requireHistory` on it refuses a resource write that no history observer takes with every relation and type column recorded; with it off it takes no statement. |
 
 ## Important behaviour
 
