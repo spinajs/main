@@ -32,6 +32,8 @@ function record(spec: HistorySpec, write: CapturedWrite, inputs: readonly AuditI
 
 @Injectable(WriteObserver)
 export class HistoryObserver extends WriteObserver {
+  public readonly keepsHistory = true;
+
   @Autoinject(HistorySpecs)
   protected Specs: HistorySpecs;
 

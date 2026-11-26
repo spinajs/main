@@ -39,6 +39,12 @@ export type CapturedWrite = WriteStatement & {
 };
 
 export abstract class WriteObserver {
+  /**
+   * True for an observer that keeps a durable history of the rows it takes, so a package that refuses unrecorded writes
+   * can find one. Such an observer's interest() may be asked more than once for a statement.
+   */
+  readonly keepsHistory?: boolean;
+
   /** Synchronous; undefined when the statement does not concern this observer. */
   abstract interest(statement: WriteStatement): CaptureInterest | undefined;
   /** Before any capture read, inside the transaction; throwing aborts the statement. */
