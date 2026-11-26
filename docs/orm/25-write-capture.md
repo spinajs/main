@@ -100,7 +100,7 @@ An upsert is also refused after it ran, when the read after it finds more rows b
 { "db": { "WriteCapture": { "Required": ["invoice", "invoice_line"] } } }
 ```
 
-Use it for a record that must be complete while only some processes load the observer that keeps it: row history registered by an integration package, a changelog. A worker, a command or a migration that shares the configuration and writes the table without that package fails on its first write, instead of writing rows the record never sees:
+Use it for a record that must be complete while only some processes load the observer that keeps it: row history registered by an integration package, a changelog. A worker, a command or a migration that shares the configuration and writes the table without that package fails on its first write, instead of writing rows the record never sees, as long as no other observer takes the table's writes in that process (see below):
 
 ```text
 write capture: Invoice writes invoice, a table db.WriteCapture.Required lists, and no WriteObserver takes this update; load the package that observes invoice in this process or take the table off the list
@@ -110,7 +110,7 @@ write capture: Invoice writes invoice, a table db.WriteCapture.Required lists, a
 - `WriteCaptureRequired` extends `InvalidOperation`.
 - A name is compared with the model's table name (`@Model('invoice')`) exactly, case included, on every connection. A misspelt name guards nothing, and nothing reports it.
 - The list is one value. When two configuration sources set it (a base file and an environment file, two files of one directory), the later one replaces the earlier and its tables are no longer checked. Write the whole list in one place.
-- The question is asked per statement, and any observer answers it: the list does not know which observer is meant. An observer that leaves some statements of a listed table alone gets those statements refused: the `InvoiceStatusLog` above skips an update that does not write `status`, and `@spinajs/orm-history` in column mode skips an update that writes no tracked column. List a table only when its observer takes every write of it.
+- The question is asked per statement, and any observer answers it: the list does not know which observer is meant. An observer that leaves some statements of a listed table alone gets those statements refused: the `InvoiceStatusLog` above skips an update that does not write `status`, and `@spinajs/orm-history` in column mode skips an update that writes no tracked column. List a table only when its observer takes every write of it. The other way round, an observer that takes the statement satisfies the list whatever it keeps: a history that excludes or masks a column, or an observer that keeps no history at all (a cache, the application's own). List a table only where the observer the list is meant for is the only one that takes its writes.
 - The list covers what the capture sees. The writes under [What the capture does not see](#what-the-capture-does-not-see) pass, listed or not; `Model.truncate()` is one of them, because its builder carries no model.
 - A value that is not a list of non-empty names is refused by the configuration check at boot and by `Configuration.set()`. So is any key under `db.WriteCapture` other than `MaxRows` and `Required`, so a misspelt `Required` does not switch the check off. A misspelt section name (`db.WriteCaptur`) is not refused: the `db` section holds keys of many packages.
 
