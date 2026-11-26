@@ -23,6 +23,10 @@ class PresetEtag extends RouteMiddleware {
 class OwnValidator extends RouteMiddleware {
   public onBefore({ req, res }: IMiddlewareContext): NotModified | undefined {
     if (etagMatches(req.headers['if-none-match'], VERSION)) {
+      // headers of a body, as an earlier step may have put them on res
+      res.setHeader('Content-Type', 'application/json');
+      res.setHeader('Content-Length', '42');
+      res.setHeader('Transfer-Encoding', 'chunked');
       return new NotModified({ Headers: [{ Name: 'ETag', Value: VERSION }] });
     }
     res.setHeader('ETag', VERSION);
@@ -50,7 +54,7 @@ class EtagController extends BaseController {
 }
 
 @BasePath('etag-validated')
-@Middleware(CacheControl, 60)
+@Middleware(CacheControl, 60, { vary: ['Accept-Language'] })
 class ValidatedController extends BaseController {
   @Get()
   @Middleware(OwnValidator)
@@ -120,14 +124,19 @@ describe('http.etag', function () {
       expect(headerOf(await req().get('static/style.css'), 'etag')).to.match(WEAK);
     });
 
-    it('lets a middleware answer 304 before the action runs', async () => {
+    it('lets a middleware answer 304 before the action runs, without the headers of a body', async () => {
       const runs = actionRuns;
       const fresh = await req().get('etag-validated/item');
       expect(fresh.status).to.eq(200);
       expect(headerOf(fresh, 'etag')).to.eq(VERSION);
       const res = await req().get('etag-validated/item').set('If-None-Match', VERSION);
       expect(res.status).to.eq(304);
+      expect(res.text ?? '').to.eq('');
+      expect(headerOf(res, 'content-type')).to.eq(undefined);
+      expect(headerOf(res, 'content-length')).to.eq(undefined);
+      expect(headerOf(res, 'transfer-encoding')).to.eq(undefined);
       expect(headerOf(res, 'etag')).to.eq(VERSION);
+      expect(headerOf(res, 'vary')).to.include('Accept-Language');
       expect(headerOf(res, 'cache-control')).to.eq('max-age=60');
       expect(actionRuns).to.eq(runs + 1);
     });
