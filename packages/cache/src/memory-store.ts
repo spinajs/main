@@ -23,7 +23,7 @@ interface TagVersion {
 /**
  * Entries in an LruTtlCache bounded by count and bytes, tag versions in a map. A version is a token of this store (a
  * random id of the instance and a counter), so no store hands one out twice; a tag without a version gets a new token,
- * and an entry that holds a version the store no longer has is invalid (decision K1).
+ * and an entry that holds a version the store no longer has is invalid.
  */
 @NewInstance()
 @Injectable(CacheStore)

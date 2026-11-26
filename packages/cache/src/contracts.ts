@@ -121,7 +121,7 @@ export abstract class CacheStore {
   public async configure(_settings: CacheSettings, _container: IContainer): Promise<void> {}
 }
 
-/** Segments added to every key; Bet 7 registers the tenant. Returning null means "do not cache here". */
+/** Segments added to every key; the tenancy package registers the tenant. Returning null means "do not cache here". */
 export abstract class CacheScope {
   abstract segments(): readonly string[] | null;
 }
