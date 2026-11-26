@@ -132,3 +132,51 @@ describe('BoundedMap', () => {
     expect(map.size).to.eq(0);
   });
 });
+
+describe('LruTtlCache weight', () => {
+  it('rejects an invalid maxWeight', () => {
+    expect(() => new LruTtlCache({ maxEntries: 1, maxWeight: -1 })).to.throw(InvalidArgument);
+    expect(() => new LruTtlCache({ maxEntries: 1, maxWeight: NaN })).to.throw(InvalidArgument);
+  });
+
+  it('evicts the least recently used entries until the total weight fits', () => {
+    const evicted: string[] = [];
+    const cache = new LruTtlCache<string, number>({ maxEntries: 10, maxWeight: 10, onEvict: (k, _v, r) => evicted.push(`${k}:${r}`) });
+    cache.set('a', 1, { weight: 4 });
+    cache.set('b', 2, { weight: 4 });
+    cache.get('a');
+    cache.set('c', 3, { weight: 4 });
+    expect(evicted).to.deep.eq(['b:capacity']);
+    expect(cache.weight).to.eq(8);
+    expect([cache.has('a'), cache.has('b'), cache.has('c')]).to.deep.eq([true, false, true]);
+  });
+
+  it('does not store an entry heavier than maxWeight or with an invalid weight', () => {
+    const cache = new LruTtlCache<string, number>({ maxEntries: 10, maxWeight: 10 });
+    for (const weight of [11, -1, NaN, Infinity]) cache.set('a', 1, { weight });
+    expect(cache.size).to.eq(0);
+    expect(cache.weight).to.eq(0);
+  });
+
+  it('gives back the weight of an entry that expires, is replaced, invalidated or deleted', () => {
+    const clock = new ManualClock(new Date(0));
+    const cache = new LruTtlCache<string, number>({ maxEntries: 10, maxWeight: 100, clock });
+    cache.set('a', 1, { weight: 5, ttlMs: 10 });
+    cache.set('b', 1, { weight: 5, tags: ['t'] });
+    cache.set('c', 1, { weight: 5 });
+    cache.set('c', 2, { weight: 7 });
+    expect(cache.weight).to.eq(17);
+    clock.advance(10);
+    expect(cache.get('a')).to.be.undefined;
+    cache.invalidate(['t']);
+    cache.delete('c');
+    expect(cache.weight).to.eq(0);
+  });
+
+  it('bounds by count alone without maxWeight, whatever the weights', () => {
+    const cache = new LruTtlCache<string, number>({ maxEntries: 2 });
+    cache.set('a', 1, { weight: 1e12 });
+    cache.set('b', 1, { weight: 1e12 });
+    expect(cache.size).to.eq(2);
+  });
+});
