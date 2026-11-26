@@ -1,13 +1,14 @@
 import * as chai from 'chai';
 import 'mocha';
+import sinon from 'sinon';
 
-import { AuthzConfigError, DefaultAuthzService, ScopeForgetter } from '@spinajs/authz';
+import { AUTHZ_CONNECTION, AuthzConfigError, DefaultAuthzService, ScopeForgetter } from '@spinajs/authz';
 import type { AdminContext, AuthzEvent, AuthzTx, ResourceRef } from '@spinajs/authz';
 import { testHost } from '@spinajs/authz-testing';
 import { DI } from '@spinajs/di';
 import type { Class } from '@spinajs/di';
-import { InsertBehaviour, WriteObserver } from '@spinajs/orm';
-import type { CaptureInterest, ModelBase, OrmDriver, WriteStatement } from '@spinajs/orm';
+import { InsertBehaviour, InsertQueryBuilder, TruncateTableQueryBuilder, UpdateQueryBuilder, WriteObserver, createQuery, deleteChunked, insertChunked, purgeBatch } from '@spinajs/orm';
+import type { CaptureInterest, IWhereBuilder, ModelBase, OrmDriver, WriteStatement } from '@spinajs/orm';
 
 import { ResourceHistoryGuard, UnrecordedResourceWrite, historyRequired } from '../src/history-guard.js';
 import { AUTHZ_ORM_CONFIGURATION_SCHEMA, AccessResource, Owner, Parent, Relation, entryOf, registerAccessResource, reparent } from '../src/index.js';
@@ -102,6 +103,9 @@ const gap = (kind: keyof typeof PHRASES, model: { readonly name: string }, type:
 
 const unstated = (kind: keyof typeof PHRASES, model: { readonly name: string }, type: string, observer: { readonly name: string }): string =>
   `authz-orm: ${PHRASES[kind]} of ${model.name} (resource '${type}') is taken by the history observer ${observer.name}, which does not say which columns it records, and authz.orm.requireHistory refuses it; make its interest() set unrecorded to the columns it reads but does not keep ([] when it keeps them all), or opt the model out with @AccessResource('${type}', { changelog: false })`;
+
+const past = (phrase: string, table: string, model: { readonly name: string }, type: string, columns: readonly string[]): string =>
+  `authz-orm: ${phrase} of ${table} (resource '${type}') goes past its model ${model.name}, so no history observer records ${columns.join(', ')}, and authz.orm.requireHistory refuses it; write it through the model in a process that imports @spinajs/authz-replay, or with raw SQL where it must not be recorded`;
 
 // rejectedWith(Class, text) matches a fragment; the messages are asserted whole.
 async function rejection(write: PromiseLike<unknown>): Promise<unknown> {
@@ -327,6 +331,154 @@ describe('ResourceHistoryGuard', function () {
     it('refuses every resource write while the key holds a value that is not a boolean', async () => {
       testHost.config().set(FLAG, 'yes');
       expect(await rejection(Doc.insert(D1))).to.be.instanceOf(AuthzConfigError).with.property('message', 'authz-orm: authz.orm.requireHistory must be a boolean');
+      expect(await db.rows(Doc)).to.deep.equal([]);
+    });
+
+    const aliased = (): OrmDriver => db.orm.Connections.get(AUTHZ_CONNECTION) ?? expect.fail(`no connection alias ${AUTHZ_CONNECTION}`);
+
+    /** Every way to write Doc's table past its model. Run in order on the row D1, each one changes the table. */
+    const pastWrites = (table: string, Note: typeof ModelBase): [string, () => PromiseLike<unknown>][] => [
+      ['an insert', () => driver.insert().into(table).values({ ...D1, id: 'd2' })],
+      ['an insert', () => driver.insert().into(table).values(D1).onDuplicate('id').update(['folder_id'])],
+      ['an update', () => driver.update().in(table).update({ folder_id: 'f2' }).where('id', 'd1')],
+      ['an update', () => driver.update().in(table).increment('owner_id').where('id', 'd1')],
+      ['an update', () => driver.update().in(table).update({ id: 'd9' }).where('id', 'd1')],
+      ['a delete', () => driver.del().from(table).where('id', 'd2')],
+      ['a delete', () => aliased().del().from(table, 'x').where('id', 'd9')],
+      ['an insert', () => insertChunked(driver, table, [{ ...D1, id: 'd3' }])],
+      ['a delete', () => deleteChunked(driver, table, 'id', ['d3'])],
+      ['a truncate', () => driver.truncate(table)],
+      // What Doc.truncate() builds (orm/src/model.ts:1199): ModelBase types the static truncate() as void.
+      ['a truncate', () => createQuery(DocClass, TruncateTableQueryBuilder, false).query],
+      ['an insert', () => createQuery(Note, InsertQueryBuilder).query.into(table).values({ ...D1, id: 'd4' })],
+    ];
+
+    async function sent(fn: () => Promise<void>): Promise<number> {
+      const execute = sinon.spy(driver, 'execute');
+      try {
+        await fn();
+        return execute.callCount;
+      } finally {
+        execute.restore();
+      }
+    }
+
+    async function refusedPast(table: string, writes: [string, () => PromiseLike<unknown>][]): Promise<void> {
+      for (const [phrase, write] of writes) expect(await rejection(write()), phrase).to.be.instanceOf(UnrecordedResourceWrite).with.property('message', past(phrase, table, Doc, 'doc', RELATION_COLUMNS));
+    }
+
+    it('refuses every write of a resource table that goes past its model while the key is on, before it sends a statement', async () => {
+      testHost.config().set(FLAG, true);
+      await db.insertRaw(Doc, D1);
+      const table = db.table(Doc);
+      const writes = pastWrites(table, await db.define({ name: 'Note', columns: { title: 'TEXT' } }));
+      expect(await sent(() => refusedPast(table, writes))).to.equal(0);
+      // Its one statement is the select of the keys to delete.
+      const purged = sent(async () => {
+        expect(await rejection(purgeBatch(driver, { table, key: 'id', where: function (this: IWhereBuilder<unknown>) { this.where('folder_id', 'f1'); } }))).to.be.instanceOf(UnrecordedResourceWrite).with.property('message', past('a delete', table, Doc, 'doc', RELATION_COLUMNS));
+      });
+      expect(await purged).to.equal(1);
+      expect(await db.rows(Doc)).to.deep.equal([D1]);
+    });
+
+    // FullHistory records every column of every model write: a guard that asked it about the table's model would pass these.
+    it('refuses them whatever history is registered, and lets the model write the same row', async () => {
+      undo.push(observing(FullHistory));
+      testHost.config().set(FLAG, true);
+      await db.insertRaw(Doc, D1);
+      const table = db.table(Doc);
+      await refusedPast(table, pastWrites(table, await db.define({ name: 'Note', columns: { title: 'TEXT' } })));
+      expect(await db.rows(Doc)).to.deep.equal([D1]);
+      await Doc.update({ folder_id: 'f2' }).where('id', 'd1');
+      expect(await db.rows(Doc)).to.deep.equal([{ ...D1, folder_id: 'f2' }]);
+    });
+
+    it('runs every write past the model while the key is unset or false', async () => {
+      const table = db.table(Doc);
+      const writes = pastWrites(table, await db.define({ name: 'Note', columns: { title: 'TEXT' } }));
+      for (const value of [undefined, false]) {
+        if (value !== undefined) testHost.config().set(FLAG, value);
+        await db.insertRaw(Doc, D1);
+        expect(await sent(async () => {
+          for (const [, write] of writes) await write();
+        })).to.equal(writes.length);
+        expect(await db.rows(Doc)).to.deep.equal([{ ...D1, id: 'd4' }]);
+      }
+    });
+
+    it('leaves alone a write past the model of a table no resource uses, and every read, without reading the key', async () => {
+      // Reading a key that is no boolean throws.
+      testHost.config().set(FLAG, 'yes');
+      const notes = db.table(await db.define({ name: 'Note', columns: { title: 'TEXT' } }));
+      const writes = sent(async () => {
+        await driver.insert().into(notes).values({ id: 'n1', title: 'a' });
+        await driver.update().in(notes).update({ title: 'b' }).where('id', 'n1');
+        await driver.del().from(notes).where('id', 'n1');
+        await driver.truncate(notes);
+      });
+      expect(await writes).to.equal(4);
+      await db.insertRaw(Doc, D1);
+      expect(await driver.select().from(db.table(Doc))).to.deep.equal([D1]);
+      testHost.config().set(FLAG, true);
+      expect(await driver.select().from(db.table(Doc)).where('id', 'd1')).to.deep.equal([D1]);
+    });
+
+    it('judges a model update by the columns it increments and by its key, for each refusal of a model write', async () => {
+      testHost.config().set(FLAG, true);
+      await db.insertRaw(Doc, D1);
+      const cases: [Class<WriteObserver> | undefined, string][] = [
+        [undefined, refusal('update', Doc, 'doc')],
+        [historyWith({ columns: ['title'], transactional: true, unrecorded: [] }), gap('update', Doc, 'doc', RELATION_COLUMNS)],
+        [UnstatedHistory, unstated('update', Doc, 'doc', UnstatedHistory)],
+      ];
+      for (const [observer, message] of cases) {
+        if (observer) undo.push(observing(observer));
+        expect(await rejection(createQuery(DocClass, UpdateQueryBuilder).query.increment('owner_id').where('id', 'd1'))).to.be.instanceOf(UnrecordedResourceWrite).with.property('message', message);
+        expect(await rejection(Doc.update({ id: 'd9' }).where('id', 'd1'))).to.be.instanceOf(UnrecordedResourceWrite).with.property('message', message);
+        await Doc.update({ title: 'b' }).where('id', 'd1');
+        if (observer) undo.pop()?.();
+      }
+      expect(await db.rows(Doc)).to.deep.equal([{ ...D1, title: 'b' }]);
+    });
+
+    it('judges a write past the model of a table whose model became a resource after the builder was made', async () => {
+      testHost.config().set(FLAG, true);
+      const Job = await db.define({ name: 'Job', columns: { owner_id: 'TEXT', title: 'TEXT' } });
+      const jobs = db.table(Job);
+      await driver.insert().into(jobs).values({ id: 'j1', owner_id: 'u1', title: 'a' });
+      const late = driver.del().from(jobs).where('id', 'j1');
+      registerAccessResource(Job, 'job', { owner: 'owner_id' });
+      expect(await rejection(late)).to.be.instanceOf(UnrecordedResourceWrite).with.property('message', past('a delete', jobs, Job, 'job', ['owner_id']));
+      expect(await db.rows(Job)).to.have.length(1);
+    });
+
+    // @spinajs/users discards a half-created account this way (discardInsertedUser), so it is refused there when the
+    // application's user model is a resource with a relation column, and the account row stays.
+    it('refuses a bare delete of a resource row by its model table name, and the row stays', async () => {
+      testHost.config().set(FLAG, true);
+      await db.insertRaw(Doc, D1);
+      const table = DocClass.getModelDescriptor().TableName;
+      expect(await rejection(driver.del().from(table).where('id', 'd1'))).to.be.instanceOf(UnrecordedResourceWrite).with.property('message', past('a delete', table, Doc, 'doc', RELATION_COLUMNS));
+      expect(await db.rows(Doc)).to.deep.equal([D1]);
+    });
+
+    it('leaves alone a write past the model while the key is off, one of a column replay does not read, one of an opted-out resource, and raw SQL', async () => {
+      const table = db.table(Doc);
+      await driver.insert().into(table).values(D1);
+      testHost.config().set(FLAG, true);
+      await driver.update().in(table).update({ title: 'b' }).where('id', 'd1');
+      expect(await db.rows(Doc)).to.deep.equal([{ ...D1, title: 'b' }]);
+      const Quiet = await db.define({
+        name: 'Quiet',
+        columns: { folder_id: 'TEXT' },
+        decorate: (c, p) => {
+          AccessResource('quiet', { changelog: false })(c);
+          Parent('folder')(p, 'folder_id');
+        },
+      });
+      await driver.insert().into(db.table(Quiet)).values({ id: 'q1', folder_id: 'f1' });
+      expect(await db.rows(Quiet)).to.have.length(1);
+      await driver.schema().raw(`DELETE FROM ${table}`, []);
       expect(await db.rows(Doc)).to.deep.equal([]);
     });
   });
