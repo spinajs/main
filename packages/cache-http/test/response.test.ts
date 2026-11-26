@@ -122,6 +122,24 @@ describe('the stored reply', () => {
     expect(replayableReply(reply)?.headers).to.deep.eq(STORED.headers);
   });
 
+  it('leaves out every header its Connection header names', async () => {
+    const reply = jsonReply({ headers: { ...STORED.headers, Connection: 'X-Hop, x-tunnel', 'x-hop': 'a', 'x-tunnel': 'b' } });
+    expect(replayableReply(reply)?.headers).to.deep.eq(STORED.headers);
+    const sent = await replay(reply);
+    expect([sent.headers['x-hop'], sent.headers['x-tunnel']]).to.deep.eq([undefined, undefined]);
+  });
+
+  it('leaves out Proxy-Authorization', () => {
+    expect(replayableReply(jsonReply({ headers: { ...STORED.headers, 'Proxy-Authorization': 'Basic YTpi' } }))?.headers).to.deep.eq(STORED.headers);
+  });
+
+  it('is not taken from a response that varies on everything', () => {
+    for (const vary of ['*', 'accept, *', ['accept', ' * ']]) {
+      expect(replyToStore({ reply: STORED }, headersOf({ vary }), 'principal'), String(vary)).to.eq(undefined);
+    }
+    expect(replyToStore({ reply: STORED }, headersOf({ vary: 'accept' }), 'principal')).to.deep.eq(STORED);
+  });
+
   it('is not taken from a response that failed, sets a cookie or says no-store, nor from a private one on a wider scope', () => {
     const plain = headersOf({ 'cache-control': 'max-age=60' });
     expect(replyToStore({ reply: STORED }, plain, 'shared')).to.deep.eq(STORED);

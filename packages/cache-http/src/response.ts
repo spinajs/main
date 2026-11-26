@@ -12,6 +12,7 @@ const NEVER_REPLAYED: ReadonlySet<string> = new Set([
   'proxy-authentication-info',
   'www-authenticate',
   'proxy-authenticate',
+  'proxy-authorization',
   'connection',
   'keep-alive',
   'proxy-connection',
@@ -30,7 +31,14 @@ const JSON_TYPE = /^application\/(?:[\w.+-]+\+)?json\s*(?:;|$)/i;
 // what node's setHeader refuses in a value
 const INVALID_VALUE = /[^\t\x20-\x7e\x80-\xff]/;
 
-const replayedHeaders = (headers: Readonly<Record<string, string>>): Record<string, string> => Object.fromEntries(Object.entries(headers).filter(([name]) => !NEVER_REPLAYED.has(name.toLowerCase())));
+const tokensOf = (value: number | string | readonly string[] | undefined): string[] => (Array.isArray(value) ? value.join(',') : String(value ?? '')).split(',').map((token) => token.trim().toLowerCase());
+
+// a header the Connection header names is hop-by-hop too (RFC 9110 7.6.1)
+function replayedHeaders(headers: Readonly<Record<string, string>>): Record<string, string> {
+  const entries = Object.entries(headers);
+  const hopByHop = new Set(entries.filter(([name]) => name.toLowerCase() === 'connection').flatMap(([, value]) => tokensOf(value)));
+  return Object.fromEntries(entries.filter(([name]) => !NEVER_REPLAYED.has(name.toLowerCase()) && !hopByHop.has(name.toLowerCase())));
+}
 
 function headersOf(value: unknown): Record<string, string> | undefined {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return undefined;
@@ -39,7 +47,8 @@ function headersOf(value: unknown): Record<string, string> | undefined {
     if (typeof text !== 'string' || !FIELD_NAME_PATTERN.test(name) || INVALID_VALUE.test(text)) return undefined;
     headers[name.toLowerCase()] = text;
   }
-  return JSON_TYPE.test(headers['content-type'] ?? '') ? replayedHeaders(headers) : undefined;
+  const kept = replayedHeaders(headers);
+  return JSON_TYPE.test(kept['content-type'] ?? '') ? kept : undefined;
 }
 
 function isJsonBody(body: unknown): body is string | null {
@@ -69,18 +78,14 @@ export interface StoredResponseHeaders {
   getHeader(name: string): number | string | readonly string[] | undefined;
 }
 
-function cacheDirectives(value: number | string | readonly string[] | undefined): string[] {
-  const text = Array.isArray(value) ? value.join(',') : String(value ?? '');
-  return text.split(',').map((directive) => directive.trim().split('=')[0].toLowerCase());
-}
-
 /**
  * What the response cache stores of a finished route: the JSON reply when the route answered no error, the response set
- * no cookie and said neither `no-store` nor, on a tenant or shared route, `private`; undefined when nothing is stored.
+ * no cookie, did not vary on `*` and said neither `no-store` nor, on a tenant or shared route, `private`; undefined when
+ * nothing is stored.
  */
 export function replyToStore(outcome: IRouteOutcome, res: StoredResponseHeaders, scope: ResponseCacheScope): CapturedJsonReply | undefined {
-  if (outcome.error !== undefined || res.getHeader('set-cookie') !== undefined) return undefined;
-  const directives = cacheDirectives(res.getHeader('cache-control'));
+  if (outcome.error !== undefined || res.getHeader('set-cookie') !== undefined || tokensOf(res.getHeader('vary')).includes('*')) return undefined;
+  const directives = tokensOf(res.getHeader('cache-control')).map((directive) => directive.split('=')[0]);
   if (directives.includes('no-store') || (directives.includes('private') && scope !== 'principal')) return undefined;
   return replayableReply(outcome.reply);
 }
