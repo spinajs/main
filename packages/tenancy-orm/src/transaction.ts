@@ -5,7 +5,7 @@ import type { TenantScope } from '@spinajs/tenancy';
 
 import { rlsModels } from './registry.js';
 
-// The scope the first statement on a tenant table of each open transaction ran in.
+// The scope the first statement of each open transaction ran in.
 const pinned = new WeakMap<object, string>();
 
 export function scopeKey(scope: TenantScope | undefined): string {
@@ -23,8 +23,8 @@ export function carriesTenantSettings(driver: OrmDriver): boolean {
 }
 
 /**
- * T4: the session settings of a transaction are applied once, at BEGIN, so every statement of it on a tenant table runs
- * in the scope of the first. A statement on a shared table reads no tenant setting and pins nothing.
+ * T4: the session settings of a transaction are applied once, at BEGIN, so every statement of it runs in the scope of
+ * the first, a statement on a shared table too: it can join a tenant table.
  */
 export function keepOneScopePerTransaction(query: QueryBuilder, scope: TenantScope | undefined): void {
   const driver = query.Driver;

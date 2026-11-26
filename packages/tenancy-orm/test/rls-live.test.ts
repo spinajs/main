@@ -1,7 +1,7 @@
 import 'mocha';
 import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
-import { NotSupported } from '@spinajs/exceptions';
+import { InvalidOperation, NotSupported } from '@spinajs/exceptions';
 import { executeSql, sql } from '@spinajs/orm';
 import type { SqlFragment } from '@spinajs/orm';
 
@@ -173,6 +173,13 @@ function rlsSuite(title: string, boot: () => Promise<RlsApp | undefined>): void 
       expect(await inTenant('t2', () => memos('ann'))).to.deep.eq([{ tenant_id: 't2', author: 'ann' }]);
       // no row for an author nobody is: the tenant policy's fallback grant stepped back
       expect(await inTenant('t1', () => memos('carol'))).to.deep.eq([]);
+    });
+
+    it('refuses .acrossTenants() inside a tenant, where the database still sees that tenant', async () => {
+      await expect(inTenant('t1', () => RlsInvoice.query().acrossTenants('monthly report'))).to.be.rejectedWith(InvalidOperation, 'inside runAcrossTenants(reason)');
+      // with no scope the database is told nothing, so the widened statement would read no row
+      await expect(Promise.resolve().then(() => RlsInvoice.query().acrossTenants('monthly report'))).to.be.rejectedWith(InvalidOperation, 'still sees none');
+      expect(await everywhere(() => actingAs(app().appRole, () => RlsInvoice.query().acrossTenants('monthly report')))).to.have.length(SEEDED);
     });
   });
 }

@@ -5,11 +5,11 @@ import { Orm } from '@spinajs/orm';
 import type { OrmDriver } from '@spinajs/orm';
 import type { TestApp } from '@spinajs/testing';
 import { TenantSwitchDenied, onTenantScopeChange, runAcrossTenants, runInTenant, tenantScopeOf } from '@spinajs/tenancy';
-import { carriesTenantSettings, stopTransactionScopeGuard } from '../src/index.js';
+import { TenantSessionSettings, carriesTenantSettings, stopTransactionScopeGuard } from '../src/index.js';
 import { register, rlsModels, unregisterTenantModel } from '../src/registry.js';
 import { refuseScopeChangeInTransaction } from '../src/scope-guard.js';
 import { bootApp } from './support/app.js';
-import { Ledger, TenantOwned } from './support/models.js';
+import { Carrier, Ledger, TenantOwned } from './support/models.js';
 import { everywhere, inTenant } from './support/scope.js';
 
 chai.use(chaiAsPromised);
@@ -93,6 +93,21 @@ describe('one tenant scope per transaction (T4)', function () {
       }),
     );
     await expect(escaped).to.be.rejectedWith(TenantSwitchDenied, changed('tenant:t1', 'all'));
+  });
+
+  it('pins the scope at the first statement of the transaction, on a shared table too', async () => {
+    const escaped = inTenant('t1', () =>
+      driver.transaction(async () => {
+        await Carrier.query();
+        await Ledger.query().acrossTenants('month end');
+      }),
+    );
+    await expect(escaped).to.be.rejectedWith(TenantSwitchDenied, changed('tenant:t1', 'all'));
+  });
+
+  it('sends no session settings on a connection that is not PostgreSQL', async () => {
+    expect(carriesTenantSettings(driver)).to.eq(true);
+    expect(await inTenant('t1', () => new TenantSessionSettings().settings(driver))).to.eq(undefined);
   });
 
   it('still refuses the statement when the scope-change guard is not registered', async () => {
