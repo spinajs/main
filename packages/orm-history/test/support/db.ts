@@ -12,7 +12,7 @@ import type { TestApp } from '@spinajs/testing';
 import { createTestDatabase } from '@spinajs/testing-orm';
 import type { TestDatabase } from '@spinajs/testing-orm';
 
-import { OrmHistory_2026_11_16_00_00_00 } from '../../src/index.js';
+import { OrmHistoryCoverage_2026_11_25_00_00_00, OrmHistory_2026_11_16_00_00_00 } from '../../src/index.js';
 import type { TrackedModel, TrackedRow } from '../../src/index.js';
 import { resetAudit } from './audit.js';
 
@@ -174,6 +174,16 @@ export class HistoryDb {
   async dropHistory(dialect: Dialect): Promise<void> {
     await new OrmHistory_2026_11_16_00_00_00().down(this.driver(dialect));
     this.historyOn.delete(dialect);
+  }
+
+  /** Creates an empty `history_coverage` on `dialect`, dropping what an earlier test or `open()` left. */
+  async migrateCoverage(dialect: Dialect): Promise<void> {
+    await this.dropCoverage(dialect);
+    await new OrmHistoryCoverage_2026_11_25_00_00_00().up(this.driver(dialect));
+  }
+
+  async dropCoverage(dialect: Dialect): Promise<void> {
+    await new OrmHistoryCoverage_2026_11_25_00_00_00().down(this.driver(dialect));
   }
 
   /** Every row of `table`: a trail table by `seq`, a table of `define` by `id`. */
