@@ -6,3 +6,5 @@ export type { Recording, ReplayBudget, ReplayDivergence, ReplayEvidence, ReplayM
 export type { ChangePage, ChangeReader } from './reader.js';
 export { ReplayBudgetExceeded, ReplayHistory } from './history-scan.js';
 export type { ReplayHistoryLimits } from './history-scan.js';
+export { REPLAY_DEFAULTS, REPLAY_MAX_CHANGES_LIMIT, replayLimits, replayWindow } from './config.js';
+export type { ReplayLimits } from './config.js';

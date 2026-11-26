@@ -49,7 +49,14 @@
     "url": "https://github.com/spinajs/main/issues"
   },
   "homepage": "https://github.com/spinajs/main#readme",
+  "dependencies": {
+    "@spinajs/configuration-common": "3.0.23",
+    "@spinajs/di": "3.0.23",
+    "@spinajs/exceptions": "3.0.23"
+  },
   "devDependencies": {
+    "@spinajs/log": "3.0.23",
+    "@spinajs/testing": "3.0.23",
     "fast-check": "^4.10.2"
   }
 }
