@@ -1,6 +1,7 @@
 import 'mocha';
 import { expect } from 'chai';
 
+import { mergeFragments } from '@spinajs/authz-ir';
 import type { PolicyIR } from '@spinajs/authz-ir';
 import { defineAssertions, describeAssertion, formatResults, releaseSolver, verifyAssertions } from '../src/index.js';
 import type { AssertionResult, AssertionSet, SatSolver, VerifyOptions } from '../src/index.js';
@@ -42,6 +43,88 @@ describe('defineAssertions', () => {
       'onlyVia(payout:send, [role:treasurer@org])',
       'never(public, *:update)',
     ]);
+  });
+});
+
+describe('assertions that name a permission the policy does not have', () => {
+  const azv006 = (results: AssertionResult[]): string[][] => results.map((r) => r.diagnostics.filter((d) => d.code === 'AZV006').map((d) => `${d.severity} ${d.message}`));
+
+  it('are AZV006 errors with an unknown verdict, so a typo never shows a proof', async () => {
+    const set = defineAssertions(({ implies, separated, onlyVia, never }) => [
+      never({ holder: 'public', permission: 'nosuch:*' }),
+      never({ holder: 'public', permission: 'invoice:aprove' }),
+      onlyVia('invoice:aprove', ['role:accountant@org']),
+      implies('invoice:aprove', 'invoice:read'),
+      separated('invoice:read', 'invoice:aprove'),
+      implies('invoice:approve', 'invoice:read'),
+    ]);
+    const results = await verifyAssertions(monotoneInvoices(), set, unavailable);
+
+    expect(results.map((r) => r.verdict.result)).to.deep.equal(['unknown', 'unknown', 'unknown', 'unknown', 'unknown', 'holds']);
+    expect(results.map((r) => r.verdict.code)).to.deep.equal(['AZV006', 'AZV006', 'AZV006', 'AZV006', 'AZV006', undefined]);
+    expect(azv006(results)).to.deep.equal([
+      ['error nosuch:* names no permission of the policy'],
+      ['error invoice:aprove names no permission of the policy'],
+      ['error invoice:aprove names no permission of the policy'],
+      ['error invoice:aprove names no permission of the policy'],
+      ['error invoice:aprove names no permission of the policy'],
+      [],
+    ]);
+  });
+
+  it('match names by letter case, as the permission registry does', async () => {
+    const set = defineAssertions(({ implies, never }) => [never({ holder: 'public', permission: 'Invoice:read' }), never({ holder: 'public', permission: 'INVOICE:*' }), implies('invoice:approve', 'invoice:Read')]);
+    expect(azv006(await verifyAssertions(monotoneInvoices(), set, unavailable))).to.deep.equal([
+      ['error Invoice:read names no permission of the policy'],
+      ['error INVOICE:* names no permission of the policy'],
+      ['error invoice:Read names no permission of the policy'],
+    ]);
+  });
+
+  it('take a glob only in never: elsewhere a glob names no permission, and the empty name is shown quoted', async () => {
+    const set = defineAssertions(({ implies, onlyVia, never }) => [implies('invoice:*', 'invoice:read'), onlyVia('*', []), never({ holder: 'public', permission: '' }), implies('', 'nosuch:read')]);
+    const results = await verifyAssertions(monotoneInvoices(), set, unavailable);
+    expect(results.map((r) => r.verdict.result)).to.deep.equal(['unknown', 'unknown', 'unknown', 'unknown']);
+    expect(azv006(results)).to.deep.equal([
+      ['error invoice:* names no permission of the policy'],
+      ['error * names no permission of the policy'],
+      ["error '' names no permission of the policy"],
+      ["error '', nosuch:read name no permission of the policy"],
+    ]);
+  });
+
+  it('leave a never glob that matches some permissions, and a permission no holder reaches, to the engines', async () => {
+    const ir = monotoneInvoices();
+    ir.types.org.relations.archiver = { allowed: ['user'], source: { kind: 'tuples', store: 'authz_assignment' } };
+    ir.types.invoice.permissions.archive = { tupleToUserset: { tupleset: 'parent', computed: 'archiver' } };
+    ir.types.project.permissions.archiver = { tupleToUserset: { tupleset: 'parent', computed: 'archiver' } };
+    ir.permissions['invoice:archive'] = { type: 'invoice', relation: 'archive', list: false, source: { origin: 'config:authz' } };
+    ir.principal.roles.archiver = [{ type: 'org', relation: 'archiver' }];
+    const set = defineAssertions(({ never, onlyVia }) => [never({ holder: 'public', permission: 'invoice:*' }), never({ holder: 'public', permission: 'invoice:archive' }), onlyVia('invoice:archive', ['role:archiver@org'])]);
+    const results = await verifyAssertions(ir, set, unavailable);
+    expect(codes(results)).to.deep.equal([
+      'AZV002 info never(public, invoice:*): holds (exact)',
+      'AZV002 info never(public, invoice:archive): holds (exact)',
+      'AZV002 info onlyVia(invoice:archive, [role:archiver@org]): holds (exact)',
+    ]);
+  });
+
+  it('know a permission that another model of the merged policy defines', async () => {
+    const { ir, conflicts } = mergeFragments([
+      { model: 'rbac', types: { user: { relations: {}, permissions: {} }, doc: { relations: { reader: { allowed: ['user'], source: { kind: 'tuples', store: 'authz_assignment' } } }, permissions: {} } }, permissions: { 'doc:read': { type: 'doc', permit: 'reader', source: { origin: 'config:authz' } } } },
+      { model: 'rebac', types: { doc: { relations: { sharer: { allowed: ['user'], source: { kind: 'tuples', store: 'authz_rebac_tuple' } } }, permissions: {} } }, permissions: { 'doc:share': { type: 'doc', permit: 'sharer', source: { origin: 'config:authz', file: 'policies/share.ts' } } } },
+    ]);
+    expect(conflicts).to.deep.equal([]);
+    const set = defineAssertions(({ never }) => [never({ holder: 'public', permission: 'doc:share' }), never({ holder: 'public', permission: 'doc:shrae' })]);
+    expect(codes(await verifyAssertions(ir, set, unavailable))).to.deep.equal(['AZV002 info never(public, doc:share): holds (exact)', 'AZV006 error never(public, doc:shrae): doc:shrae names no permission of the policy']);
+  });
+
+  it('report no opaque part for an assertion that was never analysed', async () => {
+    const ir = monotoneInvoices();
+    ir.opaque = [{ kind: 'model', name: 'legacy' }];
+    const [r] = await verifyAssertions(ir, defineAssertions(({ never }) => [never({ holder: 'public', permission: 'invoice:aprove' })]), unavailable);
+    expect(codes([r])).to.deep.equal(['AZV006 error never(public, invoice:aprove): invoice:aprove names no permission of the policy']);
+    expect(r.verdict.opaque).to.deep.equal([]);
   });
 });
 

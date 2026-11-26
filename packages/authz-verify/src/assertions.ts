@@ -70,8 +70,34 @@ export function describeAssertion(a: Assertion): string {
   }
 }
 
+/**
+ * The names of `a` that select no permission of the IR. Every engine has no state for such a name and answers
+ * `holds`, so a typo would read as a proof. Only `never` takes a glob; the other kinds look a name up as it is.
+ */
+function unknownPermissions(ir: PolicyIR, a: Assertion): string[] {
+  const missing = (p: string): boolean => !Object.prototype.hasOwnProperty.call(ir.permissions, p);
+  switch (a.kind) {
+    case 'implies':
+    case 'separated':
+      return [...new Set([a.a, a.b])].filter(missing);
+    case 'onlyVia':
+      return missing(a.permission) ? [a.permission] : [];
+    case 'never':
+      return permissionsMatching(ir, a.permission).length === 0 ? [a.permission] : [];
+    case 'isolated':
+      return [];
+  }
+}
+
+const shown = (name: string): string => (name === '' ? "''" : name);
+
 /** The exact engine first; what it leaves `unknown` goes to the bounded engine. */
 export async function verifyAssertion(ir: PolicyIR, a: Assertion, options: BoundedOptions = {}): Promise<Verdict> {
+  const unknown = unknownPermissions(ir, a);
+  if (unknown.length > 0) {
+    // Nothing was analysed, so no opaque part of the IR bears on this verdict.
+    return { result: 'unknown', engine: 'exact', opaque: [], code: 'AZV006', message: `${unknown.map(shown).join(', ')} ${unknown.length === 1 ? 'names' : 'name'} no permission of the policy` };
+  }
   switch (a.kind) {
     case 'implies': {
       const plain = await orBounded(await exactImplies(ir, a.a, a.b), ir, { checks: [{ permission: a.a, allowed: true }, { permission: a.b, allowed: false }] }, options);
@@ -242,7 +268,7 @@ function boundary(e: Encoder, u: Universe, type: TypeName): Formula[] {
   return out;
 }
 
-export type VerifyCode = 'AZV001' | 'AZV002' | 'AZV003' | 'AZV004' | 'AZV090';
+export type VerifyCode = 'AZV001' | 'AZV002' | 'AZV003' | 'AZV004' | 'AZV006' | 'AZV090';
 
 export interface VerifyDiagnostic {
   readonly code: VerifyCode;
@@ -275,6 +301,7 @@ function diagnose(assertion: Assertion, label: string, v: Verdict, ir: PolicyIR,
   const on = (code: VerifyCode, severity: VerifyDiagnostic['severity'], message: string, counterexample?: Counterexample): number => out.push({ code, severity, assertion: label, message, ...(counterexample === undefined ? {} : { counterexample }) });
   if (v.result === 'violated') on('AZV001', 'error', `violated (${v.engine === 'exact' ? 'exact' : `bounded k=${v.bound ?? '?'}`})`, v.counterexample);
   else if (v.result === 'holds') on('AZV002', 'info', v.engine === 'exact' ? 'holds (exact)' : `verified up to k=${v.bound ?? '?'}`);
+  else if (v.code === 'AZV006') on('AZV006', 'error', v.message ?? 'names no permission of the policy');
   else if (v.code === 'AZV090') on('AZV090', options.requireSolver === true ? 'error' : 'warning', `not verified: ${v.message ?? 'solver unavailable'}`);
   else on('AZV003', 'warning', `not decided: ${v.message ?? 'outside both engines'}`);
   if (v.opaque.length > 0) on('AZV003', 'warning', `depends on opaque: ${v.opaque.map((o) => `${o.kind} '${o.name}'`).join(', ')}`);

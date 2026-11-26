@@ -54,6 +54,24 @@ describe('spinajs authz:verify', function () {
     expect(process.exitCode).to.equal(1);
   });
 
+  it('fails a misspelt permission with AZV006 instead of printing a proof, under either --fail-on', async () => {
+    for (const failOn of ['error', 'warning'] as const) {
+      lines = [];
+      process.exitCode = undefined;
+      await run('typo.assertions.js', { failOn });
+      expect(lines).to.deep.equal([
+        'ok   AZV002 implies(folder:update, folder:read)  holds (exact)',
+        'fail AZV006 never(public, folder:updaet)         folder:updaet names no permission of the policy',
+        '1 error(s), 0 warning(s), 1 info',
+      ]);
+      expect(process.exitCode, `--fail-on ${failOn}`).to.equal(1);
+    }
+    lines = [];
+    await run('typo.assertions.js', { format: 'json' });
+    const json = JSON.parse(lines[0]) as { results: Array<{ verdict: { result: string; code?: string } }> };
+    expect(json.results[1].verdict).to.include({ result: 'unknown', code: 'AZV006' });
+  });
+
   it('prints one json line', async () => {
     await run('violated.assertions.js', { format: 'json' });
     expect(lines).to.have.length(1);
