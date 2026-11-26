@@ -63,7 +63,8 @@ describe('keyset cursor values on PGlite', function () {
     DI.register(CursorValuesConf).as(Configuration);
     DI.register(PgliteOrmDriver).as('orm-driver-pglite');
     orm = await DI.resolve(Orm);
-    const driver = orm.Connections.get(CONNECTION) as PgliteOrmDriver;
+    const driver = orm.Connections.get(CONNECTION);
+    if (!(driver instanceof PgliteOrmDriver)) throw new Error('the pglite connection is not booted');
     await driver.executeOnDb(
       'CREATE TABLE pgl_cursor_values ("Id" int PRIMARY KEY, "Small" int4 NOT NULL, "Big" int8 NOT NULL, "Price" numeric(10,2) NOT NULL, "Ratio" float8 NOT NULL, "Name" text NOT NULL, "Done" bool NOT NULL, "Day" date NOT NULL, "At" timestamptz NOT NULL, "Starts" time NOT NULL, "Ref" uuid NOT NULL)',
       [],
