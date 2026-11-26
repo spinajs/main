@@ -37,6 +37,7 @@ One folder per package under `docs/`. Each package page lists its features and l
 | [`@spinajs/tenancy`](tenancy/README.md) | Tenant scope, tenant registry, entering a tenant, running code for every tenant |
 | [`@spinajs/idempotency`](idempotency/README.md) | Run a call once per key, replay its reply, take over a dead replica's claim |
 | [`@spinajs/idempotency-scheduler`](idempotency-scheduler/README.md) | The builtin `idempotency.sweep` schedule: deletes expired idempotency replies and abandoned claims |
+| [`@spinajs/cache`](cache/README.md) | Named caches whose entries live while the versions of their tags do |
 | [`@spinajs/intl`](intl/README.md) | Translations |
 | [`@spinajs/internal-logger`](internal-logger/README.md) | Logger for code that runs before the real one |
 

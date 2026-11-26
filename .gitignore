@@ -130,6 +130,7 @@ graphify-out/
 !/docs/authz-rebac/
 !/docs/authz-testing/
 !/docs/authz-verify/
+!/docs/cache/
 !/docs/cli/
 !/docs/client/
 !/docs/codemods/

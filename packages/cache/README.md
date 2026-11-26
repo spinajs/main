@@ -4,5 +4,8 @@ Named caches for a SpinaJS application. An entry is valid while the versions of 
 invalidation bumps a tag, it never searches for entries, and a value computed before the bump is stored already
 invalid.
 
-This version holds the contracts (`Cache`, `CacheStore`, `CacheEntry`, `TagBump`), value encoding, store keys and tags,
-and `MemoryCacheStore` (count and byte bounds). Named caches, tiered stores and the tag bus follow.
+- `cache(name).wrap(key, { ttl, tags }, compute)`, `get`, `set`, `lookup`, `delete`, `invalidate`: named caches
+  configured under `cache.caches`.
+- `MemoryCacheStore` (count and byte bounds).
+
+Nothing is cached unless the application asks for it. See `docs/cache/README.md`.
