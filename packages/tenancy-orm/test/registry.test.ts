@@ -91,9 +91,9 @@ describe('tenant model registry', function () {
       expect(tenantModelOf(Note)).to.include({ column: 'org', rls: true });
     });
 
-    it("refuses tenancy.orm.isolation 'schema' when a tenant model is first used", async () => {
-      app = await bootApp({ orm: { isolation: 'schema' } });
-      expect(() => tenantModelOf(Invoice)).to.throw(NotSupported, "tenancy.orm: isolation 'schema' is not available yet; it lands with schema placements (v4-td-05-placement-schema). Use isolation 'row'");
+    it("refuses tenancy.orm.isolation 'schema' at the first statement of a transaction, a migration's too", async () => {
+      // every statement of an open transaction asks the registry whether its connection carries tenant settings
+      await assert.rejects(bootApp({ orm: { isolation: 'schema' } }), /tenancy\.orm: isolation 'schema' is not available yet; it lands with schema placements \(v4-td-05-placement-schema\)\. Use isolation 'row'/);
     });
 
     it('refuses a tenancy.orm value of the wrong type when the application boots', async () => {
