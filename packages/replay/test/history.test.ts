@@ -179,4 +179,13 @@ describe('sameImage', () => {
     const long = `1.${'0'.repeat(200_000)}1`;
     expect(sameImage(`[${long}]`, `[ ${long}]`)).to.equal(false);
   });
+
+  it('never takes values nested beyond the depth it compares for the same, and does not overflow the stack on them', () => {
+    const text = (depth: number): string => '['.repeat(depth) + ']'.repeat(depth);
+    expect(sameImage(text(100), ` ${text(100)}`)).to.equal(true);
+    expect(sameImage(text(10_000), ` ${text(10_000)}`)).to.equal(false);
+    let deep: unknown = [];
+    for (let i = 0; i < 10_000; i++) deep = [deep];
+    expect(sameImage(deep, deep)).to.equal(false);
+  });
 });

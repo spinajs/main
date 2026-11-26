@@ -89,23 +89,26 @@ const JSON_TOKEN = /"(?:[^"\\]|\\.)*"|(-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)/g;
 /**
  * Equality of two JSON images. Instants (Dates, ISO strings) are equal when they differ by less than `precisionMs`, the
  * precision of the column an image's instants come from. Two texts of a JSON object or array are equal by value.
- * Values JSON cannot hold (Map, Set, bigint, non-finite numbers, invalid dates) are never the same: a gap rather than
- * a guess.
+ * Values JSON cannot hold (Map, Set, bigint, non-finite numbers, invalid dates) and values nested deeper than 256
+ * levels are never the same: a gap rather than a guess.
  *
  * The text rule is wider than orm-history's, which compares by value only in a column it knows as JSON: here a plain
  * text column holding object or array text, and a string nested in a JSON value, compare by value too. Only a write
  * made outside the history can differ from its last change in that way alone, and such a write is then not seen.
  */
 export function sameImage(a: unknown, b: unknown, precisionMs = 1): boolean {
-  return plainJson(a) && plainJson(b) && equalJson(toJson(a), toJson(b), precisionMs);
+  return plainJson(a, 0) && plainJson(b, 0) && equalJson(toJson(a), toJson(b), precisionMs, 0);
 }
 
-function plainJson(v: unknown): boolean {
+// The comparison recurses: a value nested about 10,000 levels deep, which one stored text can hold, overflows the stack.
+const MAX_DEPTH = 256;
+
+function plainJson(v: unknown, depth: number): boolean {
   if (typeof v === 'number') return Number.isFinite(v);
   if (typeof v === 'bigint' || typeof v === 'function' || typeof v === 'symbol') return false;
   if (v === null || typeof v !== 'object') return true;
   if (v instanceof Date) return !Number.isNaN(v.getTime());
-  return !(v instanceof Map || v instanceof Set) && Object.values(v).every(plainJson);
+  return depth < MAX_DEPTH && !(v instanceof Map || v instanceof Set) && Object.values(v).every((x) => plainJson(x, depth + 1));
 }
 
 function toJson(v: unknown): unknown {
@@ -113,25 +116,26 @@ function toJson(v: unknown): unknown {
   return text === undefined ? undefined : (JSON.parse(text) as unknown);
 }
 
-function equalJson(a: unknown, b: unknown, precisionMs: number): boolean {
-  if (typeof a === 'string' && typeof b === 'string' && a !== b) return equalText(a, b, precisionMs);
+function equalJson(a: unknown, b: unknown, precisionMs: number, depth: number): boolean {
+  if (typeof a === 'string' && typeof b === 'string' && a !== b) return equalText(a, b, precisionMs, depth);
   if (a === null || b === null || typeof a !== 'object' || typeof b !== 'object') return a === b;
-  if (Array.isArray(a) || Array.isArray(b)) return Array.isArray(a) && Array.isArray(b) && a.length === b.length && a.every((x, i) => equalJson(x, b[i], precisionMs));
-  return equalRecords(a as Record<string, unknown>, b as Record<string, unknown>, precisionMs);
+  if (depth >= MAX_DEPTH) return false;
+  if (Array.isArray(a) || Array.isArray(b)) return Array.isArray(a) && Array.isArray(b) && a.length === b.length && a.every((x, i) => equalJson(x, b[i], precisionMs, depth + 1));
+  return equalRecords(a as Record<string, unknown>, b as Record<string, unknown>, precisionMs, depth);
 }
 
-function equalRecords(a: Record<string, unknown>, b: Record<string, unknown>, precisionMs: number): boolean {
+function equalRecords(a: Record<string, unknown>, b: Record<string, unknown>, precisionMs: number, depth: number): boolean {
   const keys = Object.keys(a);
-  return keys.length === Object.keys(b).length && keys.every((key) => Object.prototype.hasOwnProperty.call(b, key) && equalJson(a[key], b[key], precisionMs));
+  return keys.length === Object.keys(b).length && keys.every((key) => Object.prototype.hasOwnProperty.call(b, key) && equalJson(a[key], b[key], precisionMs, depth + 1));
 }
 
 // A JSON column kept as text holds one value under many texts, and history records no change between two of them, so
 // object and array texts compare by value. A scalar text never does: a plain text column keeps the exact comparison.
-function equalText(a: string, b: string, precisionMs: number): boolean {
+function equalText(a: string, b: string, precisionMs: number, depth: number): boolean {
   if (ISO_INSTANT.test(a) && ISO_INSTANT.test(b)) return Math.abs(Date.parse(a) - Date.parse(b)) < precisionMs;
   const x = jsonText(a);
   const y = jsonText(b);
-  return x !== undefined && y !== undefined && equalJson(x, y, precisionMs);
+  return x !== undefined && y !== undefined && equalJson(x, y, precisionMs, depth);
 }
 
 function jsonText(text: string): object | undefined {
