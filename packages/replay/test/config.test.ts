@@ -19,11 +19,11 @@ describe('replay configuration', function () {
   });
 
   it('fills the defaults into replay and lays replay.domains.<domain> over replay', async () => {
-    const app = await createTestApp({ config: { logger: SILENT, replay: { maxChanges: 20_000, concurrency: 4, domains: { authz: { maxChanges: 100_000, clockSkewMs: 0 } } } } });
+    const app = await createTestApp({ config: { logger: SILENT, replay: { maxChanges: 20_000, concurrency: 4, domains: { authz: { maxChanges: 100_000, clockSkewMs: 1 } } } } });
     try {
       expect(app.config.get(['replay', 'maxKeys'])).to.equal(5_000);
       expect(replayLimits()).to.include({ maxChanges: 20_000, concurrency: 4, maxKeys: 5_000, clockSkewMs: 1_000 });
-      expect(replayLimits('authz')).to.include({ maxChanges: 100_000, concurrency: 4, maxKeys: 5_000, clockSkewMs: 0 });
+      expect(replayLimits('authz')).to.include({ maxChanges: 100_000, concurrency: 4, maxKeys: 5_000, clockSkewMs: 1 });
       expect(replayLimits('pricing')).to.deep.equal(replayLimits());
     } finally {
       await app.dispose();
@@ -36,12 +36,12 @@ describe('replay configuration', function () {
     expect(await bad({ concurrency: 0 })).to.include('replay.concurrency');
     expect(await bad({ domains: { authz: { timeoutMS: 10 } } })).to.include('replay.domains.authz.timeoutMS');
     expect(await bad({ domains: { 'two words': {} } })).to.not.deep.equal([]);
-    expect(await bad({ maxChanges: 500_000, maxKeys: 1, maxDepth: 1, maxCalls: 1, timeoutMs: 1, concurrency: 1, clockSkewMs: 0, commitLagMs: 0, domains: { authz: { maxChanges: 1 }, 'billing-v2': { commitLagMs: 0 } } })).to.deep.equal([]);
+    expect(await bad({ maxChanges: 500_000, maxKeys: 1, maxDepth: 1, maxCalls: 1, timeoutMs: 1, concurrency: 1, clockSkewMs: 1, commitLagMs: 1, domains: { authz: { maxChanges: 1 }, 'billing-v2': { commitLagMs: 1 } } })).to.deep.equal([]);
   });
 
   // ReplayHistory refuses a budget that is no safe integer, AbortSignal.timeout a delay past 2^32 - 1 (past 2^31 - 1 its
   // timer fires after 1 ms), and a window wider than the calendar scans from an invalid instant, which reads nothing.
-  // Not tested with Infinity: the configuration coerces a non-finite number to 0 before the bounds see it.
+  // A booting configuration refuses Infinity as no integer; here configurationOf's JSON round trip makes it null first.
   it('fails the boot on a value the history or the timer would refuse at the first replay, naming the key', async () => {
     expect(await bad({ maxKeys: SAFE + 1 })).to.include('replay.maxKeys');
     expect(await bad({ concurrency: SAFE + 1 })).to.include('replay.concurrency');
@@ -49,6 +49,16 @@ describe('replay configuration', function () {
     expect(await bad({ commitLagMs: SAFE })).to.include('replay.commitLagMs');
     expect(await bad({ timeoutMs: 2_147_483_648 })).to.include('replay.timeoutMs');
     expect(await bad({ maxKeys: SAFE, maxDepth: SAFE, maxCalls: SAFE, timeoutMs: 2_147_483_647, concurrency: SAFE, clockSkewMs: 2_147_483_647, commitLagMs: 2_147_483_647 })).to.deep.equal([]);
+  });
+
+  // The configuration's coercion turns null and false into 0, which would narrow the window without a word.
+  it('fails the boot on a window key that is null, false, Infinity, 0 or negative, naming the key', async () => {
+    for (const value of [null, false, Number.POSITIVE_INFINITY, 0, -1]) {
+      for (const key of ['clockSkewMs', 'commitLagMs']) {
+        expect(await bad({ [key]: value }), `${key} ${String(value)}`).to.include(`replay.${key}`);
+        expect(await bad({ domains: { authz: { [key]: value } } }), `authz ${key} ${String(value)}`).to.include(`replay.domains.authz.${key}`);
+      }
+    }
   });
 
   it('refuses a key or a value that got past the schema, each time it is read', async () => {

@@ -41,8 +41,9 @@ function limitSchemas(defaults?: ReplayLimits): Record<keyof ReplayLimits, Integ
     maxCalls: integer(1, safe, defaults?.maxCalls),
     timeoutMs: integer(1, MAX_MS, defaults?.timeoutMs),
     concurrency: integer(1, safe, defaults?.concurrency),
-    clockSkewMs: integer(0, MAX_MS, defaults?.clockSkewMs),
-    commitLagMs: integer(0, MAX_MS, defaults?.commitLagMs),
+    // At least 1: the configuration coerces null and false to 0, and 0 would claim perfect clocks or instant commits.
+    clockSkewMs: integer(1, MAX_MS, defaults?.clockSkewMs),
+    commitLagMs: integer(1, MAX_MS, defaults?.commitLagMs),
   };
 }
 
