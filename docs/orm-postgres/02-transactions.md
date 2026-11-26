@@ -5,7 +5,7 @@
 ## How it works
 
 1. **Entry.** `driver.transaction(cb, options?)` (from `OrmDriver`) checks `options.isolation` against `SupportedIsolationLevels` and throws `OrmException('isolation level <level> not supported by driver <Driver>')` for any other value.
-2. **Begin.** `PostgresOrmDriver._begin(options)` takes a client with `Pool.connect()`, runs `BEGIN`, then `SET TRANSACTION ISOLATION LEVEL <level>` when a level is given. It returns `{ connection: client, depth: 0 }`, an `IPostgresTransactionContext`. If `BEGIN` or `SET` fails, the client is released and the error is re-thrown.
+2. **Begin.** `PostgresOrmDriver._begin(options)` takes a client with `Pool.connect()`, runs `BEGIN`, then `SET TRANSACTION ISOLATION LEVEL <level>` when a level is given. It returns `{ connection: client, depth: 0 }`, an `IPostgresTransactionContext`. If `BEGIN` or `SET` fails, the client is destroyed (`release(true)`), never pooled, and the error is re-thrown.
 3. **Run.** `OrmDriver` stores the context in `TransactionStorage` (an `AsyncLocalStorage`) and calls `cb(driver)`. `_executeOnDbOnce()` reads the store and sends every statement through `context.connection`, never through another pooled client.
 4. **Nest.** A `transaction()` call inside the callback does not open a second transaction. It calls `_savepoint(ctx, 'sp_<n>')`, which runs `SAVEPOINT "sp_<n>"`. On success it runs `RELEASE SAVEPOINT "sp_<n>"`; on a throw it runs `ROLLBACK TO SAVEPOINT "sp_<n>"` and re-throws.
 5. **Finish.** `_commit(ctx)` runs `COMMIT`. If the callback or the commit throws, `_rollback(ctx)` runs `ROLLBACK`; a rollback failure is swallowed so the original error surfaces.
