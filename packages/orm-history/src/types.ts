@@ -59,8 +59,10 @@ export interface ModelHistory {
   /**
    * For each distinct id, its entry with the highest `seq` at or before `at` (inclusive); an id without one is absent, and
    * the map holds asked ids only, each with its own entry. Row entries only, no `lost` marker and no erasure record; a forgotten row's entry comes
-   * back redacted. One read of the trail per id. Absent is not "no row": the row may be older than its tracking, or
-   * retention pruned its entries; read `HistoryCoverage.since()` after these entries to tell.
+   * back redacted. One read of the trail per id; an id no row can have (`'01'` of an integer key) is absent without one.
+   * Absent is not "no row": the row may be older than its tracking, or retention pruned its entries; read
+   * `HistoryCoverage.since()` after these entries to tell. Throws `HistoryConfigError` when the trail's `subject_id`
+   * ignores trailing spaces and the last 1000 entries it matches for an id are another id's.
    */
   latestBefore(ids: readonly string[], at: Date): Promise<ReadonlyMap<string, HistoryEntry>>;
   /** For each id, its last entry: `latestBefore` without an instant. */
@@ -75,8 +77,8 @@ export interface ModelHistory {
   /**
    * At most `limit` current rows whose columns equal `where` now, in primary-key order, encoded and read as `current`
    * does; a map of `limit` rows may leave more out. A value is a string, a finite number or null (matches NULL); one the
-   * column's type cannot hold matches nothing, and a string matches a text column only as written, whatever its
-   * collation. Only columns history records may be named.
+   * column's type cannot hold matches nothing, and a string or a number matches a text column only as written, whatever its
+   * collation, reading on in pages that double up to 1000 rows. Only columns history records may be named.
    */
   currentWhere(where: Readonly<Record<string, unknown>>, limit: number): Promise<ReadonlyMap<string, Readonly<Record<string, unknown>>>>;
 }
