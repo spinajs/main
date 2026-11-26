@@ -6,13 +6,13 @@ import type { AdminCallContext, AuthzCommand, AuthzService } from '@spinajs/auth
 import { DI } from '@spinajs/di';
 import { ConcurrencyConflict } from '@spinajs/exceptions';
 import { MIGRATION_DESCRIPTION_SYMBOL } from '@spinajs/orm';
-import type { OrmDriver, QueryContext } from '@spinajs/orm';
+import type { QueryContext } from '@spinajs/orm';
 
 import { fakeModelInitContext } from '@spinajs/authz-testing';
 
 import { AUTHZ_REBAC_TUPLE_TABLE, AuthzRebacCaveats_2026_11_06_00_00_00, AuthzRebac_2026_10_21_00_00_00, CAVEAT_CONTEXT_MAX, DbTupleStore, RebacModel, RebacTupleHandler, TupleCaveatConflict, TupleStore, caveatKey } from '../../src/index.js';
 import type { Tuple } from '../../src/index.js';
-import { bootDb, rawQuery } from '../support/db.js';
+import { bootDb, rawQuery, statementsDuring } from '../support/db.js';
 import type { Dialect, TestDb } from '../support/db.js';
 import { tupleStoreContract } from '../support/store-contract.js';
 import { NAMESPACES, PERMISSIONS, PERMISSION_INPUTS, d1, d2, ref, set, tuple, user } from '../support/world.js';
@@ -20,23 +20,6 @@ import { NAMESPACES, PERMISSIONS, PERMISSION_INPUTS, d1, d2, ref, set, tuple, us
 const expect = chai.expect;
 
 type Executor = { executeOnDb(stmt: string, params: unknown[], context: QueryContext): Promise<unknown> };
-
-/** The SELECT statements `driver` runs during `work`. */
-async function selectsDuring(driver: OrmDriver, work: () => Promise<unknown>): Promise<string[]> {
-  const target = driver as unknown as Executor;
-  const original = target.executeOnDb.bind(target);
-  const selects: string[] = [];
-  target.executeOnDb = (stmt, params, context) => {
-    if (/^\s*select\b/i.test(stmt)) selects.push(stmt);
-    return original(stmt, params, context);
-  };
-  try {
-    await work();
-  } finally {
-    target.executeOnDb = original;
-  }
-  return selects;
-}
 
 describe('authz-rebac: AuthzRebac migration', () => {
   it('runs on the connection alias authz', () => {
@@ -83,7 +66,7 @@ describe('authz-rebac: DbTupleStore (sqlite)', function () {
   it('refuses a caveat context longer than CAVEAT_CONTEXT_MAX before a transaction opens', async () => {
     const store = new DbTupleStore();
     let error: unknown;
-    const selects = await selectsDuring(db.driver, async () => {
+    const selects = await statementsDuring(db.driver, async () => {
       try {
         await store.write([{ ...tuple(d1, 'viewer', user('bob')), caveat: { name: 'c', context: { 'env.big': 'x'.repeat(CAVEAT_CONTEXT_MAX) } } }], [], user('admin'));
       } catch (e) {
@@ -97,7 +80,7 @@ describe('authz-rebac: DbTupleStore (sqlite)', function () {
   it('reads the stored rows in chunks, never one query per tuple', async () => {
     const store = new DbTupleStore();
     const absent = Array.from({ length: 600 }, (_, i) => tuple(d1, 'viewer', user(`u${i}`)));
-    const selects = await selectsDuring(db.driver, () => db.driver.transaction((tx) => store.writeIn({ driver: tx }, [], absent, user('admin'))));
+    const selects = await statementsDuring(db.driver, () => db.driver.transaction((tx) => store.writeIn({ driver: tx }, [], absent, user('admin'))));
     expect(selects).to.have.length(2);
   });
 
@@ -131,7 +114,7 @@ describe('authz-rebac: DbTupleStore (sqlite)', function () {
     const viewer = (name: string) => tuple(d1, 'viewer', user(name));
     await store.write(['a', 'b', 'c'].map(viewer), [], user('admin'));
     let counts: unknown;
-    const selects = await selectsDuring(db.driver, () =>
+    const selects = await statementsDuring(db.driver, () =>
       db.driver.transaction(async (tx) => {
         counts = await store.writeIn({ driver: tx }, ['a', 'b', 'c', 'd', 'd', 'e', 'f'].map(viewer), ['a', 'a', 'b', 'nobody'].map(viewer), user('admin'));
       }),
