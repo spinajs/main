@@ -12,7 +12,7 @@ export const CACHE_CONFIGURATION_SCHEMA = {
   type: 'object',
   properties: {
     maxTtl: { anyOf: [DURATION, MILLISECONDS], default: '1h', description: 'Cap of ttl + swr of every entry, counted from the reading of its tag versions' },
-    ttlJitter: { type: 'number', minimum: 0, maximum: 0.5, default: 0.1, description: 'Read, applied from the next version: every ttl will be shortened by a random fraction of itself up to this' },
+    ttlJitter: { type: 'number', minimum: 0, maximum: 0.5, default: 0.1, description: 'Every ttl is shortened by a random fraction of itself up to this, after the cap of maxTtl' },
     caches: {
       type: 'object',
       description: 'Named caches; an entry is open for the keys of its store',

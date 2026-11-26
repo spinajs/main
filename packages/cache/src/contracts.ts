@@ -13,7 +13,7 @@ export interface CacheReadOptions {
 export interface CacheOptions extends CacheReadOptions {
   /** Milliseconds or a duration such as '5m'; above 0, capped by cache.maxTtl. */
   readonly ttl: number | string;
-  /** How long after `ttl` an entry is still answered by lookup() as a stale hit; default 0. */
+  /** How long after `ttl` a stale value is still served (by wrap() while one refresh runs, by lookup() as a stale hit); default 0. */
   readonly swr?: number | string;
   /** The entry is valid while none of these tags was bumped after its value began to be computed. */
   readonly tags?: readonly string[];
@@ -48,7 +48,10 @@ export abstract class Cache {
   /** Stores under the tag versions of this moment; for a value read earlier use wrap() or lookup(). */
   abstract set<T>(key: string, value: T, options: CacheOptions): Promise<void>;
 
-  /** The cached value, else compute(), whose value is stored. A stale entry is computed again in the caller. */
+  /**
+   * The cached value, else compute(), run once per key and tag versions in this process; a stale value is served while
+   * one refresh runs. A caller never joins a computation that began before an invalidation of one of its tags.
+   */
   abstract wrap<T>(key: string, options: CacheOptions, compute: () => Promise<T>): Promise<T>;
 
   /** A fresh or stale hit, or a miss; a miss and a stale hit can be filled later with the versions read now. */
