@@ -4,7 +4,7 @@ import chaiAsPromised from 'chai-as-promised';
 import { ConcurrencyConflict, InvalidOperation } from '@spinajs/exceptions';
 import type { TestApp } from '@spinajs/testing';
 
-import { LIFECYCLE_LEASE_MS, TENANTS_TABLE, lifecycleOf, suspensionOf } from '../../src/index.js';
+import { LIFECYCLE_LEASE_MS, TENANTS_TABLE } from '../../src/index.js';
 import { claimLifecycle } from '../../src/lifecycle/lease.js';
 import { requireRow, tenancyDriver, writeLifecycle } from '../../src/lifecycle/record.js';
 import { clearTenants, seedTenant } from '../support/tenants.js';
@@ -31,8 +31,8 @@ describe('tenant lifecycle record and lease', function () {
 
   it('adds the lifecycle columns, empty for a tenant written without them', async () => {
     await seedTenant({ id: 't1' });
-    expect(lifecycleOf(await requireRow('t1'))).to.deep.eq({});
-    expect(suspensionOf(await requireRow('t1'))).to.eq(undefined);
+    expect((await requireRow('t1')).lifecycleRecord()).to.deep.eq({});
+    expect((await requireRow('t1')).suspensionRecord()).to.eq(undefined);
     expect(await leaseColumns('t1')).to.deep.eq({ lifecycle_owner: null, lifecycle_until: null, lifecycle_epoch: 0, suspension: null });
   });
 
@@ -42,15 +42,15 @@ describe('tenant lifecycle record and lease', function () {
     const lease = await claimLifecycle('t1', () => Date.now());
     await writeLifecycle('t1', state, lease.fence);
     await lease.release();
-    expect(lifecycleOf(await requireRow('t1'))).to.deep.eq(state);
+    expect((await requireRow('t1')).lifecycleRecord()).to.deep.eq(state);
 
     await (await tenancyDriver()).update().in(TENANTS_TABLE).update({ lifecycle: '{"operation":{"kind":"merge","done":[]}}' }).where('id', 't1');
     const row = await requireRow('t1');
-    expect(() => lifecycleOf(row)).to.throw(InvalidOperation, 'tenancy-orm: tenant "t1" has an unreadable lifecycle record');
+    expect(() => row.lifecycleRecord()).to.throw(InvalidOperation, 'tenancy-orm: tenant "t1" has an unreadable lifecycle record');
 
     await (await tenancyDriver()).update().in(TENANTS_TABLE).update({ suspension: '{"reason":7}' }).where('id', 't1');
     const suspended = await requireRow('t1');
-    expect(() => suspensionOf(suspended)).to.throw(InvalidOperation, 'tenancy-orm: tenant "t1" has an unreadable suspension record');
+    expect(() => suspended.suspensionRecord()).to.throw(InvalidOperation, 'tenancy-orm: tenant "t1" has an unreadable suspension record');
   });
 
   it('lets one operation hold a tenant, and frees it when released or expired', async () => {

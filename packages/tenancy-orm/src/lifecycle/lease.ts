@@ -7,7 +7,7 @@ import { tenancyDriver } from './record.js';
 
 export const LIFECYCLE_LEASE_COLUMNS = { owner: 'lifecycle_owner', until: 'lifecycle_until', epoch: 'lifecycle_epoch' };
 
-/** Measured with the clock of the process that takes or renews the lease. */
+/** Measured on the clock `claimLifecycle` is given as `now`. */
 export const LIFECYCLE_LEASE_MS = 15 * 60_000;
 
 export interface LifecycleLease {
