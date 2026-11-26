@@ -30,6 +30,21 @@ function isModelBaseMember(declaration: ts.Declaration): boolean {
 export const isRelationType = (checker: ts.TypeChecker, type: ts.Type): boolean =>
   extendsFrameworkClass(checker, type, 'Relation', ORM) || extendsFrameworkClass(checker, type, 'SingleRelation', ORM);
 
+/**
+ * The one part of `type` that `accepts`: the type itself, or a member of an intersection such as the row
+ * `populate()` types, `Post & { Owner: SingleRelation<User> & { Value: User } }`. Two accepted members name none.
+ */
+function onePart(type: ts.Type, accepts: (part: ts.Type) => boolean): ts.Type | undefined {
+  const found = (type.isIntersection() ? type.types : [type]).filter(accepts);
+  return found.length === 1 ? found[0] : undefined;
+}
+
+/** The model a query row is, seen through the intersections `populate()` adds; the model schema keeps `isModelType`. */
+export const modelOf = (checker: ts.TypeChecker, type: ts.Type): ts.Type | undefined => onePart(type, (part) => isModelType(checker, part));
+
+/** The relation a row member is, seen through the intersection a populated relation is typed as. */
+export const relationOf = (checker: ts.TypeChecker, type: ts.Type): ts.Type | undefined => onePart(type, (part) => isRelationType(checker, part));
+
 function isPublicData(property: ts.Symbol, declaration: ts.Declaration): boolean {
   if (property.flags & (ts.SymbolFlags.Method | ts.SymbolFlags.Signature)) return false;
   // A get-only accessor is computed: hydration cannot write it, so it is no column.
