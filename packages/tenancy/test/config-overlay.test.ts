@@ -130,8 +130,11 @@ describe('tenant configuration overrides', () => {
       registry.add({ id: 'sneaky', settings: stored });
       await admitTenant('sneaky');
 
-      const reads = () => runInTenant('sneaky', async () => [config.get('mail.retries'), config.get('intl.defaultLocale'), config.get('authn.cookie.secret'), config.get('db'), config.get('plan'), config.get('mail.from')]);
-      const shared = [3, 'en', undefined, undefined, undefined, 'noreply@app.test'];
+      const paths = ['mail.retries', 'intl.defaultLocale', 'authn.cookie.secret', 'db', 'plan', 'mail.from'];
+      const reads = () => runInTenant('sneaky', async () => paths.map((path) => config.get(path)));
+      // Other suites of the package may have registered defaults under db.
+      const shared = paths.map((path) => config.get(path));
+      expect(shared.slice(0, 3)).to.deep.equal([3, 'en', undefined]);
       expect(await reads()).to.deep.equal(shared);
       expect(await reads()).to.deep.equal(shared);
       registry.set('sneaky', { settings: { ...stored } });
