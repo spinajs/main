@@ -328,7 +328,7 @@ export class DbTupleStore extends TupleStore {
     return { items: (await q).map(tupleOf), total };
   }
 
-  /** The tuples whose subject is `ref` itself or a subject set of it, in `find` order. No index covers these columns. */
+  /** The tuples whose subject is `ref` itself or a subject set of it, in `find` order. The index `authz_rebac_tuple_subject_object` covers these columns. */
   async withSubjectObject(ref: ResourceRef): Promise<readonly Tuple[]> {
     if (ref.id == null) return [];
     const rows = await TupleRecord.query().where({ subject_type: ref.type, subject_id: ref.id }).orderBy('namespace').orderBy('object_id').orderBy('relation').orderBy('subject_key');
