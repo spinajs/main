@@ -24,7 +24,7 @@ class NoopForgetter extends ScopeForgetter {
   }
 }
 
-/** Takes every write of an @AccessResource model and keeps history, as row history in full mode does. */
+/** Takes every write of an `@AccessResource` model and keeps history, as row history in full mode does. */
 class FullHistory extends WriteObserver {
   public readonly keepsHistory = true;
 
