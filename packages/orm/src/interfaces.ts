@@ -2240,6 +2240,29 @@ export interface IIdentityMap {
 }
 
 /**
+ * One level of a transaction: the outermost transaction or one savepoint. Owned by `OrmDriver`: one savepoint at a
+ * time is open on a level, and while it is open the level's other statements and savepoints wait, in arrival order.
+ */
+export interface ITransactionLevel {
+  readonly transaction: ITransactionContext;
+
+  /** The level this savepoint was taken from; absent on the outermost level. */
+  readonly parent?: ITransactionLevel;
+
+  /** A savepoint taken from this level is open. */
+  held: boolean;
+
+  /** Statements and savepoints waiting for that savepoint to end, in arrival order. */
+  readonly waiting: { readonly savepoint: boolean; readonly resume: () => void }[];
+
+  /** Statements of this level that started and have not settled. */
+  readonly running: Set<Promise<unknown>>;
+
+  /** Set when this savepoint ended; a statement its async path issues later belongs to the nearest enclosing open level. */
+  ended?: boolean;
+}
+
+/**
  * Per-transaction state carried through `AsyncLocalStorage`.
  *
  * `connection` is the driver's own connection handle type and is absent for drivers with a
@@ -2258,6 +2281,9 @@ export interface ITransactionContext {
 
   /** Callbacks queued by `OrmDriver.afterCommit`, run after the outermost commit. Owned by `OrmDriver`. */
   afterCommit?: (() => void | Promise<void>)[];
+
+  /** The outermost level of this transaction, created by `OrmDriver` on first use. */
+  level?: ITransactionLevel;
 }
 
 export type RowLockMode = 'update' | 'share';
