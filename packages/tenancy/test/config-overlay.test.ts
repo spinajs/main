@@ -304,4 +304,9 @@ describe('tenant configuration overrides', () => {
     await expect(overlayApp({ config: { overridable: ['mail..from'] } })).to.be.rejectedWith('overridable');
     await expect(overlayApp({ config: { overridable: 'mail.from' } })).to.be.rejectedWith('overridable');
   });
+
+  it('refuses at boot a misspelt tenancy.config key, naming it, and boots with the right one', async () => {
+    await expect(overlayApp({ config: { overrideable: ['mail.from'] } })).to.be.rejectedWith('tenancy.config.overrideable');
+    app = await overlayApp({ config: { overridable: ['mail.from'] } });
+  });
 });

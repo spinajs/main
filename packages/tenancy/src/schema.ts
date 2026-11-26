@@ -37,6 +37,8 @@ export const TENANCY_CONFIGURATION_SCHEMA = {
     registryCacheMs: { type: 'integer', minimum: 0 },
     config: {
       type: 'object',
+      // A refusal, not the dropped-key warning of additionalProperties: a misspelt key would silently leave paths open or closed.
+      propertyNames: { enum: Object.keys(TENANCY_DEFAULTS.config) },
       properties: {
         overridable: { type: 'array', items: { type: 'string', pattern: OVERRIDABLE_PATH_PATTERN }, default: [] },
       },
