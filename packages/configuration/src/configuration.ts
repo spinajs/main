@@ -47,6 +47,8 @@ const CHECKED = new WeakMap<IContainer, FrameworkConfiguration>();
 // The target of each lazy-var proxy load() builds, by proxy: copying a proxy property by property would load every var.
 const LAZY_TARGETS = new WeakMap<object, object>();
 
+const MAX_PARSED_PATHS = 10_000;
+
 // Set while Ajv validates the stored value in place: it writes coerced values back through the proxies.
 let keepUnresolvedVars = false;
 
@@ -194,6 +196,9 @@ export class FrameworkConfiguration extends Configuration {
   /** Removed keys already reported, by schema and path: a reload or a polled set() removes the same key again. */
   private ReportedDrops = new Set<string>();
 
+  /** String paths read while an overlay is registered, parsed; bounded, since a path may be built from data. */
+  private ParsedPaths = new Map<string, readonly string[]>();
+
   public get RootConfig() {
     return this.Config as IConfigLike;
   }
@@ -244,10 +249,20 @@ export class FrameworkConfiguration extends Configuration {
   }
 
   private overlaid(overlay: ConfigurationOverlay, path: string[] | string): { value: unknown } | undefined {
-    const segments = _.toPath(path);
+    const segments = typeof path === 'string' ? this.parsedPath(path) : _.toPath(path);
     if (segments.length === 0 || !overlay.covers(segments)) return undefined;
     const values = overlay.values();
     return values === undefined || values.size === 0 ? undefined : overlaidValue(this.Config, segments, values, copyOnPath);
+  }
+
+  // With an overlay registered every read asks it: _.toPath copies the path each time, which doubled the cost of a read.
+  private parsedPath(path: string): readonly string[] {
+    let segments = this.ParsedPaths.get(path);
+    if (segments === undefined) {
+      segments = _.toPath(path);
+      if (this.ParsedPaths.size < MAX_PARSED_PATHS) this.ParsedPaths.set(path, segments);
+    }
+    return segments;
   }
 
   // Resolved here, not injected: an overlay reads the configuration, so it cannot be built before it.
