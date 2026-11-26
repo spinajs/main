@@ -29,13 +29,21 @@ writes use, so that your tag is the one a write bumps. `hashKey(parts)` turns lo
 
 | Call | What it does |
 | --- | --- |
-| `wrap(key, options, compute)` | The cached value, else `compute()`, whose value is stored. |
+| `wrap(key, options, compute)` | The cached value, else `compute()`, run once per key and per tag versions in this process: a concurrent caller waits for a running computation of the key and gets its own copy, but only when no tag of it was invalidated since that computation began; otherwise it computes itself, and only the newest computation of a key stores its entry. A failed `compute()` rejects every caller waiting on it and stores nothing; the next call computes again. While the store cannot tell the versions, every caller computes on its own. The cache sets no timeout: a `compute()` that never settles keeps every later caller of the key waiting until a tag of it is invalidated, so give the computation its own timeout, and never call `wrap` for a key from inside that key's `compute()`, which then waits for itself. |
 | `get(key)` | A fresh value, else `undefined`. |
 | `lookup(key, options)` | A fresh or stale hit, or a miss with `fill(value)`, which stores under the versions read at the lookup. A stale hit has a `fill` too; it claims nothing, and the stale entry stays until a fill replaces it. For a read and a write that are two calls. |
 | `set(key, value, options)` | Stores under the versions of this moment. |
 | `delete(key)`, `invalidate(tags)` | Removes one entry; bumps tags in every configured cache of the process, also one the process has not used yet. |
 
-Options: `ttl` (milliseconds or `'5m'`, above 0), `swr`, `tags`. `cache.maxTtl` (default `'1h'`) caps `ttl + swr`.
+Options: `ttl` (milliseconds or `'5m'`, above 0), `swr`, `tags`. `cache.maxTtl` (default `'1h'`) caps `ttl + swr`,
+and every `ttl` is then shortened by a random fraction of itself up to `cache.ttlJitter` (default 0.1, at most 0.5),
+so that entries written together do not all end together. `ttlJitter: 0` keeps every `ttl` as given.
+
+**Stale-while-revalidate.** Between `ttl` and `ttl + swr`, `wrap` returns the stale value at once and one refresh
+runs in the background; it reads the tag versions before it computes and stores under them. A failed refresh is
+logged with `op: 'refresh'` and keeps the stale value until the window ends; the next stale read starts another. An
+invalidated value is never served, also inside its window, and a caller that misses after an invalidation does not
+wait for a refresh that began before it.
 
 Lifetimes are read from the wall clock (`Date.now()`). When the clock is set back, entries live that much longer in
 real time, also past `cache.maxTtl`; an entry an invalidation made invalid stays invalid, because versions do not
@@ -81,6 +89,7 @@ process do not reach it.
 {
   "cache": {
     "maxTtl": "1h",
+    "ttlJitter": 0.1,
     "caches": { "default": { "store": "MemoryCacheStore", "maxEntries": 50000, "maxBytes": 134217728 } }
   }
 }

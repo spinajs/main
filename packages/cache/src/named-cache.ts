@@ -39,12 +39,23 @@ interface Produced<T> {
   readonly bytes: Uint8Array;
 }
 
+/** The running computation of a store key; `reading` names the tags and versions it read before it began. */
+interface Flight {
+  readonly reading: string;
+  readonly seq: number;
+  readonly done: Promise<{ readonly bytes: Uint8Array }>;
+}
+
+const readingKey = (tags: readonly string[], reading: Reading): string => JSON.stringify([tags, reading.versions]);
+
 const NOTHING_TO_FILL = async (): Promise<void> => undefined;
 
 /** One named cache of a CacheService. A store failure is logged and read as a miss; misuse is thrown. */
 export class NamedCache extends Cache {
   private opening: Promise<OpenedStore> | undefined;
   private openFailureLogged = false;
+  private readonly inFlight = new Map<string, Flight>();
+  private flights = 0;
 
   constructor(
     public readonly name: string,
@@ -75,9 +86,9 @@ export class NamedCache extends Cache {
     const storeKey = this.key(key);
     if (storeKey === null) return compute();
     const found = await this.read<T>(storeKey, options);
-    if (found !== undefined && !found.stale) return found.value;
-    const reading = await this.versionsOf(options.tags ?? []);
-    return (await this.produce(storeKey, options, life, compute, reading)).value;
+    if (found === undefined) return this.computeOnce(storeKey, options, life, compute);
+    if (found.stale) this.refresh(storeKey, options, life, compute);
+    return found.value;
   }
 
   public async lookup<T>(key: string, options: CacheOptions): Promise<CacheLookup<T>> {
@@ -143,10 +154,11 @@ export class NamedCache extends Cache {
   }
 
   private lifetime(options: CacheOptions): Lifetime {
-    const maxTtlMs = this.host.config.maxTtlMs;
+    const { maxTtlMs, ttlJitter } = this.host.config;
     const ttl = parseDuration(options.ttl, 'ttl');
     if (!(ttl > 0)) throw new InvalidArgument(`ttl must be above 0, got ${String(options.ttl)}`, 'ttl');
-    const ttlMs = Math.min(ttl, maxTtlMs);
+    // Shortened, never lengthened, so maxTtl stays a hard cap of ttl + swr.
+    const ttlMs = Math.max(1, Math.round(Math.min(ttl, maxTtlMs) * (1 - Math.random() * ttlJitter)));
     return { ttlMs, swrMs: Math.min(parseDuration(options.swr ?? 0, 'swr'), maxTtlMs - ttlMs) };
   }
 
@@ -170,11 +182,53 @@ export class NamedCache extends Cache {
   }
 
   /** `reading` was taken before compute(), so a bump during the computation leaves the stored entry invalid. */
-  private async produce<T>(storeKey: string, options: CacheOptions, life: Lifetime, compute: () => Promise<T>, reading: Reading | undefined): Promise<Produced<T>> {
+  private async produce<T>(storeKey: string, options: CacheOptions, life: Lifetime, compute: () => Promise<T>, reading: Reading | undefined, newest = (): boolean => true): Promise<Produced<T>> {
     const value = await compute();
     const bytes = encodeValue(value);
-    if (reading !== undefined) await this.save(storeKey, bytes, options.tags ?? [], reading, life);
+    // Only the key's running computation stores: an older one most often read versions a bump has moved since, and its entry would displace a valid one.
+    if (reading !== undefined && newest()) await this.save(storeKey, bytes, options.tags ?? [], reading, life);
     return { value, bytes };
+  }
+
+  /** Joins the running computation of the key when it read the same versions, else starts one; a joiner decodes its own copy. */
+  private async computeOnce<T>(storeKey: string, options: CacheOptions, life: Lifetime, compute: () => Promise<T>): Promise<T> {
+    const reading = await this.versionsOf(options.tags ?? []);
+    // Without versions nobody can tell whether a running computation began before a bump.
+    if (reading === undefined) return (await this.produce(storeKey, options, life, compute, undefined)).value;
+    const running = this.joinable(storeKey, options, reading);
+    if (running !== undefined) return decodeValue<T>((await running.done).bytes);
+    return (await this.launch(storeKey, options, life, compute, reading)).value;
+  }
+
+  /** Starts one background refresh of a stale key; a failure is logged and the stale entry stays until its window ends. */
+  private refresh<T>(storeKey: string, options: CacheOptions, life: Lifetime, compute: () => Promise<T>): void {
+    void this.refreshOnce(storeKey, options, life, compute).catch((error: unknown) => this.failed('refresh', error));
+  }
+
+  private async refreshOnce<T>(storeKey: string, options: CacheOptions, life: Lifetime, compute: () => Promise<T>): Promise<void> {
+    const reading = await this.versionsOf(options.tags ?? []);
+    if (reading === undefined || this.joinable(storeKey, options, reading) !== undefined) return;
+    await this.launch(storeKey, options, life, compute, reading);
+  }
+
+  private joinable(storeKey: string, options: CacheOptions, reading: Reading): Flight | undefined {
+    const running = this.inFlight.get(storeKey);
+    return running?.reading === readingKey(options.tags ?? [], reading) ? running : undefined;
+  }
+
+  /** Makes this computation the key's running one, replacing an older one; only the running one stores its entry. */
+  private launch<T>(storeKey: string, options: CacheOptions, life: Lifetime, compute: () => Promise<T>, reading: Reading): Promise<Produced<T>> {
+    this.flights += 1;
+    const seq = this.flights;
+    // newest() runs only after compute() settled, by which time the flight below is in the map unless it was replaced or freed.
+    const done = this.produce(storeKey, options, life, compute, reading, () => this.inFlight.get(storeKey)?.seq === seq);
+    const flight: Flight = { reading: readingKey(options.tags ?? [], reading), seq, done };
+    this.inFlight.set(storeKey, flight);
+    const free = (): void => {
+      if (this.inFlight.get(storeKey) === flight) this.inFlight.delete(storeKey);
+    };
+    void done.then(free, free);
+    return done;
   }
 
   private async versionsOf(tags: readonly string[]): Promise<Reading | undefined> {
