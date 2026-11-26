@@ -399,6 +399,9 @@
     },
     {
       "path": "packages/audit-authn/tsconfig.build.json"
+    },
+    {
+      "path": "packages/replay/tsconfig.build.json"
     }
   ]
 }
