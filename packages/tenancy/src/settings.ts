@@ -1,6 +1,7 @@
 import { InvalidOption } from '@spinajs/exceptions';
 import type { TenantRecord, TenantRegistry } from './contracts.js';
 import { TenantUnavailable } from './errors.js';
+import { RESERVED_SEGMENTS } from './reserved.js';
 
 const MAX_TENANTS = 10_000;
 
@@ -29,8 +30,6 @@ export const CLOSED_CONFIGURATION_ROOTS: readonly string[] = [
 export const OVERRIDABLE_PATH_PATTERN = '^[A-Za-z0-9_$-]+(\\.[A-Za-z0-9_$-]+)*$';
 
 const OVERRIDABLE_PATH = new RegExp(OVERRIDABLE_PATH_PATTERN);
-
-const RESERVED_SEGMENTS = new Set(['__proto__', 'constructor', 'prototype']);
 
 const isRecord = (value: unknown): value is Readonly<Record<string, unknown>> => value !== null && typeof value === 'object' && !Array.isArray(value);
 

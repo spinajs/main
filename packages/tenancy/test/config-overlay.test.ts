@@ -207,6 +207,18 @@ describe('tenant configuration overrides', () => {
       expect(warnings.map((w) => [w.data.tenant, w.data.path])).to.deep.equal([['broken', 'mail.from']]);
     });
 
+    it('refuses a stored value that holds a __proto__, constructor or prototype key at any depth, touching no prototype', async () => {
+      const stored: Record<string, unknown> = JSON.parse('{"mail":{"from":"ok@evil.test"},"limits":{"hosts":["x.test",{"__proto__":{"polluted":true}}],"exports":{"a":{"constructor":{"prototype":{"polluted":true}}}}}}');
+      (await memory()).add({ id: 'evil', settings: stored });
+      await admitTenant('evil');
+
+      const limits = await runInTenant('evil', async () => config.get<Record<string, unknown>>('limits'));
+      expect(limits).to.deep.equal({ exports: 10, uploads: 5, hosts: ['a.test', 'b.test', 'c.test'] });
+      expect(await runInTenant('evil', async () => [config.get('limits.hosts'), config.get('limits.exports'), config.get('mail.from')])).to.deep.equal([['a.test', 'b.test', 'c.test'], 10, 'ok@evil.test']);
+      expect([Object.getPrototypeOf(limits), Object.hasOwn(Object.prototype, 'polluted'), Reflect.get(Object.assign({}, limits), 'polluted')]).to.deep.equal([Object.prototype, false, undefined]);
+      expect(warnings.map((w) => [w.data.tenant, w.data.path])).to.deep.equal([['evil', 'limits.exports'], ['evil', 'limits.hosts']]);
+    });
+
     it('forEachTenant loads the settings of every tenant it visits', async () => {
       (await memory()).add({ id: 'fresh', settings: { mail: { from: 'x@fresh.test' } } });
       const seen = new Map<string, unknown>();
