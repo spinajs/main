@@ -12,10 +12,18 @@ import { isConfigurationReceiver } from './config-receiver.js';
 
 export const extractConfigModules: Extractor<ConfigModuleEntry> = (ctx, file) => {
   const out: ConfigModuleEntry[] = [];
+  // A `const` of another package's `.d.ts` (named import or `typeof import()` namespace) has no initializer to read:
+  // that package's fragment records the schema. A member of a declared type is a value of this package and still warns.
+  const declaredElsewhere = (expr: ts.Expression): boolean => {
+    let symbol = ctx.checker.getSymbolAtLocation(ts.isPropertyAccessExpression(expr) ? expr.name : expr);
+    if (symbol && symbol.flags & ts.SymbolFlags.Alias) symbol = ctx.checker.getAliasedSymbol(symbol);
+    return symbol?.declarations?.some((d) => ts.isVariableDeclaration(d) && d.getSourceFile().isDeclarationFile) === true;
+  };
   const record = (schemaExpr: ts.Expression | undefined, node: ts.Node): void => {
     const { value, unresolved } = schemaExpr ? resolveLiteral(ctx.checker, schemaExpr) : { value: undefined, unresolved: [] };
     const schema = value as { $id?: string; $configurationModule?: string } | undefined;
     if (!schema?.$id || !schema.$configurationModule) {
+      if (schemaExpr && declaredElsewhere(schemaExpr)) return;
       ctx.warn('CFG010', 'configuration schema is not a literal with $id and $configurationModule', node);
       return;
     }
