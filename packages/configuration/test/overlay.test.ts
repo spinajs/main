@@ -1,11 +1,13 @@
 import 'mocha';
 import * as chai from 'chai';
+import _ from 'lodash';
 import { DI } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 import { Configuration, ConfigurationOverlay, ConfigurationSource } from '@spinajs/configuration-common';
 
 import { NoSource } from './fixtures.js';
 import { FrameworkConfiguration } from '../src/configuration.js';
+import { InvalidConfiguration } from '../src/exception.js';
 
 const expect = chai.expect;
 
@@ -13,7 +15,7 @@ const TREE = { mail: { from: 'noreply@app.test', retries: 3 }, intl: { defaultLo
 
 const isPrefix = (a: readonly string[], b: readonly string[]): boolean => {
   const n = Math.min(a.length, b.length);
-  return a.slice(0, n).every((s, i) => b[i] === s);
+  return _.isEqual(a.slice(0, n), b.slice(0, n));
 };
 
 /** Covers the paths a test lists and answers the values it sets. */
@@ -143,5 +145,48 @@ describe('configuration overlay', () => {
 
     FixedOverlay.current = undefined;
     expect(config.get('mail')).to.deep.equal({ from: 'noreply@app.test', retries: 5 });
+  });
+
+  describe('check()', () => {
+    const MAIL = { $id: 'test-overlay-mail', $configurationModule: 'mail', type: 'object', properties: { from: { type: 'string', pattern: '@' }, retries: { type: 'integer', minimum: 0 } } };
+
+    async function bootWithSchema(): Promise<FrameworkConfiguration> {
+      const child = DI.child();
+      booted.push(child);
+      child.register(MAIL).asValue('__configurationSchema__');
+      child.register(NoSource).as(ConfigurationSource);
+      child
+        .register(
+          class extends FrameworkConfiguration {
+            protected loadSources(): void {
+              this.Sources = [];
+            }
+
+            protected onLoad(): unknown {
+              return structuredClone(TREE);
+            }
+          },
+        )
+        .as(Configuration);
+      return (await child.resolve(Configuration)) as FrameworkConfiguration;
+    }
+
+    it('refuses a value its module schema refuses, and changes nothing either way', async () => {
+      const config = await bootWithSchema();
+
+      expect(() => config.check('mail.from', 'not an address')).to.throw(InvalidConfiguration);
+      expect(() => config.check(['mail', 'retries'], -1)).to.throw(InvalidConfiguration);
+      config.check('mail.from', 'billing@acme.test');
+
+      expect(config.get('mail.from')).to.equal('noreply@app.test');
+    });
+
+    it('accepts a value where no schema applies', async () => {
+      const config = await bootWithSchema();
+
+      config.check('limits.exports', 'anything');
+
+      expect(config.get('limits.exports')).to.equal(10);
+    });
   });
 });

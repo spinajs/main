@@ -286,6 +286,12 @@ export class FrameworkConfiguration extends Configuration {
     this.applySchemas(schemas);
   }
 
+  /** Throws InvalidConfiguration when `value` at `path` would make a configuration module invalid; changes nothing. */
+  public check(path: string[] | string, value: unknown): void {
+    assertSafePath(path);
+    this.checkChange(this.schemasAt(path), path, (root) => _.set(root, path, copyForCheck(value)));
+  }
+
   /**
    * Merge existing config value with new options instead overriding
    *

@@ -1,6 +1,6 @@
 import _ from 'lodash';
 
-const startsWith = (path: readonly string[], prefix: readonly string[]): boolean => prefix.length <= path.length && prefix.every((s, i) => path[i] === s);
+const startsWith = (path: readonly string[], prefix: readonly string[]): boolean => prefix.length <= path.length && _.isEqual(path.slice(0, prefix.length), prefix);
 
 const isObject = (value: unknown): value is object => typeof value === 'object' && value !== null;
 
