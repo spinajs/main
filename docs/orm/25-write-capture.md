@@ -40,6 +40,8 @@ A row whose primary key value has no key text (bytes, a date, a number that is n
 
 The optional `prepare(statement)` gets the same `WriteStatement` and runs before any capture read, inside the transaction; throwing from it aborts the statement. Throwing from `observe()` rejects the write and rolls it back inside a transaction; without one the statement has already committed (see [Concurrent writers](#concurrent-writers)).
 
+The optional `keepsHistory` member says that an observer keeps a durable history of the rows it takes; the row history observer of `@spinajs/orm-history` sets it to `true`. The capture does not read it: a package that must not let a write go unrecorded asks for an observer that has it, as `@spinajs/authz-orm` does under `authz.orm.requireHistory` ([Declaring access resources](../authz-orm/04-access-resources.md#writes-that-must-reach-the-history)). Such a package calls the observer's `interest()` itself, so an observer with `keepsHistory` may be asked more than once for one statement.
+
 ## What is read, and when
 
 `WriteCaptureMiddleware` is a query middleware at order 91. It asks every observer once per statement and reads for all interested ones together: the columns are the union of what they asked for (`'*'` wins), so two observers on one statement never cost a second read. When any of them asks for a transaction and none is open on the connection, the before read, the statement, the after read and every `observe()` run in one.
