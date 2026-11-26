@@ -53,6 +53,7 @@ Indexes: `authz_rebac_tuple_object (namespace, object_id, relation)` for checks 
 - A value wider than its column fails with `AuthzConfigError` naming the column.
 - `write` refuses an added tuple that the namespaces of a `RebacModel` over the store cannot hold (`NamespaceSchema.problem`: `unknown_relation`, `subject_not_allowed`) with `AuthzConfigError`. `RebacModel.init` binds its namespaces with `checkAgainst(schema)`; `dispose` unbinds them.
 - A concurrent insert of the same tuple counts as already present, or as a conflict if it stored another caveat. Each insert runs in a savepoint so that a lost race does not abort the transaction on Postgres; that is three statements per added tuple on every driver, which bulk writes and imports pay.
+- A tuple that lost such a race is read again to compare caveats: under a shared row lock on MySQL, PostgreSQL and PGlite (on MySQL a plain read keeps the transaction's snapshot and misses the other writer's row), with a plain read on SQLite and SQL Server, which take no such lock. A transaction whose snapshot still cannot see that tuple (PostgreSQL `REPEATABLE READ` or `SERIALIZABLE`, SQL Server `SNAPSHOT`) fails with `ConcurrencyConflict` of `@spinajs/exceptions`, which `AuthzAdmin` passes on after its rollback and `@spinajs/http` answers with 409: retry the write.
 
 ### Conditional tuples
 
