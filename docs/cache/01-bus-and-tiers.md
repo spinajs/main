@@ -26,7 +26,7 @@ A `MemoryCacheStore` (`upper`, the default and the only store allowed there) in 
 
 | Consistency | A read | Stale for at most |
 | --- | --- | --- |
-| `eventual` (default) | the upper tier; on a miss there, the lower tier, whose entry is copied up with its own lifetime | the bus delay; with a lost message, until the entry ends |
+| `eventual` (default) | the upper tier; on a miss there, the lower tier, whose entry is copied up with its own lifetime | none in the process that invalidated; elsewhere the bus delay, with a lost message until the entry ends |
 | `strict` | the lower tier, every time, also while it is down (a miss) | nothing the lower tier does not show |
 
 The `consistency` option of a read overrides the cache's setting for one call. A copy ends when the entry it copied
@@ -39,5 +39,5 @@ When the lower tier fails, what only it holds is a miss and new entries stay in 
 
 Bumps always go to the lower tier, open breaker or not. When it refuses one, this process reads its entries under that
 tag as misses until a later bump of the tag reaches it, or until `cache.maxTtl` has passed and every entry read before
-the bump has ended. The bump is not sent again: a process that did not apply it reads the old entry as valid until
-another process bumps the tag there or the entry ends.
+the bump has ended. Past 10,000 such tags it distrusts the whole lower tier for `cache.maxTtl`. The bump is not sent
+again: a process that did not apply it reads the old entry until another process bumps the tag or the entry ends.
