@@ -105,7 +105,7 @@ spinajs generate:openapi [-m, --manifest <path>] [-o, --out <path>] [--title <ti
 | `--base-path <path>` | none | Literal path prefix, for example where a proxy mounts the app |
 | `--route-prefix <prefix>` | `http.controllers.route.prefix` of the configuration | The route prefix the router applies |
 
-See [`@spinajs/openapi`](../openapi/README.md).
+With `http.etag: false` in the configuration the document shows no `ETag` and no 304 on cached routes. See [`@spinajs/openapi`](../openapi/README.md).
 
 ### `generate:asyncapi`
 
