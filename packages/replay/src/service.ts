@@ -38,15 +38,22 @@ export class DomainReplayService extends ReplayService {
     const running = this.running.get(domain) ?? 0;
     if (running >= limits.concurrency) throw new ReplayBusy(domain, limits.concurrency);
     this.running.set(domain, running + 1);
+    let work: Promise<unknown> = Promise.resolve();
     try {
-      return await run(domain, id, parts, limits, options);
+      return await run(domain, id, parts, limits, options, (started) => {
+        work = started;
+      });
     } finally {
-      this.running.set(domain, (this.running.get(domain) ?? 1) - 1);
+      // A replayer abandoned at the timeout or the caller's abort keeps its slot until it settles: concurrency bounds the work, not the calls.
+      const release = (): void => {
+        this.running.set(domain, (this.running.get(domain) ?? 1) - 1);
+      };
+      void work.then(release, release);
     }
   }
 }
 
-async function run(domain: string, id: string, parts: DomainParts, limits: ReplayLimits, options: ReplayRunOptions): Promise<ReplayReport | undefined> {
+async function run(domain: string, id: string, parts: DomainParts, limits: ReplayLimits, options: ReplayRunOptions, hold: (work: Promise<unknown>) => void): Promise<ReplayReport | undefined> {
   let recording: Recording | undefined;
   try {
     recording = await parts.recordings.load(id);
@@ -66,8 +73,12 @@ async function run(domain: string, id: string, parts: DomainParts, limits: Repla
   let view: Watched | undefined;
   let outcome: ReplayOutcome;
   try {
+    // The caller may have aborted while the recording loaded.
+    signal.throwIfAborted();
     view = watched(parts.state.view(recording.at, window, budget, signal));
-    const answer = await abandonedOnAbort(signal, parts.replayer.replay(recording, view.view, signal, budget));
+    const work = parts.replayer.replay(recording, view.view, signal, budget);
+    hold(work);
+    const answer = await abandonedOnAbort(signal, work);
     // A replayer that went on after a read of the state failed answers without that state.
     if (view.failure !== undefined) throw view.failure.error;
     outcome = view.reading === 0 ? answer : { outcome: 'unknown', missing: [{ input: 'state', reason: `the replayer answered without waiting for ${view.reading} of its reads of the state` }], divergences: [] };

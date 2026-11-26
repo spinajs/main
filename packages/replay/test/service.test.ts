@@ -15,7 +15,7 @@ const SAFE = Number.MAX_SAFE_INTEGER;
 
 type Step = (recording: Recording, view: StateView, signal: AbortSignal, budget: ReplayBudget) => Promise<ReplayOutcome>;
 interface World {
-  recordings: Map<string, Recording | Error>;
+  recordings: Map<string, Recording | Error | Promise<Recording>>;
   step: Step;
   views: { at: Date; window: ReplayWindow; budget: ReplayBudget }[];
   budgets: ReplayBudget[];
@@ -340,17 +340,21 @@ describe('DomainReplayService', function () {
     running.open([]);
   });
 
-  it('ends at the timeout a replayer that ignores its signal, frees its slot, and swallows its late answer or rejection', async () => {
+  it('ends at the timeout a replayer that ignores its signal, keeps its slot until it settles, and swallows its late answer or rejection', async () => {
     world.recordings.set('quotes/q1', recording('quotes', 'q1'));
-    const [answering, rejecting] = [gate<ReplayOutcome>(), gate<ReplayOutcome>()];
+    const late: [Gate<ReplayOutcome>, (held: Gate<ReplayOutcome>) => void][] = [
+      [gate(), (held) => held.open({ outcome: { price: 12 }, missing: [], divergences: [] })],
+      [gate(), (held) => held.fail(new Error('too late'))],
+    ];
     const s = await service();
     const seen = await unhandledDuring(async () => {
-      for (const step of [() => new Promise<ReplayOutcome>(() => undefined), () => answering.promise, () => rejecting.promise]) {
-        world.step = step;
+      for (const [held, settle] of late) {
+        world.step = () => held.promise;
         expect(await within(2_000, s.replay('quotes', 'q1'))).to.deep.include({ replay: 'unreplayable', missing: timedOut });
+        expect(await failure(s.replay('quotes', 'q1'))).to.be.instanceOf(ReplayBusy);
+        settle(held);
+        await failure(held.promise);
       }
-      answering.open({ outcome: { price: 12 }, missing: [], divergences: [] });
-      rejecting.fail(new Error('too late'));
       world.step = echo;
       expect(await s.replay('quotes', 'q1')).to.deep.include({ replay: 'faithful' });
     });
@@ -367,11 +371,18 @@ describe('DomainReplayService', function () {
     expect(await s.replay('pricing', 'r1')).to.deep.include({ replay: 'faithful', missing: [] });
   });
 
-  it('rejects with the reason of a caller that aborts, before or during the replay', async () => {
+  it('rejects with the reason of a caller that aborts, before, while the recording loads, or during the replay', async () => {
     const s = await service();
     const gone = new Error('the client went away');
     expect(await failure(s.replay('pricing', 'r1', { signal: AbortSignal.abort(gone) }))).to.equal(gone);
-    expect(world.views).to.deep.equal([]);
+    const loading = gate<Recording>();
+    world.recordings.set('pricing/slow', loading.promise);
+    const during = new AbortController();
+    const slow = failure(s.replay('pricing', 'slow', { signal: during.signal }));
+    during.abort(gone);
+    loading.open(recording('pricing', 'slow'));
+    expect(await slow).to.equal(gone);
+    expect([world.views, world.budgets]).to.deep.equal([[], []]);
     const caller = new AbortController();
     world.step = (_r, _v, signal) => untilAborted(signal);
     const pending = failure(s.replay('pricing', 'r1', { signal: caller.signal }));
@@ -388,7 +399,7 @@ describe('DomainReplayService', function () {
 
   it('reports a recording dated later than this process clock plus clockSkewMs as unreplayable without replaying it', async () => {
     const s = await service();
-    const clock = Date.now.bind(Date);
+    const clock = Date.now;
     try {
       Date.now = (): number => T.getTime() - 1_001;
       expect((await s.replay('pricing', 'r1'))?.missing).to.deep.equal([{ input: 'record', reason: "the recording's instant 2026-11-17T12:00:00.000Z is 1001 ms after this process's clock, past clockSkewMs 1000" }]);
