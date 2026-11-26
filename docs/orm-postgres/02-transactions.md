@@ -67,8 +67,7 @@ export class BoundedTransactionsPostgresDriver extends PostgresOrmDriver {
       await ctx.connection.query(`SET LOCAL statement_timeout = '5s'`);
       await ctx.connection.query(`SET LOCAL lock_timeout = '2s'`);
     } catch (err) {
-      await ctx.connection.query('ROLLBACK').catch(() => undefined);
-      ctx.connection.release();
+      ctx.connection.release(true);
       throw err;
     }
 
