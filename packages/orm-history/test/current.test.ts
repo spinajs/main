@@ -265,6 +265,26 @@ describe('the current rows of a tracked model', function () {
       expect((await ids({ code: 'x', status: 'Open' }, 10)).ids).to.deep.eq(['c']);
       expect((await Folded.history().currentWhere({ status: 'open' }, 1)).get('b')).to.deep.eq({ id: 'b', status: 'open', code: 'x ' });
     });
+
+    it('doubles each page past rows in another spelling, so that 201 of them take a few statements', async () => {
+      await Folded.insert([...Array.from({ length: 200 }, (_, i) => ({ id: padded(i), status: 'BUSY' })), { id: padded(200), status: 'busy' }]);
+      for (const [limit, most] of [
+        [1, 8],
+        [10, 5],
+      ]) {
+        const read = await counted(db.driver('sqlite'), () => Folded.history().currentWhere({ status: 'busy' }, limit));
+        expect([...read.result.keys()]).to.deep.eq([padded(200)]);
+        expect(read.statements, `limit ${limit}`).to.be.at.most(most);
+      }
+    });
+
+    it('compares a number asked of a text column as the text the query bound', async () => {
+      await Folded.insert([
+        { id: 'a', code: '1 ' },
+        { id: 'b', code: '1' },
+      ]);
+      expect([...(await Folded.history().currentWhere({ code: 1 }, 10)).keys()]).to.deep.eq(['b']);
+    });
   });
 
   describe('a row whose key is NULL (sqlite)', () => {

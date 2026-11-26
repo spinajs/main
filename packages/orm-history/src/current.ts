@@ -13,6 +13,7 @@ type RowImage = Readonly<Record<string, unknown>>;
 
 // One IN list within the bind-parameter limits of every driver, as the write capture reads.
 const IN_CHUNK = 500;
+const PAGE = 1000;
 
 interface ModelTable {
   readonly driver: OrmDriver;
@@ -108,7 +109,7 @@ function filterOf(spec: HistorySpec, descriptor: IModelDescriptor, where: RowIma
     const bound = value === null ? null : lookupValue(declared, String(value));
     if (bound === undefined) matchable = false;
     else conditions.push([column, bound]);
-    if (typeof value === 'string' && columnKind(declared) === 'text') texts.set(column, value);
+    if (value !== null && columnKind(declared) === 'text') texts.set(column, String(value));
   }
   return matchable ? { conditions, texts } : undefined;
 }
@@ -136,12 +137,15 @@ export async function currentWhere(spec: HistorySpec, where: RowImage, limit: nu
     return [...filter.texts].every(([column, value]) => values.get(column) === value);
   };
   let after: unknown;
+  // Each page after the first doubles, so that rows matched only in another spelling cost few statements.
+  let size = limit;
   for (;;) {
     // spinajs-orm-ignore ORM102: pages by key until `limit` rows hold the asked texts or the table ends
-    const rows = rowsOf(await pageOf(spec, table, filter, after, limit));
+    const rows = rowsOf(await pageOf(spec, table, filter, after, size));
     addImages(spec, rows.filter(asAsked).slice(0, limit - out.size), out);
     const last = rows.at(-1);
-    if (out.size === limit || rows.length < limit || last === undefined) return out;
+    if (out.size === limit || rows.length < size || last === undefined) return out;
     after = last[spec.pk];
+    if (size < PAGE) size = Math.min(PAGE, size * 2);
   }
 }
