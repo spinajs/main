@@ -1,7 +1,7 @@
 import ts from 'typescript';
 import type { GlobalMiddlewareRef, MiddlewareRef, PolicyRef } from '@spinajs/manifest';
 import type { ExtractorContext } from '../context.js';
-import { decoratorsOf, identifierName, literalValue, type DecoratorInfo } from '../decorators.js';
+import { decoratorsOf, identifierName, literalValue, type DecoratorInfo, type LiteralContext } from '../decorators.js';
 import { decoratorOrigin, originOf } from './decorator-origin.js';
 
 const refOf = (expr: ts.Expression | undefined, ctx: ExtractorContext): string => {
@@ -16,12 +16,65 @@ interface AccessInfo {
   fieldsFilter: boolean;
 }
 
+/** What `@Access` options do with `fields`; a value the build cannot read is `undefined`. */
+type FieldsRead = { set: false } | { set: true; value: unknown };
+
+const FIELDS_UNSET: FieldsRead = { set: false };
+const FIELDS_UNREAD: FieldsRead = { set: true, value: undefined };
+
+function initializerOf(symbol: ts.Symbol | undefined, ctx: LiteralContext): ts.Expression | undefined {
+  const decl = symbol && (symbol.flags & ts.SymbolFlags.Alias ? ctx.checker.getAliasedSymbol(symbol) : symbol).valueDeclaration;
+  return decl && ts.isVariableDeclaration(decl) ? decl.initializer : undefined;
+}
+
+/** The object literal `expr` is written as, through wrappers and constants. */
+function objectLiteralOf(expr: ts.Expression, ctx: LiteralContext): ts.ObjectLiteralExpression | undefined {
+  if (ts.isObjectLiteralExpression(expr)) return expr;
+  if (ts.isParenthesizedExpression(expr) || ts.isAsExpression(expr) || ts.isSatisfiesExpression(expr)) return objectLiteralOf(expr.expression, ctx);
+  if (ts.isCallExpression(expr) && expr.expression.getText() === 'Object.freeze' && expr.arguments[0]) return objectLiteralOf(expr.arguments[0], ctx);
+  if (!ts.isIdentifier(expr) && !ts.isPropertyAccessExpression(expr)) return undefined;
+  const initializer = initializerOf(ctx.checker.getSymbolAtLocation(ts.isIdentifier(expr) ? expr : expr.name), ctx);
+  return initializer && objectLiteralOf(initializer, ctx);
+}
+
+function memberFields(member: ts.ObjectLiteralElementLike, ctx: LiteralContext): FieldsRead {
+  if (ts.isSpreadAssignment(member)) return fieldsOf(member.expression, ctx);
+  const key = ts.isComputedPropertyName(member.name) ? literalValue(member.name.expression, ctx) : member.name.text;
+  if (key !== 'fields') return typeof key === 'string' || typeof key === 'number' ? FIELDS_UNSET : FIELDS_UNREAD;
+  if (ts.isPropertyAssignment(member)) return { set: true, value: literalValue(member.initializer, ctx) };
+  // literalValue resolves a shorthand name to the property itself, not to the variable it copies
+  if (ts.isShorthandPropertyAssignment(member)) {
+    const initializer = initializerOf(ctx.checker.getShorthandAssignmentValueSymbol(member), ctx);
+    return initializer ? { set: true, value: literalValue(initializer, ctx) } : FIELDS_UNREAD;
+  }
+  return FIELDS_UNREAD;
+}
+
+/** The last member that may set `fields` decides, as in the object the runtime receives; options the build cannot follow may set it. */
+function fieldsOf(options: ts.Expression, ctx: LiteralContext): FieldsRead {
+  const literal = objectLiteralOf(options, ctx);
+  if (!literal) return FIELDS_UNREAD;
+  for (const member of [...literal.properties].reverse()) {
+    const read = memberFields(member, ctx);
+    if (read.set) return read;
+  }
+  return FIELDS_UNSET;
+}
+
+/** A `fields` the build cannot read counts as filtering: a redacted reply must not be documented or cached as unredacted. */
+function filtersFields(options: ts.Expression, ctx: ExtractorContext): boolean {
+  const fields = fieldsOf(options, { checker: ctx.checker, info: () => undefined });
+  return fields.set && (fields.value === undefined || fields.value === 'filter' || fields.value === 'filter-rows');
+}
+
 function accessOptions(arg: ts.Expression | undefined, ctx: ExtractorContext): { also: string[]; fieldsFilter: boolean } {
-  if (!arg || !ts.isObjectLiteralExpression(arg)) return { also: [], fieldsFilter: false };
+  if (!arg) return { also: [], fieldsFilter: false };
+  const fieldsFilter = filtersFields(arg, ctx);
+  if (!ts.isObjectLiteralExpression(arg)) return { also: [], fieldsFilter };
   const alsoProp = arg.properties.find((p): p is ts.PropertyAssignment => ts.isPropertyAssignment(p) && p.name.getText() === 'also');
   const also = alsoProp && ts.isArrayLiteralExpression(alsoProp.initializer) ? alsoProp.initializer.elements.map((e) => refOf(e, ctx)) : [];
-  const fields = (literalValue(arg, ctx) as { fields?: string } | undefined)?.fields;
-  const fieldsFilter = fields === 'filter' || fields === 'filter-rows';
+  // read once with notes, as before: filtersFields reads quietly so that nothing is noted twice
+  literalValue(arg, ctx);
   return { also, fieldsFilter };
 }
 
