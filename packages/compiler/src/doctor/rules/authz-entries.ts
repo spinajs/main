@@ -9,7 +9,10 @@ export interface AccessExtras {
   resource?: { type?: string; model?: string };
 }
 
-export const accessRefs = (entry: EntryPoint): PolicyRef[] => entry.access.flat().filter((r) => r.type === 'AccessPolicy');
+// `SocketAccessPolicy` is what a socket handler mounts for `@SocketAccess`; its ref has the options of an `AccessPolicy` ref.
+const ACCESS_POLICIES: ReadonlySet<string> = new Set(['AccessPolicy', 'SocketAccessPolicy']);
+
+export const accessRefs = (entry: EntryPoint): PolicyRef[] => entry.access.flat().filter((r) => ACCESS_POLICIES.has(r.type));
 export const permissionsOf = (ref: PolicyRef): string[] => (ref.options ?? []).filter((o): o is string => typeof o === 'string');
 export const extrasOf = (ref: PolicyRef): AccessExtras | undefined => (ref.options ?? []).find((o): o is AccessExtras => typeof o === 'object' && o !== null);
 export const resourceOf = (permission: string): string => permission.slice(0, Math.max(0, permission.indexOf(':')));

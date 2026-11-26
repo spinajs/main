@@ -6,6 +6,7 @@ import { extendsFrameworkClass } from '../schema/framework-members.js';
 import { isAbstractClass } from './abstract.js';
 import { accessOptionsOf, classAccessOptionsOf, classesBySource, methodOf, type AccessOptions } from './access-options.js';
 import { classSymbolOf } from './access-resources.js';
+import { SOCKET_ACCESS_POLICY } from './socket.js';
 
 type EntryPoint = AuthzSection['entryPoints'][number];
 type Resource = AuthzSection['resources'][number];
@@ -33,15 +34,23 @@ interface ScopeAccess {
   options: AccessOptions;
 }
 
+/** The scope an extractor left as the only option of an access ref; `handler` is the socket word for `route`. */
+function scopeOf(ref: PolicyRef): 'class' | 'route' | undefined {
+  const marker = ref.options?.[0];
+  if (ref.type === 'AccessPolicy') return marker === 'class' || marker === 'route' ? marker : undefined;
+  if (ref.type === SOCKET_ACCESS_POLICY) return marker === 'class' ? 'class' : marker === 'handler' ? 'route' : undefined;
+  return undefined;
+}
+
 /**
- * The extractors record `AccessPolicy` with its scope as the option; here it carries the permissions, then one object
- * with the literal resource extractor and `allowAnonymous` when there are any.
+ * The extractors record an access ref with its scope as the option; here it carries the permissions, then one object
+ * with the literal resource extractor, `allowAnonymous` and `unfilteredInput` when there are any.
  */
 function withPermissions(groups: PolicyRef[][], scopes: { class: ScopeAccess; route: ScopeAccess }): PolicyRef[][] {
   return groups.map((group) =>
     group.map((ref) => {
-      const scope = ref.options?.[0];
-      if (ref.type !== 'AccessPolicy' || (scope !== 'class' && scope !== 'route')) return ref;
+      const scope = scopeOf(ref);
+      if (scope === undefined) return ref;
       const { permissions = [], options } = scopes[scope];
       return { type: ref.type, options: Object.keys(options).length ? [...permissions, options] : permissions };
     }),
