@@ -40,6 +40,7 @@ export const PGLITE_SKIPS: Readonly<Record<string, string>> = {
   'postgres stream (integration) settles a loop that leaves after the backend died between batches': 'server-admin: terminates the backend through an admin session',
   'postgres explain (integration) runs on its own pool connection, not on the transaction in scope': 'second-session: plans on another pool connection while a transaction is open',
   'postgres integration - a transaction that fails to open': 'pglite-gap: the one session cannot be destroyed (the pool adapter ignores release(true)) and emits no pool events',
+  'postgres integration - a transaction whose ROLLBACK fails': 'pglite-gap: the one session cannot be destroyed (the pool adapter ignores release(true)) and has no client-side query timeout',
 };
 
 export function pgliteSkip(title: string | undefined): string | undefined {
