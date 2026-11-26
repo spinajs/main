@@ -8,14 +8,12 @@ describe('a configuration schema registered from another package', () => {
   const cfg010 = ctx.diagnostics.filter((d) => d.code === 'CFG010');
   const lines = cfg010.map((d) => d.source?.line);
 
-  it('is left to the package whose declaration it is bound to: no CFG010, no module', () => {
+  it('is left to the dependency whose fragment records it: no CFG010, no module', () => {
     expect(modules).to.deep.equal([]);
-    expect(lines).to.not.include(10);
-    expect(lines).to.not.include(11);
   });
 
-  it('still warns CFG010 for a schema of its own the build cannot read, also one typed by a declaration file', () => {
-    expect(lines).to.deep.equal([15, 16]);
+  it('still warns CFG010 for a schema no build reads, also one declared in a .d.ts of its own or of a package without a fragment', () => {
+    expect(lines).to.deep.equal([18, 19, 20, 21, 22]);
     for (const d of cfg010) expect(d.message).to.equal('configuration schema is not a literal with $id and $configurationModule');
   });
 });

@@ -1,6 +1,6 @@
 import ts from 'typescript';
 import { existsSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import type { ConfigModuleEntry, ConfigUsageEntry } from '@spinajs/manifest';
 import type { Extractor } from '../context.js';
 import { decoratorsOf } from '../decorators.js';
@@ -9,21 +9,28 @@ import { registerChainOf } from './register-chain.js';
 import { tokenKey } from './injections.js';
 import { SCHEMA_REGISTRARS } from './values.js';
 import { isConfigurationReceiver } from './config-receiver.js';
+import { owningPackage } from '../owning-package.js';
 
 export const extractConfigModules: Extractor<ConfigModuleEntry> = (ctx, file) => {
   const out: ConfigModuleEntry[] = [];
-  // A `const` of another package's `.d.ts` (named import or `typeof import()` namespace) has no initializer to read:
-  // that package's fragment records the schema. A member of a declared type is a value of this package and still warns.
-  const declaredElsewhere = (expr: ts.Expression): boolean => {
+  // A variable of a dependency's `.d.ts` has no initializer to read; when that package ships a fragment, its own build
+  // recorded the schema. A member of a declared type is a value of this package and still warns.
+  const declaredByDependency = (expr: ts.Expression): boolean => {
     let symbol = ctx.checker.getSymbolAtLocation(ts.isPropertyAccessExpression(expr) ? expr.name : expr);
     if (symbol && symbol.flags & ts.SymbolFlags.Alias) symbol = ctx.checker.getAliasedSymbol(symbol);
-    return symbol?.declarations?.some((d) => ts.isVariableDeclaration(d) && d.getSourceFile().isDeclarationFile) === true;
+    return (
+      symbol?.declarations?.some((d) => {
+        const file = d.getSourceFile();
+        const owner = ts.isVariableDeclaration(d) && file.isDeclarationFile ? owningPackage(file.fileName) : undefined;
+        return owner?.fragment !== undefined && resolve(owner.root) !== ctx.packageRoot;
+      }) === true
+    );
   };
   const record = (schemaExpr: ts.Expression | undefined, node: ts.Node): void => {
     const { value, unresolved } = schemaExpr ? resolveLiteral(ctx.checker, schemaExpr) : { value: undefined, unresolved: [] };
     const schema = value as { $id?: string; $configurationModule?: string } | undefined;
     if (!schema?.$id || !schema.$configurationModule) {
-      if (schemaExpr && declaredElsewhere(schemaExpr)) return;
+      if (schemaExpr && declaredByDependency(schemaExpr)) return;
       ctx.warn('CFG010', 'configuration schema is not a literal with $id and $configurationModule', node);
       return;
     }
