@@ -7,7 +7,7 @@ import { Config } from '@spinajs/configuration';
 import { Logger, Log } from '@spinajs/log';
 
 import { ServerMiddleware } from '../interfaces.js';
-import type { IHttpStaticFileConfiguration } from '../interfaces.js';
+import type { HttpEtag, IHttpStaticFileConfiguration, IHttpStaticFileOptions } from '../interfaces.js';
 
 export const DEFAULT_STATIC_ORDER = 4.5;
 export const DEFAULT_STATIC_ROUTE = '/static';
@@ -32,6 +32,9 @@ export class StaticFiles extends ServerMiddleware {
 
   @Config('http.Static', { defaultValue: [] })
   protected Entries!: IHttpStaticFileConfiguration[];
+
+  @Config('http.etag', { defaultValue: 'express' })
+  protected Etag!: HttpEtag;
 
   @Logger('http')
   protected Log!: Log;
@@ -62,7 +65,7 @@ export class StaticFiles extends ServerMiddleware {
     for (const s of this.Served) {
       const route = s.Route ?? DEFAULT_STATIC_ROUTE;
       this.Log.info({ path: s.Path, route, order: this.Order }, 'Serving static content from: ${path} at path: ${route}, Order ${order}');
-      router.use(route, Express.static(s.Path, s.Options));
+      router.use(route, Express.static(s.Path, this.staticOptions(s)));
     }
     // With fallthrough: false, serve-static passes a 404 or 403 on as an error, which the global error answer would
     // turn into a 500. A static file is no framework reply, so its refusal is not one either.
@@ -75,5 +78,10 @@ export class StaticFiles extends ServerMiddleware {
       next(err);
     });
     return router;
+  }
+
+  /** `http.etag: false` turns off the ETag of an entry that does not set `Options.etag` itself. */
+  protected staticOptions(entry: IHttpStaticFileConfiguration): IHttpStaticFileOptions | undefined {
+    return this.Etag === false && entry.Options?.etag === undefined ? { ...entry.Options, etag: false } : entry.Options;
   }
 }

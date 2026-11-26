@@ -11,7 +11,7 @@ import Express, { ErrorRequestHandler, RequestHandler } from 'express';
 import fs from 'fs';
 
 import { ServerMiddleware, IHttpServerConfiguration, LifecycleState, Request } from './interfaces.js';
-import type { IActionLocalStoregeContext, Response } from './interfaces.js';
+import type { HttpEtag, IActionLocalStoregeContext, Response } from './interfaces.js';
 import { createBodyLimitMiddleware } from './body-limits.js';
 import { missingDefaultMiddlewares } from './default-middlewares.js';
 import { __handle_error__ } from './error.js';
@@ -65,6 +65,9 @@ export class HttpServer extends AsyncService {
     defaultValue: 10000,
   })
   protected ShutdownTimeout!: number;
+
+  @Config('http.etag', { defaultValue: 'express' })
+  protected Etag!: HttpEtag;
 
   /**
    * Express app instance
@@ -139,6 +142,9 @@ export class HttpServer extends AsyncService {
     await super.resolve();
 
     this.Express = Express();
+    if (this.Etag !== 'express') {
+      this.Express.set('etag', this.Etag);
+    }
     // Array.ofType lists instances in the order their async resolve() finished, not in registration order
     const registered = (this.Container.getRegisteredTypes(ServerMiddleware) ?? []) as unknown[];
     const index = new Map(this.Middlewares.map((m) => [m, registrationIndex(registered, m)]));

@@ -92,6 +92,12 @@ export const HTTP_CONFIGURATION_SCHEMA = {
         },
       },
     },
+    etag: {
+      enum: ['express', 'weak', 'strong', false],
+      default: 'express',
+      description:
+        "The ETag Express puts on replies: 'express' keeps Express's own setting, a weak ETag on res.send and res.sendFile replies; 'weak' and 'strong' set it; false sends none, from static entries without Options.etag either. An ETag a middleware set itself is kept with every value, and a matching If-None-Match is answered 304.",
+    },
     Static: {
       type: 'array',
       description: 'Static directories served by the StaticFiles server middleware, each at its own Route. Packages and the app each add entries: the lists concatenate.',
