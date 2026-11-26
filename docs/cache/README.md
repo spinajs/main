@@ -9,10 +9,10 @@ versions its tags had **before** its value was computed, and a read returns it o
 current. `invalidate(tags)` moves the versions; it never searches for entries. So a value computed from old rows and
 stored after the invalidation is stored already invalid.
 
-A version is a token the store never handed out before. A store may lose one (the memory store forgets a version an
-hour after its last use; Redis may evict one; a restart loses all): the tag then gets a new token, and an entry that
-holds the lost one is a miss, never a stale hit. An entry ends at most `cache.maxTtl` after its versions were read,
-however long its value took to compute and however late a `lookup` was filled.
+A version is a token the store never handed out before. A store may lose one (the memory store forgets a version
+`cache.maxTtl` after its last use, one hour by default; Redis may evict one; a restart loses all): the tag then gets a
+new token, and an entry that holds the lost one is a miss, never a stale hit. An entry ends at most `cache.maxTtl`
+after its versions were read, however long its value took to compute and however late a `lookup` was filled.
 
 ```ts
 import { cache, rowTag, anyTag } from '@spinajs/cache';
@@ -50,7 +50,9 @@ refused with `CacheValueNotSerializable`. Bytes that cannot be read back are a m
 ## Scope
 
 Every registered `CacheScope` adds segments to every key (a tenant scope adds the tenant, for example). A scope that
-answers `null` turns caching off for that call: `wrap` computes, nothing is stored.
+answers `null` turns caching off for that call: `wrap` computes, nothing is stored. A key holds each scope's class
+name and the count of its segments, so no two scopes, and no two processes that register different scopes, share an
+entry by accident. Entries written by an earlier build of this package under the old key form are not found again.
 
 ```ts
 class TenantScope extends CacheScope {
@@ -64,10 +66,14 @@ DI.register(TenantScope).as(CacheScope);
 
 ## Failures
 
-A failing store is a miss: the error is logged on the logger `cache` and the value is computed and returned. A cache
-or store the configuration does not name correctly throws `CacheConfigError`. A configured cache whose store cannot be
-opened in a process (its package is not imported there) is logged once, and invalidations of that process do not
-reach it.
+A failing store is a miss: the error is logged on the logger `cache` and the value is computed and returned. A store
+whose `configure` fails (it cannot connect, say) is such a failure too, and is opened again on the next call. A cache
+or store the configuration does not name correctly throws `CacheConfigError`, and so does a `configure` that throws it.
+
+An invalidation never throws. A store that refuses a bump keeps serving the entries of those tags until they end, at
+most `cache.maxTtl` after their versions were read; the failure is logged with `op: 'bump'`. A configured cache whose
+store cannot be opened in a process (its package is not imported there) is logged once, and invalidations of that
+process do not reach it.
 
 ## Configuration
 
