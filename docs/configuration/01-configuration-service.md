@@ -114,7 +114,7 @@ export default {
 | Protocols | `ConfigVarProtocol`, resolved as `Array.ofType` in the configuration's container | none | `fs-path://`, `aws-secrets://`, `aws-parameters://` | See [Config var protocols](05-config-var-protocols.md). |
 | Schemas | `__configurationSchema__` values in the container lineage | none | none | See [Schema validation](06-schema-validation.md). |
 | Code-only config | `__configuration__` values (`DI.register(obj).asValue('__configuration__')`) | none | none | See [Custom configuration sources](04-custom-configuration-sources.md#the-__configuration__-value). |
-| Overlay | `ConfigurationOverlay`, singleton, resolved once the configuration is checked | none | none | Register a subclass as `ConfigurationOverlay`. See [Configuration overlays](11-configuration-overlays.md). |
+| Overlay | `ConfigurationOverlay`, singleton, resolved once the configuration is checked | none | `TenantConfigurationOverlay` (`@spinajs/tenancy`) | Register a subclass as `ConfigurationOverlay`. See [Configuration overlays](11-configuration-overlays.md). |
 | Environment override | `process.env` value (`DI.register(env).asValue('process.env')`) | none | none | Merged over `process.env` in `load()`; see [Environments](02-environments.md). |
 
 ### Configuration: extend the default service

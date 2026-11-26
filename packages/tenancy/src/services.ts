@@ -1,6 +1,7 @@
 import { AsyncService, Autoinject, Container, DI } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
-import { Config, resolveNamedService } from '@spinajs/configuration';
+import { Config, Configuration, FrameworkConfiguration, resolveNamedService } from '@spinajs/configuration';
+import { InvalidOperation } from '@spinajs/exceptions';
 import { Log, Logger } from '@spinajs/log-common';
 import type { Principal } from '@spinajs/principal';
 import { CachedTenantRegistry } from './cache.js';
@@ -9,7 +10,7 @@ import type { TenantProposal, TenantRecord } from './contracts.js';
 import { TenantUnavailable } from './errors.js';
 import { TENANCY_DEFAULTS } from './schema.js';
 import { isTenantId } from './scope.js';
-import { TenantSettings } from './settings.js';
+import { TenantSettings, overridablePaths, overridesOf } from './settings.js';
 
 /** The registry and the access check a container's configuration names; one instance per container. */
 export class TenancyServices extends AsyncService {
@@ -75,4 +76,18 @@ export async function admitTenant(proposal: TenantProposal, principal?: Principa
 /** Loads (again) the settings of `tenant` into this process: for code that enters a tenant with runInTenant alone, and after writing them. */
 export async function loadTenantSettings(tenant: string, container: IContainer = DI.RootContainer): Promise<void> {
   await (await container.resolve(TenancyServices)).settings.load(tenant);
+}
+
+/**
+ * Throws InvalidConfiguration when a value of `settings` at an overridable path does not pass the configuration schema,
+ * and InvalidOperation while the configuration loads (try again once it has). Keys that name no overridable path are
+ * free-form settings and pass. Call it before a tenant's settings are written; the overlay serves the checked value.
+ */
+export async function checkTenantSettings(settings: Readonly<Record<string, unknown>>, container: IContainer = DI.RootContainer): Promise<void> {
+  const configuration = await container.resolve(Configuration);
+  if (!(configuration instanceof FrameworkConfiguration)) {
+    throw new InvalidOperation('checkTenantSettings validates through FrameworkConfiguration.check, and the registered Configuration is another class');
+  }
+  const paths = overridablePaths(configuration.get<unknown>('tenancy.config.overridable'));
+  for (const [path, value] of overridesOf(settings, paths)) configuration.check(path, value);
 }

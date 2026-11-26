@@ -1,12 +1,12 @@
 import 'mocha';
 import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
-import { Configuration, ConfigurationOverlay, FrameworkConfiguration } from '@spinajs/configuration';
+import { Configuration, ConfigurationOverlay, FrameworkConfiguration, InvalidConfiguration } from '@spinajs/configuration';
 import type { IConfigLike } from '@spinajs/configuration';
 import { InvalidOperation } from '@spinajs/exceptions';
 import { createTestApp } from '@spinajs/testing';
 import type { TestApp } from '@spinajs/testing';
-import { MemoryTenantRegistry, TenantConfigurationOverlay, TenantRegistry, TenantSettingsUnavailable, TenantUnavailable, admitTenant, forEachTenant, loadTenantSettings, runAcrossTenants, runInTenant, tenantRegistry } from '../src/index.js';
+import { MemoryTenantRegistry, TenantConfigurationOverlay, TenantRegistry, TenantSettingsUnavailable, TenantUnavailable, admitTenant, checkTenantSettings, forEachTenant, loadTenantSettings, runAcrossTenants, runInTenant, tenantRegistry } from '../src/index.js';
 
 chai.use(chaiAsPromised);
 const expect = chai.expect;
@@ -99,7 +99,7 @@ describe('tenant configuration overrides', () => {
           return [first, config.get<Record<string, unknown>>('mail').from];
         });
 
-      const [acme, globex, plain] = await Promise.all([readTwice('acme'), readTwice('globex'), readTwice('plain')]);
+      const [plain, acme, globex] = await Promise.all([readTwice('plain'), readTwice('acme'), readTwice('globex')]);
 
       expect(acme).to.deep.equal(['billing@acme.test', 'billing@acme.test']);
       expect(globex).to.deep.equal(['ops@globex.test', 'ops@globex.test']);
@@ -214,6 +214,12 @@ describe('tenant configuration overrides', () => {
       expect(report.failed).to.deep.equal([]);
       expect(seen.get('fresh')).to.equal('x@fresh.test');
       expect(seen.get('plain')).to.equal('noreply@app.test');
+    });
+
+    it('checkTenantSettings refuses an overridable value the schema refuses and passes free-form keys', async () => {
+      await expect(checkTenantSettings({ mail: { from: 'nope' } })).to.be.rejectedWith(InvalidConfiguration);
+      await expect(checkTenantSettings({ 'mail.enabled': 'maybe' })).to.be.rejectedWith(InvalidConfiguration);
+      await checkTenantSettings({ mail: { from: 'ok@acme.test', enabled: 'false' }, plan: 'pro', db: { Connections: [] } });
     });
 
     it('refuses to attach to a Configuration that is not a FrameworkConfiguration', async () => {
