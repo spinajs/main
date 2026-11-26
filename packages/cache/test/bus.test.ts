@@ -194,19 +194,21 @@ describe('TagBus between two processes', () => {
     expect([await cache('default', a).wrap('k', TAGGED, async () => 'new'), await cache('default', a).get('k')]).to.deep.eq(['new', 'new']);
   });
 
-  // Fails when dispose() does not unsubscribe: the disposed process would still bump on every delivery.
+  // Fails when dispose() does not unsubscribe: the bus would keep the disposed service reachable.
   it('stops applying deliveries once its container is disposed, and leaves no timer behind', async () => {
     const timers = (): number => process.getActiveResourcesInfo().filter((resource) => resource === 'Timeout').length;
     // The first boot in a process starts one framework timer that outlives every app; it is not counted.
     await (await startProcess({ default: {} })).dispose();
     const before = timers();
+    const unsubscribe = sinon.stub();
+    const subscribe = sinon.stub(wire, 'subscribe').callsFake((fn: (bumps: readonly TagBump[]) => void) => unsubscribe.callsFake(subscribe.wrappedMethod.call(wire, fn)));
     const app = await startProcess({ default: { store: 'SharedTier' } });
     await cache('default', app.container).get('k');
     const bump = sinon.spy(SharedTier.store, 'bump');
     await app.dispose();
     await wire.send(stampBumps(['any:t']));
     await drain();
-    expect([bump.callCount, timers() - before]).to.deep.eq([0, 0]);
+    expect([bump.callCount, timers() - before, unsubscribe.calledOnce]).to.deep.eq([0, 0, true]);
   });
 
   // Fails when a bus message carries more than tags and stamps.
