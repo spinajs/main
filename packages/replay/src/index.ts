@@ -8,3 +8,5 @@ export { ReplayBudgetExceeded, ReplayHistory } from './history-scan.js';
 export type { ReplayHistoryLimits } from './history-scan.js';
 export { REPLAY_DEFAULTS, REPLAY_MAX_CHANGES_LIMIT, replayLimits, replayWindow } from './config.js';
 export type { ReplayLimits } from './config.js';
+export { verdictOf } from './verdict.js';
+export type { ReplayVerdictResult } from './verdict.js';
