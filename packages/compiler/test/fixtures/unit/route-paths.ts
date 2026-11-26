@@ -40,3 +40,7 @@ export class LeadingSlashBaseController extends BaseController {
 export class ConfiguredController extends BaseController {
   @Get() public ping(): void {}
 }
+
+export class LookalikeController extends BaseController {
+  public notARoute(): void {}
+}

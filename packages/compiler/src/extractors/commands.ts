@@ -44,7 +44,7 @@ export const extractCommands: Extractor<CliCommandEntry> = (ctx, file) => {
   for (const st of file.statements) {
     if (!ts.isClassDeclaration(st) || !st.name || isAbstractClass(st)) continue;
     const cmd = findDecorator(st, 'Command');
-    if (!cmd || !ctx.isSubclassOf(st, 'CliCommand')) continue;
+    if (!cmd || !ctx.isSubclassOf(st, 'CliCommand', '@spinajs/cli')) continue;
     const meta = commandMeta(cmd, ctx);
     const decs = decoratorsOf(st);
     out.push({

@@ -19,7 +19,7 @@ describe('exit check: packages/http analyzes cleanly', function () {
     const ctx = createContext(loaded, '@spinajs/http', '../http');
     let expected = 0;
     const walk = (n: ts.Node): void => {
-      if (ts.isClassDeclaration(n) && n.name && ctx.isSubclassOf(n, 'BaseController')) expected++;
+      if (ts.isClassDeclaration(n) && n.name && ctx.isSubclassOf(n, 'BaseController', '@spinajs/http')) expected++;
       ts.forEachChild(n, walk);
     };
     loaded.sourceFiles.forEach((f) => walk(f));

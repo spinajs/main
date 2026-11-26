@@ -207,11 +207,11 @@ function controllersIn(file: ts.SourceFile, ctx: ExtractorContext, wanted: (node
   return out;
 }
 
-export const extractControllers: Extractor<ControllerEntry> = (ctx, file) => controllersIn(file, ctx, (node) => !isAbstractClass(node) && (hasRoute(node) || ctx.isSubclassOf(node, 'BaseController')));
+export const extractControllers: Extractor<ControllerEntry> = (ctx, file) => controllersIn(file, ctx, (node) => !isAbstractClass(node) && (hasRoute(node) || ctx.isSubclassOf(node, 'BaseController', '@spinajs/http')));
 
 const CLASS_GUARDS = ['BasePath', 'Policy', 'Access', 'AllowAnonymous', 'Public', ...MIDDLEWARE_DECORATORS];
 const hasClassGuard = (node: ts.ClassDeclaration): boolean => decoratorsOf(node).some((d) => CLASS_GUARDS.includes(d.name));
 
 /** Abstract controllers are never mounted, but a subclass serves their routes and inherits their path and guards. */
 export const extractControllerBases: Extractor<ControllerEntry> = (ctx, file) =>
-  controllersIn(file, ctx, (node) => isAbstractClass(node) && (hasRoute(node) || (hasClassGuard(node) && ctx.isSubclassOf(node, 'BaseController'))));
+  controllersIn(file, ctx, (node) => isAbstractClass(node) && (hasRoute(node) || (hasClassGuard(node) && ctx.isSubclassOf(node, 'BaseController', '@spinajs/http'))));
