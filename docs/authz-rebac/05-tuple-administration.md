@@ -36,7 +36,9 @@ await admin.list(actor, { kind: 'tuples', scope: { type: 'doc', id: 'd1' }, rela
 
 ### `scope.forget`
 
-Removes the tuples whose object is the forgotten node, one `TupleChanged` each.
+Removes the tuples whose object is the forgotten node, and every tuple whose subject is the node or one of its subject sets (`folder:9#viewer@contract:4201#member`, `folder:9#parent@contract:4201`), wherever it is held, so an object that later reuses the id inherits nothing. Each removed tuple is counted once in `affected` and emits one `TupleChanged` with `op: 'delete'`; its `object` and `subject` tell which side of the node it was on. The change tags every namespace a removed tuple lived in.
+
+Only a `MemoryTupleStore` or a `DbTupleStore` (or a subclass of one) is forgotten in: with a `TupleStore` of your own, `scope.forget` removes no tuple, on either side. Remove them from your store yourself when a node is deleted.
 
 ### HTTP
 
