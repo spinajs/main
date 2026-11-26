@@ -8,7 +8,7 @@ Row history of SpinaJS ORM models, recorded as `data` events in an audit trail o
 - `row.history()` and `historyOf(row)`: `entries()`, `asOf(at)` and `forget()` of one row.
 - `toHistoryEntry(event)`: the history entry of an audit event read from the trail itself.
 - `OrmHistory_2026_11_16_00_00_00`: the migration of the `history` trail's table; subclass it with your own `@Migration` for another connection.
-- `HistoryCoverage`: `since(trail, connection, entity)`, from when on a trail holds every change of an entity, and `record(models?)`; `OrmHistoryCoverage_2026_11_25_00_00_00`, the migration of its table `history_coverage`.
+- `HistoryCoverage`: `since(trail, connection, entity)`, from when on a trail holds every change of the columns an entity's registration records, and `record(models?)`; `OrmHistoryCoverage_2026_11_25_00_00_00`, the migration of its table `history_coverage`.
 - `HistoryConfigError` (a declaration or a read the package refuses) and `HistoryWriteError` (a write whose history cannot be recorded).
 - The types `HistoryOptions`, `TrackedModel`, `TrackedRow`, `ModelHistory`, `RowHistory`, `HistoryEntry`, `HistoryQuery`, `HistoryOp` and `AsOf`.
 
