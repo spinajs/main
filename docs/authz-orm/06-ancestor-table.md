@@ -32,7 +32,7 @@ authz-orm keeps the table right on every ORM write of an `@AccessResource` model
 | `'DbAuthzAdminBackend'` | In the delete's own transaction; the stores bump `authz_version` themselves. | Publishes one change on the `ChangeBus` the domain's service booted with (`authz.bus.service`, else the last registered one) and writes one audit entry per resource (`kind: 'system'`, `reason: 'resource-deleted'`, principal `SYSTEM`). |
 | any other (default `'MemoryAuthzAdminBackend'`) | After the commit, in a transaction of that backend, followed by `bumpVersion()`. | The same publish and audit. |
 
-Before the domain's service has booted (a worker that deletes rows and never checks access), the cleanup picks the bus as that boot would. A delete never publishes on a bus other than the domain's, so with two buses registered, cached decisions of the domain about the deleted resource are dropped.
+The cleanup's forget resolves the domain's `AuthzService`, so a process that deletes rows boots the domain first and publishes on the bus that boot picked. A delete never publishes on a bus other than the domain's: with two buses registered, or one registered after the boot, the domain's cached decisions about the deleted resource are dropped.
 
 A step that runs after the commit cannot roll the delete back: its failure is logged (`authz-orm: <step> after a committed delete failed`) and the delete stands. A rolled-back delete forgets and publishes nothing.
 
