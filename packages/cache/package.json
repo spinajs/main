@@ -1,7 +1,7 @@
 {
   "name": "@spinajs/cache",
   "version": "3.0.23",
-  "description": "Caching for SpinaJS: named caches whose entries live while their tag versions do, a store port with memory and tiered stores, single flight and stale-while-revalidate",
+  "description": "Caching for SpinaJS: cache contracts, a store port and a memory store whose entries live while their tag versions do",
   "main": "./lib/index.js",
   "types": "./lib/index.d.ts",
   "exports": {
