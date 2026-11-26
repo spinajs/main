@@ -402,6 +402,9 @@
     },
     {
       "path": "packages/cache/tsconfig.build.json"
+    },
+    {
+      "path": "packages/cache-http/tsconfig.build.json"
     }
   ]
 }
