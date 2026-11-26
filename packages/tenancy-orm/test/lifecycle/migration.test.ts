@@ -20,28 +20,20 @@ const expect = chai.expect;
 
 const DATABASE = 'v4_tl_02_provision_migrate';
 
+/** `server`: the database of the admin connection (`null`: none). */
 interface Target {
   readonly type: Class<OrmDriver>;
   readonly options: Record<string, unknown>;
-  /** A server: the database of the admin connection (`null`: none) and how the test database goes. */
-  readonly server?: { readonly admin: string | null; readonly drop: string };
+  readonly server?: { readonly admin: string | null };
 }
 
 // The docker fixtures of the orm-* packages' own tests; never started or stopped here.
 const TARGETS: Record<string, Target> = {
   sqlite: { type: SqliteOrmDriver, options: { Driver: 'orm-driver-sqlite', Filename: ':memory:' } },
   pglite: { type: PgliteOrmDriver, options: { Driver: 'orm-driver-pglite' } },
-  postgres: {
-    type: PostgresOrmDriver,
-    options: { Driver: 'orm-driver-postgres', Host: '127.0.0.1', Port: Number(process.env.ORM_TEST_POSTGRES_PORT ?? 15432), User: 'postgres', Password: 'postgres' },
-    server: { admin: 'postgres', drop: `DROP DATABASE IF EXISTS ${DATABASE} WITH (FORCE)` },
-  },
-  mysql: { type: MySqlOrmDriver, options: { Driver: 'orm-driver-mysql', Host: '127.0.0.1', Port: 13306, User: 'root', Password: 'root' }, server: { admin: null, drop: `DROP DATABASE IF EXISTS ${DATABASE}` } },
-  mssql: {
-    type: MsSqlOrmDriver,
-    options: { Driver: 'orm-driver-mssql', Host: '127.0.0.1', User: 'sa', Password: 'yourStrong(!)Password', Options: { TrustServerCertificate: true } },
-    server: { admin: 'master', drop: `DROP DATABASE IF EXISTS ${DATABASE}` },
-  },
+  postgres: { type: PostgresOrmDriver, options: { Driver: 'orm-driver-postgres', Host: '127.0.0.1', Port: Number(process.env.ORM_TEST_POSTGRES_PORT ?? 15432), User: 'postgres', Password: 'postgres' }, server: { admin: 'postgres' } },
+  mysql: { type: MySqlOrmDriver, options: { Driver: 'orm-driver-mysql', Host: '127.0.0.1', Port: 13306, User: 'root', Password: 'root' }, server: { admin: null } },
+  mssql: { type: MsSqlOrmDriver, options: { Driver: 'orm-driver-mssql', Host: '127.0.0.1', User: 'sa', Password: 'yourStrong(!)Password', Options: { TrustServerCertificate: true } }, server: { admin: 'master' } },
 };
 
 async function rowOf(driver: OrmDriver): Promise<Record<string, unknown>> {
@@ -65,8 +57,7 @@ describe('the migration of the lifecycle columns', function () {
 
   const connect = async (name: string, target: Target, database: string | null | undefined): Promise<OrmDriver> => {
     const driver = await app.container.child().resolve<OrmDriver>(target.type, [{ Name: `migration-${name}`, ...target.options, ...(database ? { Database: database } : {}) }]);
-    await driver.connect();
-    return driver;
+    return driver.connect();
   };
 
   const onServer = async (name: string, target: Target, sql: string): Promise<void> => {
@@ -77,12 +68,13 @@ describe('the migration of the lifecycle columns', function () {
       await admin.disconnect();
     }
   };
+  const drop = (name: string): string => `DROP DATABASE IF EXISTS ${DATABASE}${name === 'postgres' ? ' WITH (FORCE)' : ''}`;
 
   for (const [name, target] of Object.entries(TARGETS)) {
-    it(`adds the columns on ${name} with sane values for existing rows, a lease that one taker wins, and a down that removes only them`, async function () {
+    it(`adds the columns on ${name} with sane values for existing rows, a lease one of two takers wins, and a down that removes only them`, async function () {
       if (target.server) {
         try {
-          await onServer(name, target, target.server.drop);
+          await onServer(name, target, drop(name));
         } catch (err) {
           if (process.env.TENANCY_ORM_REQUIRE_SERVERS === '1') throw err;
           console.warn(`      ${name} is unreachable (${err instanceof Error ? err.message : String(err)}), skipped`);
@@ -101,6 +93,7 @@ describe('the migration of the lifecycle columns', function () {
         expect(after).to.include({ state: 'active', lifecycle: null, suspension: null, lifecycle_owner: null, lifecycle_until: null });
         expect(Number(after.lifecycle_epoch)).to.eq(0);
 
+        // Two takers at once, each on a connection of the pool where the driver has one.
         const lease = new RowLease(driver, LIFECYCLE_LEASE_COLUMNS);
         const row = { table: TENANTS_TABLE, key: { id: 'old' } };
         const now = Date.UTC(2026, 11, 1);
@@ -117,7 +110,7 @@ describe('the migration of the lifecycle columns', function () {
         expect(Object.keys(await rowOf(driver)).sort()).to.deep.eq(before);
       } finally {
         await driver.disconnect();
-        if (target.server) await onServer(name, target, target.server.drop);
+        if (target.server) await onServer(name, target, drop(name));
       }
     });
   }
