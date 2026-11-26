@@ -4,7 +4,7 @@ import { join, resolve } from 'node:path';
 import { CliCommand, Command, Option } from '@spinajs/cli';
 import { Configuration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
-import { InvalidOperation } from '@spinajs/exceptions';
+import { IOFail, InvalidArgument, InvalidOperation } from '@spinajs/exceptions';
 import { resolveMigrationTool } from '@spinajs/orm';
 import type { Orm } from '@spinajs/orm';
 
@@ -46,18 +46,28 @@ export class TenantRlsCommand extends CliCommand {
 
   public Print: (line: string) => void = (line) => console.log(line);
 
+  public Now: () => Date = () => new Date();
+
   public async execute(options: TenantRlsCommandOptions): Promise<void> {
+    if (options.bypassRole?.trim() === '') throw new InvalidArgument('tenant:rls: --bypass-role is empty; name the database role the all-tenants scope lets through, or leave the option out');
     const orm = this.Orm ?? (await resolveMigrationTool()).Orm;
     const groups = byConnection(orm, tenantRlsTables());
     if (groups.size === 0) throw new InvalidOperation('tenant:rls: no row-mode tenant model declares rls (@Tenant({ rls: true }) or tenancy.orm.rls: true)');
     const bypassRole = options.bypassRole ?? configuredBypassRole();
     const out = resolve(options.out);
-    const at = stamp(new Date());
+    const at = stamp(this.Now());
     await mkdir(out, { recursive: true });
     for (const [connection, tables] of groups) {
       const name = `TenantRls_${at}${groups.size > 1 ? `_${connection.replace(/[^A-Za-z0-9_]/g, '_')}` : ''}`;
       const file = join(out, `${name}.ts`);
-      await writeFile(file, tenantRlsMigrationSource(generateTenantRls(tables, bypassRole === undefined ? {} : { bypassRole }), name, connection));
+      const source = tenantRlsMigrationSource(generateTenantRls(tables, bypassRole === undefined ? {} : { bypassRole }), name, connection);
+      try {
+        // 'wx': two runs in one second produce the same class name, and the first file must survive
+        await writeFile(file, source, { flag: 'wx' });
+      } catch (err) {
+        if (err instanceof Error && 'code' in err && err.code === 'EEXIST') throw new IOFail(`tenant:rls: migration file ${file} already exists - it was generated in the same second; run the command again`, err);
+        throw err;
+      }
       this.Print(`wrote ${file}`);
       for (const t of tables) this.Print(`  ${t.table}: restrictive policy on ${t.column}${bypassRole === undefined ? ', no bypass role' : `, bypass role ${bypassRole}`}`);
     }

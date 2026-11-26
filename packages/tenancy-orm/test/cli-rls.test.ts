@@ -4,7 +4,7 @@ import chaiAsPromised from 'chai-as-promised';
 import { mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { InvalidOperation } from '@spinajs/exceptions';
+import { IOFail, InvalidArgument, InvalidOperation } from '@spinajs/exceptions';
 
 import { TenantRlsCommand } from '../src/cli/commands/tenant-rls.js';
 import { register, unregisterTenantModel } from '../src/registry.js';
@@ -39,8 +39,9 @@ describe('tenant:rls', function () {
 
   afterEach(() => rmSync(dir, { recursive: true, force: true }));
 
-  const run = (options: { bypassRole?: string } = {}): Promise<void> => {
+  const run = (options: { bypassRole?: string } = {}, now?: Date): Promise<void> => {
     const command = Object.assign(new TenantRlsCommand(), { Orm: rls?.orm, Print: (line: string) => void lines.push(line) });
+    if (now !== undefined) command.Now = () => now;
     return command.execute({ out: dir, ...options });
   };
 
@@ -80,6 +81,20 @@ describe('tenant:rls', function () {
       rls?.app.config.set(['tenancy', 'orm', 'rlsBypassRole'], 'app_cfg');
       await run();
       expect(written().source).to.include("pg_has_role('app_cfg', 'MEMBER')");
+    }));
+
+  it('refuses an empty --bypass-role, and writes nothing', () =>
+    withoutLedger(async () => {
+      await expect(run({ bypassRole: ' ' })).to.be.rejectedWith(InvalidArgument, '--bypass-role is empty');
+      expect(readdirSync(dir)).to.deep.eq([]);
+    }));
+
+  it('never replaces the file of a run in the same second', () =>
+    withoutLedger(async () => {
+      const now = new Date();
+      await run({ bypassRole: 'first' }, now);
+      await expect(run({ bypassRole: 'second' }, now)).to.be.rejectedWith(IOFail, 'already exists');
+      expect(written().source).to.include("pg_has_role('first', 'MEMBER')");
     }));
 
   it('refuses a table with rls on a connection that is not PostgreSQL, and writes nothing', async () => {
