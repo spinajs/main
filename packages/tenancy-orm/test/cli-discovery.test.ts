@@ -26,11 +26,11 @@ console.log(JSON.stringify(out));
 `;
 
 // What `spinajs tenant:rls` loads: the configuration, the built package and its command; the Orm boots inside execute().
-// The command reads no row, so the table need not exist and the migration check is off.
+// The defaults of an application, over a database nobody migrated: the migration of the new model is pending.
 const CLI_PROCESS = `
 const { DI } = await import('@spinajs/di');
 const { Configuration, FrameworkConfiguration } = await import('@spinajs/configuration');
-const { Connection, Model, ModelBase, Orm } = await import('@spinajs/orm');
+const { Connection, Migration, Model, ModelBase, Orm, OrmMigration } = await import('@spinajs/orm');
 await import('@spinajs/log');
 await import('@spinajs/orm-pglite');
 class CliProcessConfiguration extends FrameworkConfiguration {
@@ -39,7 +39,7 @@ class CliProcessConfiguration extends FrameworkConfiguration {
   onLoad() {
     return {
       logger: { targets: [{ name: 'Empty', type: 'BlackHoleTarget' }], rules: [{ name: '*', level: 'trace', target: 'Empty' }] },
-      db: { MigrationCheck: 'off', StrictTableCheck: false, DefaultConnection: 'pg', Connections: [{ Driver: 'orm-driver-pglite', Filename: ':memory:', Name: 'pg' }] },
+      db: { DefaultConnection: 'pg', Connections: [{ Driver: 'orm-driver-pglite', Filename: process.argv[2], Name: 'pg' }] },
       tenancy: { orm: { rlsBypassRole: 'app' } },
     };
   }
@@ -51,6 +51,11 @@ class CliInvoice extends ModelBase {}
 Connection('pg')(CliInvoice);
 Model('cli_invoice')(CliInvoice);
 Tenant({ rls: true })(CliInvoice);
+class CliInvoice_2026_01_01_00_00_00 extends OrmMigration {
+  async up(connection) { await connection.schema().createTable('cli_invoice', (table) => table.string('tenant_id', 64)); }
+  async down(connection) { await connection.schema().dropTable('cli_invoice'); }
+}
+Migration('pg')(CliInvoice_2026_01_01_00_00_00);
 const { TenantRlsCommand } = await import('./lib/cli/commands/tenant-rls.js');
 const command = await DI.resolve(TenantRlsCommand);
 await command.execute({ out: process.argv[1] });
@@ -75,18 +80,38 @@ describe('tenancy-orm cli discovery', function () {
     expect(Object.values(commands).map((n) => n?.split(' ')[0])).to.deep.eq(['tenant:rls']);
   });
 
+  /** Runs the command in a process of its own over the PGlite database `data`, and returns the file it wrote to `out`. */
+  function runCli(out: string, data: string): { stdout: string; file: string } {
+    const env: NodeJS.ProcessEnv = { ...process.env };
+    delete env.NODE_OPTIONS;
+    const stdout = execFileSync(process.execPath, ['--input-type=module', '-e', CLI_PROCESS, out, data], { cwd: PKG_ROOT, encoding: 'utf8', env });
+    const files = readdirSync(out);
+    expect(files).to.have.length(1);
+    return { stdout, file: join(out, files[0]) };
+  }
+
+  const scratch = (): string => mkdtempSync(join(tmpdir(), 'tenant-rls-cli-'));
+
   it('writes the migration in a process that loads only the built package and the command', () => {
-    const out = mkdtempSync(join(tmpdir(), 'tenant-rls-cli-'));
+    const out = scratch();
     try {
-      const env: NodeJS.ProcessEnv = { ...process.env };
-      delete env.NODE_OPTIONS;
-      const stdout = execFileSync(process.execPath, ['--input-type=module', '-e', CLI_PROCESS, out], { cwd: PKG_ROOT, encoding: 'utf8', env });
-      const files = readdirSync(out);
-      expect(files).to.have.length(1);
-      expect(stdout).to.include(`wrote ${join(out, files[0])}`).and.include('cli_invoice: restrictive policy on tenant_id, bypass role app');
-      expect(readFileSync(join(out, files[0]), 'utf8')).to.include('@Migration("pg")').and.include('ALTER TABLE \\"cli_invoice\\" FORCE ROW LEVEL SECURITY');
+      const { stdout, file } = runCli(out, ':memory:');
+      expect(stdout).to.include(`wrote ${file}`).and.include('cli_invoice: restrictive policy on tenant_id, bypass role app');
+      expect(readFileSync(file, 'utf8')).to.include('@Migration("pg")').and.include('ALTER TABLE \\"cli_invoice\\" FORCE ROW LEVEL SECURITY');
     } finally {
       rmSync(out, { recursive: true, force: true });
+    }
+  });
+
+  it('runs again over the same database before anything was migrated', () => {
+    const dirs = [scratch(), scratch(), scratch()];
+    const [data, first, second] = dirs;
+    try {
+      runCli(first, data);
+      const { stdout, file } = runCli(second, data);
+      expect(stdout).to.include(`wrote ${file}`);
+    } finally {
+      for (const dir of dirs) rmSync(dir, { recursive: true, force: true });
     }
   });
 });

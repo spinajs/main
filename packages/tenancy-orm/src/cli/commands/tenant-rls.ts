@@ -5,7 +5,8 @@ import { CliCommand, Command, Option } from '@spinajs/cli';
 import { Configuration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
 import { InvalidOperation } from '@spinajs/exceptions';
-import { Orm } from '@spinajs/orm';
+import { resolveMigrationTool } from '@spinajs/orm';
+import type { Orm } from '@spinajs/orm';
 
 import { generateTenantRls, tenantRlsMigrationSource, tenantRlsTables } from '../../rls.js';
 import type { TenantRlsTable } from '../../rls.js';
@@ -35,7 +36,7 @@ function byConnection(orm: Orm, tables: readonly TenantRlsTable[]): Map<string, 
   return out;
 }
 
-/** The Orm boots when the command runs, so a pending migration stops it: run migrate-up first. */
+/** Boots the Orm as a migration tool, so neither a pending migration nor a missing table stops it. */
 @Command('tenant:rls', 'Writes a migration with the PostgreSQL row level security of every row-mode @Tenant({ rls: true }) table')
 @Option('-o, --out <dir>', true, 'directory the migration is written to')
 @Option('--bypass-role <role>', false, 'database role the all-tenants scope lets through; default tenancy.orm.rlsBypassRole')
@@ -46,7 +47,7 @@ export class TenantRlsCommand extends CliCommand {
   public Print: (line: string) => void = (line) => console.log(line);
 
   public async execute(options: TenantRlsCommandOptions): Promise<void> {
-    const orm = this.Orm ?? (await DI.resolve(Orm));
+    const orm = this.Orm ?? (await resolveMigrationTool()).Orm;
     const groups = byConnection(orm, tenantRlsTables());
     if (groups.size === 0) throw new InvalidOperation('tenant:rls: no row-mode tenant model declares rls (@Tenant({ rls: true }) or tenancy.orm.rls: true)');
     const bypassRole = options.bypassRole ?? configuredBypassRole();
