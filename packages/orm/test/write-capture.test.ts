@@ -5,7 +5,7 @@ import { InvalidOperation } from '@spinajs/exceptions';
 import { QueryMiddleware } from '../src/interfaces.js';
 import { WriteCaptureMiddleware, captureKeyText } from '../src/capture/index.js';
 import { countKeyless, keyTexts, keylessIdentity } from '../src/capture/keys.js';
-import { requiredTables } from '../src/capture/middleware.js';
+import { requiredTables, unmatchedTables } from '../src/capture/middleware.js';
 import { ORM_CONFIGURATION_SCHEMA } from '../src/configuration-schema.js';
 import { WriteCaptureRequired } from '../src/exceptions.js';
 
@@ -79,6 +79,11 @@ describe('write capture registration', () => {
     for (const value of ['invoice', { invoice: true }, ['invoice', 7], null, 0]) {
       expect(() => requiredTables(value)).to.throw(InvalidOperation, 'write capture: db.WriteCapture.Required must be a list of table names');
     }
+  });
+
+  it('names the required tables no table matches, comparing without case', () => {
+    expect(unmatchedTables(['Invoice', 'INVOICE_LINE', 'invoce'], ['invoice', 'invoice_line'])).to.deep.eq(['invoce']);
+    expect(unmatchedTables(['invoice'], [])).to.deep.eq(['invoice']);
   });
 
   it('refuses an unobserved write with an InvalidOperation of its own', () => {

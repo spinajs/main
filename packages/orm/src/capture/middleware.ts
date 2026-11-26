@@ -67,11 +67,20 @@ export function requiredTables(value: unknown): readonly string[] {
   return value;
 }
 
+// Without case: MySQL, MSSQL and SQLite take `Invoice` and `invoice` for one table, so an exact match would fail open.
+// Listing one of two tables that differ only by case guards both: the safe side.
+const sameTable = (a: string, b: string): boolean => a.toLowerCase() === b.toLowerCase();
+
+/** The names of `required` that match none of `tables`. */
+export function unmatchedTables(required: readonly string[], tables: readonly string[]): string[] {
+  return required.filter((name) => !tables.some((table) => sameTable(table, name)));
+}
+
 function refuseUnobserved(statement: WriteStatement): void {
   const required = requiredTables(DI.get(Configuration)?.get<unknown>('db.WriteCapture.Required'));
   if (required.length === 0) return;
   const table = extractModelDescriptor(statement.model)?.TableName;
-  if (table === undefined || !required.includes(table)) return;
+  if (table === undefined || !required.some((name) => sameTable(name, table))) return;
   throw new WriteCaptureRequired(`write capture: ${statement.model.name} writes ${table}, a table db.WriteCapture.Required lists, and no WriteObserver takes this ${statement.kind}; load the package that observes ${table} in this process or take the table off the list`);
 }
 

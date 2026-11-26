@@ -2,9 +2,12 @@ import { DI } from '@spinajs/di';
 import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 import 'mocha';
+import sinon from 'sinon';
 import { Configuration, InvalidConfiguration } from '@spinajs/configuration';
+import { FrameworkLogger } from '@spinajs/log';
 import { WriteCaptureRequired, WriteObserver } from '@spinajs/orm';
 import type { CaptureInterest, CapturedWrite, WriteStatement } from '@spinajs/orm';
+import { SqliteOrmDriver } from '../src/index.js';
 import { db } from './common.js';
 import { bootUow, captureStatements, registerUowConnection, rows, UowClient, UowTag } from './uowFixture.js';
 
@@ -85,14 +88,22 @@ describe('db.WriteCapture.Required on sqlite', function () {
 
   it("refuses inside a caller's transaction too, and nothing is written", async () => {
     await requireTables(['uow_tag']);
-    const driver = db().Connections.get('sqlite')!;
+    const driver = db().Connections.get('sqlite');
+    if (!(driver instanceof SqliteOrmDriver)) throw new Error('the sqlite connection is not a SqliteOrmDriver');
+    const sent = sinon.spy(driver, 'executeOnDb');
 
-    await expect(
-      driver.transaction(async () => {
-        await UowTag.insert({ Name: 'red' });
-      }),
-    ).to.be.rejectedWith(WriteCaptureRequired, refusal('insert'));
+    try {
+      await expect(
+        driver.transaction(async () => {
+          await UowTag.insert({ Name: 'red' });
+        }),
+      ).to.be.rejectedWith(WriteCaptureRequired, refusal('insert'));
+    } finally {
+      sent.restore();
+    }
 
+    // BEGIN and ROLLBACK bypass executeOnDb; the insert, a savepoint or a capture read would not.
+    expect(sent.getCalls().map((c) => c.args[0])).to.deep.eq([]);
     expect(await names('uow_tag')).to.deep.eq([]);
   });
 
@@ -109,12 +120,28 @@ describe('db.WriteCapture.Required on sqlite', function () {
     expect(await names('uow_client')).to.deep.eq(['x']);
   });
 
-  it('compares the table name exactly: the model class name or the table name in another case guards nothing', async () => {
-    await requireTables(['UowTag', 'UOW_TAG']);
-
+  it('compares table names without case, and never with the model class name', async () => {
+    await requireTables(['UowTag']);
     await UowTag.insert({ Name: 'red' });
 
+    await requireTables(['UOW_TAG']);
+    await expect(UowTag.insert({ Name: 'blue' })).to.be.rejectedWith(WriteCaptureRequired, refusal('insert'));
+
     expect(await names('uow_tag')).to.deep.eq(['red']);
+  });
+
+  it('warns at boot about a listed name that no model of the process has, comparing without case', async () => {
+    DI.clearCache();
+    await requireTables(['UOW_TAG', 'uow_tags']);
+    const warn = sinon.spy(FrameworkLogger.prototype, 'warn');
+    try {
+      await bootUow();
+    } finally {
+      warn.restore();
+    }
+
+    const unmatched = warn.getCalls().filter((c) => typeof c.args[1] === 'string' && c.args[1].startsWith('db.WriteCapture.Required lists'));
+    expect(unmatched.map((c) => c.args[0])).to.deep.eq([{ table: 'uow_tags' }]);
   });
 
   it('does not see a builder without a model, like the rest of the capture', async () => {
