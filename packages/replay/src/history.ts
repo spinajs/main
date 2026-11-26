@@ -151,8 +151,24 @@ function holdsLossyNumber(text: string): boolean {
   for (const [, token] of text.matchAll(JSON_TOKEN)) {
     if (token === undefined) continue;
     const n = Number(token);
-    const digits = token.replace(/[eE].*$/, '').replace(/[-.]/g, '').replace(/^0+|0+$/g, '');
-    if (!Number.isFinite(n) || digits.length > 15 || (digits !== '' && Math.abs(n) < 2 ** -1022)) return true;
+    const digits = significantDigits(token);
+    if (!Number.isFinite(n) || digits > 15 || (digits > 0 && Math.abs(n) < 2 ** -1022)) return true;
   }
   return false;
+}
+
+const isNonZeroDigit = (code: number): boolean => code >= 49 && code <= 57;
+
+// Index scans, not a regular expression: trimming zeros with `/0+$/` is quadratic on a long run of inner zeros.
+function significantDigits(token: string): number {
+  let end = token.indexOf('e');
+  if (end === -1) end = token.indexOf('E');
+  if (end === -1) end = token.length;
+  let first = 0;
+  while (first < end && !isNonZeroDigit(token.charCodeAt(first))) first++;
+  if (first === end) return 0;
+  let last = end - 1;
+  while (!isNonZeroDigit(token.charCodeAt(last))) last--;
+  const dot = token.indexOf('.');
+  return last - first + 1 - (dot > first && dot < last ? 1 : 0);
 }

@@ -135,4 +135,48 @@ describe('sameImage', () => {
     expect(sameImage('1', '1.0')).to.equal(false);
     expect(sameImage('"x"', ' "x"')).to.equal(false);
   });
+
+  it('takes texts that differ only in how they write one value for the same', () => {
+    expect(sameImage('{"n":1.0}', '{"n":1}')).to.equal(true);
+    expect(sameImage('{"n":-0}', '{"n":0}')).to.equal(true);
+    expect(sameImage('{"n":1e2}', '{"n":100}')).to.equal(true);
+    expect(sameImage('{"a":"\\u0041"}', '{"a":"A"}')).to.equal(true);
+    expect(sameImage('{"a":1,"a":2}', '{"a":2}')).to.equal(true);
+    expect(sameImage('{"a":1}', ' { "a" : 1 } ')).to.equal(true);
+    expect(sameImage('{"x":"{\\"b\\":1}"}', '{"x":"{ \\"b\\": 1 }"}')).to.equal(true);
+  });
+
+  it('keeps texts apart whose values differ in type, presence or order', () => {
+    expect(sameImage('{"n":1}', '{"n":"1"}')).to.equal(false);
+    expect(sameImage('{"a":null}', '{}')).to.equal(false);
+    expect(sameImage('{"a":[1,2]}', '{"a":[2,1]}')).to.equal(false);
+    expect(sameImage('{"a":1', '{"a":1 ')).to.equal(false);
+  });
+
+  it('counts the significant digits of a number between its first and last non-zero digit', () => {
+    const spaced = (n: string): boolean => sameImage(`[${n}]`, `[ ${n}]`);
+    expect(spaced('0')).to.equal(true);
+    expect(spaced('7')).to.equal(true);
+    expect(spaced('-0.00000000000000000000000000')).to.equal(true);
+    expect(spaced('0.000000000000000000001')).to.equal(true);
+    expect(spaced('0.0000000000000000000001234567890123456')).to.equal(false);
+    expect(spaced('100000000000000000000000000000')).to.equal(true);
+    expect(spaced('1234567890123456000000000000')).to.equal(false);
+    expect(spaced('123456789.012345')).to.equal(true);
+    expect(spaced('123456789.0123456')).to.equal(false);
+    expect(spaced('1.5e300')).to.equal(true);
+    expect(spaced('1.000000000000000000000e-00000000000000000000005')).to.equal(true);
+    expect(spaced('1.234567890123456E5')).to.equal(false);
+  });
+
+  it('keeps a number below the normal range of a double as text', () => {
+    expect(sameImage('[1e-400]', '[0]')).to.equal(false);
+    expect(sameImage('[5e-324]', '[ 5e-324]')).to.equal(false);
+    expect(sameImage('[1e-300]', '[ 1e-300]')).to.equal(true);
+  });
+
+  it('judges a number with a long run of inner zeros in linear time', () => {
+    const long = `1.${'0'.repeat(200_000)}1`;
+    expect(sameImage(`[${long}]`, `[ ${long}]`)).to.equal(false);
+  });
 });
