@@ -10,3 +10,4 @@ import './observer.js';
 export { toHistoryEntry } from './entry.js';
 import './read.js';
 export { HistoryCoverage } from './coverage.js';
+import './coverage-retention.js';

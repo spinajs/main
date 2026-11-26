@@ -3,7 +3,7 @@ export { REDACTED_DATA, auditConnection, insertRows, rowsOf, storedColumns, toSt
 export type { AuditRow } from './rows.js';
 export * from './table-store.js';
 export * from './table-reader.js';
-export { AuditPruneFailed, pruneAudit } from './retention.js';
+export { AuditPruneFailed, AuditRetentionListener, pruneAudit } from './retention.js';
 export type { PruneAuditOptions, PruneFailure } from './retention.js';
 export { Auditable, auditOf, auditSubjectId, auditSubjectType, registerAuditable } from './model-audit.js';
 export type { AuditableModel, AuditableRow, ModelAudit, RowAudit } from './model-audit.js';

@@ -6,7 +6,7 @@ import type { StoredAuditEvent, TrailConfig } from '@spinajs/audit';
 import { DI } from '@spinajs/di';
 import { Log } from '@spinajs/log-common';
 import { getScheduleDeclarations } from '@spinajs/scheduler';
-import { AuditPruneFailed, pruneAudit } from '../src/index.js';
+import { AuditPruneFailed, AuditRetentionListener, pruneAudit } from '../src/index.js';
 import { AUDIT_RETENTION_SCHEDULE, AuditRetentionTask } from '../src/scheduler.js';
 import { TestDb } from './support/db.js';
 
@@ -65,6 +65,18 @@ class ProbeStore extends AuditStore {
   }
 }
 
+// Notes every call and how many events the short trail still held when it was made.
+class ProbeListener extends AuditRetentionListener {
+  static calls: { trail: string; connection: string | undefined; cutoff: string; held: number }[] = [];
+  static fail = false;
+  static held: () => Promise<number> = () => Promise.resolve(0);
+
+  async beforePrune(trail: string, connection: string | undefined, cutoff: Date): Promise<void> {
+    ProbeListener.calls.push({ trail, connection, cutoff: cutoff.toISOString(), held: await ProbeListener.held() });
+    if (ProbeListener.fail) throw new Error('listener refused');
+  }
+}
+
 describe('audit retention', function () {
   this.timeout(60000);
   let db: TestDb;
@@ -72,6 +84,7 @@ describe('audit retention', function () {
   before(async () => {
     db = await TestDb.open({ trails: TRAILS });
     DI.register(ProbeStore).as(AuditStore);
+    DI.register(ProbeListener).as(AuditRetentionListener);
   });
 
   after(async () => {
@@ -84,6 +97,9 @@ describe('audit retention', function () {
     await db.migrate('sqlite', 'audit_probed');
     ProbeReader.fail = false;
     ProbeStore.fail = false;
+    ProbeListener.fail = false;
+    ProbeListener.calls = [];
+    ProbeListener.held = () => Promise.resolve(0);
   });
 
   afterEach(async () => {
@@ -215,5 +231,34 @@ describe('audit retention', function () {
         ],
       },
     ]);
+  });
+
+  it('tells the retention listeners before it deletes: once per connection, and once without a connection for an archive', async () => {
+    await audit().record({ kind: 'action', action: 'old', at: ago(31) }, { trail: 'short' });
+    ProbeListener.held = async () => (await db.rows('sqlite', 'audit_short')).length;
+
+    expect(await pruneAudit({ now: NOW, trail: 'short' })).to.eq(1);
+    expect(ProbeListener.calls).to.deep.eq([{ trail: 'short', connection: 'sqlite', cutoff: ago(30).toISOString(), held: 1 }]);
+
+    ProbeListener.calls = [];
+    await pruneAudit({ now: NOW, trail: 'archived' });
+    expect(ProbeListener.calls.map((c) => [c.trail, c.connection])).to.deep.eq([['archived', undefined]]);
+
+    ProbeListener.calls = [];
+    await pruneAudit({ now: NOW, trail: 'kept' });
+    expect(ProbeListener.calls).to.deep.eq([]);
+  });
+
+  it('keeps the events of a connection whose listener refuses, and reports the connection', async () => {
+    await audit().record({ kind: 'action', action: 'old', at: ago(31) }, { trail: 'short' });
+    ProbeListener.fail = true;
+
+    const err: unknown = await pruneAudit({ now: NOW, trail: 'short' }).then(
+      () => undefined,
+      (e: unknown) => e,
+    );
+    const failed = err instanceof AuditPruneFailed ? err : undefined;
+    expect(failed?.message).to.eq('audit: retention deleted 0 event(s) and failed for short@sqlite (listener refused)');
+    expect(await db.rows('sqlite', 'audit_short')).to.have.length(1);
   });
 });

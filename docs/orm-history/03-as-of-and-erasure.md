@@ -58,6 +58,8 @@ History keeps no retention of its own. A trail with `retentionDays` loses older 
 
 A model that needs a retention of its own names a trail that has it.
 
+Pruning also moves the [coverage](05-coverage.md#retention) of the trail, which `asOf` does not read.
+
 ## `forget`
 
 `Model.history().forget(id)` and `row.history().forget()` erase a row's history for a data subject's right to erasure. They are redaction, not deletion:

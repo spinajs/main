@@ -41,6 +41,18 @@ interface Run {
 
 const log = (): Log => DI.resolve(Log, ['audit-retention']);
 
+/**
+ * Told before a retention run deletes the events of `trail` older than `cutoff` on `connection`; `connection` is
+ * undefined for a trail with an archive, which is pruned once for every source connection. A listener that rejects
+ * keeps those events, and the run reports the connection as failed.
+ */
+export abstract class AuditRetentionListener {
+  abstract beforePrune(trail: string, connection: string | undefined, cutoff: Date): Promise<void>;
+}
+
+// Resolved per run: the list follows DI.register and DI.unregister.
+const listeners = (): AuditRetentionListener[] => DI.resolve(Array.ofType(AuditRetentionListener));
+
 function fail(run: Run, trail: string, connection: string | undefined, error: unknown): void {
   const failure = { trail, connection, reason: error instanceof Error ? error.message : String(error), error };
   run.failed.push(failure);
@@ -67,6 +79,8 @@ async function pruneTrail(trail: TrailConfig, reader: AuditReader, before: Date,
   const sources: readonly (string | undefined)[] = trail.archiveConnection === undefined ? await sourcesOf(trail, run) : [undefined];
   for (const source of sources) {
     try {
+      // Before the delete: it runs in chunks, and a listener that only heard of a finished one would miss a partial one.
+      for (const listener of listeners()) await listener.beforePrune(trail.name, source, before);
       run.deleted += await reader.prune(trail, before, source);
     } catch (error) {
       fail(run, trail.name, source, error);

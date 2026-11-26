@@ -1,0 +1,6 @@
+---
+"@spinajs/audit-orm": minor
+"@spinajs/orm-history": minor
+---
+
+A retention run tells every registered `AuditRetentionListener` the trail, the connection and the cutoff (`beforePrune`) before it deletes the events of that connection; a listener that rejects keeps those events and the run reports the connection in `AuditPruneFailed`. `@spinajs/orm-history` registers one: the coverage of a trail moves up to the cutoff before its older events are deleted, and when it cannot be moved nothing is deleted on that connection. `HistoryCoverage.since()` of a trail with `retentionDays` never answers earlier than that many days before the call, plus 5 seconds. A retention run by a process that never imported `@spinajs/orm-history` therefore does not leave a coverage over events it deleted, as long as both processes have the same `retentionDays` and their clocks agree within those 5 seconds; when the pruning clock runs further ahead, `since()` can be too early by the excess, and after `retentionDays` was raised or removed it can claim a range whose events are gone. Run retention in a process that loads `@spinajs/orm-history` to avoid both. A reader's `prune` called directly moves no coverage anywhere. Read the history entries before `since()`: a run in between only moves the answer forward.
