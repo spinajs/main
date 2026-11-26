@@ -58,6 +58,15 @@ function unionColumns(watches: readonly Watch[]): readonly string[] | '*' {
 // DI.clearCache, and Array.ofType returns it in registration order.
 const observers = (): WriteObserver[] => DI.resolve(Array.ofType(WriteObserver));
 
+const isTableList = (value: unknown): value is readonly string[] => Array.isArray(value) && value.every((name: unknown) => typeof name === 'string');
+
+/** The value of `db.WriteCapture.Required` as table names. Anything but a list of names throws: read as "no list", it would switch the check off. */
+export function requiredTables(value: unknown): readonly string[] {
+  if (value === undefined) return [];
+  if (!isTableList(value)) throw new InvalidOperation('write capture: db.WriteCapture.Required must be a list of table names');
+  return value;
+}
+
 function planOf(query: QueryBuilder): Plan | undefined {
   const statement = writeStatementOf(query);
   if (!statement) return undefined;

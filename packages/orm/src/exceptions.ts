@@ -173,3 +173,6 @@ export class OptimisticLockError extends ConcurrencyConflict {
 
 /** A captured write reaches more rows than `db.WriteCapture.MaxRows` allows. */
 export class WriteCaptureLimitExceeded extends InvalidOperation {}
+
+/** A model write of a table `db.WriteCapture.Required` lists that no `WriteObserver` took. */
+export class WriteCaptureRequired extends InvalidOperation {}

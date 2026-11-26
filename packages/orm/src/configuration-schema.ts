@@ -28,9 +28,14 @@ export const ORM_CONFIGURATION_SCHEMA = {
     },
     WriteCapture: {
       type: 'object',
+      // propertyNames, not additionalProperties: false: removeAdditional would drop a misspelt key silently, and a
+      // misspelt Required switches the check off.
+      propertyNames: { enum: ['MaxRows', 'Required'] },
       properties: {
         // 0: unlimited
         MaxRows: { type: 'integer', minimum: 0, default: 0 },
+        // table names; empty: no table needs an observer
+        Required: { type: 'array', items: { type: 'string', minLength: 1 }, default: [] },
       },
     },
   },
