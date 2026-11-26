@@ -7,7 +7,7 @@ import type { PolicyIR, RelationName, Rewrite, TypeDef, TypeName } from '../ir.j
 import type { StoredPolicySplicer } from './contributor.js';
 import { StoreUnreadable } from './gap.js';
 import { coverageGap, stateAt } from './history.js';
-import type { KeyState } from './history.js';
+import type { KeyState } from './ports.js';
 import type { ReplayHistory } from './history-scan.js';
 
 type Items = ReadonlyArray<{ key: string; state: KeyState }>;

@@ -1,9 +1,9 @@
 import { resourceKey } from '@spinajs/authz';
-import type { CapturedInputs, ChangeRecord, ReplayDivergence, ReplayRead, ResourceRef } from '@spinajs/authz';
+import type { CapturedInputs, ReplayDivergence, ReplayRead, ResourceRef } from '@spinajs/authz';
 
 import type { AttributeHistoryContributor, AttributeLeafImage } from './contributor.js';
 import { coverageGap, sameImage, stateAt } from './history.js';
-import type { KeyState } from './history.js';
+import type { KeyState, ReplayChange } from './ports.js';
 import type { ReplayHistory } from './history-scan.js';
 
 const KIND = 'attribute';
@@ -96,7 +96,7 @@ function candidatePaths(scope: string, now: ReadonlyMap<string, AttributeLeafIma
   return paths;
 }
 
-function leafOf(change: ChangeRecord): { scope: string; path: string } | undefined {
+function leafOf(change: ReplayChange): { scope: string; path: string } | undefined {
   const image = isRecord(change.payload) ? change.payload : change.before;
   return isRecord(image) && typeof image.scope === 'string' && typeof image.path === 'string' ? { scope: image.scope, path: image.path } : undefined;
 }
