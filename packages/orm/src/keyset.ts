@@ -108,7 +108,7 @@ const INT32 = 2 ** 31;
 const INT64 = 2n ** 63n;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const DECIMAL = /^-?\d+(\.\d+)?$/;
-// SQL Server's time(7): a value outside a day fails its conversion on the row it is compared with
+// SQL Server's time(7): the database refuses a string outside a day when it converts it (error 241)
 const TIME_OF_DAY = /^([01]?\d|2[0-3]):[0-5]\d(:[0-5]\d(\.\d{1,7})?)?$/;
 
 const inInt64 = (value: bigint): boolean => value >= -INT64 && value < INT64;
@@ -138,7 +138,7 @@ const FAMILY_VALUES: Partial<Record<ColumnFamily, (value: unknown, families: rea
 /**
  * The families of each keyset column from the driver's dialect profile; undefined where the type is unknown. Where the
  * driver reads a decimal back as a number, the server's own cursor holds a number, so a decimal column is checked as
- * `float`: a numeric string would reach SQL Server as text and overflow the column's precision on a row.
+ * `float`: a numeric string would reach SQL Server as nvarchar and overflow the column's precision (8115).
  */
 export function keysetFamilies(columns: KeysetColumn[], descriptor: IModelDescriptor | undefined, dialect: SqlDialectProfile | undefined): Array<ColumnFamily[] | undefined> {
   const decimalAsNumber = dialect?.families.decimal === 'number';
