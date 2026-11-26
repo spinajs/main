@@ -169,6 +169,7 @@ describe('response cache key', () => {
       caller: optional(caller),
       tenant: optional(text),
       language: optional(text),
+      region: optional(text),
       noise: fc.record({ header: headerValue, attributes: fc.dictionary(text, text, { maxKeys: 2 }), caller: optional(caller) }),
     });
     type Generated = typeof generated extends fc.Arbitrary<infer T> ? T : never;
@@ -181,7 +182,7 @@ describe('response cache key', () => {
 
     const keyFor = (g: Generated, noisy = false): string | undefined => {
       const caller = noisy && g.scope !== 'principal' ? g.noise.caller : g.caller;
-      const storage = { Principal: principalOf(caller, noisy ? g.noise.attributes : {}), tenant: g.tenant, language: g.language };
+      const storage = { Principal: principalOf(caller, noisy ? g.noise.attributes : {}), tenant: g.tenant, language: g.language, region: g.region };
       const headers = noisy ? { ...g.headers, 'x-c': g.noise.header } : g.headers;
       return responseCacheKey({ namespace: responseCacheNamespace(g.type, g.path), scope: g.scope, vary: g.vary }, { originalUrl: g.url, headers }, store(storage), SCOPE_PARTS, KEY_PARTS);
     };
@@ -192,8 +193,30 @@ describe('response cache key', () => {
       const c = g.caller;
       if (g.scope === 'principal' && c?.authenticated !== true) return undefined;
       const principal = g.scope === 'principal' && c ? [c.type, c.id, c.permissions ?? null, c.impersonator ?? null] : null;
-      return JSON.stringify([g.type, g.path, g.scope, principal, g.url, tagged(g.headers.accept), tagged(g.headers['x-data-transform']), g.vary.map((name) => [name, tagged(g.headers[name])]), tagged(g.tenant), tagged(g.language)]);
+      return JSON.stringify([g.type, g.path, g.scope, principal, g.url, tagged(g.headers.accept), tagged(g.headers['x-data-transform']), g.vary.map((name) => [name, tagged(g.headers[name])]), tagged(g.tenant), tagged(g.language), tagged(g.region)]);
     };
+
+    // Random pairs almost never differ in one part only, so the pair property alone misses a part the key drops.
+    type Change = readonly [string, (g: Generated, from: Generated) => Generated];
+    const part = <K extends keyof Generated>(name: K): Change => [name, (g, from) => ({ ...g, [name]: from[name] })];
+    const headerPart = <K extends keyof Generated['headers']>(name: K): Change => [name, (g, from) => ({ ...g, headers: { ...g.headers, [name]: from.headers[name] } })];
+    const callerPart = <K extends keyof Caller>(name: K): Change => [`caller.${name}`, (g, from) => (g.caller && from.caller ? { ...g, caller: { ...g.caller, [name]: from.caller[name] } } : g)];
+    const CHANGES: readonly Change[] = [
+      ...(['type', 'path', 'scope', 'vary', 'url', 'caller', 'tenant', 'language', 'region'] as const).map(part),
+      ...(['accept', 'x-data-transform', 'x-a', 'x-b'] as const).map(headerPart),
+      ...(['type', 'id', 'authenticated', 'permissions', 'impersonator'] as const).map(callerPart),
+    ];
+
+    it('gives two requests that differ in any one part of the key two keys', () => {
+      fc.assert(
+        fc.property(generated, generated, fc.constantFrom(...CHANGES), (g, from, [name, change]) => {
+          const changed = change(g, from);
+          for (const request of [g, changed]) expect(keyFor(request) === undefined, name).to.eq(identity(request) === undefined);
+          if (identity(g) !== undefined && identity(changed) !== undefined) expect(keyFor(g) === keyFor(changed), name).to.eq(identity(g) === identity(changed));
+        }),
+        { seed: 20_261_126, numRuns: 2000 },
+      );
+    });
 
     it('gives two different requests two keys, one request one key, and none to a request without a principal', () => {
       fc.assert(
