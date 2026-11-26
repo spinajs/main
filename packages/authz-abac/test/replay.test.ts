@@ -3,7 +3,7 @@ import 'mocha';
 
 import { DecisionLogTap, FALSE, PermissionRegistryImpl, TRUE, changeLog } from '@spinajs/authz';
 import type { AuthzTx, ChangeLog, DecisionLog, DecisionRecord, PrincipalRef } from '@spinajs/authz';
-import { MemoryChangeLog, StoredPolicySplicers, canonicalize, mergeFragments, policyHash, replayDecision, storedPolicyName } from '@spinajs/authz-ir';
+import { MemoryChangeLog, StoredPolicySplicers, canonicalize, changeLogReplay, mergeFragments, policyHash, replayDecision, storedPolicyName } from '@spinajs/authz-ir';
 import type { PolicyIR, ReplayDeps, StoredPlaceholder } from '@spinajs/authz-ir';
 import { CHANGE_LOG_TABLE, recordCoverage } from '@spinajs/authz-orm/changelog';
 import { DI } from '@spinajs/di';
@@ -41,7 +41,7 @@ async function recordOf(ir: PolicyIR, id: string, allowed: boolean): Promise<Dec
 }
 
 const depsOf = (ir: PolicyIR, log: ChangeLog): ReplayDeps => ({
-  log,
+  ...changeLogReplay(log),
   loadPolicy: (h) => Promise.resolve(h === policyHash(ir) ? canonicalize(ir) : undefined),
   contributors: [],
   splicers: [new PolicySplicer()],

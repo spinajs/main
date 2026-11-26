@@ -1,6 +1,5 @@
 import type { ChangeKind, ChangeLog, ChangeRecord, ResourceType } from '@spinajs/authz';
 
-import type { HistoryContributor, HistoryEdge } from './contributor.js';
 import type { ReplayHistoryLimits, ReplayHistoryView, ReplayWindow } from './ports.js';
 
 /** A replay read more history than its limits allow. */
@@ -64,10 +63,6 @@ export class ReplayHistory implements ReplayHistoryView {
   /** The key's scanned changes; those at or before T lie inside the window, which makes the key a gap. */
   afterFor(kind: ChangeKind, key: string): readonly ChangeRecord[] {
     return this.byKey.get(slot(kind, key)) ?? [];
-  }
-
-  *edges(kind: ChangeKind, decode: HistoryContributor['edges']): Iterable<HistoryEdge> {
-    for (const c of this.changesOf(kind)) yield* decode(c);
   }
 
   *changesOf(kind: ChangeKind): Iterable<ChangeRecord> {

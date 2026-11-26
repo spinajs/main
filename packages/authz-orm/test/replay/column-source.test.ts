@@ -3,7 +3,7 @@ import 'mocha';
 
 import { ScopeForgetter, changeLog } from '@spinajs/authz';
 import type { AdminContext, AuthzEvent, AuthzTx, ResourceRef } from '@spinajs/authz';
-import { HistoricalTupleSource, HistoryContributors, ReplayHistory } from '@spinajs/authz-ir';
+import { HistoricalTupleSource, HistoryContributors, ReplayHistory, changeLogKeyState } from '@spinajs/authz-ir';
 import type { ObjectRef, PolicyIR, TupleSubjectRef } from '@spinajs/authz-ir';
 import { testHost } from '@spinajs/authz-testing';
 import { DI } from '@spinajs/di';
@@ -126,7 +126,7 @@ describe('ColumnHistoryContributor', function () {
           const ir: PolicyIR = { version: 1, types: { ...ormToIR({ classes: [Doc] }).at(0)?.types }, permissions: {}, caveats: {}, combine: { default: { algorithm: 'deny-overrides' } }, principal: { ceiling: false, delegation: false, ancestry: 'parent', roles: {} }, opaque: [] };
           const contributor = new ColumnHistoryContributor();
           const history = await ReplayHistory.load(changeLog(), T, ['column'], { maxChanges: 1000, maxKeys: 1000, window: WINDOW, precisionMs: changeLogPrecisionMs(db.driver(dialect)) });
-          const source = new HistoricalTupleSource(ir, T, [contributor], history);
+          const source = new HistoricalTupleSource(ir, T, [contributor], history, changeLogKeyState);
           const read = async (id: string | number, relation: string): Promise<TupleSubjectRef[]> => {
             const out: TupleSubjectRef[] = [];
             for await (const s of source.read({ type: 'doc', id: key(id) }, relation)) out.push(s);

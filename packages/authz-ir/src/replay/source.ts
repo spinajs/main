@@ -6,9 +6,7 @@ import type { TupleSource } from '../eval/evaluator.js';
 import type { ObjectRef, PolicyIR, RelationDef, RelationName, TupleSubjectRef, TypeDef, TypeName } from '../ir.js';
 import type { CurrentItem, HistoryContributor, HistoryEdge } from './contributor.js';
 import { StoreUnreadable, TupleSourceGap } from './gap.js';
-import { coverageGap, stateAt } from './history.js';
-import type { KeyState, ReplayChange } from './ports.js';
-import type { ReplayHistory } from './history-scan.js';
+import type { KeyState, KeyStateFunctions, ReplayChange, ReplayHistoryView } from './ports.js';
 
 interface Candidate<T> {
   image: unknown;
@@ -25,6 +23,10 @@ type KnownState = Extract<KeyState, { known: true }>;
 
 const sameSubject = (a: TupleSubjectRef, b: TupleSubjectRef): boolean => a.type === b.type && a.id === b.id && a.relation === b.relation;
 
+function* edgesOf(changes: Iterable<ReplayChange>, decode: (change: ReplayChange) => readonly HistoryEdge[]): Iterable<HistoryEdge> {
+  for (const change of changes) yield* decode(change);
+}
+
 /**
  * The relationships as they were at `at`, rebuilt per key from current rows and the changelog. A read whose history is
  * incomplete for any candidate key throws `TupleSourceGap` with the subjects it could establish; `reads` records every
@@ -38,7 +40,8 @@ export class HistoricalTupleSource implements TupleSource {
     private readonly ir: PolicyIR,
     private readonly at: Date,
     private readonly contributors: readonly HistoryContributor[],
-    private readonly history: ReplayHistory,
+    private readonly history: ReplayHistoryView,
+    private readonly keyState: KeyStateFunctions,
     /** The instant liveness is judged at (`subjectAt`): the decision's `env.now`, which may precede the state's `at`. */
     private readonly liveAt: Date = at,
   ) {
@@ -187,7 +190,7 @@ export class HistoricalTupleSource implements TupleSource {
           return [];
         }
       };
-      for (const e of this.history.edges(c.kind, decode)) {
+      for (const e of edgesOf(this.history.changesOf(c.kind), decode)) {
         const carrier = match(e);
         if (carrier !== undefined && !candidates.has(e.key)) candidates.set(e.key, { image: undefined, carrier });
       }
@@ -214,7 +217,7 @@ export class HistoricalTupleSource implements TupleSource {
     // Before `since`: a boot that restarts the type writes its new fingerprint and its new `since` in one statement.
     const distrusted = await c.coverageGap?.(type);
     const since = await this.history.since(c.kind, type);
-    return { since, uncovered: distrusted ?? coverageGap(this.at, c.kind, since, this.history.window) };
+    return { since, uncovered: distrusted ?? this.keyState.coverageGap(this.at, c.kind, since, this.history.window) };
   }
 
   private uncoveredRead<T>(c: HistoryContributor, label: string, type: ResourceType | undefined, reason: string): Resolved<T> {
@@ -277,6 +280,6 @@ export class HistoricalTupleSource implements TupleSource {
       .afterFor(c.kind, key)
       .map(project)
       .filter((ch): ch is ReplayChange => ch !== undefined);
-    return stateAt(this.at, { kind: c.kind, current, after, before: project(before), since, window: w, precisionMs: c.precisionMs ?? this.history.precisionMs });
+    return this.keyState.stateAt(this.at, { kind: c.kind, current, after, before: project(before), since, window: w, precisionMs: c.precisionMs ?? this.history.precisionMs });
   }
 }
