@@ -32,15 +32,28 @@ export const isRelationType = (checker: ts.TypeChecker, type: ts.Type): boolean 
 
 /**
  * The one part of `type` that `accepts`: the type itself, or a member of an intersection such as the row
- * `populate()` types, `Post & { Owner: SingleRelation<User> & { Value: User } }`. Two accepted members name none.
+ * `populate()` types, `Post & { Owner: SingleRelation<User> & { Value: User } }`. Several accepted members name
+ * none, unless one of them `covers` all the others.
  */
-function onePart(type: ts.Type, accepts: (part: ts.Type) => boolean): ts.Type | undefined {
+function onePart(type: ts.Type, accepts: (part: ts.Type) => boolean, covers?: (part: ts.Type, other: ts.Type) => boolean): ts.Type | undefined {
   const found = (type.isIntersection() ? type.types : [type]).filter(accepts);
-  return found.length === 1 ? found[0] : undefined;
+  if (found.length === 1) return found[0];
+  return covers && found.find((part) => found.every((other) => covers(part, other)));
 }
 
-/** The model a query row is, seen through the intersections `populate()` adds; the model schema keeps `isModelType`. */
-export const modelOf = (checker: ts.TypeChecker, type: ts.Type): ts.Type | undefined => onePart(type, (part) => isModelType(checker, part));
+function derivesFrom(checker: ts.TypeChecker, type: ts.Type, base: ts.Type): boolean {
+  for (let current: ts.Type | undefined = type, hops = 0; current && hops < 32; current = baseClassOf(checker, current), hops++) {
+    if (current.getSymbol() === base.getSymbol()) return true;
+  }
+  return false;
+}
+
+/**
+ * The model a query row is, seen through the intersections `populate()` adds (and a type guard's `Admin & User`,
+ * which is the subclass); the model schema keeps `isModelType`.
+ */
+export const modelOf = (checker: ts.TypeChecker, type: ts.Type): ts.Type | undefined =>
+  onePart(type, (part) => isModelType(checker, part), (part, other) => derivesFrom(checker, part, other));
 
 /** The relation a row member is, seen through the intersection a populated relation is typed as. */
 export const relationOf = (checker: ts.TypeChecker, type: ts.Type): ts.Type | undefined => onePart(type, (part) => isRelationType(checker, part));
