@@ -55,7 +55,7 @@ sequenceDiagram
 | `isOverlaid(path)` | Whether the registered `ConfigurationOverlay` covers `path`: inside a unit of work (a tenant) `get` may answer the overlay's value there. `false` with no overlay registered. See [Configuration overlays](11-configuration-overlays.md). |
 | `set(path, value)` | Replaces the value at `path`, creating missing objects. After boot, the modules a schema covers at, under or above `path` are validated first; a violation throws `InvalidConfiguration` and nothing changes (see [Runtime changes](06-schema-validation.md#runtime-changes)). |
 | `merge(path, value)` | Deep-merges `value` into the object at `path`; arrays are concatenated, also an array stored at `path` itself (`merge('http.middlewares', [mw])` appends `mw`). A no-op when nothing is stored at `path`. Validated like `set()`. |
-| `check(path, value)` | Runs the validation `set()` runs before it writes and writes nothing: throws `InvalidConfiguration` when a module would become invalid. |
+| `check(path, value)` | Runs the validation `set()` runs before it writes and writes nothing. Returns the value as the schemas accept it (coerced, defaults filled, undeclared keys removed); throws `InvalidConfiguration` when a module would become invalid, and `InvalidOperation` while the configuration loads. |
 | `load()` | Rebuilds the tree from the sources, as in step 5. Values set with `set()` are lost. After boot, the new tree is validated and gets its schema defaults; a violation throws `InvalidConfiguration` and keeps the previous tree. |
 | `mergeSource(sourceClass)` | Resolves a source and adds it to the source list for later `load()` calls. See [Important behaviour](#important-behaviour). |
 | `RootConfig` | The whole tree. |
@@ -114,7 +114,7 @@ export default {
 | Protocols | `ConfigVarProtocol`, resolved as `Array.ofType` in the configuration's container | none | `fs-path://`, `aws-secrets://`, `aws-parameters://` | See [Config var protocols](05-config-var-protocols.md). |
 | Schemas | `__configurationSchema__` values in the container lineage | none | none | See [Schema validation](06-schema-validation.md). |
 | Code-only config | `__configuration__` values (`DI.register(obj).asValue('__configuration__')`) | none | none | See [Custom configuration sources](04-custom-configuration-sources.md#the-__configuration__-value). |
-| Overlay | `ConfigurationOverlay`, singleton, resolved once the configuration is checked | none | `TenantConfigurationOverlay` (`@spinajs/tenancy`) | Register a subclass as `ConfigurationOverlay`. See [Configuration overlays](11-configuration-overlays.md). |
+| Overlay | `ConfigurationOverlay`, singleton, resolved once the configuration is checked | none | none | Register a subclass as `ConfigurationOverlay`. See [Configuration overlays](11-configuration-overlays.md). |
 | Environment override | `process.env` value (`DI.register(env).asValue('process.env')`) | none | none | Merged over `process.env` in `load()`; see [Environments](02-environments.md). |
 
 ### Configuration: extend the default service
