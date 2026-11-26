@@ -70,6 +70,10 @@ export abstract class StateSource {
   abstract view(at: Date, window: ReplayWindow, budget: ReplayBudget, signal: AbortSignal): StateView;
 }
 
+/**
+ * An `outcome` other than `'unknown'` asserts that no input listed in `missing` could change it; a replayer that cannot
+ * assert that returns `'unknown'`.
+ */
 export interface ReplayOutcome {
   /** What the replay answered; the string `unknown` when it could not determine an answer. */
   readonly outcome: unknown;
