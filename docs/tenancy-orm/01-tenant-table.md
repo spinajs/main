@@ -25,7 +25,7 @@ connection unless the application maps it:
 | `placement` | `text`, nullable | JSON, `{ "kind": "schema", "schema": "..." }` |
 | `settings` | `text` | JSON object |
 | `created_at`, `updated_at` | `datetime` | |
-| `lifecycle`, `suspension` | `text`, nullable | JSON, written by [the tenant lifecycle](07-lifecycle.md); read with `lifecycleOf(row)` and `suspensionOf(row)` |
+| `lifecycle`, `suspension` | `text`, nullable | JSON, written by [the tenant lifecycle](07-lifecycle.md); read with `row.lifecycleRecord()` and `row.suspensionRecord()` |
 | `lifecycle_owner`, `lifecycle_until`, `lifecycle_epoch` | `varchar(64)`, `bigint`, `int` (default 0) | the lease of the lifecycle operation that holds the tenant |
 
 The last five columns come with the migration `Tenants_2026_12_01_00_00_00`. The index `tenants_state` covers `state`. `TENANTS_TABLE` and `TENANCY_CONNECTION` export the table name and the
