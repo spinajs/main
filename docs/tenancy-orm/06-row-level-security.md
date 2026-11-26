@@ -54,11 +54,13 @@ npx spinajs migrate-up
 | Option | Required | Meaning |
 | --- | --- | --- |
 | `-o, --out <dir>` | yes | Directory the migration is written to |
-| `--bypass-role <role>` | no | Database role the all-tenants scope lets through; default `tenancy.orm.rlsBypassRole` |
+| `--bypass-role <role>` | no | Database role the all-tenants scope lets through; default `tenancy.orm.rlsBypassRole`; an empty value is refused |
 
 The migration is named `TenantRls_<yyyy_MM_dd_HH_mm_ss>` (with `_<connection>` when several connections have such
-tables) and runs on the models' connection. The command boots the Orm, so run `migrate-up` first. It refuses a table
-with `rls` on a connection that is not PostgreSQL or PGlite, and writes nothing then.
+tables) and runs on the models' connection. The command boots the Orm without the migration check, so it runs before
+`migrate-up` too: with the migration of a new model's table, or the one its previous run wrote, still pending. It
+refuses a table with `rls` on a connection that is not PostgreSQL or PGlite, and writes nothing then. It never replaces
+a file: a second run in the same second stops with "already exists"; run it again.
 
 Run it again after adding a model: each migration drops and re-creates the two tenant policies of every table it lists.
 
