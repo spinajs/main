@@ -20,6 +20,11 @@ export { Tenants_2026_11_16_00_00_00 } from './migrations/Tenants_2026_11_16_00_
 export { Tenants_2026_12_01_00_00_00 } from './migrations/Tenants_2026_12_01_00_00_00.js';
 export type { LifecycleExport, LifecycleFailure, LifecycleOperation, LifecycleOperationKind, TenantLifecycleState, TenantSuspension } from './lifecycle/state.js';
 export { LIFECYCLE_LEASE_MS } from './lifecycle/lease.js';
+export { TenantLifecycle, TenantSeeder } from './lifecycle/contracts.js';
+export type { ExportReport, ExportedModel, ExportedPart, MigrationReport, TenantProvisionInput } from './lifecycle/contracts.js';
+// Registers DefaultTenantLifecycle as the TenantLifecycle.
+export { DefaultTenantLifecycle } from './lifecycle/lifecycle.js';
+export type { LifecycleSteps, ProvisionPlan } from './lifecycle/lifecycle.js';
 export { canTransition, isTenantState, nextStates } from './state-machine.js';
 export { toTenantRecord } from './records.js';
 export { TenantStateService } from './states.js';

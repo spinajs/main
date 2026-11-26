@@ -9,6 +9,8 @@ import { toTenantRecord } from './records.js';
 // Lower-case host names only: such a value holds neither the delimiter of a @Set() column nor a wildcard.
 const DOMAIN = /^[a-z0-9]([a-z0-9.-]{0,251}[a-z0-9])?$/;
 
+export const isTenantDomain = (value: string): boolean => DOMAIN.test(value);
+
 /** The tenant table as the tenant registry: `tenancy.registry: 'DbTenantRegistry'`. */
 @Injectable(TenantRegistry)
 export class DbTenantRegistry extends TenantRegistry {
@@ -46,7 +48,7 @@ export class DbTenantRegistry extends TenantRegistry {
   }
 
   protected async byDomain(domain: string): Promise<TenantRecord | undefined> {
-    if (!DOMAIN.test(domain)) return undefined;
+    if (!isTenantDomain(domain)) return undefined;
     const [first, second] = await TenantModel.query().whereInSet('domains', [domain]).orderBy('id').take(2);
     // The table cannot make a domain unique, so a duplicate is refused here instead of picking a tenant.
     if (second !== undefined) throw new InvalidOperation(`tenancy-orm: domain "${domain}" is listed by tenants "${first.id}" and "${second.id}"; a domain belongs to one tenant`);
