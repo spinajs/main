@@ -36,7 +36,7 @@ import { declaredKeysAt, droppedKeys, keysAt, nearestKey } from './dropped-keys.
 
 import { default as ajvFormats } from 'ajv-formats';
 import { addKeywordPluginsOnUse } from './ajv-plugins.js';
-import { overlaidValue } from './overlay.js';
+import { overlaidValue, UNSAFE_PATH_SEGMENTS } from './overlay.js';
 
 const PROTOCOL_REGEXP = /^([a-zA-Z0-9\-]+:\/\/)+(.+)$/gm;
 const COMMON_WEB_PROTOCOLS = ['http://', 'https://', 'ws://', 'wss://', 'ftp://', 'ftps://', 'file://', 'data://', 'blob://', 'mailto:'];
@@ -49,8 +49,6 @@ const LAZY_TARGETS = new WeakMap<object, object>();
 
 // Set while Ajv validates the stored value in place: it writes coerced values back through the proxies.
 let keepUnresolvedVars = false;
-
-const UNSAFE_PATH_SEGMENTS = new Set(['__proto__', 'constructor', 'prototype']);
 
 // _.set skips these keys, but _.get resolves them, so merge() into `__proto__` would write to Object.prototype.
 function assertSafePath(path: string[] | string) {
@@ -99,6 +97,13 @@ function copyForCheck(value: unknown): unknown {
 }
 
 const unwrapLazy = (value: object): object => LAZY_TARGETS.get(value) ?? value;
+
+// One object on the way to an overlay's override: a lazy-var proxy stays lazy, a class instance keeps its prototype.
+function copyOnPath(node: unknown): object {
+  if (typeof node !== 'object' || node === null) return {};
+  const target = LAZY_TARGETS.get(node);
+  return target === undefined ? _.clone(node) : withLazyVars(_.clone(target));
+}
 
 // The file sources tag every root section with the files it came from; a schema closed at the root drops the tag.
 const FILE_TAG = '__file__';
@@ -228,7 +233,8 @@ export class FrameworkConfiguration extends Configuration {
   }
 
   public override isOverlaid(path: string[] | string): boolean {
-    return this.Overlay?.covers(_.toPath(path)) ?? false;
+    const segments = _.toPath(path);
+    return segments.length !== 0 && (this.Overlay?.covers(segments) ?? false);
   }
 
   private merged<T>(path: string[] | string, defaultValue?: T): T {
@@ -241,7 +247,7 @@ export class FrameworkConfiguration extends Configuration {
     const segments = _.toPath(path);
     if (segments.length === 0 || !overlay.covers(segments)) return undefined;
     const values = overlay.values();
-    return values === undefined || values.size === 0 ? undefined : overlaidValue(this.Config, segments, values);
+    return values === undefined || values.size === 0 ? undefined : overlaidValue(this.Config, segments, values, copyOnPath);
   }
 
   // Resolved here, not injected: an overlay reads the configuration, so it cannot be built before it.
@@ -286,10 +292,22 @@ export class FrameworkConfiguration extends Configuration {
     this.applySchemas(schemas);
   }
 
-  /** Throws InvalidConfiguration when `value` at `path` would make a configuration module invalid; changes nothing. */
-  public check(path: string[] | string, value: unknown): void {
+  /**
+   * The value at `path` as the configuration schemas accept it: coerced, with defaults filled and undeclared keys removed;
+   * a copy of `value` where no schema applies. Throws InvalidConfiguration when `value` would make a configuration module
+   * invalid, and InvalidOperation while the configuration loads. Changes nothing. Whoever serves a checked value (an
+   * overlay) serves the returned value, never `value` itself: `check('mail.enabled', 'false')` returns `false`.
+   */
+  public check(path: string[] | string, value: unknown): unknown {
     assertSafePath(path);
-    this.checkChange(this.schemasAt(path), path, (root) => _.set(root, path, copyForCheck(value)));
+    const segments = _.toPath(path);
+    if (segments.length === 0) throw new InvalidArgument('Configuration.check() needs a non-empty path');
+    if (this.ValidationSchemas === undefined || this.Loading) {
+      throw new InvalidOperation(`Configuration ${segments.join('.')} cannot be checked while the configuration loads: its schemas apply once it is loaded`);
+    }
+    const copy = copyForCheck(value);
+    const root = this.checkChange(this.schemasAt(segments), segments, (r) => _.set(r, segments, copy));
+    return root === undefined ? copy : _.get(root, segments);
   }
 
   /**
@@ -650,9 +668,9 @@ export class FrameworkConfiguration extends Configuration {
   }
 
   // Runs `change` on a copy of the modules of `schemas` and throws when one of them would become invalid, so that a
-  // refused change is never applied.
-  private checkChange(schemas: IConfigurationSchema[], path: string[] | string, change: (root: Record<string, unknown>) => void) {
-    if (schemas.length === 0) return;
+  // refused change is never applied. Returns the copy as the schemas left it; undefined when no schema applies.
+  private checkChange(schemas: IConfigurationSchema[], path: string[] | string, change: (root: Record<string, unknown>) => void): Record<string, unknown> | undefined {
+    if (schemas.length === 0) return undefined;
     const top = _.minBy([_.toPath(path), ...schemas.map((s) => _.toPath(s.$configurationModule))], (p) => p.length) ?? [];
     const root = (top.length === 0 ? copyForCheck(this.Config) : _.set({}, top, copyForCheck(_.get(this.Config, top)))) as Record<string, unknown>;
     change(root);
@@ -667,6 +685,7 @@ export class FrameworkConfiguration extends Configuration {
       violations.push(...r.violations);
     }
     this.throwIfInvalid(errors, violations);
+    return root;
   }
 
   // Fills the defaults and coercion of the modules a change that passed checkChange() reached.

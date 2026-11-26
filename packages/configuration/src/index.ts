@@ -8,7 +8,6 @@ export * from './manifest-runtime.js';
 export * from './manifest-source.js';
 export * from './decorators.js';
 export * from './configuration.js';
-export * from './overlay.js';
 export * from './exception.js';
 export * from './schemas.js';
 export * from './schemas/system.js';
