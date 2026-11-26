@@ -1,4 +1,4 @@
-import { audit } from '@spinajs/audit';
+import { audit, trailConfig } from '@spinajs/audit';
 import { Autoinject, DI, Injectable, Singleton } from '@spinajs/di';
 import { Logger } from '@spinajs/log-common';
 import type { Log } from '@spinajs/log-common';
@@ -19,7 +19,7 @@ export abstract class HistoryCoverage {
    * From when every observed write of `entity` on `connection` (a configured name, an alias or `default`) is in
    * `trail`, for the columns its registration records; undefined when it was never covered. A column the registration
    * excludes, masks or does not track (column mode) is never covered: an update of only such columns leaves no entry.
-   * Rejects with `HistoryConfigError` for an unknown connection, `AuditConfigError` for an unknown trail.
+   * For a trail with `retentionDays` it is never earlier than that many days before the call. Rejects with `HistoryConfigError` for an unknown connection, `AuditConfigError` for an unknown trail.
    */
   abstract since(trail: string, connection: string, entity: string): Promise<Date | undefined>;
 
@@ -45,6 +45,15 @@ interface Stream {
 }
 
 const isModel = (c: unknown): c is ModelBaseClass => typeof c === 'function' && c.prototype instanceof ModelBase;
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+// The cutoff pruneAudit takes at `now`, none for a trail that keeps everything. The process that pruned may never have imported this package, so no listener
+// moved the row; the configuration both processes share still says what is gone.
+function retentionFloor(trail: string, now: Date): number[] {
+  const days = trailConfig(trail).retentionDays;
+  return days === undefined ? [] : [now.getTime() - days * DAY_MS];
+}
 
 // By driver: `default` and an alias name the connection of another entry.
 function tablesOf(orm: Orm): Table[] {
@@ -88,7 +97,7 @@ export class TableHistoryCoverage extends HistoryCoverage {
   private pending: Promise<void> = Promise.resolve();
   private readonly warned = new Set<string>();
 
-  public async since(trail: string, connection: string, entity: string): Promise<Date | undefined> {
+  public async since(trail: string, connection: string, entity: string, now?: Date): Promise<Date | undefined> {
     await this.pending;
     const driver = DI.get(Orm)?.Connections.get(connection);
     if (!driver) throw new HistoryConfigError(`orm-history: no ORM connection ${JSON.stringify(connection)} to read the coverage of ${entity} from`);
@@ -102,7 +111,9 @@ export class TableHistoryCoverage extends HistoryCoverage {
     // Read again after the markers: a retention run in between moves the row past the markers it deletes.
     const row = await readCoverage(driver, key);
     if (row === undefined) return undefined;
-    return new Date(Math.max(row.since.getTime(), ...lost.map((e) => e.at.getTime())));
+    // The clock after both reads: a prune by a process without the listener may have deleted markers while this call
+    // waited, and only a floor at least as late as that prune's cutoff covers them.
+    return new Date(Math.max(row.since.getTime(), ...lost.map((e) => e.at.getTime()), ...retentionFloor(trail, now ?? new Date())));
   }
 
   public record(models?: readonly ModelBaseClass[], now: Date = new Date(), orm?: Orm): Promise<void> {

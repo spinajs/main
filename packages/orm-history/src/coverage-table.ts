@@ -87,3 +87,8 @@ export async function deleteCoverage(driver: OrmDriver, connection: string, enti
     .where('connection', connection)
     .whereIn('entity', [...entities]);
 }
+
+/** Retention: nothing older than `cutoff` is sure to be in the trail any more. */
+export async function moveCoverage(driver: OrmDriver, trail: string, cutoff: Date): Promise<void> {
+  await driver.update().in(HISTORY_COVERAGE_TABLE).update({ since: cutoff }).where('trail', trail).where('since', '<', cutoff);
+}
