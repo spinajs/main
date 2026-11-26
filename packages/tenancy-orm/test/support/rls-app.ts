@@ -75,8 +75,11 @@ export async function bootWith(rls: Record<string, unknown>, cleanup: (app: RlsA
       appRole: ROLES.app,
       otherRole: ROLES.other,
       dispose: async () => {
-        await app.dispose();
-        await cleanup(booted);
+        try {
+          await app.dispose();
+        } finally {
+          await cleanup(booted);
+        }
       },
     };
     for (const role of [booted.appRole, booted.otherRole]) {
