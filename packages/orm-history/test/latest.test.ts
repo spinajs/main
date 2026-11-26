@@ -168,5 +168,15 @@ describe('the last entries of many rows', function () {
       await expect(Invoice.history().latest(['k'])).to.be.rejectedWith(HistoryConfigError, `orm-history: the trail's subject_id comparison takes "k " for "k" of invoice, and the last 1000 entries it matches are not "k"'s`);
       expect(statusOf(await Invoice.history().latestBefore(['k'], T(10)), 'k')).to.eq('own');
     });
+
+    it('answers an id no row can have as absent, without a read, among the ids it answers', async () => {
+      const Counter = await db.define({ name: 'Counter', table: 'counter', columns: { status: 'TEXT' }, autoIncrement: true, decorate: (c) => registerHistory(c) }, 'sqlite');
+      await write([event('counter', '2', 'insert', T(10)), ...Array.from({ length: 1000 }, () => event('counter', '1', 'update', T(20)))]);
+      const ids = ['1 ', '2', '01', ' 1', '1'];
+      for (const read of [() => Counter.history().latest(ids), () => Counter.history().latestBefore(ids, T(30))]) {
+        const found = await counted(db.driver('sqlite'), read);
+        expect([[...found.result.keys()], found.statements]).to.deep.eq([['2', '1'], 2]);
+      }
+    });
   });
 });

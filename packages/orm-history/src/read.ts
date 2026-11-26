@@ -7,7 +7,7 @@ import { ModelBase, Orm, extractModelDescriptor } from '@spinajs/orm';
 import type { ModelBaseClass } from '@spinajs/orm';
 
 import { asOfFrom, assertInstant } from './as-of.js';
-import { currentRows, currentWhere, tableOf } from './current.js';
+import { currentRows, currentWhere, possibleKeys, tableOf } from './current.js';
 import { HISTORY_OPS } from './encode.js';
 import { toHistoryEntry } from './entry.js';
 import { latestOf } from './latest.js';
@@ -115,9 +115,9 @@ function modelHistory(model: ModelBaseClass, spec: HistorySpec | undefined): Mod
     forget: async (id) => forgetOn(trail(), spec, { type: spec.entity, id: keyOf(id) }),
     latestBefore: async (ids, at) => {
       assertInstant('at', at);
-      return latestOf(trail(), spec.entity, sourceOf(spec), ids, at);
+      return latestOf(trail(), spec.entity, sourceOf(spec), [...possibleKeys(spec, ids).keys()], at);
     },
-    latest: async (ids) => latestOf(trail(), spec.entity, sourceOf(spec), ids),
+    latest: async (ids) => latestOf(trail(), spec.entity, sourceOf(spec), [...possibleKeys(spec, ids).keys()]),
     current: async (ids) => currentRows(spec, ids),
     currentWhere: async (where, limit) => currentWhere(spec, where, limit),
   };

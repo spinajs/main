@@ -56,12 +56,22 @@ function addImages(spec: HistorySpec, rows: readonly AuditRow[], out: Map<string
   }
 }
 
+/** The asked ids a row can have, each with the value its key column compares with: the others are left out rather than bound, as the capture does. */
+export function possibleKeys(spec: HistorySpec, ids: readonly string[]): ReadonlyMap<string, string | number> {
+  const column = findColumn(tableOf(spec).descriptor.Columns, spec.pk);
+  const out = new Map<string, string | number>();
+  for (const id of ids) {
+    const value = column ? lookupValue(column, id) : id;
+    if (value !== undefined) out.set(id, value);
+  }
+  return out;
+}
+
 export async function currentRows(spec: HistorySpec, ids: readonly string[]): Promise<ReadonlyMap<string, RowImage>> {
   const table = tableOf(spec);
-  const column = findColumn(table.descriptor.Columns, spec.pk);
-  const asked = new Set(ids);
-  // A key no row can have is left out rather than bound, as the capture does.
-  const values = [...asked].map((id) => (column ? lookupValue(column, id) : id)).filter((v) => v !== undefined);
+  const keys = possibleKeys(spec, ids);
+  const asked = new Set(keys.keys());
+  const values = [...keys.values()];
   const out = new Map<string, RowImage>();
   // spinajs-orm-ignore ORM102: deliberate batching, one query per IN_CHUNK keys
   for (let i = 0; i < values.length; i += IN_CHUNK) addImages(spec, rowsOf(await selectOf(spec, table).whereIn(spec.pk, values.slice(i, i + IN_CHUNK))), out, asked);
