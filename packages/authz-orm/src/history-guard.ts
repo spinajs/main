@@ -1,11 +1,11 @@
 import { AuthzConfigError } from '@spinajs/authz';
 import { Configuration } from '@spinajs/configuration';
 import { DI, Injectable } from '@spinajs/di';
-import { DeleteQueryBuilder, InsertQueryBuilder, QueryMiddleware, TruncateTableQueryBuilder, UpdateQueryBuilder, WriteObserver, extractModelDescriptor } from '@spinajs/orm';
+import { DeleteQueryBuilder, InsertQueryBuilder, MODELS, QueryMiddleware, TruncateTableQueryBuilder, UpdateQueryBuilder, WriteObserver, extractModelDescriptor } from '@spinajs/orm';
 import type { CaptureInterest, QueryBuilder, WriteStatement } from '@spinajs/orm';
 
 import { changelogColumns, entryOf, nameOf, registeredClasses } from './registry.js';
-import type { ResourceEntry } from './registry.js';
+import type { ModelClass, ResourceEntry } from './registry.js';
 
 /** A write of an `@AccessResource` model that no history observer records, refused under `authz.orm.requireHistory`. */
 export class UnrecordedResourceWrite extends AuthzConfigError {}
@@ -105,15 +105,19 @@ export class ResourceHistoryGuard extends WriteObserver {
   }
 }
 
-const PAST = { insert: 'an insert', update: 'an update', delete: 'a delete', truncate: 'a truncate' } as const;
-
-function writeKind(query: QueryBuilder): keyof typeof PAST | undefined {
-  if (query instanceof InsertQueryBuilder) return 'insert';
-  if (query instanceof UpdateQueryBuilder) return 'update';
-  if (query instanceof DeleteQueryBuilder) return 'delete';
-  if (query instanceof TruncateTableQueryBuilder) return 'truncate';
+function pastWrite(query: QueryBuilder): 'an insert' | 'an update' | 'a delete' | 'a truncate' | undefined {
+  if (query instanceof InsertQueryBuilder) return 'an insert';
+  if (query instanceof UpdateQueryBuilder) return 'an update';
+  if (query instanceof DeleteQueryBuilder) return 'a delete';
+  if (query instanceof TruncateTableQueryBuilder) return 'a truncate';
   return undefined;
 }
+
+// SQLite, MSSQL and MySQL with lower_case_table_names name one table in any case.
+const sameTable = (a: string | undefined, b: string): boolean => a !== undefined && a.toLowerCase() === b.toLowerCase();
+
+/** The ORM's models, which hold a resource's subclasses that map a table of their own, and the registered resources. */
+const knownModels = (): Set<ModelClass> => new Set([...(DI.getRegisteredTypes(MODELS.key) ?? []), ...registeredClasses()]);
 
 /**
  * With `authz.orm.requireHistory` on, refuses a judged write of a resource table that does not go through the table's
@@ -124,18 +128,18 @@ export class PastModelResourceWriteGuard extends QueryMiddleware {
   public afterQueryCreation(_query: QueryBuilder): void {}
 
   public beforeQueryExecution(query: QueryBuilder): void {
-    const kind = writeKind(query);
-    if (kind === undefined) return;
-    if (query.Model !== undefined && extractModelDescriptor(query.Model)?.TableName === query.Table) return;
+    const phrase = pastWrite(query);
+    if (phrase === undefined) return;
+    if (query.Model !== undefined && sameTable(extractModelDescriptor(query.Model)?.TableName, query.Table)) return;
     const written = query instanceof UpdateQueryBuilder ? writtenBy(query) : undefined;
-    for (const model of registeredClasses()) {
-      if (extractModelDescriptor(model)?.TableName !== query.Table) continue;
+    for (const model of knownModels()) {
+      if (!sameTable(extractModelDescriptor(model)?.TableName, query.Table)) continue;
       const entry = entryOf(model);
       const columns = entry ? judged(entry, written) : undefined;
       if (!entry || !columns) continue;
       if (!requireHistory()) return;
       throw new UnrecordedResourceWrite(
-        `authz-orm: ${PAST[kind]} of ${query.Table} (resource '${entry.type}') goes past its model ${nameOf(model)}, so no history observer records ${columns.join(', ')}, and authz.orm.requireHistory refuses it; write it through the model in a process that imports @spinajs/authz-replay, or with raw SQL where it must not be recorded`,
+        `authz-orm: ${phrase} of ${query.Table} (resource '${entry.type}') goes past its model ${nameOf(model)}, so no history observer records ${columns.join(', ')}, and authz.orm.requireHistory refuses it; write it through the model in a process that imports @spinajs/authz-replay, or with raw SQL where it must not be recorded`,
       );
     }
   }

@@ -462,6 +462,26 @@ describe('ResourceHistoryGuard', function () {
       expect(await db.rows(Doc)).to.deep.equal([D1]);
     });
 
+    // registeredClasses() lists Doc only; the subclass is a resource through entryOf() and maps a table of its own.
+    it('refuses a write past the model of the table of a resource subclass that maps its own table', async () => {
+      testHost.config().set(FLAG, true);
+      const SubDoc = await db.define({ name: 'SubDoc', columns: DOC_COLUMNS, base: DocClass });
+      const table = db.table(SubDoc);
+      expect(await rejection((SubDoc as M).insert(D1))).to.be.instanceOf(UnrecordedResourceWrite).with.property('message', refusal('insert', SubDoc, 'doc'));
+      expect(await rejection(driver.insert().into(table).values(D1))).to.be.instanceOf(UnrecordedResourceWrite).with.property('message', past('an insert', table, SubDoc, 'doc', RELATION_COLUMNS));
+      expect(await db.rows(SubDoc)).to.deep.equal([]);
+    });
+
+    // SQLite, MSSQL and MySQL with lower_case_table_names name one table in any case. On a case-sensitive database this
+    // also refuses a write of another table whose name differs only by case: the safe side.
+    it('matches a table name in another letter case', async () => {
+      testHost.config().set(FLAG, true);
+      await db.insertRaw(Doc, D1);
+      const table = db.table(Doc).toUpperCase();
+      expect(await rejection(driver.del().from(table).where('id', 'd1'))).to.be.instanceOf(UnrecordedResourceWrite).with.property('message', past('a delete', table, Doc, 'doc', RELATION_COLUMNS));
+      expect(await db.rows(Doc)).to.deep.equal([D1]);
+    });
+
     it('leaves alone a write past the model while the key is off, one of a column replay does not read, one of an opted-out resource, and raw SQL', async () => {
       const table = db.table(Doc);
       await driver.insert().into(table).values(D1);
