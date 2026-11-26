@@ -1,22 +1,22 @@
 import * as chai from 'chai';
 import 'mocha';
 
-import { AuthzConfigError, ScopeForgetter } from '@spinajs/authz';
+import { AuthzConfigError, DefaultAuthzService, ScopeForgetter } from '@spinajs/authz';
 import type { AdminContext, AuthzEvent, AuthzTx, ResourceRef } from '@spinajs/authz';
 import { testHost } from '@spinajs/authz-testing';
 import { DI } from '@spinajs/di';
 import type { Class } from '@spinajs/di';
-import { WriteObserver } from '@spinajs/orm';
+import { InsertBehaviour, WriteObserver } from '@spinajs/orm';
 import type { CaptureInterest, ModelBase, OrmDriver, WriteStatement } from '@spinajs/orm';
 
 import { ResourceHistoryGuard, UnrecordedResourceWrite, historyRequired } from '../src/history-guard.js';
-import { AUTHZ_ORM_CONFIGURATION_SCHEMA, AccessResource, Owner, Parent, Relation, entryOf, reparent } from '../src/index.js';
+import { AUTHZ_ORM_CONFIGURATION_SCHEMA, AccessResource, Owner, Parent, Relation, entryOf, registerAccessResource, reparent } from '../src/index.js';
 import { createAncestorTable, dropAncestorTable } from './support/ancestors.js';
 import { TestDb } from './support/db.js';
 
 const expect = chai.expect;
 
-type M = typeof ModelBase & { insert(v: object | object[]): Promise<unknown>; update(v: object): { where(...a: unknown[]): Promise<unknown> } & Promise<unknown>; destroy(pk: unknown): Promise<unknown> };
+type M = typeof ModelBase & { insert(v: object | object[], behaviour?: InsertBehaviour): Promise<unknown>; update(v: object): { where(...a: unknown[]): Promise<unknown> } & Promise<unknown>; destroy(pk: unknown): Promise<unknown> };
 
 class NoopForgetter extends ScopeForgetter {
   async forget(_scope: ResourceRef, _ctx: AdminContext, _tx: AuthzTx): Promise<{ affected: number; tags: readonly string[]; events: readonly AuthzEvent[] }> {
@@ -37,12 +37,21 @@ class FullHistory extends WriteObserver {
   }
 }
 
-/** Row history in column mode over folder_id: an update that writes no tracked column is skipped. */
+/** Takes only an update that writes folder_id, and records whole rows. */
 class FolderHistory extends FullHistory {
   public interest(statement: WriteStatement): CaptureInterest | undefined {
     if (statement.kind === 'update' && !Object.keys(statement.query.Value ?? {}).includes('folder_id')) return undefined;
     return super.interest(statement);
   }
+}
+
+/** Takes every write of an `@AccessResource` model and keeps history with the given interest. */
+function historyWith(interest: CaptureInterest): Class<WriteObserver> {
+  return class extends FullHistory {
+    public interest(statement: WriteStatement): CaptureInterest | undefined {
+      return entryOf(statement.model) ? interest : undefined;
+    }
+  };
 }
 
 /** Takes the same writes and keeps no history, as a cache does. */
@@ -68,10 +77,21 @@ function observing(observer: Class<WriteObserver>): () => void {
 const FLAG = ['authz', 'orm', 'requireHistory'];
 const DOC_COLUMNS = { folder_id: 'TEXT', owner_id: 'TEXT', editor_id: 'TEXT', editor_type: 'TEXT', title: 'TEXT' };
 const D1 = { id: 'd1', folder_id: 'f1', owner_id: 'u1', editor_id: 'g1', editor_type: 'group', title: 'a' };
+const RELATION_COLUMNS = ['folder_id', 'owner_id', 'editor_id', 'editor_type'];
+
+function decorateDoc(c: typeof ModelBase, p: object): void {
+  AccessResource('doc')(c);
+  Parent('folder')(p, 'folder_id');
+  Owner()(p, 'owner_id');
+  Relation('editor', { typeColumn: 'editor_type' })(p, 'editor_id');
+}
 const PHRASES = { insert: 'an insert', update: 'an update', delete: 'a delete' } as const;
 
 const refusal = (kind: keyof typeof PHRASES, model: { readonly name: string }, type: string): string =>
   `authz-orm: ${PHRASES[kind]} of ${model.name} (resource '${type}') is not recorded by any history observer, and authz.orm.requireHistory refuses it; import @spinajs/authz-replay in this process so that it registers the model's history before the write, or opt the model out with @AccessResource('${type}', { changelog: false })`;
+
+const gap = (kind: keyof typeof PHRASES, model: { readonly name: string }, type: string, columns: readonly string[]): string =>
+  `authz-orm: ${PHRASES[kind]} of ${model.name} (resource '${type}') is kept by a history observer that does not record ${columns.join(', ')}, and authz.orm.requireHistory refuses it; make the model's history record every relation and type column, or opt the model out with @AccessResource('${type}', { changelog: false })`;
 
 // rejectedWith(Class, text) matches a fragment; the messages are asserted whole.
 async function rejection(write: PromiseLike<unknown>): Promise<unknown> {
@@ -138,12 +158,7 @@ describe('ResourceHistoryGuard', function () {
       DocClass = await db.define({
         name: 'Doc',
         columns: DOC_COLUMNS,
-        decorate: (c, p) => {
-          AccessResource('doc')(c);
-          Parent('folder')(p, 'folder_id');
-          Owner()(p, 'owner_id');
-          Relation('editor', { typeColumn: 'editor_type' })(p, 'editor_id');
-        },
+        decorate: decorateDoc,
       });
       Doc = DocClass as M;
     });
@@ -167,6 +182,7 @@ describe('ResourceHistoryGuard', function () {
     it('refuses an insert, an update of a relation column and a delete that no history observer takes, before the statement runs', async () => {
       testHost.config().set(FLAG, true);
       expect(await rejection(Doc.insert(D1))).to.be.instanceOf(UnrecordedResourceWrite).with.property('message', refusal('insert', Doc, 'doc'));
+      expect(await rejection(Doc.insert(D1, InsertBehaviour.InsertOrUpdate))).to.be.instanceOf(UnrecordedResourceWrite).with.property('message', refusal('insert', Doc, 'doc'));
       expect(await db.rows(Doc)).to.deep.equal([]);
 
       await db.insertRaw(Doc, D1);
@@ -245,6 +261,43 @@ describe('ResourceHistoryGuard', function () {
       expect(await db.rows(Doc)).to.deep.equal([{ ...D1, folder_id: 'f2' }]);
     });
 
+    it('refuses a write a history takes without recording a relation or type column: column mode, exclude, a masked @Hidden() column', async () => {
+      testHost.config().set(FLAG, true);
+      undo.push(observing(historyWith({ columns: ['title'], transactional: true })));
+      expect(await rejection(Doc.insert(D1))).to.be.instanceOf(UnrecordedResourceWrite).with.property('message', gap('insert', Doc, 'doc', RELATION_COLUMNS));
+      await db.insertRaw(Doc, D1);
+      expect(await rejection(Doc.update({ title: 'b', owner_id: 'u2' }).where('id', 'd1'))).to.be.instanceOf(UnrecordedResourceWrite).with.property('message', gap('update', Doc, 'doc', RELATION_COLUMNS));
+      undo.pop()?.();
+
+      // HistoryObserver names a column that exclude or a masked @Hidden() leaves out in unrecorded.
+      undo.push(observing(historyWith({ columns: '*', transactional: true, unrecorded: ['secret', 'owner_id'] })));
+      expect(await rejection(Doc.update({ owner_id: 'u2' }).where('id', 'd1'))).to.be.instanceOf(UnrecordedResourceWrite).with.property('message', gap('update', Doc, 'doc', ['owner_id']));
+      expect(await rejection(Doc.destroy('d1'))).to.be.instanceOf(UnrecordedResourceWrite).with.property('message', gap('delete', Doc, 'doc', ['owner_id']));
+      expect(await db.rows(Doc)).to.deep.equal([D1]);
+    });
+
+    it("lets through a history whose columns name every relation and type column, and one that masks only a column replay does not read", async () => {
+      testHost.config().set(FLAG, true);
+      undo.push(observing(historyWith({ columns: RELATION_COLUMNS, transactional: true, unrecorded: [] })));
+      await Doc.insert(D1);
+      await Doc.update({ title: 'b', owner_id: 'u2' }).where('id', 'd1');
+      undo.pop()?.();
+
+      undo.push(observing(historyWith({ columns: '*', transactional: true, unrecorded: ['secret'] })));
+      await Doc.update({ editor_type: 'team' }).where('id', 'd1');
+      expect(await db.rows(Doc)).to.deep.equal([{ ...D1, title: 'b', owner_id: 'u2', editor_type: 'team' }]);
+    });
+
+    it('judges a model registered with registerAccessResource() by the same rule', async () => {
+      testHost.config().set(FLAG, true);
+      const Job = (await db.define({ name: 'Job', columns: { owner_id: 'TEXT', title: 'TEXT' } })) as M;
+      registerAccessResource(Job, 'job', { owner: 'owner_id' });
+      expect(await rejection(Job.insert({ id: 'j1', owner_id: 'u1', title: 'a' }))).to.be.instanceOf(UnrecordedResourceWrite).with.property('message', refusal('insert', Job, 'job'));
+      undo.push(observing(historyWith({ columns: ['owner_id'], transactional: true })));
+      await Job.insert({ id: 'j1', owner_id: 'u1', title: 'a' });
+      expect(await db.rows(Job)).to.have.length(1);
+    });
+
     it('does not count an observer that takes the write but keeps no history', async () => {
       undo.push(observing(Reader));
       testHost.config().set(FLAG, true);
@@ -257,5 +310,44 @@ describe('ResourceHistoryGuard', function () {
       expect(await rejection(Doc.insert(D1))).to.be.instanceOf(AuthzConfigError).with.property('message', 'authz-orm: authz.orm.requireHistory must be a boolean');
       expect(await db.rows(Doc)).to.deep.equal([]);
     });
+  });
+});
+
+describe('ResourceHistoryGuard in a process that boots no authz domain', function () {
+  this.timeout(60000);
+  let db: TestDb;
+  let Doc: M;
+  const undo: (() => void)[] = [];
+
+  before(async () => {
+    db = await TestDb.open();
+  });
+
+  after(async () => {
+    await db?.close();
+  });
+
+  beforeEach(async () => {
+    await testHost.resetRoot();
+    await createAncestorTable(db, 'sqlite');
+    Doc = (await db.define({ name: 'Doc', columns: DOC_COLUMNS, decorate: decorateDoc })) as M;
+  });
+
+  afterEach(async () => {
+    testHost.config().unset(FLAG);
+    for (const fn of undo.splice(0).reverse()) fn();
+    await db.clear();
+    await dropAncestorTable(db, 'sqlite');
+  });
+
+  it('refuses and lets through a write as a worker that only imports its models does', async () => {
+    testHost.config().set(FLAG, true);
+    expect(await rejection(Doc.insert(D1))).to.be.instanceOf(UnrecordedResourceWrite).with.property('message', refusal('insert', Doc, 'doc'));
+    undo.push(observing(historyWith({ columns: ['title'], transactional: true })));
+    expect(await rejection(Doc.insert(D1))).to.be.instanceOf(UnrecordedResourceWrite).with.property('message', gap('insert', Doc, 'doc', RELATION_COLUMNS));
+    undo.push(observing(FullHistory));
+    await Doc.insert(D1);
+    expect(await db.rows(Doc)).to.deep.equal([D1]);
+    expect(DI.RootContainer.Cache.has(DefaultAuthzService)).to.equal(false);
   });
 });
