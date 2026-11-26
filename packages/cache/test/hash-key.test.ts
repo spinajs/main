@@ -1,5 +1,6 @@
 import { expect } from 'chai';
 import 'mocha';
+import { runInNewContext } from 'node:vm';
 import { InvalidArgument } from '@spinajs/exceptions';
 import { createTestApp } from '@spinajs/testing';
 import type { TestApp } from '@spinajs/testing';
@@ -62,6 +63,8 @@ describe('hashKey', () => {
   it('keeps apart parts an application holds different', () => {
     expect(differ(['a', 'b'], ['ab'])).to.eq(true);
     expect(differ(['a,b'], ['a', 'b'])).to.eq(true);
+    expect(differ(['a","b'], ['a', 'b'])).to.eq(true);
+    expect(differ([{ 'a":"b': 1 }], [{ a: 'b' }])).to.eq(true);
     expect(differ([['a'], 'b'], ['a', ['b']])).to.eq(true);
     expect(differ([[]], [])).to.eq(true);
     expect(differ([''], [])).to.eq(true);
@@ -98,6 +101,31 @@ describe('hashKey', () => {
     expect(() => hashKey([{ id: new Id('5') }])).to.throw(InvalidArgument, '$[0].id is an instance of Id');
     expect(() => hashKey([cyclic])).to.throw(InvalidArgument, '$[0].self is a cycle');
     expect(hashKey([shared, shared])).to.eq(hashKey([{ a: 1 }, { a: 1 }]));
+  });
+
+  it('says what to pass instead of a class instance or a cycle', () => {
+    class DateTime {
+      public toISO(): string {
+        return '1970-01-01T00:00:00.000Z';
+      }
+    }
+    const cyclic: unknown[] = [];
+    cyclic.push(cyclic);
+    expect(() => hashKey([new DateTime()])).to.throw(InvalidArgument, "is an instance of DateTime, which has no key encoding; pass a plain value instead");
+    expect(() => hashKey([new DateTime()])).to.throw(InvalidArgument, "such as a luxon DateTime's toISO() or toMillis(), or a model's primary key");
+    expect(() => hashKey([cyclic])).to.throw(InvalidArgument, '$[0][0] is a cycle, which has no key encoding; pass a plain value instead');
+  });
+
+  it('names an object of another realm or from Object.create as such, not as an instance of Object', () => {
+    const foreign = 'is an object whose prototype is not Object.prototype (made in another realm or by Object.create)';
+    expect(() => hashKey([runInNewContext('({ a: 1 })')])).to.throw(InvalidArgument, foreign);
+    expect(() => hashKey([runInNewContext('new Date(0)')])).to.throw(InvalidArgument, foreign);
+    expect(() => hashKey([Object.create({ a: 1 })])).to.throw(InvalidArgument, foreign);
+  });
+
+  it('keeps its encoding (format lock: a change needs a changeset)', () => {
+    // A change of this value is a change of every stored key.
+    expect(hashKey(['users', 1, 1n, { b: [null, undefined], a: 'ą' }, new Map([[1, true]]), new Set(['x']), new Date(0), Buffer.from([1])])).to.eq('dOJNvvqAEhFoAgHEylzwfndy97jQEZtk7CRuX5zYygw');
   });
 });
 

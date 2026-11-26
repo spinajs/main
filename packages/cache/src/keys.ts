@@ -10,12 +10,20 @@ export function cacheKey(cache: string, key: string, segments: readonly string[]
 }
 
 function refuse(path: string, what: string): never {
-  throw new InvalidArgument(`hashKey: the part at ${path} is ${what}, which has no key encoding; use plain data`, 'parts');
+  throw new InvalidArgument(
+    `hashKey: the part at ${path} is ${what}, which has no key encoding; pass a plain value instead (a string, number, bigint, boolean, null, ` +
+      `plain object, array, Date, Map, Set or bytes), such as a luxon DateTime's toISO() or toMillis(), or a model's primary key`,
+    'parts',
+  );
 }
 
-function className(proto: unknown): string {
-  if (typeof proto === 'object' && proto !== null && 'constructor' in proto && typeof proto.constructor === 'function') return proto.constructor.name;
-  return 'an unknown class';
+// A class prototype owns its constructor; an Object.create prototype does not, and another realm's fails instanceof Object.
+function describeInstance(proto: unknown): string {
+  if (proto instanceof Object) {
+    const ctor: unknown = Object.getOwnPropertyDescriptor(proto, 'constructor')?.value;
+    if (typeof ctor === 'function' && ctor.prototype === proto) return `an instance of ${ctor.name}`;
+  }
+  return 'an object whose prototype is not Object.prototype (made in another realm or by Object.create)';
 }
 
 const listOf = (items: string[]): string => `[${items.join(',')}]`;
@@ -31,7 +39,8 @@ function encodeContainer(value: object, path: string, seen: object[]): string {
   if (value instanceof Map) return `M${listOf([...value].map(([key, item]) => `${encodePart(key, `${path}<key>`, seen)}:${encodePart(item, `${path}<value>`, seen)}`).sort())}`;
   if (value instanceof Set) return `S${listOf([...value].map((item) => encodePart(item, `${path}<item>`, seen)).sort())}`;
   const proto: unknown = Object.getPrototypeOf(value);
-  if (proto !== Object.prototype && proto !== null) refuse(path, `an instance of ${className(proto)}`);
+  // Not hashed by its fields: two classes with equal fields would share a key, and lazy state inside an instance changes them.
+  if (proto !== Object.prototype && proto !== null) refuse(path, describeInstance(proto));
   const entries: string[] = [];
   for (const [key, item] of Object.entries(value)) if (item !== undefined) entries.push(`${JSON.stringify(key)}:${encodePart(item, `${path}.${key}`, seen)}`);
   return `{${entries.sort().join(',')}}`;
@@ -40,7 +49,7 @@ function encodeContainer(value: object, path: string, seen: object[]): string {
 /** Type-tagged and prefix-free, so two parts encode alike only when they are equal. */
 function encodePart(value: unknown, path: string, seen: object[]): string {
   switch (typeof value) {
-    // JSON text of the value, hashed as UTF-8: node:v8 wrote a string one-byte or two-byte as V8 held it, so equal strings hashed apart.
+    // JSON quoting keeps a string from reading as structure and escapes lone surrogates, which UTF-8 would turn into U+FFFD.
     case 'string':
       return JSON.stringify(value);
     case 'number':
