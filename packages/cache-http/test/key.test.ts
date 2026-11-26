@@ -72,6 +72,7 @@ describe('response cache key', () => {
     const key = keyOf();
     expect(keyOf({ headers: json({ 'x-other': '1', cookie: 'sid=1', authorization: 'Bearer t' }) })).to.eq(key);
     expect(keyOf({ route: { vary: ['X-Region'] }, headers: json({ 'x-region': 'eu' }) })).to.eq(keyOf({ headers: json({ 'x-region': 'eu' }) }));
+    expect(keyOf({ headers: { Accept: 'application/json', 'X-Region': 'eu' } }), 'header names in another case').to.eq(keyOf({ headers: json({ 'x-region': 'eu' }) }));
     // V8 holds this slice in two-byte form; hashKey of @spinajs/cache would serialize it as other bytes
     const url = '/items?page=1&sort=name&filter=all';
     expect(keyOf({ url: `ā${url}`.slice(1) })).to.eq(keyOf({ url }));

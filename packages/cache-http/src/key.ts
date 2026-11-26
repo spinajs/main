@@ -71,9 +71,12 @@ export function principalIn(storage: IActionLocalStoregeContext): Principal | un
 const signIn = (authn: AuthnFacts | undefined): unknown[] | null => (authn ? [authn.method, authn.strategy, authn.assurance, [...authn.mfa].sort()] : null);
 
 /**
- * The principal part of a reply's key: the identity with the authority it speaks with, so a reply stored for one
- * credential of an identity never reaches a narrower one. The restriction rule of `idempotencyPrincipal` of
- * `@spinajs/idempotency` (not a dependency), plus the sign-in facts policies read.
+ * The principal part of a reply's key: the identity (type and id) with its ceiling, delegation, impersonator,
+ * companions and sign-in strength (method, strategy, assurance, MFA steps), so a reply stored for one of them never
+ * reaches a narrower ceiling, delegation, impersonation or sign-in strength. Not in it: the sign-in time, the session
+ * handle, the attributes, the source, the external login and the identity object; a reply that depends on one of them
+ * must not be cached, or must add it through `vary` or a `ResponseCacheKeyPart`. The restriction rule of
+ * `idempotencyPrincipal` of `@spinajs/idempotency` (not a dependency), plus the sign-in facts policies read.
  */
 export function responsePrincipal(principal: Principal): string {
   return JSON.stringify([
@@ -107,6 +110,7 @@ export interface ResponseCacheRoute {
 export interface ResponseCacheRequest {
   /** Path and query as sent. */
   readonly originalUrl: string;
+  /** Names in any case; the key reads them lower-cased, so a map that is not node's cannot hide a header. */
   readonly headers: Readonly<Record<string, string | readonly string[] | undefined>>;
 }
 
@@ -124,7 +128,8 @@ const digest = (parts: readonly unknown[]): string => createHash('sha256').updat
 export function responseCacheKey(route: ResponseCacheRoute, req: ResponseCacheRequest, storage: IActionLocalStoregeContext, scopeParts: readonly IdempotencyScopePart[], keyParts: readonly ResponseCacheKeyPart[]): string | undefined {
   const principal = principalPart(route.scope, storage);
   if (principal === undefined) return undefined;
-  const header = (name: string): string | readonly string[] | null => req.headers[name.toLowerCase()] ?? null;
+  const headers = new Map(Object.entries(req.headers).map(([name, value]) => [name.toLowerCase(), value]));
+  const header = (name: string): string | readonly string[] | null => headers.get(name.toLowerCase()) ?? null;
   return digest([
     route.namespace,
     route.scope,
