@@ -7,7 +7,7 @@ import type { TestApp } from '@spinajs/testing';
 import { TENANT_STATES, TenantUnavailable } from '@spinajs/tenancy';
 import type { TenantState } from '@spinajs/tenancy';
 import { DateTime } from 'luxon';
-import { TENANCY_CONNECTION, TENANTS_TABLE, TenantModel, TenantStateService, Tenants_2026_11_16_00_00_00, canTransition, isTenantState, nextStates, toTenantRecord } from '../src/index.js';
+import { TENANCY_CONNECTION, TENANTS_TABLE, TenantModel, TenantStateService, Tenants_2026_11_16_00_00_00, Tenants_2026_12_01_00_00_00, canTransition, isTenantState, nextStates, toTenantRecord } from '../src/index.js';
 import { bootApp } from './support/app.js';
 import { clearTenants, seedTenant } from './support/tenants.js';
 
@@ -126,6 +126,7 @@ describe('tenant table and state machine', function () {
     await new Tenants_2026_11_16_00_00_00().down(driver);
     await expect(TenantModel.query()).to.be.rejected;
     await new Tenants_2026_11_16_00_00_00().up(driver);
+    await new Tenants_2026_12_01_00_00_00().up(driver);
     expect(await TenantModel.query()).to.deep.eq([]);
   });
 

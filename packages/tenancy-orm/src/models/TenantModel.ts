@@ -30,6 +30,14 @@ export class TenantModel extends ModelBase<TenantModel> {
   @Json()
   public settings: Record<string, unknown>;
 
+  /** What the lifecycle wrote down; read it with lifecycleOf(). */
+  @Json()
+  public lifecycle: unknown;
+
+  /** Why and since when the tenant is suspended; read it with suspensionOf(). */
+  @Json()
+  public suspension: unknown;
+
   @CreatedAt()
   public created_at: DateTime;
 
