@@ -2,6 +2,7 @@ declare function Get(p?: string): MethodDecorator;
 declare function Access(permission: string, options?: object): ClassDecorator & MethodDecorator;
 declare function fieldsMode(): 'filter' | 'filter-rows' | 'none';
 declare function keyOf(): string;
+declare function optionsOf(): object;
 declare const SHARED: object;
 declare class BaseController {}
 
@@ -22,5 +23,6 @@ export class FieldsController extends BaseController {
   @Get('spreadAfterNone') @Access('doc:read', { fields: 'none', ...SHARED }) public spreadAfterNone(): void {}
   @Get('computedKey') @Access('doc:read', { [KEY]: 'none' }) public computedKey(): void {}
   @Get('noneAfterSpread') @Access('doc:read', { ...SHARED, fields: 'none' }) public noneAfterSpread(): void {}
+  @Get('optionsCall') @Access('doc:read', optionsOf()) public optionsCall(): void {}
   @Get('resourceNone') @Access('doc:read', { resource: (r: unknown) => r, fields: 'none' }) public resourceNone(): void {}
 }
