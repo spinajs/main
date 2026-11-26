@@ -33,7 +33,7 @@ writes use, so that your tag is the one a write bumps. `hashKey(parts)` turns lo
 | `get(key)` | A fresh value, else `undefined`. |
 | `lookup(key, options)` | A fresh or stale hit, or a miss with `fill(value)`, which stores under the versions read at the lookup. A stale hit has a `fill` too; it claims nothing, and the stale entry stays until a fill replaces it. For a read and a write that are two calls. |
 | `set(key, value, options)` | Stores under the versions of this moment. |
-| `delete(key)`, `invalidate(tags)` | Removes one entry; bumps tags in every configured cache of the process, also one the process has not used yet. |
+| `delete(key)`, `invalidate(tags)` | Removes one entry; bumps tags in every configured cache of the process, also one the process has not used yet, and publishes the bumps on the tag bus for the other processes. |
 
 Options: `ttl` (milliseconds or `'5m'`, above 0), `swr`, `tags`. `cache.maxTtl` (default `'1h'`) caps `ttl + swr`,
 and every `ttl` is then shortened by a random fraction of itself up to `cache.ttlJitter` (default 0.1, at most 0.5),
@@ -82,6 +82,8 @@ An invalidation never throws. A store that refuses a bump keeps serving the entr
 most `cache.maxTtl` after their versions were read; the failure is logged with `op: 'bump'`. A configured cache whose
 store cannot be opened in a process (its package is not imported there) is logged once, and invalidations of that
 process do not reach it.
+
+See [Tag bus and tiered stores](01-bus-and-tiers.md) for invalidation across processes and a shared store.
 
 ## Configuration
 
