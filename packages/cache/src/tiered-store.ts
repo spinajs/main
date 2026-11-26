@@ -29,7 +29,7 @@ export class TieredCacheStore extends CacheStore {
   private breaker: Breaker;
   private cacheName = '';
   private maxTtlMs = 3_600_000;
-  // Tags whose bump the lower tier refused here, by time: an entry it holds under one of them may predate that bump.
+  // Tags whose bump the lower tier refused here, by time: an entry it holds under one of them may predate that bump. A bump that succeeds clears only the refusal it saw.
   private readonly missed = new Map<string, number>();
   private distrustAllSince = Number.NEGATIVE_INFINITY;
 
@@ -89,11 +89,12 @@ export class TieredCacheStore extends CacheStore {
 
   /** The lower tier is bumped whatever its breaker says: a skipped bump would leave entries valid that are not. */
   public async bump(bumps: readonly TagBump[]): Promise<void> {
+    const seen = bumps.map(({ tag }) => this.missed.get(tag));
     this.upper.bumpNow(bumps);
     try {
       await this.lower.bump(bumps);
       this.breaker.succeeded();
-      for (const { tag } of bumps) this.missed.delete(tag);
+      for (const [i, { tag }] of bumps.entries()) if (this.missed.get(tag) === seen.at(i)) this.missed.delete(tag);
     } catch (error) {
       this.lowerFailed('bump', error);
       this.distrust(bumps, Date.now());

@@ -102,6 +102,21 @@ describe('TieredCacheStore', () => {
     expect(valueOf(await b.get('k', STRICT))).to.eq(8);
   });
 
+  // Fails when a bump acknowledged late clears the distrust that a newer refused bump of its tag set.
+  it('keeps distrusting a tag whose newer bump the shared tier refused while an older one was still unacknowledged', async () => {
+    const { shared, a } = replicas();
+    let ack = (): void => undefined;
+    const bump = shared.bump.bind(shared);
+    const slow = sinon.stub(shared, 'bump').callsFake(async (applied: readonly TagBump[]) => bump(applied).then(() => new Promise<void>((resolve) => (ack = resolve))));
+    const first = a.bump(bumps('any:t'));
+    await put(a, 'k', ['any:t'], 7);
+    slow.rejects(new Error('down'));
+    await a.bump(bumps('any:t'));
+    ack();
+    await first;
+    expect(valueOf(await a.get('k', STRICT))).to.eq(undefined);
+  });
+
   // Fails when the distrust never ends (every later read of the tag misses) or ends before maxTtl.
   it('trusts the shared tier again cache.maxTtl after the bump it refused, when every entry read before it has ended', async () => {
     const clock = sinon.useFakeTimers({ now: 1_000_000, toFake: ['Date'] });
