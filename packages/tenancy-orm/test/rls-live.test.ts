@@ -5,7 +5,7 @@ import { InvalidOperation, NotSupported } from '@spinajs/exceptions';
 import { executeSql, sql } from '@spinajs/orm';
 import type { SqlFragment } from '@spinajs/orm';
 
-import { TenantSessionSettings, generateTenantRls, registerTenantModel, tenantRlsTables } from '../src/index.js';
+import { TenantSessionSettings, generateTenantRls, registerTenantModel, tenantRlsMigrationSource, tenantRlsTables } from '../src/index.js';
 import { unregisterTenantModel } from '../src/registry.js';
 import { actingAs, bootPostgresRlsApp, bootRlsApp } from './support/rls-app.js';
 import type { RlsApp } from './support/rls-app.js';
@@ -37,6 +37,17 @@ function messages(err: unknown): string {
   if (!(err instanceof Error)) return '';
   const inner: unknown = Reflect.get(err, 'inner') ?? err.cause;
   return `${err.message} ${messages(inner)}`;
+}
+
+/** The statements of the UP or DOWN list of a migration file that tenant:rls writes. */
+function statementsOf(source: string, list: 'UP' | 'DOWN'): string[] {
+  const body = source.split(`const ${list} = [\n`)[1]?.split('\n];')[0];
+  if (body === undefined) throw new Error(`no ${list} list in the migration`);
+  return body.split('\n').map((line) => {
+    const statement: unknown = JSON.parse(line.trim().replace(/,$/, ''));
+    if (typeof statement !== 'string') throw new Error(`not a statement: ${line}`);
+    return statement;
+  });
 }
 
 async function refusal(work: Promise<unknown>): Promise<string> {
@@ -202,9 +213,13 @@ function rlsSuite(title: string, boot: () => Promise<RlsApp | undefined>, server
 
     it('answers the catalog queries of the docs: the tables are protected and the acting role is subject to them', async () => {
       const { appRole } = app();
-      const tables = (await app().sql(`SELECT c.relname, c.relrowsecurity, c.relforcerowsecurity,
+      type TableRow = { relname: string; relrowsecurity: boolean; relforcerowsecurity: boolean; tenant_policy: number | string };
+      const tables = await executeSql(
+        sql<TableRow>`SELECT c.relname, c.relrowsecurity, c.relforcerowsecurity,
          (SELECT count(*) FROM pg_policy p WHERE p.polrelid = c.oid AND p.polname = 'spina_tenant_isolation') AS tenant_policy
-        FROM pg_class c WHERE c.relname IN ('rls_invoice', 'rls_memo', 'rls_placed') ORDER BY c.relname`)) as Array<Record<string, unknown>>;
+        FROM pg_class c WHERE c.relname IN ('rls_invoice', 'rls_memo', 'rls_placed') ORDER BY c.relname`,
+        { connection: 'rls' },
+      );
       expect(tables.map((t) => [t.relname, t.relrowsecurity, t.relforcerowsecurity, Number(t.tenant_policy)])).to.deep.eq([
         ['rls_invoice', true, true, 1],
         ['rls_memo', true, true, 1],
@@ -224,6 +239,43 @@ function rlsSuite(title: string, boot: () => Promise<RlsApp | undefined>, server
         for (const statement of statements) await app().sql(statement);
       };
       expect(await refusal(run())).to.match(/operator does not exist: uuid = text/);
+    });
+
+    it('runs the written migration up twice, down and up, and down leaves another feature its policy and row level security', async () => {
+      const { appRole, driver } = app();
+      const names = ['rls_down_plain', 'rls_down_shared'];
+      for (const table of names) await app().sql(`CREATE TABLE "${table}" ("tenant_id" varchar(64) NOT NULL)`);
+      const tables = names.map((table) => ({ table, column: 'tenant_id', connection: 'rls' }));
+      const source = tenantRlsMigrationSource(generateTenantRls(tables, { bypassRole: appRole }), 'TenantRls_2026_11_26_00_00_00', 'rls');
+      const apply = async (list: 'UP' | 'DOWN'): Promise<void> => {
+        for (const statement of statementsOf(source, list)) await driver.schema().raw(statement);
+      };
+      type StateRow = { relname: string; relrowsecurity: boolean; relforcerowsecurity: boolean; policies: string };
+      const state = (): Promise<StateRow[]> =>
+        executeSql(
+          sql<StateRow>`SELECT c.relname, c.relrowsecurity, c.relforcerowsecurity,
+           COALESCE((SELECT string_agg(p.polname::text, ',' ORDER BY p.polname) FROM pg_policy p WHERE p.polrelid = c.oid), '') AS policies
+          FROM pg_class c WHERE c.relname IN ('rls_down_plain', 'rls_down_shared') ORDER BY c.relname`,
+          { connection: 'rls' },
+        );
+      const tenantPolicies = 'spina_tenant_isolation,spina_tenant_open';
+      try {
+        await apply('UP');
+        await apply('UP');
+        await app().sql(`CREATE POLICY "other_feature_read" ON "rls_down_shared" AS PERMISSIVE FOR SELECT USING (true)`);
+        await apply('DOWN');
+        expect(await state()).to.deep.eq([
+          { relname: 'rls_down_plain', relrowsecurity: false, relforcerowsecurity: false, policies: '' },
+          { relname: 'rls_down_shared', relrowsecurity: true, relforcerowsecurity: true, policies: 'other_feature_read' },
+        ]);
+        await apply('UP');
+        expect(await state()).to.deep.eq([
+          { relname: 'rls_down_plain', relrowsecurity: true, relforcerowsecurity: true, policies: tenantPolicies },
+          { relname: 'rls_down_shared', relrowsecurity: true, relforcerowsecurity: true, policies: `other_feature_read,${tenantPolicies}` },
+        ]);
+      } finally {
+        for (const table of names) await app().sql(`DROP TABLE IF EXISTS "${table}"`);
+      }
     });
 
     serverOnly(app);
