@@ -49,8 +49,8 @@ function derivesFrom(checker: ts.TypeChecker, type: ts.Type, base: ts.Type): boo
 }
 
 /**
- * The model a query row is, seen through the intersections `populate()` adds (and a type guard's `Admin & User`,
- * which is the subclass); the model schema keeps `isModelType`.
+ * The model a query row is, seen through the intersections `populate()` adds; in `Admin & User` it is the subclass.
+ * The model schema keeps `isModelType`.
  */
 export const modelOf = (checker: ts.TypeChecker, type: ts.Type): ts.Type | undefined =>
   onePart(type, (part) => isModelType(checker, part), (part, other) => derivesFrom(checker, part, other));
