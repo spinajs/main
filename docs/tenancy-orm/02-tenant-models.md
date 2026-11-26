@@ -37,7 +37,7 @@ On a connection with tenant settings, step 4 also applies the [one scope per tra
 | --- | --- | --- | --- |
 | `isolation` | `'row' \| 'schema'` | `tenancy.orm.isolation` | `'schema'` throws `NotSupported`: schema placements are not available yet |
 | `column` | `string \| false` | `tenancy.orm.column` | Name of the tenant column, `[A-Za-z_][A-Za-z0-9_]*`. `false` throws `InvalidArgument` in row mode |
-| `rls` | `boolean` | `tenancy.orm.rls` | Turns on the [transaction rule](04-transactions.md) for the model's connection |
+| `rls` | `boolean` | `tenancy.orm.rls` | Turns on the [transaction rule](04-transactions.md) for the model's connection and, on PostgreSQL and PGlite, the tenant session settings |
 
 An unknown option, or a value of the wrong type, throws `InvalidArgument` at declaration. Registering a class twice with
 the same options is a no-op; with other options it throws `InvalidArgument`.

@@ -4,7 +4,8 @@ On a connection with tenant settings, one transaction has one tenant scope. A co
 of its tenant models declares row level security: `@Tenant({ rls: true })`, or `tenancy.orm.rls: true` for every model
 that sets nothing.
 
-`rls: true` creates no policy and applies no session setting in this release; it only turns on this rule.
+On PostgreSQL and PGlite such a connection also tells the database the tenant of every statement
+(`TenantSessionSettings`), for the table's row level security. On other dialects `rls: true` only turns on this rule.
 
 ## How it works
 
@@ -13,11 +14,11 @@ Two checks keep the scope, one at the scope change and one at each statement:
 1. When the package loads, it registers `refuseScopeChangeInTransaction` with `onTenantScopeChange()` of
    `@spinajs/tenancy`. `runInTenant()` and `runAcrossTenants()` then throw `TenantSwitchDenied` when they would change
    the scope while a transaction is open on any connection with tenant settings.
-2. `TenantScopeMiddleware` pins the scope of the first statement on a tenant table in each open transaction. A later
-   statement on a tenant table in another scope throws `TenantSwitchDenied`. `.acrossTenants()` counts as the
-   all-tenants scope here.
+2. `TenantScopeMiddleware` pins the scope of the first statement of each open transaction, on any table: a select on a
+   shared table can join a tenant table. A later statement in another scope throws `TenantSwitchDenied`.
+   `.acrossTenants()` counts as the all-tenants scope here.
 
-Entering the scope the transaction already has is no change. A statement on a shared table pins nothing.
+Entering the scope the transaction already has is no change.
 
 ## Configuration
 
@@ -30,6 +31,8 @@ Entering the scope the transaction already has is no change. A statement on a sh
 | Function | What it does |
 | --- | --- |
 | `carriesTenantSettings(driver)` | `true` when a tenant model with `rls: true` is on the connection `driver` |
+| `sendsTenantSettings(driver)` | `carriesTenantSettings` and PostgreSQL or PGlite, for `driver` or the primary of a read replica |
+| `TenantSessionSettings` | A `ConnectionSessionSettings` that sends `spina.tenant` and `spina.tenant_all` where `sendsTenantSettings` holds; nothing outside a scope |
 | `stopTransactionScopeGuard()` | Removes the check of step 1, for a tool that must run without it. The check of step 2 still holds |
 
 ## Important behaviour

@@ -78,9 +78,12 @@ execution copy made from the marked builder, such as a page of `stream()`, and i
   come back with empty related lists.
 - An insert has no `.acrossTenants()`: in `runAcrossTenants()` the caller sets the tenant column on every row.
 - An update still may not write the tenant column, in any scope.
-- On a connection with tenant settings, the first statement on a tenant table pins the transaction's scope: a widened
-  statement after one that ran in a tenant throws `TenantSwitchDenied`, and so does a tenant statement after a widened
-  one (see [Transactions](04-transactions.md)).
+- On a connection with tenant settings, the first statement of a transaction pins its scope: a widened statement after
+  one that ran in a tenant throws `TenantSwitchDenied`, and so does a tenant statement after a widened one (see
+  [Transactions](04-transactions.md)).
+- On PostgreSQL and PGlite, on a connection with tenant settings, `.acrossTenants()` throws `InvalidOperation` inside
+  a tenant scope and with no scope: the database is told the scope around the statement, not the statement's own mark.
+  Run the statement inside `runAcrossTenants(reason, fn)`.
 
 ## Patterns and antipatterns
 
