@@ -53,7 +53,7 @@ History passes no actor. `audit().record` stamps every event with the `actor`, `
 | Page | What it covers |
 | --- | --- |
 | [Tracking models](01-tracking-models.md) | `@History`, `registerHistory`, `audit.data.rules`, choosing a trail, migrations, failures, the event shape, unknown insert keys. |
-| [Reading history](02-reading-history.md) | `Model.history()`, `row.history()`, `historyOf()`, every read with its limits, change feeds and reads across entities. |
+| [Reading history](02-reading-history.md) | `Model.history()`, `row.history()`, `historyOf()`, every read with its limits, many rows at once, change feeds and reads across entities. |
 | [As-of and erasure](03-as-of-and-erasure.md) | The answers of `asOf`, what retention does to them, and `forget`. |
 | [Limits](04-limits.md) | What is not captured and what a reader must not assume. |
 | [Coverage](05-coverage.md) | From when on the history of an entity is complete: `HistoryCoverage`, what moves it, the `history_coverage` table. |
