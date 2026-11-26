@@ -18,6 +18,14 @@ describe('MemoryChangeReader', () => {
     expect(await reader.afterInstant('b', ms(-1), { limit: 10 })).to.deep.equal([{ entity: 'b', key: 'k', op: 'put', image: { v: 2 }, before: { v: 1 }, at: T, seq: 1, traceId: 'trace-1' }]);
   });
 
+  it('hands out fresh images, so a caller that changes one does not change the store', async () => {
+    const reader = new MemoryChangeReader().append([{ entity: 'a', op: 'put', key: 'k', image: { v: 2 }, before: { v: 1 }, at: T }]);
+    const [read] = await reader.afterInstant('a', ms(-1), { limit: 10 });
+    const [head] = (await reader.latest('a', ['k'])).values();
+    for (const image of [read.image, read.before, head.image, head.before]) Object.assign(image ?? {}, { v: 0 });
+    expect((await reader.afterInstant('a', ms(-1), { limit: 10 })).map((c) => [c.image, c.before])).to.deep.equal([[{ v: 2 }, { v: 1 }]]);
+  });
+
   it('reads after an instant strictly, above a cursor, and never more than its page size', async () => {
     const reader = new MemoryChangeReader(2).append([0, 1, 2, 3].map((i) => add('a', `k${i}`, ms(i))));
     expect((await reader.afterInstant('a', T, { limit: 10 })).map((c) => c.seq)).to.deep.equal([2, 3]);

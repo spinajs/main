@@ -108,5 +108,5 @@ export class MemoryChangeReader implements ChangeReader {
 
 function strip(r: Row): ReplayChange {
   const { visible: _visible, ...change } = r;
-  return change;
+  return { ...change, image: json(change.image ?? undefined), before: json(change.before ?? undefined) };
 }
