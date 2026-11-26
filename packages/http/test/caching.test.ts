@@ -23,14 +23,24 @@ describe('caching helpers', () => {
     expect(etagMatches('*', '"a"')).to.eq(true);
     expect(etagMatches('"b"', '"a"')).to.eq(false);
     expect(etagMatches(undefined, '"a"')).to.eq(false);
+    expect(etagMatches('W/"a"', 'W/"a"')).to.eq(true);
+    expect(etagMatches(' \t"a"\t', '"a"')).to.eq(true);
+    expect(etagMatches('', '"a"')).to.eq(false);
+    expect(etagMatches('a', '"a"')).to.eq(false);
+  });
+
+  it('splits a quoted tag at its comma, so such a tag never matches', () => {
+    expect(etagMatches('"v1,2"', '"v1,2"')).to.eq(false);
+    expect(etagMatches('W/"v1,2", "b"', '"b"')).to.eq(true);
   });
 
   it('refuses a vary that names no header, or * next to a name', () => {
-    for (const vary of [['Accept Language'], [''], ['*', 'Cookie'], 'Cookie', [1]]) {
+    for (const vary of [['Accept Language'], [''], 'Cookie', [1]]) {
       expect(() => {
         Reflect.construct(CacheControl, [60, { vary }]);
-      }, JSON.stringify(vary)).to.throw(InvalidArgument);
+      }, JSON.stringify(vary)).to.throw(InvalidArgument, `CacheControl vary must be a list of request header names, got ${JSON.stringify(vary)}`);
     }
+    expect(() => new CacheControl(60, { vary: ['*', 'Cookie'] })).to.throw(InvalidArgument, "CacheControl vary takes '*' alone");
     expect(() => new CacheControl(60, { vary: [] })).to.not.throw();
     expect(() => new CacheControl(60, { vary: ['*'] })).to.not.throw();
   });
