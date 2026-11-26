@@ -99,7 +99,14 @@ export interface ReplayReport {
   readonly tree?: unknown;
 }
 
+export interface ReplayRunOptions {
+  /** Cancels the replay: it rejects with the signal's reason. */
+  signal?: AbortSignal;
+  /** The `maxChanges` of this replay instead of the domain's, at most `REPLAY_MAX_CHANGES_LIMIT`. */
+  maxChanges?: number;
+}
+
 export abstract class ReplayService {
   /** undefined when the domain's source has no recording with that id. */
-  abstract replay(domain: string, id: string, options?: { signal?: AbortSignal }): Promise<ReplayReport | undefined>;
+  abstract replay(domain: string, id: string, options?: ReplayRunOptions): Promise<ReplayReport | undefined>;
 }

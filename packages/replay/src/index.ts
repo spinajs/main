@@ -2,7 +2,7 @@ export type { ReplayChange, ReplayChangeOp, RowImage } from './change.js';
 export { coverageGap, sameImage, stateAt } from './history.js';
 export type { KeyInput, KeyState, ReplayWindow } from './history.js';
 export { ArtifactSource, RecordingSource, Replayer, ReplayService, StateSource } from './contracts.js';
-export type { Recording, ReplayBudget, ReplayDivergence, ReplayEvidence, ReplayMissing, ReplayOutcome, ReplayReport, ReplayVerdict, StateView } from './contracts.js';
+export type { Recording, ReplayBudget, ReplayDivergence, ReplayEvidence, ReplayMissing, ReplayOutcome, ReplayReport, ReplayRunOptions, ReplayVerdict, StateView } from './contracts.js';
 export type { ChangePage, ChangeReader } from './reader.js';
 export { ReplayBudgetExceeded, ReplayHistory } from './history-scan.js';
 export type { ReplayHistoryLimits } from './history-scan.js';
@@ -10,3 +10,5 @@ export { REPLAY_DEFAULTS, REPLAY_MAX_CHANGES_LIMIT, replayLimits, replayWindow }
 export type { ReplayLimits } from './config.js';
 export { verdictOf } from './verdict.js';
 export type { ReplayVerdictResult } from './verdict.js';
+export { RecordingUnreadable, ReplayBusy } from './errors.js';
+export { DomainReplayService } from './service.js';
