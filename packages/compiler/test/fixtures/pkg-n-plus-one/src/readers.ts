@@ -8,10 +8,21 @@ interface PostShaped {
   Owner: SingleRelation<User>;
 }
 
+export class Admin extends User {
+  public Level: number;
+}
+
+export class Guest extends User {
+  public Invitation: string;
+}
+
 export declare const plain: Post;
 export declare const withObject: Post & { Extra: string };
 export declare const shapedOnly: PostShaped & { Extra: string };
 export declare const twoModels: Post & User;
+export declare const subclassAndBase: Admin & User;
+export declare const baseAndSubclass: User & Admin;
+export declare const siblings: Admin & Guest;
 
 export const builder = () => Post.query().populate('Owner');
 export const rows = async () => Post.query().populate('Owner');

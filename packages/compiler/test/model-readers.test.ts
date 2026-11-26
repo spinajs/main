@@ -48,6 +48,16 @@ describe('model readers: intersections such as populate() rows', () => {
     expect(modelShape(checker, declared('twoModels'))).to.equal(undefined);
   });
 
+  it('an intersection of a subclass and its base is the subclass, in either order', () => {
+    expect(nameOf(modelOf(checker, declared('subclassAndBase')))).to.equal('Admin');
+    expect(nameOf(modelOf(checker, declared('baseAndSubclass')))).to.equal('Admin');
+    expect(modelShape(checker, declared('subclassAndBase'))).to.deep.equal({ model: 'Admin', shape: 'one' });
+  });
+
+  it('an intersection of two subclasses of one base names neither', () => {
+    expect(modelOf(checker, declared('siblings'))).to.equal(undefined);
+  });
+
   it("the awaited rows of populate('Owner') are many Post, and the populated Owner is a SingleRelation of User", () => {
     const rows = awaited('rows');
     expect(modelShape(checker, rows)).to.deep.equal({ model: 'Post', shape: 'many' });
