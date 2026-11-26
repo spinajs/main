@@ -5,7 +5,7 @@ import { InvalidOperation } from '@spinajs/exceptions';
 import { QueryMiddleware } from '../src/interfaces.js';
 import { WriteCaptureMiddleware, captureKeyText } from '../src/capture/index.js';
 import { countKeyless, keyTexts, keylessIdentity } from '../src/capture/keys.js';
-import { requiredTables, unmatchedTables } from '../src/capture/middleware.js';
+import { requiredTables, tablePart, unmatchedTables } from '../src/capture/middleware.js';
 import { ORM_CONFIGURATION_SCHEMA } from '../src/configuration-schema.js';
 import { WriteCaptureRequired } from '../src/exceptions.js';
 
@@ -84,6 +84,20 @@ describe('write capture registration', () => {
   it('names the required tables no table matches, comparing without case', () => {
     expect(unmatchedTables(['Invoice', 'INVOICE_LINE', 'invoce'], ['invoice', 'invoice_line'])).to.deep.eq(['invoce']);
     expect(unmatchedTables(['invoice'], [])).to.deep.eq(['invoice']);
+  });
+
+  it('reads the table of a qualified or quoted name, and nothing of a name whose table it cannot isolate', () => {
+    const forms = ['invoice', ' invoice ', 'public.invoice', 'db.public.invoice', '"public"."invoice"', '`shop`.`invoice`', '[dbo].[invoice]'];
+    expect(forms.map((name) => tablePart(name))).to.deep.eq(forms.map(() => 'invoice'));
+    expect(tablePart('"inv.oice"')).to.eq('inv.oice');
+    expect(tablePart('orm migrations')).to.eq('orm migrations');
+    for (const name of ['', '.', 'invoice.', '.invoice', 'public..invoice', '"invoice', '"invoice"x', '[invoice', 'public.""']) {
+      expect(tablePart(name), name).to.eq(undefined);
+    }
+  });
+
+  it('matches a listed name with a table by their table parts', () => {
+    expect(unmatchedTables(['public.invoice', '"INVOICE_LINE"', 'shop.invoce'], ['invoice', 'dbo.invoice_line'])).to.deep.eq(['shop.invoce']);
   });
 
   it('refuses an unobserved write with an InvalidOperation of its own', () => {

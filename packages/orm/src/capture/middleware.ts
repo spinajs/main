@@ -2,7 +2,7 @@ import { Configuration } from '@spinajs/configuration-common';
 import { DI, Injectable } from '@spinajs/di';
 import { InvalidOperation } from '@spinajs/exceptions';
 
-import { DeleteQueryBuilder, InsertQueryBuilder, UpdateQueryBuilder } from '../builders.js';
+import { DeleteQueryBuilder, InsertQueryBuilder, TruncateTableQueryBuilder, UpdateQueryBuilder } from '../builders.js';
 import type { QueryBuilder } from '../builders.js';
 import { extractModelDescriptor } from '../descriptor.js';
 import type { LiveIndex } from '../introspection.js';
@@ -67,9 +67,28 @@ export function requiredTables(value: unknown): readonly string[] {
   return value;
 }
 
+// One part of a table name, bare or quoted the way one of the dialects quotes.
+const NAME_PART = /"([^"]*)"|`([^`]*)`|\[([^\]]*)\]|([^."`[\]]+)/y;
+
+/** The table of a name (`invoice`, `public.invoice`, `"dbo"."invoice"`); undefined when no table part can be read. */
+export function tablePart(name: string): string | undefined {
+  for (let at = 0; ; at += 1) {
+    NAME_PART.lastIndex = at;
+    const part = NAME_PART.exec(name);
+    if (!part) return undefined;
+    at = NAME_PART.lastIndex;
+    if (at === name.length) {
+      const table = part.slice(1).find((group) => group !== undefined)?.trim();
+      return table === '' ? undefined : table;
+    }
+    if (name.charAt(at) !== '.') return undefined;
+  }
+}
+
 // Without case: MySQL, MSSQL and SQLite take `Invoice` and `invoice` for one table, so an exact match would fail open.
-// Listing one of two tables that differ only by case guards both: the safe side.
-const sameTable = (a: string, b: string): boolean => a.toLowerCase() === b.toLowerCase();
+// Listing one of two tables that differ only by case guards both: the safe side. The schema is not compared either.
+const tableKey = (name: string): string => (tablePart(name) ?? name).toLowerCase();
+const sameTable = (a: string, b: string): boolean => a === b || tableKey(a) === tableKey(b);
 
 /** The names of `required` that match none of `tables`. */
 export function unmatchedTables(required: readonly string[], tables: readonly string[]): string[] {
@@ -84,8 +103,36 @@ function refuseUnobserved(statement: WriteStatement): void {
   throw new WriteCaptureRequired(`write capture: ${statement.model.name} writes ${table}, a table db.WriteCapture.Required lists, and no WriteObserver takes this ${statement.kind}; load the package that observes ${table} in this process or take the table off the list`);
 }
 
+function pastModelPhrase(query: QueryBuilder): string | undefined {
+  if (query instanceof InsertQueryBuilder) return 'an insert';
+  if (query instanceof UpdateQueryBuilder) return 'an update';
+  if (query instanceof DeleteQueryBuilder) return 'a delete';
+  if (query instanceof TruncateTableQueryBuilder) return 'a truncate';
+  return undefined;
+}
+
+/** A write of a listed table that no observer is ever handed: a builder without a model, a truncate, a model builder pointed at another table. */
+function refusePastModel(query: QueryBuilder): void {
+  const phrase = pastModelPhrase(query);
+  if (phrase === undefined) return;
+  const required = requiredTables(DI.get(Configuration)?.get<unknown>('db.WriteCapture.Required'));
+  if (required.length === 0) return;
+  const table = query.Table;
+  if (tablePart(table) === undefined) {
+    throw new WriteCaptureRequired(`write capture: ${phrase} of ${table} is refused: db.WriteCapture.Required lists tables, and the table of this name cannot be read; name it as table, schema.table or with quoted parts, or write it with raw SQL where it must not be recorded`);
+  }
+  if (!required.some((name) => sameTable(name, table))) return;
+  throw new WriteCaptureRequired(`write capture: ${phrase} of ${table}, a table db.WriteCapture.Required lists, does not go through the table's model, so no WriteObserver can take it; write it through its model, or with raw SQL where it must not be recorded`);
+}
+
+function writesOwnTable({ model, query }: WriteStatement): boolean {
+  const table = extractModelDescriptor(model)?.TableName;
+  return table !== undefined && sameTable(table, query.Table);
+}
+
 function planOf(query: QueryBuilder): Plan | undefined {
   const statement = writeStatementOf(query);
+  if (statement === undefined || !writesOwnTable(statement)) refusePastModel(query);
   if (!statement) return undefined;
   const watches = observers().flatMap((observer) => {
     const interest = observer.interest(statement);
