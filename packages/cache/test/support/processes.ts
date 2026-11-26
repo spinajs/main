@@ -11,13 +11,9 @@ class Wire {
   private held: TagBump[][] | undefined;
   private hub = new InProcessTagBus();
 
-  public reset(): void {
-    Object.assign(this, { sent: [], dropping: false, held: undefined, hub: new InProcessTagBus() });
-  }
+  public reset(): void { Object.assign(this, { sent: [], dropping: false, held: undefined, hub: new InProcessTagBus() }); }
 
-  public hold(): void {
-    this.held = [];
-  }
+  public hold(): void { this.held = []; }
 
   public async deliver(): Promise<void> {
     const held = this.held ?? [];
@@ -32,9 +28,7 @@ class Wire {
     else await this.hub.publish(bumps);
   }
 
-  public subscribe(fn: (bumps: readonly TagBump[]) => void): () => void {
-    return this.hub.subscribe(fn);
-  }
+  public subscribe(fn: (bumps: readonly TagBump[]) => void): () => void { return this.hub.subscribe(fn); }
 }
 
 export const wire = new Wire();

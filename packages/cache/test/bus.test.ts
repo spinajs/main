@@ -12,10 +12,7 @@ import { SharedTier, drain, startProcess, wire } from './support/processes.js';
 class RecordingBus extends InProcessTagBus {
   public static published: TagBump[][] = [];
 
-  public async publish(bumps: readonly TagBump[]): Promise<void> {
-    RecordingBus.published.push([...bumps]);
-    await super.publish(bumps);
-  }
+  public async publish(bumps: readonly TagBump[]): Promise<void> { RecordingBus.published.push([...bumps]); await super.publish(bumps); }
 }
 
 class FailingBus extends TagBus {
@@ -27,15 +24,13 @@ class PreferredBus extends FailingBus {}
 
 class LateBus extends FailingBus {}
 
-class SecretScope extends CacheScope {
-  public segments(): readonly string[] { return ['tenant-secret']; }
-}
+class SecretScope extends CacheScope { public segments(): readonly string[] { return ['tenant-secret']; } }
 
 const CONFIG = { cache: { ttlJitter: 0, caches: { default: {} } } };
 const TAGGED = { ttl: '1m', tags: ['any:t'] };
 const busOf = async (app: TestApp): Promise<TagBus> => (await app.resolve(CacheService)).bus;
 
-async function withApp(options: Parameters<typeof createTestApp>[0], fn: (app: TestApp) => Promise<void>): Promise<void> {
+async function withApp(options: Parameters<typeof createTestApp>[0], fn: (app: TestApp) => Promise<unknown>): Promise<void> {
   const app = await createTestApp(options);
   try {
     await fn(app);
@@ -47,33 +42,20 @@ async function withApp(options: Parameters<typeof createTestApp>[0], fn: (app: T
 describe('TagBus', () => {
   it('InProcessTagBus delivers to every subscriber until it unsubscribes, past a throwing one', async () => {
     const bus = new InProcessTagBus();
-    const seen: string[] = [];
-    bus.subscribe(() => {
-      throw new Error('bad subscriber');
-    });
+    bus.subscribe(() => { throw new Error('bad subscriber'); });
     const delivered: TagBump[] = [];
-    const stop = bus.subscribe((bumps) => {
-      seen.push(...bumps.map((bump) => bump.tag));
-      delivered.push(...bumps);
-    });
+    const stop = bus.subscribe((bumps) => delivered.push(...bumps));
     const published = stampBumps(['a']);
     await bus.publish(published);
     stop();
     await bus.publish(stampBumps(['b']));
-    expect(seen).to.deep.eq(['a']);
     // The contract every TagBus keeps: a bump arrives with the stamp it was published with (echo suppression of other packages relies on it).
     expect(delivered).to.deep.eq(published);
   });
 
   it('rejects every cache call while cache.bus names no registered bus, and resolves once the bus is registered', async () => {
     await withApp({ config: { cache: { ...CONFIG.cache, bus: LateBus.name } } }, async (app) => {
-      let error: unknown;
-      await cache()
-        .get('k')
-        .catch((caught: unknown) => {
-          error = caught;
-        });
-      expect(error).to.be.instanceOf(InvalidOption);
+      expect(await cache().get('k').then(() => undefined, (error: unknown) => error)).to.be.instanceOf(InvalidOption);
       app.container.register(LateBus).as(TagBus);
       expect(await cache().get('k')).to.eq(undefined);
       expect(await busOf(app)).to.be.instanceOf(LateBus);
@@ -82,23 +64,16 @@ describe('TagBus', () => {
 
   it('picks the registered bus with the highest rank, and never an unranked one', () => {
     preferTagBus('RankedForTest', 5);
-    expect(preferredTagBus(['InProcessTagBus', 'Unranked'])).to.eq('InProcessTagBus');
-    expect(preferredTagBus(['InProcessTagBus', 'RankedForTest'])).to.eq('RankedForTest');
-    expect(preferredTagBus(['Unranked'])).to.eq(undefined);
+    const picked = [['InProcessTagBus', 'Unranked'], ['InProcessTagBus', 'RankedForTest'], ['Unranked']].map((names) => preferredTagBus(names));
+    expect(picked).to.deep.eq(['InProcessTagBus', 'RankedForTest', undefined]);
   });
 
   it('defaults to InProcessTagBus, yields to a preferred bus, and takes cache.bus over both', async () => {
     const register = (container: IContainer) => container.register(PreferredBus).as(TagBus);
-    await withApp({ config: CONFIG }, async (app) => {
-      expect(await busOf(app)).to.be.instanceOf(InProcessTagBus);
-    });
+    await withApp({ config: CONFIG }, async (app) => expect(await busOf(app)).to.be.instanceOf(InProcessTagBus));
     preferTagBus(PreferredBus.name, 10);
-    await withApp({ config: CONFIG, register }, async (app) => {
-      expect(await busOf(app)).to.be.instanceOf(PreferredBus);
-    });
-    await withApp({ config: { cache: { ...CONFIG.cache, bus: 'InProcessTagBus' } }, register }, async (app) => {
-      expect(await busOf(app)).to.be.instanceOf(InProcessTagBus);
-    });
+    await withApp({ config: CONFIG, register }, async (app) => expect(await busOf(app)).to.be.instanceOf(PreferredBus));
+    await withApp({ config: { cache: { ...CONFIG.cache, bus: 'InProcessTagBus' } }, register }, async (app) => expect(await busOf(app)).to.be.instanceOf(InProcessTagBus));
   });
 
   it('publishes the bumps of an invalidation, one per tag, each with its own stamp', async () => {
@@ -107,8 +82,7 @@ describe('TagBus', () => {
     await withApp({ config: { cache: { ...CONFIG.cache, bus: RecordingBus.name } }, register }, async () => {
       await cache().invalidate(['any:a', 'any:b', 'any:a']);
       expect(RecordingBus.published.map((bumps) => bumps.map((bump) => bump.tag))).to.deep.eq([['any:a', 'any:b']]);
-      const [a, b] = RecordingBus.published[0];
-      expect(a.version).to.not.eq(b.version);
+      expect(new Set(RecordingBus.published[0].map((bump) => bump.version)).size).to.eq(2);
     });
   });
 
