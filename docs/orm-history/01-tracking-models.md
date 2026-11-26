@@ -104,6 +104,7 @@ A trail's table must exist on every connection that holds a model tracked in it:
 - **Trail `history` on another connection:** a subclass of the package's migration, decorated for that connection.
 - **Another trail:** a subclass of `AuditTrailTableMigration` whose `table()` returns the trail's table, on each connection that holds a model tracked in it and on the trail's own `connection`.
 - **A shipping trail (`OutboxAuditStore`):** its events go to the buffer table `audit_outbox` on the model's connection, so that connection needs a subclass of `AuditOutboxTableMigration`; a trail with an archive also needs its archive table on its `archiveConnection` ([Shipping](../audit/06-shipping.md#setup-an-archive-on-another-connection)).
+- **Coverage:** `history_coverage` belongs on every connection that holds a tracked model. The package declares `OrmHistoryCoverage_2026_11_25_00_00_00` for the default connection; another connection takes a subclass ([Coverage](05-coverage.md#the-table)).
 ```ts sample
 import { AuditTrailTableMigration } from '@spinajs/audit-orm';
 import { Migration } from '@spinajs/orm';
@@ -122,7 +123,7 @@ export class BillingTrail_2026_11_21_00_00_01 extends AuditTrailTableMigration {
 
 A tracked write on a connection without the table fails with `AuditWriteFailed` (`... is the table migrated there (AuditTrailTableMigration)?`) and is rolled back.
 
-The application never migrates at boot. Until the two migrations of the default connection have run, it does not start: `Orm.resolve()` runs the ORM's boot check, and with `db.MigrationCheck` at its default `'fail'` (a connection's `Migration.Check` overrides it) it rejects with `PendingMigrationsException`, whose message names `OrmHistory_2026_11_16_00_00_00` and `AuditEvent_2026_11_16_00_00_00`. That holds as soon as the package is installed and imported, with no model tracked. Run `npx spinajs migrate-up` as a deploy step before the new version starts ([Deploying migrations](../orm/10-migrations.md#deploying-migrations)); on a developer machine, `db.MigrationCheck: 'warn'` boots with a warning instead.
+The application never migrates at boot. Until the three migrations of the default connection have run, it does not start: `Orm.resolve()` runs the ORM's boot check, and with `db.MigrationCheck` at its default `'fail'` (a connection's `Migration.Check` overrides it) it rejects with `PendingMigrationsException`, whose message names `OrmHistory_2026_11_16_00_00_00`, `OrmHistoryCoverage_2026_11_25_00_00_00` and `AuditEvent_2026_11_16_00_00_00`. That holds as soon as the package is installed and imported, with no model tracked. Run `npx spinajs migrate-up` as a deploy step before the new version starts ([Deploying migrations](../orm/10-migrations.md#deploying-migrations)); on a developer machine, `db.MigrationCheck: 'warn'` boots with a warning instead.
 
 ## Failures
 
