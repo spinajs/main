@@ -11,11 +11,12 @@ chai.use(chaiAsPromised);
 /** A pooled client that records its statements and fails the ones named in `failing`. */
 function fakeClient(failing: Record<string, Error> = {}) {
   const statements: string[] = [];
+  const failures = new Map(Object.entries(failing));
   const release = sinon.spy();
   const client = {
     query: (sql: string) => {
       statements.push(sql);
-      const error = failing[sql];
+      const error = failures.get(sql);
       return error ? Promise.reject(error) : Promise.resolve({ rows: [], rowCount: 0 });
     },
     release,
