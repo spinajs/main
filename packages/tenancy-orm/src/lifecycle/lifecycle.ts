@@ -1,4 +1,5 @@
 import { DI, Injectable } from '@spinajs/di';
+import { DbClock } from '@spinajs/durable';
 import { InvalidArgument, InvalidOperation, NotSupported, ResourceDuplicated } from '@spinajs/exceptions';
 import { isTenantId, tenantRef } from '@spinajs/tenancy';
 import type { TenantPlacement, TenantRecord } from '@spinajs/tenancy';
@@ -96,9 +97,9 @@ export class DefaultTenantLifecycle extends TenantLifecycle {
     return Promise.reject(new NotSupported('tenancy-orm: delete() arrives with v4-tl-03b-tenant-delete'));
   }
 
-  /** Milliseconds since the epoch; a test moves it to let a lease expire. */
+  /** Database time in milliseconds since the epoch, so the lease does not depend on this machine's clock; a test moves it to let a lease expire. */
   protected now(): number {
-    return Date.now();
+    return DI.resolve(DbClock).now();
   }
 
   protected states(): Promise<TenantStateService> {
@@ -156,6 +157,7 @@ export class DefaultTenantLifecycle extends TenantLifecycle {
   }
 
   protected async leased<T>(id: string, fn: (lease: LifecycleLease) => Promise<T>): Promise<T> {
+    await DI.resolve(DbClock).sync();
     const lease = await claimLifecycle(id, () => this.now());
     // One step (a seeder, a large table) may outlast the lease; a renewal that fails is met by the next fenced write.
     const beat = setInterval(() => void lease.renew().catch(() => undefined), LIFECYCLE_LEASE_MS / 3);

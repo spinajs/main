@@ -43,6 +43,6 @@ tenant's lifecycle record, and every renewal, names the lease's owner and epoch 
 lease was taken over fails at its next such write instead of writing over the new holder, and it checks the tenant
 again once it holds the lease.
 
-The expiry is measured with the clock of the process that takes or renews the lease, not the database's: to a machine
-whose clock runs `s` ahead, a lease looks expired `s` early. Since a running operation renews every 5 minutes, its
-lease is not taken over while the clocks differ by less than 10 minutes. Keep the clocks of the machines synchronized.
+The lease is measured in database time: `DbClock` of `@spinajs/durable` reads the clock of the `default` connection
+when the operation starts and counts on from there, so the skew between the machines does not count, only how far a
+machine's clock drifts while one operation runs.

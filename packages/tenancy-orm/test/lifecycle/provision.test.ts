@@ -1,6 +1,7 @@
 import 'mocha';
 import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
+import { DbTimeSource, SqlDbTimeSource } from '@spinajs/durable';
 import { ConcurrencyConflict, InvalidArgument, InvalidOperation, NotSupported, ResourceDuplicated } from '@spinajs/exceptions';
 import type { TestApp } from '@spinajs/testing';
 import { TenantSwitchDenied, currentTenant, runInTenant, tenantRegistry } from '@spinajs/tenancy';
@@ -55,6 +56,15 @@ class Audit extends TenantSeeder {
   }
 }
 
+/** The database's clock, `BehindDb.ms` behind the clock of this process. */
+class BehindDb extends SqlDbTimeSource {
+  public static ms = 0;
+
+  public override async read(): Promise<number> {
+    return (await super.read()) - BehindDb.ms;
+  }
+}
+
 class Later extends DefaultTenantLifecycle {
   protected override now(): number {
     return Date.now() + LIFECYCLE_LEASE_MS + 60_000;
@@ -83,6 +93,7 @@ describe('provisioning a row-mode tenant', function () {
       c.register(Flaky).as(TenantSeeder);
       c.register(Audit).as(TenantSeeder);
       c.register(Customers).as(TenantSeeder);
+      c.register(BehindDb).as(DbTimeSource, { replace: true });
     });
     lifecycle = await app.resolve(TenantLifecycle);
   });
@@ -97,6 +108,7 @@ describe('provisioning a row-mode tenant', function () {
     ran.length = 0;
     Flaky.failures = 0;
     Flaky.during = undefined;
+    BehindDb.ms = 0;
   });
 
   it('writes the row, runs the seeders inside the tenant by order and name, then makes it active', async () => {
@@ -166,6 +178,17 @@ describe('provisioning a row-mode tenant', function () {
 
     await expect(lifecycle.provision(ACME)).to.be.rejectedWith(ConcurrencyConflict, 'another lifecycle operation holds tenant "acme"');
     expect((await new Later().provision(ACME)).state).to.eq('active');
+  });
+
+  it('measures the lease on the database clock, not on a process clock that runs ahead of it', async () => {
+    BehindDb.ms = LIFECYCLE_LEASE_MS + 60_000;
+    await seedTenant({ id: 'acme', slug: 'acme', name: 'Acme Ltd', state: 'provisioning', domains: ['acme.example'] });
+    await seedLifecycle('acme', { operation: { kind: 'provision', done: ['record'], startedAt: '2026-12-01T00:00:00.000Z' } });
+    const live = await claimLifecycle('acme', () => Date.now() - BehindDb.ms);
+
+    await expect(lifecycle.provision(ACME)).to.be.rejectedWith(ConcurrencyConflict, 'another lifecycle operation holds tenant "acme"');
+    await live.release();
+    expect((await lifecycle.provision(ACME)).state).to.eq('active');
   });
 
   it('stops an operation whose lease was taken over while a seeder ran, before it writes another step', async () => {
