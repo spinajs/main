@@ -21,9 +21,41 @@ export interface TestDb {
   dispose(): Promise<void>;
 }
 
+type Executor = { executeOnDb(sql: string, bindings: unknown[], context: QueryContext): Promise<unknown> };
+
 /** Runs plain SQL (`?` placeholders); `executeOnDb` lives on the SQL drivers, not on `OrmDriver`. */
 export function rawQuery(driver: OrmDriver, sql: string, bindings: unknown[] = [], context: QueryContext = QueryContext.Select): Promise<any> {
-  return (driver as unknown as { executeOnDb(sql: string, bindings: unknown[], context: QueryContext): Promise<any> }).executeOnDb(sql, bindings, context);
+  return (driver as unknown as Executor).executeOnDb(sql, bindings, context);
+}
+
+export interface SpiedStatement {
+  readonly sql: string;
+  readonly bindings: readonly unknown[];
+}
+
+/** Runs `work` with `hook` awaited before every statement `driver` runs; a statement the hook answers true for fails instead of running. */
+export async function interceptDuring(driver: OrmDriver, work: () => Promise<unknown>, hook: (sql: string, bindings: readonly unknown[]) => boolean | Promise<boolean>): Promise<void> {
+  const target = driver as unknown as Executor;
+  const original = target.executeOnDb.bind(target);
+  target.executeOnDb = async (sql, bindings, context) => {
+    if (await hook(sql, bindings ?? [])) throw new Error('refused by the test');
+    return original(sql, bindings, context);
+  };
+  try {
+    await work();
+  } finally {
+    target.executeOnDb = original;
+  }
+}
+
+/** The statements `driver` runs during `work` that match `pattern`, SELECTs by default. A statement `refuse` answers true for fails instead of running. */
+export async function statementsDuring(driver: OrmDriver, work: () => Promise<unknown>, pattern: RegExp = /^\s*select\b/i, refuse: (sql: string) => boolean = () => false): Promise<SpiedStatement[]> {
+  const seen: SpiedStatement[] = [];
+  await interceptDuring(driver, work, (sql, bindings) => {
+    if (pattern.test(sql)) seen.push({ sql, bindings: [...bindings] });
+    return refuse(sql);
+  });
+  return seen;
 }
 
 const PG_SERVER = { Host: '127.0.0.1', Port: Number(process.env.ORM_TEST_POSTGRES_PORT ?? 15432), User: 'postgres', Password: 'postgres' };

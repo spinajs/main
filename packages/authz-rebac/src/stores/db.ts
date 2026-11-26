@@ -1,6 +1,8 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { AUTHZ_CONNECTION, AuthzConfigError, changeLog, principalKey } from '@spinajs/authz';
 import type { AuthzTx, ChangeEntry, PrincipalRef, ResourceRef, ResourceType } from '@spinajs/authz';
+import { Configuration } from '@spinajs/configuration';
+import { DI } from '@spinajs/di';
 // Registers DbChangeLog and its migration: the tuple writes below append to it.
 import '@spinajs/authz-orm/changelog';
 import { stableStringify } from '@spinajs/authz-ir';
@@ -22,6 +24,18 @@ export const TUPLE_COLUMN_WIDTHS = Object.freeze({ namespace: 64, object_id: 128
 
 // Keeps an IN list within the bind-parameter limits of every driver.
 const IN_CHUNK = 500;
+
+// 13 bind parameters a row: 100 rows stay under the 2100 parameters of MSSQL.
+const INSERT_CHUNK = 100;
+
+/**
+ * `size`, or `db.WriteCapture.MaxRows` when that is lower: the capture refuses a statement of more rows once the table
+ * has history, and one statement per tuple never did. Read as the capture reads it.
+ */
+function capped(size: number): number {
+  const limit = DI.get(Configuration)?.get<unknown>('db.WriteCapture.MaxRows', 0);
+  return typeof limit === 'number' && limit > 0 ? Math.min(size, limit) : size;
+}
 
 /** An `authz_rebac_tuple` row. */
 @Connection(AUTHZ_CONNECTION)
@@ -115,9 +129,9 @@ export function requireTupleTransaction(tx: AuthzTx, where: string): OrmDriver {
   }
 }
 
-function chunks<T>(list: readonly T[]): T[][] {
+function chunks<T>(list: readonly T[], size = IN_CHUNK): T[][] {
   const out: T[][] = [];
-  for (let i = 0; i < list.length; i += IN_CHUNK) out.push(list.slice(i, i + IN_CHUNK));
+  for (let i = 0; i < list.length; i += size) out.push(list.slice(i, i + size));
   return out;
 }
 
@@ -137,25 +151,32 @@ async function storedRows(keys: readonly string[], shared = false): Promise<Map<
 async function removeRows(removes: readonly Tuple[], removed: (t: Tuple, key: string) => void): Promise<Tuple[]> {
   const stored = await storedRows(removes.map(hashOf));
   const out: Tuple[] = [];
+  const keys: string[] = [];
   for (const t of removes) {
     const key = hashOf(t);
     const had = stored.get(key);
     if (had === undefined) continue;
-    await TupleRecord.destroy().where('tuple_key', key);
     stored.delete(key);
+    keys.push(key);
     const tuple = tupleOf(had);
     out.push(tuple);
     removed(tuple, key);
   }
+  // spinajs-orm-ignore ORM102: deliberate batching, one statement per IN_CHUNK tuple keys
+  for (const part of chunks(keys, capped(IN_CHUNK))) await TupleRecord.destroy().whereIn('tuple_key', part);
   return out;
+}
+
+interface Fresh {
+  readonly tuple: Tuple;
+  readonly row: TupleRow;
 }
 
 /** Inserts the tuples among `adds` not stored yet. @throws TupleCaveatConflict for a tuple stored with another caveat */
 async function insertRows(driver: OrmDriver, adds: readonly Tuple[], actor: PrincipalRef, now: Date, added: (t: Tuple, key: string) => void): Promise<Tuple[]> {
   const held = new Map<string, Tuple>();
   for (const [key, r] of await storedRows(adds.map(hashOf))) held.set(key, tupleOf(r));
-  const out: Tuple[] = [];
-  const raced: Tuple[] = [];
+  const fresh: Fresh[] = [];
   for (const t of adds) {
     const row = rowOf(t, actor, now);
     const has = held.get(row.tuple_key);
@@ -164,23 +185,41 @@ async function insertRows(driver: OrmDriver, adds: readonly Tuple[], actor: Prin
       continue;
     }
     held.set(row.tuple_key, t);
-    if (!(await insertOnce(driver, row))) {
-      raced.push(t);
-      continue;
+    fresh.push({ tuple: t, row });
+  }
+  const out: Tuple[] = [];
+  const raced: Tuple[] = [];
+  // In sequence: savepoints of one transaction must not interleave.
+  for (const part of chunks(fresh, capped(INSERT_CHUNK))) {
+    const done = await insertPart(driver, part);
+    for (const f of done.inserted) {
+      out.push(f.tuple);
+      added(f.tuple, f.row.tuple_key);
     }
-    out.push(t);
-    added(t, row.tuple_key);
+    raced.push(...done.raced);
   }
   await refuseRacedConflicts(driver, raced);
   return out;
 }
 
-/** False when another transaction stored the row meanwhile. */
-async function insertOnce(driver: OrmDriver, row: TupleRow): Promise<boolean> {
+/** `part` in one INSERT; when another transaction stored one of its rows meanwhile, row by row, so the others still go in. */
+async function insertPart(driver: OrmDriver, part: readonly Fresh[]): Promise<{ readonly inserted: readonly Fresh[]; readonly raced: readonly Tuple[] }> {
+  if (await insertOnce(driver, part.map((f) => f.row))) return { inserted: part, raced: [] };
+  const inserted: Fresh[] = [];
+  const raced: Tuple[] = [];
+  for (const f of part) {
+    if (await insertOnce(driver, [f.row])) inserted.push(f);
+    else raced.push(f.tuple);
+  }
+  return { inserted, raced };
+}
+
+/** False when another transaction stored one of the rows meanwhile. */
+async function insertOnce(driver: OrmDriver, rows: readonly TupleRow[]): Promise<boolean> {
   try {
     // A savepoint: on Postgres the unique violation would otherwise abort the whole transaction.
     await driver.transaction(async () => {
-      await TupleRecord.insert(row);
+      await TupleRecord.insert([...rows]);
     });
     return true;
   } catch (err) {
