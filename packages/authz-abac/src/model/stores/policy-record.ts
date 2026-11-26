@@ -74,7 +74,7 @@ export class PolicyRecord extends ModelBase<PolicyRecord> implements PolicyField
   @DateTimeColumn()
   public expires_at!: DateTime;
 
-  /** No column: whether the row holds an expires_at, on the rows `DbPolicyStore.load()` and `version()` read. */
+  /** No column: whether the row holds an expires_at, on the rows `hydrateRecords` reads. */
   public expires_at_set?: boolean;
 
   public created_by!: string | null;

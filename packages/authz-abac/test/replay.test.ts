@@ -11,7 +11,7 @@ import { QueryContext } from '@spinajs/orm';
 import type { OrmDriver } from '@spinajs/orm';
 
 import { AUTHZ_POLICY_TABLE, DbPolicyStore, PolicySplicer, abacRelation, abacToIR } from '../src/index.js';
-import { DB_KINDS, bootDb, rawQuery } from './support/db.js';
+import { DB_KINDS, bootDb, rawQuery, unreadableExpiry } from './support/db.js';
 import type { TestDb } from './support/db.js';
 
 const expect = chai.expect;
@@ -217,6 +217,17 @@ describe('PolicySplicer', function () {
         await pause(4 * WINDOW);
         const record = await recordOf(ir, 'd5', true);
         await rawQuery(db.driver, `UPDATE ${AUTHZ_POLICY_TABLE} SET permissions = ? WHERE id = ?`, ['{not json', 'everyone'], QueryContext.Update);
+        const report = await replayDecision(record, depsOf(ir, changeLog()));
+        expect(report.replay).to.equal('unreplayable');
+        expect(report.missing.map((m) => [m.input, m.key])).to.deep.include(['policy', 'policy:db']);
+      });
+
+      // Catches a check left in DbPolicyStore.load(): the replay would count the policy as live forever at T.
+      it('makes the store a gap when a policy row holds an unreadable expiry, as for JSON that no longer parses', async () => {
+        await write((tx) => store.put({ id: 'everyone', effect: 'permit', permissions: ['doc:*'] }, user('root'), tx));
+        await pause(4 * WINDOW);
+        const record = await recordOf(ir, 'd8', true);
+        await rawQuery(db.driver, `UPDATE ${AUTHZ_POLICY_TABLE} SET expires_at = ${unreadableExpiry(kind)} WHERE id = 'everyone'`, [], QueryContext.Update);
         const report = await replayDecision(record, depsOf(ir, changeLog()));
         expect(report.replay).to.equal('unreplayable');
         expect(report.missing.map((m) => [m.input, m.key])).to.deep.include(['policy', 'policy:db']);
