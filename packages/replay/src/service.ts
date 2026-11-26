@@ -57,29 +57,55 @@ async function run(domain: string, id: string, parts: DomainParts, limits: Repla
   if (recording === undefined) return undefined;
   if (recording.domain !== domain) return reportOf(id, domain, recording.outcome, refused(`the recording belongs to the domain ${recording.domain}`));
   const window = replayWindow(recording, limits);
-  const unplaced = outsideCalendar(recording.at, window);
+  const unplaced = outsideCalendar(recording.at, window, limits.clockSkewMs);
   if (unplaced !== undefined) return reportOf(id, domain, recording.outcome, refused(unplaced));
   const timeout = AbortSignal.timeout(limits.timeoutMs);
-  const signal = options.signal === undefined ? timeout : AbortSignal.any([options.signal, timeout]);
-  const budget = { maxChanges: Math.min(options.maxChanges ?? limits.maxChanges, REPLAY_MAX_CHANGES_LIMIT), maxKeys: limits.maxKeys };
+  const ended = new AbortController();
+  const signal = AbortSignal.any(options.signal === undefined ? [timeout, ended.signal] : [options.signal, timeout, ended.signal]);
+  const budget = Object.freeze({ maxChanges: Math.min(options.maxChanges ?? limits.maxChanges, REPLAY_MAX_CHANGES_LIMIT), maxKeys: limits.maxKeys });
+  let view: Watched | undefined;
   let outcome: ReplayOutcome;
   try {
-    const view = watched(parts.state.view(recording.at, window, budget, signal));
-    const answer = await parts.replayer.replay(recording, view.view, signal, budget);
+    view = watched(parts.state.view(recording.at, window, budget, signal));
+    const answer = await abandonedOnAbort(signal, parts.replayer.replay(recording, view.view, signal, budget));
     // A replayer that went on after a read of the state failed answers without that state.
     if (view.failure !== undefined) throw view.failure.error;
-    outcome = answer;
+    outcome = view.reading === 0 ? answer : { outcome: 'unknown', missing: [{ input: 'state', reason: `the replayer answered without waiting for ${view.reading} of its reads of the state` }], divergences: [] };
   } catch (e) {
     if (options.signal?.aborted) throw options.signal.reason;
     outcome = { outcome: 'unknown', missing: [stopped(e, timeout, limits.timeoutMs)], divergences: [] };
+  } finally {
+    if (view !== undefined) view.sealed = true;
+    ended.abort(new InvalidOperation('replay: the replay has ended'));
   }
   return reportOf(id, domain, recording.outcome, outcome);
 }
 
-// A scan from an invalid instant reads nothing, which would pass for a window without changes.
-function outsideCalendar(at: Date, window: ReplayWindow): string | undefined {
+/** The replayer's answer, unless the signal aborts first; an answer or a rejection after that is dropped. */
+async function abandonedOnAbort<T>(signal: AbortSignal, work: Promise<T>): Promise<T> {
+  let abort = (): void => undefined;
+  const aborted = new Promise<undefined>((resolve) => {
+    abort = () => resolve(undefined);
+    if (signal.aborted) abort();
+    else signal.addEventListener('abort', abort, { once: true });
+  });
+  try {
+    const done = await Promise.race([work.then((answer) => ({ answer })), aborted]);
+    // The replayer may answer in the same turn as the abort, ahead of it.
+    if (done === undefined || signal.aborted) throw signal.reason;
+    return done.answer;
+  } finally {
+    signal.removeEventListener('abort', abort);
+  }
+}
+
+// A scan from an invalid instant reads nothing, which would pass for a window without changes. A future instant is
+// rebuilt from the current rows, with every change since the real decision counted before it.
+function outsideCalendar(at: Date, window: ReplayWindow, clockSkewMs: number): string | undefined {
   if (Number.isNaN(at.getTime())) return 'the recording has no valid instant';
   if (Number.isNaN(new Date(at.getTime() - window.beforeMs - 1).getTime())) return `the window of the recording, ${window.beforeMs} ms before ${at.toISOString()}, starts before the earliest instant a Date holds`;
+  const ahead = at.getTime() - Date.now();
+  if (ahead > clockSkewMs) return `the recording's instant ${at.toISOString()} is ${ahead} ms after this process's clock, past clockSkewMs ${clockSkewMs}`;
   return undefined;
 }
 
@@ -100,9 +126,11 @@ function stopped(e: unknown, timeout: AbortSignal, timeoutMs: number): ReplayMis
 interface Watched {
   readonly view: StateView;
   failure?: { readonly error: unknown };
+  reading: number;
+  sealed: boolean;
 }
 
-/** The view, with the first error any of its reads rejected with. */
+/** The view of one replay, with the first error any of its reads rejected with and the reads still running. */
 function watched(view: StateView): Watched {
   const out: Watched = {
     view: {
@@ -110,16 +138,22 @@ function watched(view: StateView): Watched {
       keys: (entity, ids) => noted(out, () => view.keys(entity, ids)),
       select: (entity, where) => noted(out, () => view.select(entity, where)),
     },
+    reading: 0,
+    sealed: false,
   };
   return out;
 }
 
 async function noted<T>(watch: Watched, read: () => Promise<T>): Promise<T> {
+  if (watch.sealed) throw new InvalidOperation('replay: the replay has ended; its view of the state reads nothing more');
+  watch.reading++;
   try {
     return await read();
   } catch (e) {
     watch.failure ??= { error: e };
     throw e;
+  } finally {
+    watch.reading--;
   }
 }
 

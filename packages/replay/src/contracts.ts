@@ -85,7 +85,13 @@ export interface ReplayOutcome {
 
 export abstract class Replayer {
   abstract readonly domain: string;
-  /** `budget` is the one `view` was made with; a replayer that reads history through its own scan bounds it so. */
+  /**
+   * `budget` is the one `view` was made with; a replayer that reads history through its own scan bounds it so.
+   *
+   * The service watches the reads of `view` only. A replayer that reads through its own `ReplayHistory` lets every
+   * failure of those reads escape, or answers `'unknown'` naming them in `missing`: it never answers a determined
+   * outcome after one of its reads failed or while one is still running.
+   */
   abstract replay(recording: Recording, view: StateView, signal: AbortSignal, budget: ReplayBudget): Promise<ReplayOutcome>;
 }
 

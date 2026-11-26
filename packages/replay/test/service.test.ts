@@ -6,7 +6,7 @@ import { InvalidOperation } from '@spinajs/exceptions';
 import { useTestApp } from '@spinajs/testing';
 
 import { DomainReplayService, RecordingSource, RecordingUnreadable, ReplayBudgetExceeded, ReplayBusy, ReplayHistory, ReplayService, Replayer, StateSource } from '../src/index.js';
-import type { ChangePage, ChangeReader, KeyState, Recording, ReplayBudget, ReplayChange, ReplayOutcome, ReplayWindow, StateView } from '../src/index.js';
+import type { ChangePage, ChangeReader, KeyState, Recording, ReplayBudget, ReplayChange, ReplayMissing, ReplayOutcome, ReplayWindow, StateView } from '../src/index.js';
 import { MemoryChangeReader } from '../src/testing.js';
 
 const SILENT = { targets: [{ name: 'Empty', type: 'BlackHoleTarget' }], rules: [{ name: '*', level: 'trace', target: 'Empty' }] };
@@ -20,11 +20,12 @@ interface World {
   views: { at: Date; window: ReplayWindow; budget: ReplayBudget }[];
   budgets: ReplayBudget[];
   reader: ChangeReader;
+  reads: number;
 }
 
 const answer = (outcome: unknown, more: Partial<ReplayOutcome> = {}): Promise<ReplayOutcome> => Promise.resolve({ outcome, missing: [], divergences: [], ...more });
 const echo: Step = (r) => answer(r.outcome);
-const world: World = { recordings: new Map(), step: echo, views: [], budgets: [], reader: new MemoryChangeReader() };
+const world: World = { recordings: new Map(), step: echo, views: [], budgets: [], reader: new MemoryChangeReader(), reads: 0 };
 
 const recording = (domain: string, id: string, more: Partial<Recording> = {}): Recording => ({ id, domain, at: T, now: T, durationMs: 40, outcome: { price: 12 }, versions: {}, payload: {}, ...more });
 const gap = { input: 'tuple', key: 'k1', reason: 'the tuple history starts nowhere (not covered)' };
@@ -66,6 +67,7 @@ class State extends StateSource {
     world.views.push({ at, window, budget });
     let history: Promise<ReplayHistory> | undefined;
     const keys = async (entity: string, ids: readonly string[]): Promise<ReadonlyMap<string, KeyState>> => {
+      world.reads++;
       const h = await (history ??= ReplayHistory.load(world.reader, at, ['tuple'], { ...budget, window }, signal));
       h.reserve(entity, ids);
       return new Map(ids.map((id): [string, KeyState] => [id, h.afterFor(entity, id).length > 0 ? changedInWindow(entity, id) : { known: true, value: undefined, origin: 'current' }]));
@@ -105,6 +107,47 @@ async function untilAborted(signal: AbortSignal): Promise<ReplayOutcome> {
 
 const failure = (p: Promise<unknown>): Promise<unknown> => p.then(() => undefined, (e: unknown) => e);
 
+interface Gate<T> {
+  promise: Promise<T>;
+  open(value: T): void;
+  fail(error: unknown): void;
+}
+function gate<T>(): Gate<T> {
+  let open: (value: T) => void = () => undefined;
+  let fail: (error: unknown) => void = () => undefined;
+  const promise = new Promise<T>((resolve, reject) => {
+    open = resolve;
+    fail = reject;
+  });
+  return { promise, open, fail };
+}
+const heldReader = (page: Promise<readonly ReplayChange[]>): ChangeReader => ({ afterInstant: () => page, latest: () => Promise.resolve(new Map()), coveredSince: () => Promise.resolve(undefined) });
+const unwaited = (n: number): ReplayMissing => ({ input: 'state', reason: `the replayer answered without waiting for ${n} of its reads of the state` });
+const timedOut = [{ input: 'timeout', reason: 'the replay ran past timeoutMs 300' }];
+
+// A service that does not end the call fails here by assertion, not by mocha's timeout.
+async function within<T>(ms: number, work: Promise<T>): Promise<T> {
+  let timer: NodeJS.Timeout | undefined;
+  try {
+    return await Promise.race([work, new Promise<never>((_resolve, reject) => (timer = setTimeout(() => reject(new Error(`the replay still runs after ${ms} ms`)), ms)))]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function unhandledDuring(body: () => Promise<void>): Promise<unknown[]> {
+  const seen: unknown[] = [];
+  const note = (e: unknown): void => void seen.push(e);
+  process.on('unhandledRejection', note);
+  try {
+    await body();
+    await new Promise((resolve) => setImmediate(resolve));
+  } finally {
+    process.off('unhandledRejection', note);
+  }
+  return seen;
+}
+
 const parts = (c: IContainer): void => {
   c.register(PricingRecordings).as(RecordingSource);
   c.register(QuoteRecordings).as(RecordingSource);
@@ -120,6 +163,7 @@ function reset(): void {
   world.views.length = 0;
   world.budgets.length = 0;
   world.reader = new MemoryChangeReader();
+  world.reads = 0;
 }
 
 describe('DomainReplayService', function () {
@@ -172,12 +216,12 @@ describe('DomainReplayService', function () {
     world.step = () => Promise.reject(new ReplayBudgetExceeded('maxChanges', 50_001));
     expect(await s.replay('pricing', 'r1')).to.deep.include({ replay: 'unreplayable', missing: [{ input: 'history-budget', key: 'maxChanges', reason: 'the replay read 50001 changes, past its maxChanges' }] });
     world.step = (_r, _v, signal) => untilAborted(signal);
-    expect((await s.replay('pricing', 'r1'))?.missing).to.deep.equal([{ input: 'timeout', reason: 'the replay ran past timeoutMs 300' }]);
+    expect((await within(2_000, s.replay('pricing', 'r1')))?.missing).to.deep.equal(timedOut);
     world.step = () => Promise.reject(new TypeError('boom'));
     expect(await failure(s.replay('pricing', 'r1'))).to.be.instanceOf(TypeError);
   });
 
-  it('stops a history read past the maxChanges of the call as unreplayable, also when the replayer swallows the stop', async () => {
+  it('stops a history read past the maxChanges of the call as unreplayable, also when the replayer swallows the stop or tries to raise its budget', async () => {
     world.reader = new MemoryChangeReader().append(Array.from({ length: 11 }, (_, i) => ({ entity: 'tuple', op: 'add' as const, key: `k${i}`, at: new Date(T.getTime() + 1_000) })));
     world.step = readsK;
     const s = await service();
@@ -185,6 +229,11 @@ describe('DomainReplayService', function () {
     const stop = [{ input: 'history-budget', key: 'maxChanges', reason: 'the replay read 11 changes, past its maxChanges' }];
     expect(await s.replay('pricing', 'r1', { maxChanges: 10 })).to.deep.include({ replay: 'unreplayable', missing: stop });
     world.step = swallowsK;
+    expect(await s.replay('pricing', 'r1', { maxChanges: 10 })).to.deep.include({ replay: 'unreplayable', missing: stop });
+    world.step = (r, view, signal, budget) => {
+      Reflect.set(budget, 'maxChanges', 500_000);
+      return readsK(r, view, signal, budget);
+    };
     expect(await s.replay('pricing', 'r1', { maxChanges: 10 })).to.deep.include({ replay: 'unreplayable', missing: stop });
   });
 
@@ -221,6 +270,93 @@ describe('DomainReplayService', function () {
     expect(await failure(s.replay('pricing', 'r1'))).to.equal(down);
   });
 
+  it('P1: a view read still running when the replayer answers makes the replay unreplayable, and its later failure changes nothing', async () => {
+    const page = gate<readonly ReplayChange[]>();
+    world.reader = heldReader(page.promise);
+    let late: Promise<unknown> = Promise.resolve();
+    world.step = (r, view) => {
+      late = failure(view.keys('tuple', ['k']));
+      return answer(r.outcome);
+    };
+    const s = await service();
+    const report = await s.replay('pricing', 'r1');
+    page.fail(new Error('the trail table is gone'));
+    expect(await late).to.be.instanceOf(Error);
+    expect(report).to.deep.include({ replay: 'unreplayable', missing: [unwaited(1)] });
+  });
+
+  it('reports a view read still running when the replayer answers as unreplayable also when it succeeds afterwards: the replayer did not wait for it', async () => {
+    const page = gate<readonly ReplayChange[]>();
+    world.reader = heldReader(page.promise);
+    const late: Promise<unknown>[] = [];
+    world.step = (r, view) => {
+      late.push(failure(view.keys('tuple', ['k'])), failure(view.keys('tuple', ['j'])));
+      return answer(r.outcome);
+    };
+    const s = await service();
+    const report = await within(2_000, s.replay('pricing', 'r1'));
+    page.open([]);
+    await Promise.all(late);
+    expect(report).to.deep.include({ replay: 'unreplayable', missing: [unwaited(2)] });
+  });
+
+  it('rejects a read of the view issued after the replay ended, without reading and without an unhandled rejection', async () => {
+    const kept: StateView[] = [];
+    world.step = (r, view) => {
+      kept.push(view);
+      return answer(r.outcome);
+    };
+    const s = await service();
+    const seen = await unhandledDuring(async () => {
+      expect(await s.replay('pricing', 'r1')).to.deep.include({ replay: 'faithful' });
+      expect(await failure(kept[0].keys('tuple', ['k']))).to.be.instanceOf(InvalidOperation).with.property('message', 'replay: the replay has ended; its view of the state reads nothing more');
+      expect(await failure(kept[0].select('tuple', {}))).to.be.instanceOf(InvalidOperation);
+    });
+    expect(seen).to.deep.equal([]);
+    expect(world.reads).to.equal(0);
+  });
+
+  it('gives each replay its own view: a read of an ended replay, failing or still running, never reaches a replay that runs after it', async () => {
+    world.recordings.set('pricing/r2', recording('pricing', 'r2'));
+    const [failing, running, go] = [gate<readonly ReplayChange[]>(), gate<readonly ReplayChange[]>(), gate<undefined>()];
+    const kept: StateView[] = [];
+    world.step = async (r, view, signal, budget) => {
+      if (r.id === 'r2') return go.promise.then(() => readsK(r, view, signal, budget));
+      kept.push(view);
+      void view.keys('tuple', ['k']).catch(() => undefined);
+      return answer(r.outcome);
+    };
+    const s = await service();
+    for (const page of [failing, running]) {
+      world.reader = heldReader(page.promise);
+      expect(await s.replay('pricing', 'r1')).to.deep.include({ replay: 'unreplayable', missing: [unwaited(1)] });
+    }
+    world.reader = new MemoryChangeReader();
+    const second = s.replay('pricing', 'r2');
+    failing.fail(new Error('the trail table is gone'));
+    expect(await failure(kept[0].keys('tuple', ['k']))).to.be.instanceOf(InvalidOperation);
+    go.open(undefined);
+    expect(await within(2_000, second)).to.deep.include({ replay: 'faithful' });
+    running.open([]);
+  });
+
+  it('ends at the timeout a replayer that ignores its signal, frees its slot, and swallows its late answer or rejection', async () => {
+    world.recordings.set('quotes/q1', recording('quotes', 'q1'));
+    const [answering, rejecting] = [gate<ReplayOutcome>(), gate<ReplayOutcome>()];
+    const s = await service();
+    const seen = await unhandledDuring(async () => {
+      for (const step of [() => new Promise<ReplayOutcome>(() => undefined), () => answering.promise, () => rejecting.promise]) {
+        world.step = step;
+        expect(await within(2_000, s.replay('quotes', 'q1'))).to.deep.include({ replay: 'unreplayable', missing: timedOut });
+      }
+      answering.open({ outcome: { price: 12 }, missing: [], divergences: [] });
+      rejecting.fail(new Error('too late'));
+      world.step = echo;
+      expect(await s.replay('quotes', 'q1')).to.deep.include({ replay: 'faithful' });
+    });
+    expect(seen).to.deep.equal([]);
+  });
+
   it('reports an unknown outcome with missing inputs as unreplayable with them, never faithful, and a determined one as faithful (ReplayOutcome asserts no missing input could change it)', async () => {
     world.recordings.set('pricing/u', recording('pricing', 'u', { outcome: 'unknown' }));
     const s = await service();
@@ -241,6 +377,27 @@ describe('DomainReplayService', function () {
     const pending = failure(s.replay('pricing', 'r1', { signal: caller.signal }));
     caller.abort(gone);
     expect(await pending).to.equal(gone);
+    const held = gate<ReplayOutcome>();
+    world.step = () => held.promise;
+    const ignored = new AbortController();
+    const ignoring = failure(within(2_000, s.replay('pricing', 'r1', { signal: ignored.signal })));
+    ignored.abort(gone);
+    expect(await ignoring).to.equal(gone);
+    held.open({ outcome: { price: 12 }, missing: [], divergences: [] });
+  });
+
+  it('reports a recording dated later than this process clock plus clockSkewMs as unreplayable without replaying it', async () => {
+    const s = await service();
+    const clock = Date.now.bind(Date);
+    try {
+      Date.now = (): number => T.getTime() - 1_001;
+      expect((await s.replay('pricing', 'r1'))?.missing).to.deep.equal([{ input: 'record', reason: "the recording's instant 2026-11-17T12:00:00.000Z is 1001 ms after this process's clock, past clockSkewMs 1000" }]);
+      expect(world.views).to.deep.equal([]);
+      Date.now = (): number => T.getTime() - 1_000;
+      expect((await s.replay('pricing', 'r1'))?.replay).to.equal('faithful');
+    } finally {
+      Date.now = clock;
+    }
   });
 
   it('refuses a replay past the concurrency of its domain with ReplayBusy, each domain counted on its own', async () => {
