@@ -2,8 +2,10 @@ import './audit.js';
 import '@spinajs/orm-sqlite';
 import { rowsOf } from '@spinajs/audit-orm';
 import type { Configuration } from '@spinajs/configuration';
-import { DI } from '@spinajs/di';
-import { MemoryTarget } from '@spinajs/log';
+import { DI, Injectable } from '@spinajs/di';
+import '@spinajs/log';
+import { LogTarget } from '@spinajs/log-common';
+import type { ICommonTargetOptions, ILogEntry } from '@spinajs/log-common';
 import { Connection, Model, ModelBase, Orm, Primary, RawQuery } from '@spinajs/orm';
 import type { OrmDriver, TableQueryBuilder } from '@spinajs/orm';
 import { migrateTestDatabase } from '@spinajs/orm/testing';
@@ -83,13 +85,24 @@ const COLUMN = new Map<ColumnType, (t: TableQueryBuilder, name: string) => void>
 const LOGGER = {
   targets: [
     { name: 'Empty', type: 'BlackHoleTarget' },
-    { name: 'Memory', type: 'MemoryTarget' },
+    { name: 'Memory', type: 'HistoryWarningsTarget' },
   ],
   rules: [
     { name: '*', level: 'trace', target: 'Empty' },
     { name: 'orm-history', level: 'warn', target: 'Memory' },
   ],
 };
+const WARNINGS: string[] = [];
+
+// `@Logger` keeps the first Log of a name per class for the whole process, so a class that logged in an earlier suite
+// writes to that suite's target: one buffer for every instance sees what each of them writes.
+@Injectable('HistoryWarningsTarget')
+export class HistoryWarningsTarget extends LogTarget<ICommonTargetOptions> {
+  public write(entry: ILogEntry): void {
+    if (entry.Variables.logger === 'orm-history') WARNINGS.push(entry.Variables.message);
+  }
+}
+
 const trailOn = (dialect: Dialect): string => `history-${dialect}`;
 const AUDIT = {
   trails: {
@@ -144,7 +157,7 @@ export class HistoryDb {
 
   /** The messages the `orm-history` logger wrote at warn level or above since the last `clear()`. */
   warnings(): string[] {
-    return (DI.get(MemoryTarget)?.getRecords() ?? []).filter((e) => e.Variables.logger === 'orm-history').map((e) => e.Variables.message);
+    return [...WARNINGS];
   }
 
   driver(dialect: Place): OrmDriver {
@@ -232,6 +245,6 @@ export class HistoryDb {
     for (const dialect of this.historyOn) if (dialect !== 'sqlite') await this.dropHistory(dialect);
     await this.migrateHistory('sqlite');
     resetAudit();
-    DI.get(MemoryTarget)?.clear();
+    WARNINGS.splice(0);
   }
 }
