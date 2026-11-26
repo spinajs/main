@@ -226,6 +226,59 @@ describe('the current rows of a tracked model', function () {
     });
   });
 
+  describe('a text column that ignores case or trailing spaces, as on MySQL and MSSQL (sqlite)', () => {
+    let Folded: TrackedClass;
+
+    beforeEach(async () => {
+      await db.driver('sqlite')
+        .schema()
+        .createTable('folded', (t) => {
+          t.text('id').primaryKey();
+          t.text('status').collation('NOCASE');
+          t.text('code').collation('RTRIM');
+        });
+      Folded = await db.define({ name: 'Folded', table: 'folded', columns: {}, existingTable: true, decorate: (c) => registerHistory(c) }, 'sqlite');
+    });
+
+    afterEach(async () => {
+      await db.driver('sqlite').schema().dropTable('folded').ifExists();
+      await db.clear();
+    });
+
+    it('selects only the rows that hold each text as asked, reading on until limit rows or the end', async () => {
+      await Folded.insert([
+        { id: 'a', status: 'OPEN', code: 'x' },
+        { id: 'b', status: 'open', code: 'x ' },
+        { id: 'c', status: 'Open', code: 'x' },
+        { id: 'd', status: 'open', code: 'x  ' },
+      ]);
+      const ids = async (where: Readonly<Record<string, unknown>>, limit: number): Promise<{ ids: string[]; statements: number }> => {
+        const read = await counted(db.driver('sqlite'), () => Folded.history().currentWhere(where, limit));
+        return { ids: [...read.result.keys()], statements: read.statements };
+      };
+      expect(await ids({ status: 'open' }, 1)).to.deep.eq({ ids: ['b'], statements: 2 });
+      expect(await ids({ status: 'open' }, 2)).to.deep.eq({ ids: ['b', 'd'], statements: 2 });
+      expect(await ids({ status: 'open' }, 10)).to.deep.eq({ ids: ['b', 'd'], statements: 1 });
+      expect((await ids({ status: 'OPEN' }, 10)).ids).to.deep.eq(['a']);
+      expect((await ids({ status: 'oPEN' }, 1)).ids).to.deep.eq([]);
+      expect((await ids({ code: 'x ' }, 10)).ids).to.deep.eq(['b']);
+      expect((await ids({ code: 'x', status: 'Open' }, 10)).ids).to.deep.eq(['c']);
+      expect((await Folded.history().currentWhere({ status: 'open' }, 1)).get('b')).to.deep.eq({ id: 'b', status: 'open', code: 'x ' });
+    });
+  });
+
+  describe('a row whose key is NULL (sqlite)', () => {
+    afterEach(async () => {
+      await db.clear();
+    });
+
+    it('refuses the read: no id names the row', async () => {
+      const Invoice = await db.define({ name: 'Invoice', table: 'invoice', columns: { status: 'TEXT' }, decorate: (c) => registerHistory(c) }, 'sqlite');
+      await db.driver('sqlite').insert().into('invoice').values({ id: null, status: 'x' });
+      await expect(Invoice.history().currentWhere({}, 5)).to.be.rejectedWith(HistoryConfigError, 'orm-history: a row of invoice has a primary key without a text (null), so no id names it');
+    });
+  });
+
   describe('a bigint key (pglite)', () => {
     afterEach(async () => {
       await db.clear();

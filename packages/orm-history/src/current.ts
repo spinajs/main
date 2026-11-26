@@ -1,7 +1,7 @@
 import { canonicalJson } from '@spinajs/audit';
 import { rowsOf } from '@spinajs/audit-orm';
 import type { AuditRow } from '@spinajs/audit-orm';
-import { captureKeyText, extractModelDescriptor, findColumn, lookupValue } from '@spinajs/orm';
+import { captureKeyText, columnKind, extractModelDescriptor, findColumn, lookupValue } from '@spinajs/orm';
 import type { IColumnDescriptor, IModelDescriptor, OrmDriver, SelectQueryBuilder } from '@spinajs/orm';
 import { isPlainObject } from '@spinajs/util';
 
@@ -49,8 +49,9 @@ function selectOf(spec: HistorySpec, table: ModelTable): SelectQueryBuilder<unkn
 // A key column that ignores case or trailing spaces matches rows in another spelling: only the asked texts are answered.
 function addImages(spec: HistorySpec, rows: readonly AuditRow[], out: Map<string, RowImage>, asked?: ReadonlySet<string>): void {
   for (const row of rows) {
-    const id = captureKeyText(row[spec.pk]);
-    if (id === undefined) throw new HistoryConfigError(`orm-history: a row of ${spec.entity} has a primary key without a text (${typeof row[spec.pk]}), so no id names it`);
+    const key = row[spec.pk];
+    const id = captureKeyText(key);
+    if (id === undefined) throw new HistoryConfigError(`orm-history: a row of ${spec.entity} has a primary key without a text (${key === null ? 'null' : typeof key}), so no id names it`);
     if (asked === undefined || asked.has(id)) out.set(id, imageOf(spec, row));
   }
 }
@@ -77,22 +78,60 @@ function recordedColumn(spec: HistorySpec, descriptor: IModelDescriptor, column:
   throw new HistoryConfigError(`orm-history: ${spec.entity} does not record ${column}, so its history cannot tell which rows matched it`);
 }
 
-export async function currentWhere(spec: HistorySpec, where: RowImage, limit: number): Promise<ReadonlyMap<string, RowImage>> {
-  if (!Number.isInteger(limit) || limit < 1) throw new HistoryConfigError('orm-history: limit must be an integer of 1 or more');
-  const table = tableOf(spec);
-  const select = selectOf(spec, table);
+type Condition = readonly [column: string, bound: string | number | null];
+
+interface Filter {
+  readonly conditions: readonly Condition[];
+  /** The string values of text columns: a row answers only when it holds each as given. */
+  readonly texts: ReadonlyMap<string, string>;
+}
+
+// Undefined when no row can match. Every column is checked first, so a refused column is refused whatever comes first.
+function filterOf(spec: HistorySpec, descriptor: IModelDescriptor, where: RowImage): Filter | undefined {
+  const conditions: Condition[] = [];
+  const texts = new Map<string, string>();
   let matchable = true;
   for (const [column, value] of Object.entries(where)) {
-    const declared = recordedColumn(spec, table.descriptor, column);
+    const declared = recordedColumn(spec, descriptor, column);
     if (!comparable(value)) throw new HistoryConfigError(`orm-history: where.${column} must be a string, a finite number or null`);
     // As for a key: a value no row of the column's type can hold is coerced to another value on some databases.
     const bound = value === null ? null : lookupValue(declared, String(value));
     if (bound === undefined) matchable = false;
-    else if (bound === null) select.whereNull(column);
+    else conditions.push([column, bound]);
+    if (typeof value === 'string' && columnKind(declared) === 'text') texts.set(column, value);
+  }
+  return matchable ? { conditions, texts } : undefined;
+}
+
+function pageOf(spec: HistorySpec, table: ModelTable, filter: Filter, after: unknown, limit: number): SelectQueryBuilder<unknown> {
+  const select = selectOf(spec, table);
+  for (const [column, bound] of filter.conditions) {
+    if (bound === null) select.whereNull(column);
     else select.where(column, '=', bound);
   }
+  if (after !== undefined) select.where(spec.pk, '>', after);
+  return select.orderBy(spec.pk).take(limit);
+}
+
+export async function currentWhere(spec: HistorySpec, where: RowImage, limit: number): Promise<ReadonlyMap<string, RowImage>> {
+  if (!Number.isInteger(limit) || limit < 1) throw new HistoryConfigError('orm-history: limit must be an integer of 1 or more');
+  const table = tableOf(spec);
+  const filter = filterOf(spec, table.descriptor, where);
   const out = new Map<string, RowImage>();
-  // Every column is checked before the answer "no row can match", so a refused column is refused whatever comes first.
-  if (matchable) addImages(spec, rowsOf(await select.orderBy(spec.pk).take(limit)), out);
-  return out;
+  if (filter === undefined) return out;
+  // A text column compares by its collation, which ignores case or trailing spaces on MySQL and MSSQL: the rows it
+  // matched in another spelling are dropped here, and the read pages on by key so that `limit` still holds.
+  const asAsked = (row: AuditRow): boolean => {
+    const values = new Map(Object.entries(row));
+    return [...filter.texts].every(([column, value]) => values.get(column) === value);
+  };
+  let after: unknown;
+  for (;;) {
+    // spinajs-orm-ignore ORM102: pages by key until `limit` rows hold the asked texts or the table ends
+    const rows = rowsOf(await pageOf(spec, table, filter, after, limit));
+    addImages(spec, rows.filter(asAsked).slice(0, limit - out.size), out);
+    const last = rows.at(-1);
+    if (out.size === limit || rows.length < limit || last === undefined) return out;
+    after = last[spec.pk];
+  }
 }
