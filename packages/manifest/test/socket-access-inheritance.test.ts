@@ -14,6 +14,13 @@ describe('inheritSocketHandlers: the class access group', () => {
     expect(inheritSocketHandlers(sub, [base]).policies).to.deep.equal([admin, [own, { type: 'OwnerPolicy', options: [] }]]);
   });
 
+  it('keeps a base group whose first member is not SocketAccessPolicy, as http-socket does', () => {
+    const custom = [{ type: 'CustomPolicy', options: [] }, own];
+    const base = entry({ id: 'app:Base', className: 'Base', access: ['doc:read'], policies: [custom] });
+    const sub = entry({ access: ['doc:update'], policies: [[own]] });
+    expect(inheritSocketHandlers(sub, [base]).policies).to.deep.equal([custom, [own]]);
+  });
+
   it('still reads the AccessPolicy name a fragment of an older compiler carries', () => {
     const base = entry({ id: 'dep:Base', className: 'Base', access: ['doc:read'], policies: [[{ type: 'AccessPolicy', options: ['class'] }]] });
     const sub = entry({ access: ['doc:update'], policies: [[own]] });

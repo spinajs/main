@@ -15,3 +15,25 @@ export class ShareSocket extends BaseSocketController {
   @SocketAccess('doc:read')
   public async seen(@Payload() payload: Share): Promise<void> { void payload; }
 }
+
+const SIGNED_BLOB = 'the payload is a signed blob';
+const reasonOf = (): string => 'decided when the module loads';
+
+@SocketController('reason')
+export class ReasonSocket extends BaseSocketController {
+  @Command('constant')
+  @SocketAccess('doc:share', { unfilteredInput: SIGNED_BLOB })
+  public async constant(@Payload() payload: Share): Promise<void> { void payload; }
+
+  @Command('asConst')
+  @SocketAccess('doc:share', { unfilteredInput: 'checked by the issuer' as const })
+  public async asConst(@Payload() payload: Share): Promise<void> { void payload; }
+
+  @Command('template')
+  @SocketAccess('doc:share', { unfilteredInput: `checked by the issuer` })
+  public async template(@Payload() payload: Share): Promise<void> { void payload; }
+
+  @Command('computed')
+  @SocketAccess('doc:share', { unfilteredInput: reasonOf() })
+  public async computed(@Payload() payload: Share): Promise<void> { void payload; }
+}

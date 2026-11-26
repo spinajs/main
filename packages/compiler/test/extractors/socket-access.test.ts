@@ -27,6 +27,27 @@ describe('socket access in the manifest, as http-socket mounts it', () => {
     expect(entry('share.seen')?.access).to.deep.equal([[classRule, owner, { type: 'SocketAccessPolicy', options: ['doc:read'] }]]);
   });
 
+  describe('an unfiltered-input reason that is no inline literal', () => {
+    const unfiltered = (id: string): unknown => entry(id)?.access;
+    const reason = (text: string) => [[{ type: 'SocketAccessPolicy', options: ['doc:share', { unfilteredInput: text }] }]];
+
+    it('is read through a const of the same file', () => {
+      expect(unfiltered('reason.constant')).to.deep.equal(reason('the payload is a signed blob'));
+    });
+
+    it('is read through as const', () => {
+      expect(unfiltered('reason.asConst')).to.deep.equal(reason('checked by the issuer'));
+    });
+
+    it('is read from a template literal without substitutions', () => {
+      expect(unfiltered('reason.template')).to.deep.equal(reason('checked by the issuer'));
+    });
+
+    it('is kept as its source text when it cannot be read, because the runtime still skips the filter', () => {
+      expect(unfiltered('reason.computed')).to.deep.equal(reason('reasonOf()'));
+    });
+  });
+
   it('is an access ref for the doctor rules', () => {
     expect(accessRefs(entry('share.blob')!).map((r) => r.type)).to.deep.equal(['SocketAccessPolicy', 'SocketAccessPolicy']);
   });

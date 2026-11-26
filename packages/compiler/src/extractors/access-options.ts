@@ -1,7 +1,7 @@
 import ts from 'typescript';
 import type { SourceRef } from '@spinajs/manifest';
 import type { ExtractorContext } from '../context.js';
-import { findDecorator, identifierName } from '../decorators.js';
+import { findDecorator, identifierName, literalValue } from '../decorators.js';
 import { baseClassOf } from '../schema/framework-members.js';
 import { classSymbolOf, modelIdOf } from './access-resources.js';
 
@@ -33,6 +33,15 @@ function extractorOf(expr: ts.Expression, ctx: ExtractorContext): AccessOptions[
 const propertyOf = (options: ts.ObjectLiteralExpression, name: string): ts.Expression | undefined =>
   options.properties.find((p): p is ts.PropertyAssignment => ts.isPropertyAssignment(p) && p.name.getText() === name)?.initializer;
 
+/** A reason the extractor cannot read still skips the filter at run time, so its source text stands in for it. */
+function unfilteredInputOf(expr: ts.Expression | undefined, ctx: ExtractorContext): string | undefined {
+  if (!expr) return undefined;
+  const reason = literalValue(expr, ctx);
+  if (typeof reason !== 'string') return expr.getText();
+  // The decorator throws on an empty reason when the module loads, so an empty one never runs.
+  return reason.trim() === '' ? undefined : reason;
+}
+
 /** The literal `resource` extractor, `allowAnonymous` and `unfilteredInput` of the `@Access` / `@SocketAccess` on `node`. */
 export function accessOptionsOf(node: ts.HasDecorators | undefined, ctx: ExtractorContext): AccessOptions {
   const options = node && findDecorator(node, ...ACCESS_DECORATORS)?.args[1];
@@ -40,9 +49,7 @@ export function accessOptionsOf(node: ts.HasDecorators | undefined, ctx: Extract
   const resourceExpr = propertyOf(options, 'resource');
   const resource = resourceExpr && extractorOf(resourceExpr, ctx);
   const anonymous = propertyOf(options, 'allowAnonymous')?.kind === ts.SyntaxKind.TrueKeyword;
-  const reason = propertyOf(options, 'unfilteredInput');
-  // The decorator throws on an empty reason when the module loads, so an empty one never runs.
-  const unfilteredInput = reason && ts.isStringLiteralLike(reason) && reason.text.trim() !== '' ? reason.text : undefined;
+  const unfilteredInput = unfilteredInputOf(propertyOf(options, 'unfilteredInput'), ctx);
   return { ...(anonymous ? { allowAnonymous: true as const } : {}), ...(resource ? { resource } : {}), ...(unfilteredInput !== undefined ? { unfilteredInput } : {}) };
 }
 
