@@ -13,12 +13,13 @@ import { HistoryConfigError } from './errors.js';
 import { HistorySpecs, optedOut } from './registry.js';
 import type { HistorySpec } from './registry.js';
 
-/** From when on a trail holds every change of an entity: what tells "no change" from "not recorded". */
+/** From when on a trail holds every change of the columns an entity's registration records: what tells "no change" from "not recorded". */
 export abstract class HistoryCoverage {
   /**
-   * From when every write of `entity` on `connection` (a configured name, an alias or `default`) is in `trail`;
-   * undefined when it was never covered. Read it after the history it qualifies: a retention run in between only
-   * moves it forward.
+   * From when every observed write of `entity` on `connection` (a configured name, an alias or `default`) is in
+   * `trail`, for the columns its registration records; undefined when it was never covered. A column the registration
+   * excludes, masks or does not track (column mode) is never covered: an update of only such columns leaves no entry.
+   * Rejects with `HistoryConfigError` for an unknown connection, `AuditConfigError` for an unknown trail.
    */
   abstract since(trail: string, connection: string, entity: string): Promise<Date | undefined>;
 
@@ -91,19 +92,21 @@ export class TableHistoryCoverage extends HistoryCoverage {
     await this.pending;
     const driver = DI.get(Orm)?.Connections.get(connection);
     if (!driver) throw new HistoryConfigError(`orm-history: no ORM connection ${JSON.stringify(connection)} to read the coverage of ${entity} from`);
-    const source = driver.Options.Name;
-    // The marker before the row: a retention run between the two reads moves the row past the markers it deletes.
-    const [lost] = await audit()
-      .trail(trail)
-      .of({ type: entity, id: LOST_SUBJECT_ID }, { source, kinds: ['data'], actions: ['lost'], order: 'desc', limit: 1 });
+    const key: CoverageKey = { trail, connection: driver.Options.Name, entity };
+    const events = audit().trail(trail);
     if (!(await holdsCoverageTable(driver))) return undefined;
-    const row = await readCoverage(driver, { trail, connection: source, entity });
+    const start = await readCoverage(driver, key);
+    if (start === undefined) return undefined;
+    // By `at`, not by `seq`: a transaction that commits late inserts a marker stamped before one inserted earlier.
+    const lost = await events.of({ type: entity, id: LOST_SUBJECT_ID }, { source: key.connection, kinds: ['data'], actions: ['lost'], from: start.since, order: 'desc', limit: 1000 });
+    // Read again after the markers: a retention run in between moves the row past the markers it deletes.
+    const row = await readCoverage(driver, key);
     if (row === undefined) return undefined;
-    return lost !== undefined && lost.at.getTime() > row.since.getTime() ? lost.at : row.since;
+    return new Date(Math.max(row.since.getTime(), ...lost.map((e) => e.at.getTime())));
   }
 
-  public record(models?: readonly ModelBaseClass[], now: Date = new Date()): Promise<void> {
-    const pass = this.pending.then(() => this.recordNow(models, now));
+  public record(models?: readonly ModelBaseClass[], now: Date = new Date(), orm?: Orm): Promise<void> {
+    const pass = this.pending.then(() => this.recordNow(models, now, orm ?? DI.get(Orm)));
     this.pending = pass.catch(() => undefined);
     return pass;
   }
@@ -111,11 +114,10 @@ export class TableHistoryCoverage extends HistoryCoverage {
   /** What an application's boot runs. A migration tool's Orm serves no writes and boots before the table exists. */
   public boot(orm: Orm): void {
     if (orm.Container.get(OrmMigrationGuard)?.Enabled === false) return;
-    this.record().catch((error: unknown) => this.Log.warn({ error }, 'orm-history: the coverage of the tracked models could not be recorded at boot'));
+    this.record(undefined, new Date(), orm).catch((error: unknown) => this.Log.warn({ error }, 'orm-history: the coverage of the tracked models could not be recorded at boot'));
   }
 
-  private async recordNow(models: readonly ModelBaseClass[] | undefined, now: Date): Promise<void> {
-    const orm = DI.get(Orm);
+  private async recordNow(models: readonly ModelBaseClass[] | undefined, now: Date, orm: Orm | null): Promise<void> {
     if (!orm) throw new HistoryConfigError('orm-history: coverage is recorded once the ORM is booted');
     const held = new Map<OrmDriver, boolean>();
     for (const table of tablesOf(orm)) {
@@ -140,8 +142,7 @@ export class TableHistoryCoverage extends HistoryCoverage {
   }
 
   private async cover(table: Table, stream: Stream, now: Date): Promise<void> {
-    const key: CoverageKey = { trail: stream.trail, connection: table.driver.Options.Name, entity: stream.entity };
-    const next = coverageColumns(stream.specs, table.columns);
+    const key: CoverageKey = { trail: stream.trail, connection: table.driver.Options.Name, entity: stream.entity };    const next = coverageColumns(stream.specs, table.columns);
     const row = await readCoverage(table.driver, key);
     if (row === undefined) await insertCoverage(table.driver, key, next, now);
     else if (restarts(row.columns, next)) await restartCoverage(table.driver, key, next, now);

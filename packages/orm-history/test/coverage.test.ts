@@ -1,6 +1,6 @@
 import * as chai from 'chai';
 import 'mocha';
-import { audit } from '@spinajs/audit';
+import { AuditConfigError, audit } from '@spinajs/audit';
 import type { AuditInput } from '@spinajs/audit';
 import { DI } from '@spinajs/di';
 import { InsertQueryBuilder, Orm, createQuery } from '@spinajs/orm';
@@ -8,7 +8,7 @@ import { InsertQueryBuilder, Orm, createQuery } from '@spinajs/orm';
 import { TableHistoryCoverage } from '../src/coverage.js';
 import { HISTORY_COVERAGE_TABLE } from '../src/coverage-table.js';
 import { LOST_SUBJECT_ID } from '../src/encode.js';
-import { HistoryCoverage, registerHistory } from '../src/index.js';
+import { HistoryConfigError, HistoryCoverage, registerHistory } from '../src/index.js';
 import type { HistoryOptions } from '../src/index.js';
 import { HistoryDb } from './support/db.js';
 
@@ -88,13 +88,12 @@ describe('history coverage', function () {
         expect(await coverage.since('history', HistoryDb.aliasOf(dialect), 'invoice')).to.deep.eq(T(1));
       });
 
-      it('refuses a connection the ORM does not have', async () => {
-        const refused: unknown = await coverage.since('history', 'nowhere', 'invoice').then(
-          () => undefined,
-          (e: unknown) => e,
-        );
-        expect(refused).to.be.instanceOf(Error);
+      it('refuses a connection the ORM does not have with HistoryConfigError, and a trail without configuration with AuditConfigError', async () => {
+        const refusal = (trail: string, on: string): Promise<unknown> => coverage.since(trail, on, 'invoice').then(() => undefined, (e: unknown) => e);
+        const refused = await refusal('history', 'nowhere');
+        expect(refused).to.be.instanceOf(HistoryConfigError);
         expect(refused instanceof Error && refused.message).to.eq('orm-history: no ORM connection "nowhere" to read the coverage of invoice from');
+        expect(await refusal('nowhere', connection())).to.be.instanceOf(AuditConfigError);
       });
 
       it('starts again at a lost marker that is later than the row, and not at an earlier one', async () => {
@@ -105,6 +104,30 @@ describe('history coverage', function () {
 
         expect(await since('invoice')).to.deep.eq(T(20));
         expect(await since('plan')).to.deep.eq(T(10));
+      });
+
+      it('starts again at the latest lost marker by its instant, not at the one inserted last', async () => {
+        await invoice();
+        await coverage.record(undefined, T(10));
+        await write([lost('invoice', 30), lost('invoice', 20)]);
+        expect(await since('invoice')).to.deep.eq(T(30));
+      });
+
+      it('does not cover a write made before the pass', async () => {
+        const Invoice = await invoice();
+        await Invoice.insert({ id: 'i1', status: 'draft' });
+        const [entry] = await Invoice.history().of('i1');
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        await coverage.record();
+        expect((await since('invoice'))?.getTime()).to.be.above(entry.at.getTime());
+      });
+
+      it('covers neither entity of a table whose two models are tracked under different entities', async () => {
+        await db.define({ name: 'Receipt', table: 'receipt', columns: { status: 'TEXT' }, decorate: (c) => registerHistory(c) }, dialect);
+        await db.define({ name: 'Bill', table: 'receipt', existingTable: true, columns: {}, decorate: (c) => registerHistory(c, { entity: 'bill' }) }, dialect);
+        await coverage.record(undefined, T(1));
+        expect([await since('receipt'), await since('bill')]).to.deep.eq([undefined, undefined]);
+        expect(db.warnings()).to.deep.eq([halfTracked('receipt', connection())]);
       });
 
       it('ignores a lost marker whose write rolled back', async () => {
