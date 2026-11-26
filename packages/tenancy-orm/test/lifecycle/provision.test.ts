@@ -5,7 +5,7 @@ import { ConcurrencyConflict, InvalidArgument, InvalidOperation, NotSupported, R
 import type { TestApp } from '@spinajs/testing';
 import { TenantSwitchDenied, currentTenant, runInTenant, tenantRegistry } from '@spinajs/tenancy';
 
-import { DefaultTenantLifecycle, LIFECYCLE_LEASE_MS, TenantLifecycle, TenantSeeder, lifecycleOf } from '../../src/index.js';
+import { DefaultTenantLifecycle, LIFECYCLE_LEASE_MS, TenantLifecycle, TenantSeeder } from '../../src/index.js';
 import { claimLifecycle } from '../../src/lifecycle/lease.js';
 import type { LifecycleLease } from '../../src/lifecycle/lease.js';
 import { requireRow } from '../../src/lifecycle/record.js';
@@ -105,7 +105,7 @@ describe('provisioning a row-mode tenant', function () {
     expect(acme).to.deep.eq({ id: 'acme', slug: 'acme', name: 'Acme Ltd', state: 'active', domains: ['acme.example'], settings: {} });
     expect(ran).to.deep.eq(['customers@acme', 'audit@acme', 'flaky@acme']);
     expect((await runInTenant('acme', async () => await LcCustomer.all())).map((c) => c.tenant_id)).to.deep.eq(['acme']);
-    expect(lifecycleOf(await requireRow('acme'))).to.deep.eq({});
+    expect((await requireRow('acme')).lifecycleRecord()).to.deep.eq({});
     expect((await (await tenantRegistry()).find({ domain: 'acme.example' }))?.id).to.eq('acme');
   });
 
@@ -115,8 +115,8 @@ describe('provisioning a row-mode tenant', function () {
 
     const half = await requireRow('acme');
     expect(half.state).to.eq('provisioning');
-    expect(lifecycleOf(half).operation).to.deep.include({ kind: 'provision', done: ['record', 'seed:customers', 'seed:audit'] });
-    expect(lifecycleOf(half).operation?.failed).to.include({ step: 'seed:flaky' });
+    expect(half.lifecycleRecord().operation).to.deep.include({ kind: 'provision', done: ['record', 'seed:customers', 'seed:audit'] });
+    expect(half.lifecycleRecord().operation?.failed).to.include({ step: 'seed:flaky' });
     expect(await leaseColumns('acme')).to.include({ lifecycle_owner: null, lifecycle_until: null });
 
     expect((await lifecycle.provision(ACME)).state).to.eq('active');
@@ -178,7 +178,7 @@ describe('provisioning a row-mode tenant', function () {
 
     const row = await requireRow('acme');
     expect(row.state).to.eq('provisioning');
-    expect(lifecycleOf(row).operation?.done).to.deep.eq(['record', 'seed:customers', 'seed:audit']);
+    expect(row.lifecycleRecord().operation?.done).to.deep.eq(['record', 'seed:customers', 'seed:audit']);
     await taker?.release();
     expect((await lifecycle.provision(ACME)).state).to.eq('active');
     expect(ran).to.deep.eq(['customers@acme', 'audit@acme', 'flaky@acme', 'flaky@acme']);

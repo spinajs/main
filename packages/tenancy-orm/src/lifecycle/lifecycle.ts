@@ -13,10 +13,12 @@ import type { ExportReport, MigrationReport, TenantProvisionInput } from './cont
 import { assertDomainsFree, normalizeDomains } from './domains.js';
 import { LIFECYCLE_LEASE_MS, claimLifecycle } from './lease.js';
 import type { LifecycleLease } from './lease.js';
-import { iso, lifecycleOf, requireRow, writeLifecycle } from './record.js';
-import type { LifecycleOperation, LifecycleOperationKind, TenantLifecycleState } from './record.js';
+import { requireRow, writeLifecycle } from './record.js';
+import type { LifecycleOperation, LifecycleOperationKind, TenantLifecycleState } from './state.js';
 
 const NAME_MAX = 128;
+
+const iso = (ms: number): string => new Date(ms).toISOString();
 
 const isRecord = (v: unknown): v is Record<string, unknown> => v !== null && typeof v === 'object' && !Array.isArray(v);
 
@@ -115,7 +117,7 @@ export class DefaultTenantLifecycle extends TenantLifecycle {
 
   /** A retry repairs a provisioning that did not finish; it does not edit it. */
   protected assertResumable(row: TenantModel, plan: ProvisionPlan): void {
-    const unfinished = lifecycleOf(row).operation?.kind === 'provision';
+    const unfinished = row.lifecycleRecord().operation?.kind === 'provision';
     if (row.state === 'active' && !unfinished) throw new ResourceDuplicated(`tenancy-orm: tenant "${row.id}" exists and is active`);
     if (row.state !== 'provisioning' && !(row.state === 'active' && unfinished)) {
       throw new InvalidOperation(`tenancy-orm: tenant "${row.id}" is ${row.state}; only a provisioning that did not finish is provisioned again`);
@@ -175,7 +177,7 @@ export class DefaultTenantLifecycle extends TenantLifecycle {
     return this.leased(id, async (lease) => {
       const row = await requireRow(id);
       admit?.(row);
-      let state = lifecycleOf(row);
+      let state = row.lifecycleRecord();
       const running = state.operation;
       // A deletion may take over a provisioning that failed for good; nothing else takes over.
       if (running !== undefined && running.kind !== kind && !(kind === 'delete' && running.kind === 'provision')) {
