@@ -26,6 +26,8 @@ export * from './migration-lock.js';
 
 export interface IPostgresTransactionContext extends ITransactionContext {
   connection: pg.PoolClient;
+  /** The first statement failure since `BEGIN` or the last `ROLLBACK TO SAVEPOINT`. */
+  failure?: Error;
 }
 
 /**
@@ -286,7 +288,7 @@ export class PostgresOrmDriver extends SqlDriver {
           return result.rows;
       }
     } catch (err) {
-      throw mapPostgresError(
+      const mapped = mapPostgresError(
         err,
         {
           Host: this.Options.Host,
@@ -296,6 +298,8 @@ export class PostgresOrmDriver extends SqlDriver {
         stmt,
         params,
       );
+      if (txContext) txContext.failure ??= mapped;
+      throw mapped;
     }
   }
 
@@ -699,7 +703,14 @@ export class PostgresOrmDriver extends SqlDriver {
     const result = await this.txConnection(ctx).query('COMMIT');
     // A COMMIT of an aborted transaction raises no error: PostgreSQL rolls it back and answers with this tag.
     if (result.command === 'ROLLBACK') {
-      throw new OrmException(`transaction on connection ${this.Options.Name} was aborted by an earlier failed statement whose error was caught; PostgreSQL rolled it back when it was asked to commit, and nothing of it was written`);
+      const failure = (ctx as IPostgresTransactionContext).failure;
+      throw new OrmException(
+        `transaction on connection ${this.Options.Name} was aborted by an earlier failed statement whose error was caught; PostgreSQL rolled it back when it was asked to commit, and nothing of it was written; the first failure: ${failure?.message ?? 'unknown'}`,
+        undefined,
+        undefined,
+        undefined,
+        failure,
+      );
     }
   }
 
@@ -719,6 +730,8 @@ export class PostgresOrmDriver extends SqlDriver {
 
   protected async _rollbackToSavepoint(ctx: ITransactionContext, name: string): Promise<void> {
     await this.txConnection(ctx).query(`ROLLBACK TO SAVEPOINT ${pgEscapeIdentifier(name)}`);
+    // A savepoint can only be taken in a healthy transaction, so rolling back to it heals the transaction.
+    (ctx as IPostgresTransactionContext).failure = undefined;
   }
 
   protected _dispose(ctx: ITransactionContext): Promise<void> {
