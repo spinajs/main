@@ -64,11 +64,6 @@ export class NamedCache extends Cache {
     super();
   }
 
-  /** How many keys of this cache have a wrap() computation (a miss or a refresh) running in this process now. */
-  public get computing(): number {
-    return this.inFlight.size;
-  }
-
   public async get<T>(key: string, options: CacheReadOptions = {}): Promise<T | undefined> {
     const storeKey = this.key(key);
     if (storeKey === null) return undefined;
@@ -190,7 +185,7 @@ export class NamedCache extends Cache {
   private async produce<T>(storeKey: string, options: CacheOptions, life: Lifetime, compute: () => Promise<T>, reading: Reading | undefined, newest = (): boolean => true): Promise<Produced<T>> {
     const value = await compute();
     const bytes = encodeValue(value);
-    // A computation a newer one replaced read versions a bump has moved since: its entry would only displace a valid one.
+    // Only the key's running computation stores: an older one most often read versions a bump has moved since, and its entry would displace a valid one.
     if (reading !== undefined && newest()) await this.save(storeKey, bytes, options.tags ?? [], reading, life);
     return { value, bytes };
   }

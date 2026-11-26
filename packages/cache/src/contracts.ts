@@ -13,7 +13,7 @@ export interface CacheReadOptions {
 export interface CacheOptions extends CacheReadOptions {
   /** Milliseconds or a duration such as '5m'; above 0, capped by cache.maxTtl. */
   readonly ttl: number | string;
-  /** How long after `ttl` a stale value is still served (by wrap() while one refresh runs, by lookup() as a stale hit); default 0. */
+  /** How long after `ttl` a stale value is still served (by wrap(), which refreshes it in the background, and by lookup() as a stale hit); default 0. */
   readonly swr?: number | string;
   /** The entry is valid while none of these tags was bumped after its value began to be computed. */
   readonly tags?: readonly string[];

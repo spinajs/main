@@ -4,7 +4,7 @@ import sinon from 'sinon';
 import { Injectable, NewInstance } from '@spinajs/di';
 import { createTestApp } from '@spinajs/testing';
 import type { TestApp } from '@spinajs/testing';
-import { CacheScope, CacheService, CacheStore, MemoryCacheStore, NamedCache, cache } from '../src/index.js';
+import { CacheScope, CacheStore, MemoryCacheStore, cache } from '../src/index.js';
 
 @NewInstance()
 @Injectable(CacheStore)
@@ -259,14 +259,11 @@ describe('cache().wrap', () => {
   // Fails when a settled computation stays in the map (it grows with every key), and when a settling older computation
   // frees its key although a newer one replaced it (the joiner below would then compute on its own).
   it('forgets every computation once it settled, resolved, rejected or replaced', async () => {
-    const named = (await app.resolve(CacheService)).cache();
-    if (!(named instanceof NamedCache)) throw new Error('expected a NamedCache');
     const first = gate<string>();
     const failing = gate<string>();
     const older = cache().wrap('k', TAGGED, () => first.promise);
     const other = rejection(cache().wrap('other', TAGGED, () => failing.promise));
     await drain();
-    expect(named.computing).to.eq(2);
     await cache().invalidate(['any:t']);
     const second = gate<string>();
     const slow = gated(second);
@@ -275,12 +272,32 @@ describe('cache().wrap', () => {
     first.open('older');
     failing.fail(new Error('db down'));
     await Promise.all([older, other]);
-    expect(named.computing).to.eq(1);
     const joined = cache().wrap('k', TAGGED, slow.compute);
     await drain();
     second.open('newer');
     expect([await newer, await joined, slow.runs()]).to.deep.eq(['newer', 'newer', 1]);
-    expect(named.computing).to.eq(0);
+    await Promise.all([cache().delete('k'), cache().delete('other')]);
+    let runs = 0;
+    const counted = async (): Promise<string> => {
+      runs += 1;
+      return 'again';
+    };
+    await Promise.all([cache().wrap('k', TAGGED, counted), cache().wrap('other', TAGGED, counted)]);
+    expect(runs).to.eq(2);
+  });
+
+  // Fails when a settled computation stays the key's running one: the next miss would get its old value without computing.
+  it('computes a key again once its computation settled and the entry was deleted, for every key', async () => {
+    const keys = Array.from({ length: 1000 }, (_, i) => `k${i}`);
+    await Promise.all(keys.map((key) => cache().wrap(key, TAGGED, async () => key)));
+    await Promise.all(keys.map((key) => cache().delete(key)));
+    let runs = 0;
+    const counted = async (): Promise<string> => {
+      runs += 1;
+      return 'again';
+    };
+    await Promise.all(keys.map((key) => cache().wrap(key, TAGGED, counted)));
+    expect(runs).to.eq(keys.length);
   });
 });
 
