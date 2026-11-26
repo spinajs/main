@@ -342,10 +342,7 @@ describe('DomainReplayService', function () {
 
   it('ends at the timeout a replayer that ignores its signal, keeps its slot until it settles, and swallows its late answer or rejection', async () => {
     world.recordings.set('quotes/q1', recording('quotes', 'q1'));
-    const late: [Gate<ReplayOutcome>, (held: Gate<ReplayOutcome>) => void][] = [
-      [gate(), (held) => held.open({ outcome: { price: 12 }, missing: [], divergences: [] })],
-      [gate(), (held) => held.fail(new Error('too late'))],
-    ];
+    const late: [Gate<ReplayOutcome>, (held: Gate<ReplayOutcome>) => void][] = [[gate(), (held) => held.open({ outcome: { price: 12 }, missing: [], divergences: [] })], [gate(), (held) => held.fail(new Error('too late'))]];
     const s = await service();
     const seen = await unhandledDuring(async () => {
       for (const [held, settle] of late) {
