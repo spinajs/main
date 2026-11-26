@@ -142,7 +142,8 @@ export class TableHistoryCoverage extends HistoryCoverage {
   }
 
   private async cover(table: Table, stream: Stream, now: Date): Promise<void> {
-    const key: CoverageKey = { trail: stream.trail, connection: table.driver.Options.Name, entity: stream.entity };    const next = coverageColumns(stream.specs, table.columns);
+    const key: CoverageKey = { trail: stream.trail, connection: table.driver.Options.Name, entity: stream.entity };
+    const next = coverageColumns(stream.specs, table.columns);
     const row = await readCoverage(table.driver, key);
     if (row === undefined) await insertCoverage(table.driver, key, next, now);
     else if (restarts(row.columns, next)) await restartCoverage(table.driver, key, next, now);
