@@ -60,4 +60,4 @@ Limits of this version:
 
 | Key | Default | What it does |
 | --- | --- | --- |
-| `cache.http.timeout` | `250` | Milliseconds the response cache waits for its cache to answer a lookup or a store. Past it the request runs uncached, nothing is stored for it, and the route logs a warning. A key part or a cache call that throws is read the same way. |
+| `cache.http.timeout` | `250` | Milliseconds the response cache waits for its cache to answer a lookup or a store. Past it the request runs uncached and the route logs a warning, at most once per call and minute. A store call that answers later may still store the reply, under the tag versions read before the action ran, so an invalidation in between still wins. A key part or a cache call that throws is read the same way. |

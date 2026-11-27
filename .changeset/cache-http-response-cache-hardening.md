@@ -10,7 +10,7 @@ A reply of a `'tenant'` or `'shared'` route keeps only the headers that describe
 
 A reply that says `Cache-Control: no-cache` is not stored.
 
-Every call of the response cache to its cache is bounded by the new setting `cache.http.timeout` (milliseconds, default `250`): a store that does not answer, such as a Redis client queueing while it reconnects, no longer holds the request; it runs uncached, nothing is stored for it, and the route logs a warning.
+Every call of the response cache to its cache is bounded by the new setting `cache.http.timeout` (milliseconds, default `250`): a store that does not answer, such as a Redis client queueing while it reconnects, no longer holds the request; it runs uncached and the route logs a warning. A store call that answers after the timeout may still store the reply, under the tag versions read before the action ran, so an invalidation in between still wins.
 
 On a `'tenant'` or `'shared'` route `@Header()` must name its header (`@Header('x-region')`); a `@Header()` without a name fails the registration with a message that says so, instead of refusing a header listed in `vary`. A refused argument is named by its position when http has not named it yet.
 

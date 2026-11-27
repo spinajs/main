@@ -13,7 +13,7 @@ const CACHE_HTTP_CONFIGURATION_SCHEMA = {
       type: 'integer',
       minimum: 1,
       default: RESPONSE_CACHE_DEFAULT_TIMEOUT_MS,
-      description: 'Milliseconds the response cache waits for its cache to answer a lookup or a store; past it the request runs uncached and nothing is stored for it. Default 250.',
+      description: 'Milliseconds the response cache waits for its cache to answer a lookup or a store; past it the request runs uncached; a store call that answers later may still store the reply. Default 250.',
     },
   },
 };
