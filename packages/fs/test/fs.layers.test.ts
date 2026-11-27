@@ -41,10 +41,18 @@ function swapped(found: fs, from: string, to: string): fs {
   return found.Name === from ? (publishedFs(to) ?? found) : found;
 }
 
+/** With BToA, the order of the two decides the result: a lookup of layer-a ends at layer-a only when AToB runs first. */
 class AToB extends FsProviderLayer {
   public wrap(found: fs): fs {
     applied.push('AToB');
     return swapped(found, 'layer-a', 'layer-b');
+  }
+}
+
+class BToA extends FsProviderLayer {
+  public wrap(found: fs): fs {
+    applied.push('BToA');
+    return swapped(found, 'layer-b', 'layer-a');
   }
 }
 
@@ -140,6 +148,20 @@ describe('fs provider layers', function () {
       register(container);
       expect(() => layeredFs(published, container)).to.throw(InvalidOperation, /cannot run/);
     }
+  });
+
+  it('layers apply in registration order, each to what the one before handed out', () => {
+    const published = publishedFs('layer-a')!;
+    const forward = DI.child();
+    forward.register(AToB).as(FsProviderLayer);
+    forward.register(BToA).as(FsProviderLayer);
+    const backward = DI.child();
+    backward.register(BToA).as(FsProviderLayer);
+    backward.register(AToB).as(FsProviderLayer);
+
+    expect(layeredFs(published, forward)).to.equal(published);
+    expect(layeredFs(published, backward)).to.equal(publishedFs('layer-b'));
+    expect(applied).to.deep.equal(['AToB', 'BToA', 'BToA', 'AToB']);
   });
 
   it('a layer class replaced the DI way (register(Sub).as(Layer)) is applied in its place, once per lookup', () => {
