@@ -29,6 +29,15 @@ function withExpirationSet(query: ISelectQueryBuilder<DbSession[]>): ISelectQuer
   });
 }
 
+/** Only NULL means none; SQLite also keeps a blob in these TEXT columns. */
+function unreadableRevocationColumn(row: DbSession): 'Impersonator' | 'ExternalKey' | undefined {
+  const external: unknown = row.ExternalKey;
+  if (row.ImpersonatorId != null && !refOf(row.ImpersonatorId)?.id) {
+    return 'Impersonator';
+  }
+  return external != null && typeof external !== 'string' ? 'ExternalKey' : undefined;
+}
+
 /**
  * Relational-db backed session store. Subject, Impersonator and State live in
  * their own indexed columns (principal keys).
@@ -138,7 +147,10 @@ export class DbSessionStore extends SessionProvider {
     await s.insert(InsertBehaviour.InsertOrUpdate);
   }
 
-  /** Update-only: a row deleted since the read stays deleted, and a row stored in another State is left alone (SR-07). */
+  /**
+   * Update-only: a row deleted since the read stays deleted, and a row stored in another State
+   * (SR-07) or with another ImpersonatorId is left alone.
+   */
   public async touch(session: ISession): Promise<boolean> {
     const current = session.Expiration;
     this.applyRenewedExpiration(session);
@@ -152,6 +164,13 @@ export class DbSessionStore extends SessionProvider {
       .where('State', session.State)
       .where(function () {
         this.whereNull('Expiration').orWhere('Expiration', '>', now);
+      })
+      .where(function () {
+        if (session.Impersonator) {
+          this.where('ImpersonatorId', refKey(session.Impersonator));
+        } else {
+          this.whereNull('ImpersonatorId');
+        }
       });
 
     if (rowsAffected(result) === 0) {
@@ -236,7 +255,7 @@ export class DbSessionStore extends SessionProvider {
    */
   protected toSession(row: DbSession, lenient = false): ISession | null {
     const subject = refOf(row.Subject);
-    if (!subject) {
+    if (!subject?.id) {
       return null;
     }
 
@@ -263,13 +282,19 @@ export class DbSessionStore extends SessionProvider {
     });
   }
 
-  /** Only NULL means "never": an Expiration no converter reads counts as passed. */
+  /**
+   * Only NULL means "never": an Expiration no converter reads counts as passed. So does a
+   * present but unreadable column a revocation selects by, which that revocation's equality
+   * cannot match: the session must not outlive it.
+   */
   private expirationOf(row: DbSession): DateTime | undefined {
-    if (row.ExpirationSet !== true || row.Expiration != null) {
+    const column = unreadableRevocationColumn(row);
+    if (column === undefined && (row.ExpirationSet !== true || row.Expiration != null)) {
       return row.Expiration ?? undefined;
     }
     // The session id is the storage key of a bearer credential: the warning names the subject only.
-    this.Log.warn(`A session of ${row.Subject} has an Expiration that is not a datetime the store can read; it is treated as expired`);
+    const what = column === undefined ? 'an Expiration that is not a datetime the store can read' : `an ${column} the store cannot read`;
+    this.Log.warn(`A session of ${row.Subject} has ${what}; it is treated as expired`);
     return DateTime.fromMillis(0, { zone: 'utc' });
   }
 
