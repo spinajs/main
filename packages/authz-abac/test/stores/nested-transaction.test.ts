@@ -4,7 +4,7 @@ import { Authorizer, DefaultConditionCompiler, PermissionRegistryImpl, TRUE } fr
 import type { Decision, Vote } from '@spinajs/authz';
 import { fakeEvaluationContext, fakeModelInitContext, userPrincipal } from '@spinajs/authz-testing';
 
-import { AUTHZ_POLICY_TABLE, AbacModel, DbPolicyStore, PolicyStore } from '../../src/index.js';
+import { AUTHZ_POLICY_TABLE, AbacModel, DbPolicyStore, MemoryPolicyStore, PolicyStore } from '../../src/index.js';
 import { DB_KINDS, bootDb } from '../support/db.js';
 import type { TestDb } from '../support/db.js';
 
@@ -171,6 +171,31 @@ for (const kind of DB_KINDS) {
       const started = Date.now();
       while (pending(model) && Date.now() - started < DEADLINE) await new Promise((resolve) => setTimeout(resolve, 20));
       expect(pending(model), 'caught up without a check that keeps its read').to.equal(false);
+    });
+
+    it('with a second store that is never in a transaction, an invalidate inside one still starts no reload there (tq-01i)', async () => {
+      await db.driver.del().from(AUTHZ_POLICY_TABLE);
+      const store = new DbPolicyStore();
+      const reg = registry();
+      const model = new AbacModel({ stores: [store, new MemoryPolicyStore([])], retryMs: 600_000 });
+      await model.init(fakeModelInitContext({ permissions: reg, container: db.container }));
+      const ctx = fakeEvaluationContext({ now: NOW, permissions: reg, conditions: new DefaultConditionCompiler() });
+      const evaluate = async () => answer(await model.evaluate({ principal: alice, permission: 'file:read', resource: { type: 'file' }, env: { now: NOW } }, ctx));
+      await evaluate();
+      const done = db.driver.transaction(async () => {
+        await store.put(OPEN, alice, { driver: db.driver }, NOW);
+        model.invalidate(['policy']);
+        await new Promise((resolve) => setTimeout(resolve, 300));
+        throw new Rollback();
+      });
+      await within(
+        DEADLINE,
+        'the rolled-back transaction',
+        done.catch((e: unknown) => {
+          if (!(e instanceof Rollback)) throw e;
+        }),
+      );
+      expect(await within(DEADLINE, 'outside', evaluate()), 'outside, after the rollback').to.equal('abstain');
     });
 
     if (kind === 'postgres') {
