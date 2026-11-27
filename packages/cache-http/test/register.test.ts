@@ -118,12 +118,15 @@ describe('ResponseCacheMiddleware registration', () => {
     // at onRegister http has not named the arguments yet: Name is '' as in a real boot
     const header = 'or name the header in vary';
     const url = 'or read the value from the URL';
+    const declare = 'or take what it reads as @Query, @Param or @Header arguments';
     const refused: [IRouteParameter, string, string][] = [
       [arg(ParameterType.FromHeader, '', { key: 'X-Secret' }), 'the header x-secret, which is not in the key', header],
       [arg(ParameterType.FromHeader, '', { key: undefined }), 'the header of the argument #1, which @Header() does not name', "or write @Header('<name>') and name the header in vary"],
       [arg(ParameterType.FromCookie, ''), 'the header cookie, which is not in the key', header],
       [arg(ParameterType.UserAgent, ''), 'the header user-agent, which is not in the key', header],
       [arg(ParameterType.Referer, ''), 'the header referer, which is not in the key', header],
+      [arg(ParameterType.Req, ''), 'the request object of the argument #1, whose reads the key cannot see', declare],
+      [arg(ParameterType.Res, ''), 'the response object of the argument #1, whose reads the key cannot see', declare],
       ...[ParameterType.FromSession, ParameterType.Headers, ParameterType.Ip, ParameterType.RequestId, 'CurrentPrincipalArg', 'CurrentUserArg', 'AuthnSessionDataArg'].map((type): [IRouteParameter, string, string] => [arg(type, ''), `the argument #1 of type '${type}', which is not in the key`, url]),
     ];
     for (const [param, what, hint] of refused) {

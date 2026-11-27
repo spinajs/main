@@ -28,8 +28,11 @@ Limits of this version:
   in the key. A `@Header`, `@Cookie`, `User-Agent` or `Referer` argument needs its header in `vary`, and `@Header()`
   must name its header (`@Header('x-region')`): http names an argument only after the routes are registered; any other
   argument (session, IP, body, the current principal or user, an application's own resolver) fails the registration:
-  cache such a route with scope `'principal'`. An action that takes `@Req()` or `@Res()` logs a warning at registration:
-  what it reads of the request is not in the key.
+  cache such a route with scope `'principal'`. An action that takes `@Req()` or `@Res()` fails the registration too.
+  http also passes `req`, `res` and `next` after the declared arguments: an action with more parameters than declared
+  arguments fails the registration, but one that reads them through a default or rest parameter or `arguments` cannot
+  be seen. A `'tenant'` or `'shared'` action must not read the request at all; it takes what it needs as `@Query`,
+  `@Param` or `@Header` arguments.
 - A `'tenant'` route fails the registration unless something puts the tenant into the key: `@spinajs/tenancy-http`,
   an `IdempotencyScopePart` or a `CacheScope`.
 - What the action reads of the request without an argument is not in the key either. On a `'tenant'` or `'shared'`

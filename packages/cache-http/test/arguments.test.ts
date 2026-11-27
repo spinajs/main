@@ -1,6 +1,7 @@
 import 'mocha';
 import { expect } from 'chai';
-import { BaseController, BasePath, Get, Header, Ok } from '@spinajs/http';
+import { BaseController, BasePath, Get, Header, Ok, Query, Req } from '@spinajs/http';
+import type { Request } from '@spinajs/http';
 import { ResponseCache } from '../src/index.js';
 import { bootFailure, run, useServer } from './support/server.js';
 
@@ -33,6 +34,24 @@ class UnkeyedHeader extends BaseController {
   }
 }
 
+@BasePath('raw')
+class RequestObject extends BaseController {
+  @Get('cookie')
+  @ResponseCache(SHARED)
+  public cookie(@Req() req: Request) {
+    return new Ok({ cookie: req.headers.cookie });
+  }
+}
+
+@BasePath('trailing')
+class TrailingRequest extends BaseController {
+  @Get('cookie')
+  @ResponseCache(SHARED)
+  public cookie(@Query() page: string, req?: Request) {
+    return new Ok({ page, cookie: req?.headers.cookie });
+  }
+}
+
 describe('@ResponseCache on a booted server', function () {
   this.timeout(60000);
 
@@ -56,5 +75,10 @@ describe('@ResponseCache refuses at boot a shared route', function () {
 
   it('whose @Header names a header not in vary', async () => {
     expect(await refusal(UnkeyedHeader)).to.contain("GET /secret/value: @ResponseCache scope 'shared' would give one caller's reply to others, but the route reads the header x-secret, which is not in the key");
+  });
+
+  it('whose action takes @Req(), or reads the request http passes after its declared arguments', async () => {
+    expect(await refusal(RequestObject)).to.contain("GET /raw/cookie: @ResponseCache scope 'shared' would give one caller's reply to others, but the route reads the request object of the argument #1, whose reads the key cannot see: cache it with scope 'principal', or take what it reads as @Query, @Param or @Header arguments");
+    expect(await refusal(TrailingRequest)).to.contain("GET /trailing/cookie: @ResponseCache scope 'shared' would give one caller's reply to others, but the route reads the request http passes after the 1 declared argument (the action takes 2), whose reads the key cannot see: cache it with scope 'principal', or take what it reads as @Query, @Param or @Header arguments");
   });
 });

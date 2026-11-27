@@ -31,6 +31,8 @@ const HEADER_ARGUMENTS: ReadonlyMap<string, readonly string[]> = new Map([
   [ParameterType.Referer, ['referer', 'referrer']],
 ]);
 const REQUEST_OBJECTS: ReadonlySet<string> = new Set([ParameterType.Req, ParameterType.Res]);
+const REQ: string = ParameterType.Req;
+const DECLARE = 'or take what it reads as @Query, @Param or @Header arguments';
 const FROM_HEADER: string = ParameterType.FromHeader;
 
 /**
@@ -132,7 +134,7 @@ export class ResponseCacheMiddleware extends RouteMiddleware {
     if (this.options.scope === 'tenant' && this.ScopeParts.length === 0 && !this.Container.hasRegistered(CacheScope)) {
       throw new InvalidArgument(`${String(route.Type).toUpperCase()} ${path}: @ResponseCache scope 'tenant' needs a tenant in the key: install @spinajs/tenancy-http, or register an IdempotencyScopePart or a CacheScope`);
     }
-    const unkeyed = this.options.scope === 'principal' ? undefined : this.unkeyedArgument(route, path);
+    const unkeyed = this.options.scope === 'principal' ? undefined : this.unkeyedArgument(route, controller);
     if (unkeyed !== undefined) {
       throw new InvalidArgument(`${String(route.Type).toUpperCase()} ${path}: @ResponseCache scope '${this.options.scope}' would give one caller's reply to others, but the route reads ${unkeyed[0]}: cache it with scope 'principal', ${unkeyed[1]}`);
     }
@@ -248,19 +250,20 @@ export class ResponseCacheMiddleware extends RouteMiddleware {
   }
 
   /** What a route argument reads of the request that the key of a wider scope does not hold, and what to do about it. */
-  private unkeyedArgument(route: IRoute, path: string): readonly [string, string] | undefined {
+  private unkeyedArgument(route: IRoute, controller: IController): readonly [string, string] | undefined {
     const keyed = new Set(['accept', 'x-data-transform', ...this.options.vary.map((name) => name.toLowerCase())]);
     for (const param of route.Parameters.values()) {
-      if (REQUEST_OBJECTS.has(param.Type)) {
-        this.Log.warn({ route: `${String(route.Type).toUpperCase()} ${path}` }, "Response cache of ${route}: the action takes the request or the response, so the key cannot see what it reads; a header or a cookie it reads must be named in vary, or the route cached with scope 'principal'");
-        continue;
-      }
+      if (REQUEST_OBJECTS.has(param.Type)) return [`the ${param.Type === REQ ? 'request' : 'response'} object of the argument ${nameOf(param)}, whose reads the key cannot see`, DECLARE];
       const headers = headersOf(param);
       if (headers?.length === 0) return [`the header of the argument ${nameOf(param)}, which @Header() does not name`, "or write @Header('<name>') and name the header in vary"];
       if (headers === undefined && !KEYED_ARGUMENTS.has(param.Type)) return [`the argument ${nameOf(param)} of type '${param.Type}', which is not in the key`, 'or read the value from the URL'];
       const unkeyed = headers?.find((header) => !keyed.has(header));
       if (unkeyed !== undefined) return [`the header ${unkeyed}, which is not in the key`, 'or name the header in vary'];
     }
+    // http calls the action with req, res and next after the declared arguments; a default or rest parameter does not count in length
+    const action: unknown = Reflect.get(controller, route.Method);
+    const declared = route.Parameters.size;
+    if (typeof action === 'function' && action.length > declared) return [`the request http passes after the ${declared} declared argument${declared === 1 ? '' : 's'} (the action takes ${action.length}), whose reads the key cannot see`, DECLARE];
     return undefined;
   }
 
