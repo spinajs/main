@@ -72,6 +72,7 @@ export default {
 - **The deciding rule's `fields` counts.** A route `@Access` without `fields: 'filter'` turns the class's response filter off for that route.
 - **Query, URL, header and cookie arguments are never filtered**: they are not writes.
 - **Output filtering needs `fields: 'filter'`** or the client's `x-data-transform: authz-fields`; without either the response is sent as the action built it.
+- **A filtered reply belongs to its caller.** `AuthzFieldsMiddleware` and `AuthzFieldTransformer` declare `static readonly PerPrincipalReply = true`, so a response cache never gives the reply to another caller ([A reply shaped per principal](../http/14-route-middlewares.md#a-reply-shaped-per-principal)). A subclass inherits it; do not unset it.
 
 ## Best practices
 
