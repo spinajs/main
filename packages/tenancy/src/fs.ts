@@ -1,6 +1,6 @@
-import { realpathSync } from 'node:fs';
+import { realpathSync, statSync } from 'node:fs';
 import type { WriteStream } from 'node:fs';
-import { isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import type { PassThrough } from 'node:stream';
 import { Config, Configuration } from '@spinajs/configuration';
 import { DI, Injectable, isConstructor } from '@spinajs/di';
@@ -325,24 +325,53 @@ function refuseUnzipIntoRoot(ctx: FsActionContext): void {
   }
 }
 
+// Compared by file identity: a UNC, \\?\ or short-name spelling of a folder has another real path but the same identity.
+function identity(path: string): { id: string; dir: boolean } | undefined {
+  try {
+    const s = statSync(path, { bigint: true });
+    return { id: `${s.dev}:${s.ino}`, dir: s.isDirectory() };
+  } catch {
+    return undefined;
+  }
+}
+
+// The identities of the real path and of each of its folders; a path that does not exist starts at its nearest existing folder.
+function ancestry(path: string): string[] {
+  let probe = resolve(path);
+  let real = realpathOrUndefined(probe);
+  while (real === undefined && dirname(probe) !== probe) real = realpathOrUndefined((probe = dirname(probe)));
+  const ids: string[] = [];
+  for (let p = real; p !== undefined; p = dirname(p) === p ? undefined : dirname(p)) {
+    const id = identity(p)?.id;
+    if (id !== undefined) ids.push(id);
+  }
+  return ids;
+}
+
 // upload() takes a local path unchecked (copy and move between providers pass one too): inside a tenant provider's
 // directory it must be the current tenant's own file, whatever provider it is uploaded into.
-function assertOwnSource(srcPath: string, tenant: string, { prefixed, prefix, dedicated }: TenantFsSettings): void {
-  const real = realpathOrUndefined(resolve(srcPath));
-  if (real === undefined) return;
+function assertOwnSource(srcPath: unknown, tenant: string, { prefixed, prefix, dedicated }: TenantFsSettings): void {
+  if (typeof srcPath !== 'string') throw new InvalidArgument('the upload source must be a local path string', 'srcPath');
+  const source = ancestry(srcPath);
+  const leaf = identity(resolve(srcPath));
   const areas: Array<[string, string | undefined]> = [];
-  for (const name of prefixed) {
-    const tenants = dedicated.get(name) ?? new Map<string, string>();
-    areas.push([name, tenants.has(tenant) ? undefined : prefix.replace(PLACEHOLDER, tenant)]);
-    for (const [owner, own] of tenants) areas.push([own, owner === tenant ? '' : undefined]);
-  }
+  for (const name of prefixed) areas.push([name, dedicated.get(name)?.has(tenant) === true ? undefined : prefix.replace(PLACEHOLDER, tenant)]);
+  for (const tenants of dedicated.values()) for (const [owner, own] of tenants) areas.push([own, owner === tenant ? '' : undefined]);
   for (const [name, own] of areas) {
     const provider = publishedFs(name);
-    const base = provider instanceof fsNative && provider.BasePath !== undefined ? realpathOrUndefined(provider.BasePath) : undefined;
-    if (base !== undefined && inside(base, real) && (own === undefined || !inside(join(base, own), real))) {
+    if (provider instanceof fsNative && provider.BasePath !== undefined && reachesOthers(source, leaf, provider.BasePath, own)) {
       throw new InvalidArgument(`upload source ${JSON.stringify(srcPath)} lies in the files of fs "${name}" outside this tenant's own`, 'srcPath');
     }
   }
+}
+
+// A source below the provider's base but outside `own` (undefined: no area of this tenant), or a folder that holds the base.
+function reachesOthers(source: readonly string[], leaf: { id: string; dir: boolean } | undefined, basePath: string, own: string | undefined): boolean {
+  const base = identity(basePath)?.id;
+  if (base === undefined) return false;
+  const ownRoot = own === undefined ? undefined : identity(join(basePath, own))?.id;
+  if (source.includes(base) && (ownRoot === undefined || !source.includes(ownRoot))) return true;
+  return leaf?.dir === true && ancestry(basePath).includes(leaf.id);
 }
 
 // The file ACL of authz-fs is keyed by provider name and path, with no tenant: one grant would act in every tenant.
@@ -495,7 +524,7 @@ export class TenantFsGuard extends FsMiddleware {
     if (shared.length > 0 && tenant !== undefined) {
       throw new InvalidOperation(`fs "${shared[0].Name}" holds tenants' files, and this ${ctx.action} in tenant "${tenant}" reached them without the tenant's view (publishedFs(), a kept instance or a dedicated provider's own name); use getFs() of the listed provider`);
     }
-    if (ctx.action === 'upload' && tenant !== undefined && typeof ctx.args[0] === 'string') assertOwnSource(ctx.args[0], tenant, tenantFsSettings(this.Section));
+    if (ctx.action === 'upload' && tenant !== undefined) assertOwnSource(ctx.args[0], tenant, tenantFsSettings(this.Section));
     refuseUnzipIntoRoot(ctx);
     return Promise.resolve();
   }

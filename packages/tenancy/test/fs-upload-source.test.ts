@@ -1,9 +1,10 @@
 import 'mocha';
 import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
-import { existsSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, sep } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { InvalidArgument } from '@spinajs/exceptions';
 import { fsService, getFs, zip } from '@spinajs/fs';
 import type { fs } from '@spinajs/fs';
@@ -22,6 +23,7 @@ const root = join(tmpdir(), `tenancy-fs-upload-source-${process.pid}`);
 const dir = (name: string) => join(root, name);
 const beta = join(dir('uploads'), 'tenants', 'beta');
 const incoming = dir('incoming');
+const betaFile = join(beta, 'secret.txt');
 
 class SilentLog extends Log {
   public trace(): void {}
@@ -40,14 +42,29 @@ class SilentLog extends Log {
 // acme (tenant A) has a prefix on uploads and its own vault for docs; beta (B) has a prefix, bigcorp (B) its bucket.
 const PROVIDERS = ['uploads', 'docs', 'bucket', 'vault', 'other', 'tmpbase'].map((name) => ({ service: 'fsNative', name, basePath: dir(name) }));
 
-const SECRET = {
+const SECRET: Record<string, string | URL> = {
   'beta prefixed file': join(beta, 'secret.txt'),
   "bigcorp's dedicated folder": join(dir('bucket'), 'big.txt'),
   "a listed provider's shared root": join(dir('uploads'), 'shared.txt'),
   'a junction into beta': join(incoming, 'jbeta', 'secret.txt'),
   // join() would resolve the climb before the upload sees it
   "a '..' climb into beta": [incoming, '..', 'uploads', 'tenants', 'beta', 'secret.txt'].join(sep),
+  "a prefix sibling's file (acme2)": join(dir('uploads'), 'tenants', 'acme2', 'a.txt'),
+  'a \\\\?\\ spelling': `\\\\?\\${join(beta, 'secret.txt')}`,
+  'a file beta does not have': join(beta, 'missing.txt'),
+  // it holds every destination too: a check that lets it through makes cp refuse to copy into its own subfolder
+  'a folder that holds the providers': root,
+  'a file URL': pathToFileURL(join(beta, 'secret.txt')),
 };
+
+// The same file of beta through the drive's administrative share, derived from the sandbox's own real path.
+function uncSpelling(): string | undefined {
+  const real = realpathSync.native(join(beta, 'secret.txt'));
+  const drive = /^([A-Za-z]):\\/.exec(real);
+  if (process.platform !== 'win32' || drive === null) return undefined;
+  const unc = `\\\\localhost\\${drive[1]}$\\${real.slice(3)}`;
+  return existsSync(unc) ? unc : undefined;
+}
 
 const OWN = {
   "acme's prefixed file": join(dir('uploads'), 'tenants', 'acme', 'mine.txt'),
@@ -63,7 +80,8 @@ describe('files per tenant: the local source of an upload', function () {
     for (const name of [...PROVIDERS.map((p) => p.name), 'incoming']) mkdirSync(dir(name), { recursive: true });
     mkdirSync(beta, { recursive: true });
     mkdirSync(join(dir('uploads'), 'tenants', 'acme'), { recursive: true });
-    for (const path of Object.values(SECRET).slice(0, 3)) writeFileSync(path, 'SECRET');
+    mkdirSync(join(dir('uploads'), 'tenants', 'acme2'), { recursive: true });
+    for (const path of [join(beta, 'secret.txt'), join(dir('bucket'), 'big.txt'), join(dir('uploads'), 'shared.txt'), join(dir('uploads'), 'tenants', 'acme2', 'a.txt')]) writeFileSync(path, 'SECRET');
     for (const path of Object.values(OWN)) writeFileSync(path, 'OWN');
     symlinkSync(beta, join(incoming, 'jbeta'), 'junction');
     app = await createTestApp({
@@ -93,13 +111,27 @@ describe('files per tenant: the local source of an upload', function () {
     const failures: string[] = [];
     for (const [into, files] of Object.entries(destinations)) {
       for (const [from, source] of Object.entries(SECRET)) {
-        const outcome = await runInTenant('acme', () => files().upload(source, 'stolen.txt')).then(() => 'copied', (error: unknown) => error);
+        // a URL is outside upload()'s type; plain JavaScript can still pass one
+        const outcome = await runInTenant('acme', async () => {
+          const into = files();
+          await Reflect.apply(into.upload.bind(into), undefined, [source, 'stolen.txt']);
+        }).then(() => 'copied', (error: unknown) => error);
         if (!(outcome instanceof InvalidArgument)) failures.push(`${from} into ${into}: ${String(outcome)}`);
         const copied = await runInTenant('acme', () => files().exists('stolen.txt'));
         if (copied) failures.push(`${from} into ${into}: the file was copied`);
       }
     }
     expect(failures).to.deep.equal([]);
+  });
+
+  it("a UNC spelling of another tenant's file is refused into every provider", async function () {
+    const unc = uncSpelling();
+    // Only the drive's existing administrative share is used; none is created.
+    if (unc === undefined) this.skip();
+    for (const [into, files] of Object.entries(destinations)) {
+      await expect(runInTenant('acme', () => files().upload(unc ?? '', 'unc.txt')), into).to.be.rejectedWith(InvalidArgument);
+      expect(await runInTenant('acme', () => files().exists('unc.txt')), into).to.equal(false);
+    }
   });
 
   it("an upload from the tenant's own files or from a folder no listed provider holds works, into every provider", async () => {
@@ -128,9 +160,9 @@ describe('files per tenant: the local source of an upload', function () {
 
   it("other operations of an unlisted provider take provider paths: another tenant's local path is refused", async () => {
     const other = () => getFs('other');
-    const operations = [() => other().copy(SECRET['beta prefixed file'], 'c.txt'), () => other().zip(SECRET['beta prefixed file'], other(), 'z.zip'), () => other().download(SECRET['beta prefixed file']), () => other().hash(SECRET['beta prefixed file']), () => other().stat(SECRET['beta prefixed file']), () => other().readStream(SECRET['beta prefixed file']), () => getFs('fs-temp').read(SECRET['beta prefixed file'])];
+    const operations = [() => other().copy(betaFile, 'c.txt'), () => other().zip(betaFile, other(), 'z.zip'), () => other().download(betaFile), () => other().hash(betaFile), () => other().stat(betaFile), () => other().readStream(betaFile), () => getFs('fs-temp').read(betaFile)];
     for (const operation of operations) await expect(runInTenant('acme', async () => { await operation(); })).to.be.rejectedWith(InvalidArgument);
     expect(existsSync(join(dir('other'), 'c.txt'))).to.equal(false);
-    expect(readFileSync(SECRET['beta prefixed file'], 'utf-8')).to.equal('SECRET');
+    expect(readFileSync(betaFile, 'utf-8')).to.equal('SECRET');
   });
 });
