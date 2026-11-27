@@ -168,28 +168,36 @@ describe('dynamodb session provider', function () {
     async function undecodable(store: DynamoDbSessionProvider, raw: string): Promise<string> {
       const key = createHash('sha256').update(raw).digest('hex');
       await store.save(session({ SessionId: key, Subject: user('u-42') }));
-      item(key).Data = { S: '{bad' };
+      // The Map reviver's TypeError quotes this whole value.
+      item(key).Data = { S: `{"dataType":"Map","value":["${STORED_DATA}"]}` };
       return key;
     }
+
+    const STORED_DATA = 'refresh-token-kept-in-the-stored-data';
+    const LEVELS = ['trace', 'debug', 'info', 'warn', 'error', 'fatal', 'security', 'success'] as const;
 
     async function warnings<T>(run: () => Promise<T>): Promise<[T, string[]]> {
       const log = DI.resolve(Log, ['dynamo-session-store']);
       const calls: unknown[][] = [];
-      log.warn = (...args: unknown[]) => {
-        calls.push(args);
-      };
+      for (const level of LEVELS) {
+        log[level] = (...args: unknown[]) => {
+          calls.push(args);
+        };
+      }
       try {
         return [await run(), calls.map((args) => [...args.map(String), ...args.map((a) => inspect(a, { depth: null }))].join(' '))];
       } finally {
-        Reflect.deleteProperty(log, 'warn');
+        for (const level of LEVELS) {
+          Reflect.deleteProperty(log, level);
+        }
       }
     }
 
-    const runsOf = (secret: string) => Array.from({ length: secret.length - 15 }, (_, i) => secret.slice(i, i + 16));
+    const runsOf = (secret: string) => Array.from({ length: secret.length - 7 }, (_, i) => secret.slice(i, i + 8));
 
     function expectNamesSubjectOnly(lines: string[], secrets: string[]) {
       expect(lines).to.have.length(1);
-      expect(secrets.flatMap(runsOf).filter((run) => lines[0].includes(run)), 'runs of the session id or its storage key').to.deep.equal([]);
+      expect([...secrets, STORED_DATA].flatMap(runsOf).filter((run) => lines[0].includes(run)), 'runs of the session id, its storage key or the stored Data').to.deep.equal([]);
       expect(lines[0]).to.contain('user:u-42').and.to.contain('Data');
     }
 
