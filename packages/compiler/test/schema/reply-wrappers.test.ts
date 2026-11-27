@@ -8,10 +8,10 @@ const loaded = createProgramFromTsconfig('test/fixtures/unit/tsconfig.json');
 const ctx = createContext(loaded, 'unit', 'test/fixtures/unit');
 const file = loaded.sourceFiles.find((f) => f.fileName.endsWith('reply-wrappers.ts'))!;
 
-function refsOf(table: string): Record<string, { text: string; schema?: string }> {
-  const declaration = file.statements.find((s): s is ts.InterfaceDeclaration => ts.isInterfaceDeclaration(s) && s.name.text === table)!;
-  const properties = ctx.checker.getPropertiesOfType(ctx.checker.getTypeAtLocation(declaration));
-  return Object.fromEntries(properties.map((p) => [p.name, ctx.typeRef(ctx.checker.getTypeOfSymbolAtLocation(p, declaration), declaration)]));
+function refsOf(table: string, at = { ctx, file }): Record<string, { text: string; schema?: string }> {
+  const declaration = at.file.statements.find((s): s is ts.InterfaceDeclaration => ts.isInterfaceDeclaration(s) && s.name.text === table)!;
+  const properties = at.ctx.checker.getPropertiesOfType(at.ctx.checker.getTypeAtLocation(declaration));
+  return Object.fromEntries(properties.map((p) => [p.name, at.ctx.typeRef(at.ctx.checker.getTypeOfSymbolAtLocation(p, declaration), declaration)]));
 }
 const each = (text: (name: string) => string, schema: (name: string) => string) =>
   Object.fromEntries(NAMES.map((name) => [name, { text: text(name), schema: schema(name) }]));
@@ -53,6 +53,12 @@ describe('reply wrappers are http responses by their declaring package', () => {
   });
   it('follows a type alias of Promise to its payload', () => {
     expect(refsOf('PromiseAliases')).to.deep.equal({ AsyncOk: payload.Ok, PromiseList: { text: 'Payload[]' }, PromisedPayload: payload.Ok });
+  });
+  it("unwraps the global Promise declared by a project's own lib file under noLib", () => {
+    const own = createProgramFromTsconfig('test/fixtures/promise-own-lib/tsconfig.json');
+    const at = { ctx: createContext(own, 'own-lib', 'test/fixtures/promise-own-lib'), file: own.sourceFiles.find((f) => f.fileName.endsWith('rows.ts'))! };
+    const model = { text: 'Payload', schema: 'spinajs/own-lib/Payload' };
+    expect(refsOf('ProbeRows', at)).to.deep.equal({ P: model, A: model });
   });
   it('describes an application type named Promise, ModelData or ModelDataWithRelationData by its own schema', () => {
     expect(refsOf('WrapperLookalikes')).to.deep.equal({
