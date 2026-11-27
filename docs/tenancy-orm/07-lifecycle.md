@@ -52,7 +52,8 @@ the row's `suspension` column; `resume(id)` moves a `suspended` tenant back to `
 one statement whose condition is the state it moves from (`active` for a suspension, `suspended` for a resume), so a
 state and its reason are written together and of two calls at once only one changes the row. The model member that
 writes it, `row.writeSuspension(to, suspension)`, makes only these two moves: for a tenant in any other state it changes
-nothing and answers `false`, whatever state the row was read in. Neither call takes the lease: a suspension does not
+nothing and answers `false`, whatever state the row was read in, and it refuses a move to `active` of a row whose
+lifecycle record names a deletion. Neither call takes the lease: a suspension does not
 wait for a running operation and never writes the `lifecycle` record that operation holds.
 
 Refused, with the row left as it was:

@@ -84,8 +84,9 @@ await states.transition('t1', 'suspended');
 
 `transition` writes the state only. To suspend a tenant with its reason, and to resume it, call
 `TenantLifecycle.suspend(id, reason)` and `resume(id)` ([the tenant lifecycle](07-lifecycle.md#suspending-and-resuming)).
-`transition` checks neither the suspension record nor a deletion that started (it moves such a suspended tenant to
-`active`), and `suspend()` / `resume()` do not call it, so an override of `transition` does not see them.
+`transition` refuses a move to `active` once the tenant's lifecycle record names a deletion, with the refusal `resume()`
+gives (a deletion that started is finished, never undone), and a move to `active` clears the suspension record.
+`suspend()` / `resume()` do not call `transition`, so an override of it does not see them.
 
 `nextStates(from)` lists the states a tenant may move to, `canTransition(from, to)` checks one step, and
 `isTenantState(value)` checks a value.
