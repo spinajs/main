@@ -119,9 +119,16 @@ export class ReadOnlyArchive extends FsProviderLayer {
 }
 ```
 
-`wrap` runs on every lookup: cache what it builds. A wrapping provider implements the `do*` hooks and calls the wrapped provider's public actions from them; those run inside the outer action, where no middleware runs a second time. Layers apply in registration order, each to what the one before handed out. `layeredFs(provider, container = DI.RootContainer)` applies the registered layers to a provider you hold. With a child container it applies the root container's layers first, then the child's own, each class once.
+`wrap` runs on every lookup: cache what it builds. A wrapping provider implements the `do*` hooks and calls the wrapped provider's public actions from them; those run inside the outer action, where no middleware runs a second time. Layers apply in registration order, each to what the one before handed out. `layeredFs(provider, container = DI.RootContainer)` applies the registered layers to a provider you hold. With a child container it applies the root container's layers first, then the child's own, each class once. `container` must descend from the container that registers the layers: `layeredFs(provider, new Container())` applies none. Do not list a layer class in a child that an ancestor lists already: when the child also replaces it, both classes run.
 
-Register a layer as a singleton class. Replacing one the usual way, `DI.register(MyLayer).as(TheirLayer)`, applies `MyLayer` in its place. `Array.ofType` leaves a factory and a `@NewInstance()` class out of its result, also when it replaces a layer class, so a lookup throws `InvalidOperation` while one is registered instead of handing out the published provider. A layer must resolve synchronously: when it, or a dependency, is an `AsyncService` that has not resolved yet, the lookup throws `InvalidOperation` too; resolve the layers at boot (`await DI.resolve(Array.ofType(FsProviderLayer))`).
+Register a layer as a singleton class. Replacing one the usual way, `DI.register(MyLayer).as(TheirLayer)`, applies `MyLayer` in its place. Register the replacement in the container that registers the layer, before the first lookup: a child container's replacement of an ancestor's layer is ignored, and one registered after the first lookup applies only after `DI.uncache(Array.ofType(FsProviderLayer))`.
+
+A lookup throws `InvalidOperation` instead of handing out the published provider when a layer cannot run:
+
+- it is a factory, an instance or a `@NewInstance()` class, also as the replacement of a layer class: `Array.ofType` leaves them out of its result;
+- it is registered with `asValue()`, which `Array.ofType` does not read;
+- its `wrap()` returns a promise: the next layer would pass it through, and a caller that awaits the lookup would get the published provider;
+- it, or a dependency, is an `AsyncService` that has not resolved yet or whose resolution failed. `fsService.resolve()` resolves the root container's layers last, so register them before it resolves: the boot then waits for them, and a failure fails the boot with its own error. A layer registered later is resolved with `await DI.resolve(Array.ofType(FsProviderLayer))` before its first lookup.
 
 ## Best practices
 
