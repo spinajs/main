@@ -19,7 +19,7 @@ authz-orm keeps the table right on every ORM write of an `@AccessResource` model
 5. The statement runs.
 6. `observe(write)` updates the table from the rows the capture hands it:
    - **insert**: `rebuildFrom()` writes the ancestors of each row the insert wrote or, for an upsert, updated.
-   - **update**: `rebuildFrom()` recomputes each moved row and every resource the table lists below it.
+   - **update**: `rebuildFrom()` recomputes each moved row and every resource the table lists below it. After the commit, the rows whose `@Parent` value changed are published ([Publishing a move](#publishing-a-move)).
    - **delete**: the rows that are gone after the statement go to `removeNodes()`, which drops their rows and recomputes everything below them without them. `cleanupDeleted()` then forgets their scopes.
 7. The closure itself is `closeOver()`: for each direct parent `p` of a row, `p` at depth 1 and every ancestor of `p` one level deeper. Where two chains meet, the smallest depth wins. A loop in the `@Parent` links throws `AuthzConfigError` (`the @Parent links form a cycle through <type>:<id>`).
 
@@ -34,7 +34,7 @@ authz-orm keeps the table right on every ORM write of an `@AccessResource` model
 
 The cleanup's forget resolves the domain's `AuthzService`, so a process that deletes rows boots the domain first and publishes on the bus that boot picked. A delete never publishes on a bus other than the domain's: with two buses registered, or one registered after the boot, the domain's cached decisions about the deleted resource are dropped.
 
-A step that runs after the commit cannot roll the delete back: its failure is logged (`authz-orm: <step> after a committed delete failed`) and the delete stands. A rolled-back delete forgets and publishes nothing.
+A step that runs after the commit cannot roll the delete back: its failure is logged (`authz-orm: <step> after a committed write failed`) and the delete stands. A rolled-back delete forgets and publishes nothing.
 
 ```mermaid
 sequenceDiagram
@@ -59,11 +59,42 @@ sequenceDiagram
   MW->>Bus: after commit: publish change, audit resource-deleted
 ```
 
+### Publishing a move
+
+A cached decision carries a `scope:` tag for its resource and for each of the resource's ancestors, and a type-level decision carries `scope:*` ([caching](../authz/06-caching-and-change-propagation.md)). When a write that changed the `@Parent` value of existing rows commits, the observer publishes one change. It goes on the `ChangeBus` of the domain `authz.orm.domain` names, the bus its service booted with. It holds `scope:<type>:<id>` for each moved row, or `*` past 1000 rows, and its actor is `SYSTEM`.
+
+```ts
+await reparent(Project, ['p1'], 'org-2');
+// after the commit: { domain: 'root', tags: ['scope:project:p1'], actor: SYSTEM }
+```
+
+| Write | Published |
+| --- | --- |
+| `Model.update({ parent_id }).where(...)`, `reparent()` | one change naming the rows whose value changed; rows that already had the new value, and a statement that reaches no row, publish nothing |
+| `row.parent_id = x; await row.update()`, a `@BelongsTo` relation's `set()` | the row, when the value changed; an unchanged value writes no statement at all |
+| An upsert (`InsertOrUpdate`, `onDuplicate().update()`, `orReplace()`) | the rows it updated under another parent. When the capture could not read its rows (see "Important behaviour"), every primary key it names, moved or not |
+| A plain insert, a soft delete or restore | nothing: no row changed its parent |
+| Raw SQL, `driver.update()` (no model), `rebuildFrom()` in your own transaction, `authz:ancestors-rebuild` | nothing: the write capture does not see them |
+
+A row counts as moved when its parent value reads as different text before and after the write, the text the table stores. The rows come from the capture's own reads, so publishing adds no query.
+
+What a move costs. Every process that hears the change drops:
+
+- every cached decision on a moved row and on every resource below it, at any depth;
+- every cached type-level decision of the domain and of its child domains;
+- past 1000 moved rows in one write (or 1000 keys of an upsert the capture could not read), every cached decision of the domain and of its child domains.
+
+Decisions on resources outside the moved subtrees stay. A bulk move of N rows is one message with N tags (one with `*` past 1000), so moving many rows with one statement or `reparent()` costs one publish; a loop of single-row updates costs one per statement.
+
+A rolled-back write publishes nothing, also one rolled back to a savepoint. Inside a caller's transaction each write publishes its own change after the outermost commit. With the default `InProcessChangeBus` only the writing process hears it; other processes need a cross-process bus.
+
+A failed publish is logged (`authz-orm: publishing the move after a committed write failed`) and the write stands. Like a process that stops between the commit and the publish, it leaves the decisions it should have dropped cached until `authz.cache.ttlSeconds`, in the writing process too, as for an `AuthzAdmin` batch whose publish fails. A move does not boot the domain: before the domain's service has booted (a worker that moves rows and never checks access), the move publishes on the bus the boot would pick (`authz.bus.service`, else the last registered one). When `authz.bus.service` names no registered bus, each moving statement logs that error once, whatever the number of rows.
+
 ## Configuration
 
 | Key | Type | Default | Allowed values | Meaning |
 | --- | --- | --- | --- | --- |
-| `authz.orm.domain` | `string` | `'root'` | a domain name | The domain whose stores a delete cleans and whose `ChangeBus` and audit it uses. |
+| `authz.orm.domain` | `string` | `'root'` | a domain name | The domain whose stores a delete cleans, whose `ChangeBus` and audit it uses, and for which a move is published. |
 | `authz.admin.backend` | `string` | `'MemoryAuthzAdminBackend'` | the class name of a registered `AuthzAdminBackend` | Read to decide where the forget of a delete runs. Owned by `@spinajs/authz` ([AuthzAdmin](../authz/10-authz-admin.md)). |
 
 The CLI commands come from the package config `system.dirs.cli`, which points at `node_modules/@spinajs/authz-orm/lib/cli/commands` ([command discovery](../cli/05-command-discovery.md)). The CLI resolves only the command, so a command resolves the `Orm` before it reads. The boot fails while a migration is pending or failed: run [`npx spinajs migrate-up`](../orm/10-migrations.md#deploying-migrations) first.
@@ -103,7 +134,7 @@ Both run as `SYSTEM`. A `type` with no `@AccessResource` model fails with `no @A
 - **The model needs a single-column primary key.** The capture refuses a write of a model with a composite key, and the domain boot refuses such an `@AccessResource` model.
 - **A deleted id reused later inherits nothing.** Its assignments, links, rules, policies and scope attributes are gone with the row.
 - **A `NULL` parent column is a root.** The row gets no rows for that chain.
-- **Raw SQL is not tracked.** Imports, raw SQL, builders from `driver.insert()`, `driver.update()` or `driver.del()` (no model) and database triggers bypass the write capture. Run `authz:ancestors-rebuild` afterwards, or call `rebuildFrom()` in the same transaction.
+- **Raw SQL is not tracked.** Imports, raw SQL, builders from `driver.insert()`, `driver.update()` or `driver.del()` (no model) and database triggers bypass the write capture. Run `authz:ancestors-rebuild` afterwards, or call `rebuildFrom()` in the same transaction. Such a write publishes no change either: decisions that reached a row through its old parent stay cached until `authz.cache.ttlSeconds`.
 - **Ids are stored as text.** Integer and UUID keys share one table; `resource_id` and `ancestor_id` are `varchar(64)`.
 
 ## Best practices

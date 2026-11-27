@@ -9,7 +9,7 @@ export async function afterCommit(driver: OrmDriver, step: string, fn: () => Pro
     try {
       await fn();
     } catch (e) {
-      ormLog().error({ error: thrownError(e), step }, 'authz-orm: ${step} after a committed delete failed');
+      ormLog().error({ error: thrownError(e), step }, 'authz-orm: ${step} after a committed write failed');
     }
   });
 }

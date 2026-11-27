@@ -18,7 +18,7 @@ The engine caches decisions at two levels and drops them by tag when authorizati
 
 ### Invalidating
 
-7. `AuthzAdmin` commits a batch, then publishes `AuthzChange { domain, tags, actor, at }` on the `ChangeBus` ([AuthzAdmin](10-authz-admin.md#how-it-works)).
+7. `AuthzAdmin` commits a batch, then publishes `AuthzChange { domain, tags, actor, at }` on the `ChangeBus` ([AuthzAdmin](10-authz-admin.md#how-it-works)). `@spinajs/authz-orm` publishes on the same bus after a committed delete or move of an `@AccessResource` row ([the ancestor table](../authz-orm/06-ancestor-table.md#publishing-a-move)).
 8. Every domain's `DefaultAuthzService` is subscribed. A change for its domain or an ancestor domain calls `Authorizer.invalidate(tags)`.
 9. `invalidate` moves the generation (every L1 entry and preload mark of older requests is dropped), maps the tags to L2 tags (`subject:`, `link:`, `model:` and `scope:` pass; `scope:` also drops `scope:*`; any other tag drops everything) and calls `model.invalidate(tags)` on each model.
 10. A model whose `version()` changes also moves the generation, recompiles the route table and clears the L2.
