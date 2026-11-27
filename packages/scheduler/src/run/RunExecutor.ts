@@ -17,6 +17,7 @@ import { RunStepModel } from '../models/RunStepModel.js';
 import { automaticRetry, decideAfterFailure } from '../policy/retry.js';
 import { SchedulerSignals } from '../signals.js';
 import { LeaseStore } from '../store/LeaseStore.js';
+import { GLOBAL_TENANT, runScheduleKey } from '../store/keys.js';
 import { Clock, DbClock, FaultInjector, Heartbeat } from '@spinajs/durable';
 import { jsonValue, toStructuredError } from '../tracking/structured.js';
 import type { ExecutionOutcome } from './outcome.js';
@@ -31,6 +32,8 @@ import { currentTraceParent, startRunSpan } from './tracing.js';
 export interface ExecutionHandle {
   runId: string;
   schedule: string;
+  /** The tenant of the schedule instance, `GLOBAL_TENANT` for the global one. */
+  tenant: string;
   done: Promise<void>;
   abort(reason: AbortReason): void;
 }
@@ -86,7 +89,7 @@ export class RunExecutor {
     const job = def.emit;
     const work = job ? this.traced(run, (span) => this.dispatchEmit(run, def, job, ac.signal, span)) : this.execute(run, def, ac, abort);
     const done = work.catch((err) => this.Log.error(err as Error, `run ${run.Id} crashed inside the executor`));
-    return { runId: run.Id, schedule: run.Schedule, done, abort };
+    return { runId: run.Id, schedule: run.Schedule, tenant: run.Tenant ?? GLOBAL_TENANT, done, abort };
   }
 
   protected async execute(
@@ -123,7 +126,7 @@ export class RunExecutor {
     await this.Events.write(run, run.Attempt, { type: 'status', status: 'running', reason: null });
 
     const ctx = await this.createContext(run, def, ac.signal, cfg, () => abort('lease-lost'));
-    const scheduleLease = run.Forced ? null : run.Schedule;
+    const scheduleLease = run.Forced ? null : runScheduleKey(run);
     const renewEveryMs = Math.floor(cfg.leaseTtl / 3);
     const heartbeat = new Heartbeat({
       timers: this.Timers,
@@ -292,7 +295,7 @@ export class RunExecutor {
         .where('Attempt', run.Attempt);
       Object.assign(run, { Status: 'emitted', Reason: null, JobId: jobId, Message: message });
       await this.Events.write(run, run.Attempt, { type: 'status', status: 'emitted', reason: null });
-      if (!run.Forced) await this.Leases.releaseScheduleLease(run.Schedule, now);
+      if (!run.Forced) await this.Leases.releaseScheduleLease(runScheduleKey(run), now);
     } finally {
       this.Events.forget(run.Id);
     }
@@ -540,7 +543,7 @@ export class RunExecutor {
       this.Events,
       this.Log,
     );
-    if (!run.Forced && !d.keepScheduleLease) await this.Leases.releaseScheduleLease(run.Schedule, now);
+    if (!run.Forced && !d.keepScheduleLease) await this.Leases.releaseScheduleLease(runScheduleKey(run), now);
 
     Object.assign(run, {
       Status: d.status,

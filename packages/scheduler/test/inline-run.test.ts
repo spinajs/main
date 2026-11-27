@@ -252,7 +252,7 @@ describe('SchedulerService.runInline', () => {
   });
 
   it('inserts a pruned schedule row again instead of refusing the lease', async () => {
-    await ScheduleModel.destroy('inline-skip');
+    await ScheduleModel.destroy().where({ Name: 'inline-skip', Tenant: '' });
 
     expect(await service.runInline('inline-skip', () => Promise.resolve('back'))).to.eq('back');
     expect(await ScheduleModel.where('Name', 'inline-skip').first()).to.not.eq(undefined);

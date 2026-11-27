@@ -44,6 +44,7 @@ import { RunLogModel } from '../models/RunLogModel.js';
 import { RunModel } from '../models/RunModel.js';
 import { RunStepModel } from '../models/RunStepModel.js';
 import { ScheduleModel } from '../models/ScheduleModel.js';
+import { GLOBAL_TENANT, runsOf, scheduleKey, scheduleRow } from '../store/keys.js';
 import type { ScheduleDefinition } from '../interfaces.js';
 import { automaticRetry } from '../policy/retry.js';
 import { ScheduleRegistry } from '../registry/ScheduleRegistry.js';
@@ -95,6 +96,8 @@ export interface NewManualRun {
   attempt?: number;
   resumeFrom?: { runId: string; fromStep?: string } | null;
   checkpoint?: unknown;
+  /** The tenant of the instance the run belongs to; null (default) for the global instance. */
+  tenant?: string | null;
 }
 
 const intOr = (v: number | undefined, fallback: number) =>
@@ -164,7 +167,7 @@ export class DefaultSchedulerService extends SchedulerService {
       toScheduleInfo(
         row,
         this.Registry.find(row.Name),
-        running.find((r) => r.Schedule === row.Name) ?? last.find((r) => r.Id === row.LastRunId) ?? null,
+        running.find((r) => r.Schedule === row.Name && (r.Tenant ?? GLOBAL_TENANT) === row.Tenant) ?? last.find((r) => r.Id === row.LastRunId) ?? null,
         now,
       ),
     );
@@ -271,7 +274,7 @@ export class DefaultSchedulerService extends SchedulerService {
     // adopt: a schedule declared after boot (its class was imported lazily)
     const def = this.Registry.find(schedule) ?? this.Registry.adopt(schedule);
     // its row is inserted on first use, and again when pruned while the definition lives on
-    if (!(await ScheduleModel.where('Name', schedule).first())) await this.Sync.sync([def], await this.now(), { owner: false });
+    if (!(await ScheduleModel.where(scheduleRow(schedule)).first())) await this.Sync.sync([def], await this.now(), { owner: false });
     await this.assertManualRunsAllowed(schedule);
     return this.Inline.run(def, fn, opts);
   }
@@ -324,7 +327,7 @@ export class DefaultSchedulerService extends SchedulerService {
     const sinceMs = toMs(since, 'since');
     await this.assertManualRunsAllowed(name);
     const failed = await RunModel.query()
-      .where('Schedule', name)
+      .where(runsOf(scheduleKey(name)))
       .whereIn('Status', ['failed', 'dead'])
       .where('FinishedAt', '>=', sinceMs)
       .orderBy('FinishedAt');
@@ -371,8 +374,7 @@ export class DefaultSchedulerService extends SchedulerService {
     await this.loadScheduleRow(name);
     const now = await this.now();
     await ScheduleModel.update({ Paused: true, PausedReason: 'manual', HardPaused: !!o.hard, UpdatedAt: now }).where(
-      'Name',
-      name,
+      scheduleRow(name),
     );
     this.audit('pause', o.triggeredBy, { schedule: name, hard: !!o.hard });
     return this.scheduleInfo(name, now);
@@ -404,11 +406,11 @@ export class DefaultSchedulerService extends SchedulerService {
             UpdatedAt: now,
           }),
         )
-          .where('Name', name)
+          .where(scheduleRow(name))
           .where('Paused', true)
       ).RowsAffected === 1;
     if (!resumed) {
-      await ScheduleModel.update({ HardPaused: false, ConsecutiveFailures: 0, UpdatedAt: now }).where('Name', name);
+      await ScheduleModel.update({ HardPaused: false, ConsecutiveFailures: 0, UpdatedAt: now }).where(scheduleRow(name));
     }
 
     try {
@@ -443,7 +445,9 @@ export class DefaultSchedulerService extends SchedulerService {
     let orphanedSchedules = 0;
     for (const o of await ScheduleModel.where('Orphaned', true)) {
       // conditional: a replica that defines it again may have revived it meanwhile
-      const r = await ScheduleModel.destroy(o.Name).where('Orphaned', true);
+      const r = await ScheduleModel.destroy()
+        .where(scheduleRow({ name: o.Name, tenant: o.Tenant }))
+        .where('Orphaned', true);
       orphanedSchedules += Number(r.RowsAffected);
     }
     const result = { orphanedSchedules, ...(await this.Retention.purge(now)) };
@@ -511,6 +515,7 @@ export class DefaultSchedulerService extends SchedulerService {
         params,
         forced: def.runOn === 'all',
         parentRunId: parent.Id,
+        tenant: parent.Tenant,
         attempt: parent.Attempt + 1,
         resumeFrom: resume ? { runId: parent.Id, ...(o.fromStep !== undefined ? { fromStep: o.fromStep } : {}) } : null,
         checkpoint: resume ? parent.Checkpoint ?? null : null,
@@ -537,15 +542,18 @@ export class DefaultSchedulerService extends SchedulerService {
    * still in progress), else a running one whose lease is live.
    */
   protected async busyRunId(def: ScheduleDefinition, now: number): Promise<string | null> {
-    const queued = await RunModel.where('Schedule', def.name).where('Status', 'queued').orderBy('CreatedAt').first();
+    const globalRuns = runsOf(scheduleKey(def.name));
+    const queued = await RunModel.query().where(globalRuns).where('Status', 'queued').orderBy('CreatedAt').first();
     if (queued) return queued.Id;
     if (def.runOn === 'all') return null;
-    const retrying = await RunModel.where('Schedule', def.name)
+    const retrying = await RunModel.query()
+      .where(globalRuns)
       .where('Status', 'retrying')
       .orderBy('CreatedAt')
       .first();
     if (retrying) return retrying.Id;
-    const running = await RunModel.where('Schedule', def.name)
+    const running = await RunModel.query()
+      .where(globalRuns)
       .where('Status', 'running')
       .where('LeaseUntil', '>', now)
       .orderByDescending('StartedAt')
@@ -582,6 +590,7 @@ export class DefaultSchedulerService extends SchedulerService {
     const run = await RunModel.create({
       Id: uuidv4(),
       Schedule: def.name,
+      Tenant: o.tenant || null,
       Trigger: o.trigger,
       TriggeredBy: o.triggeredBy,
       ParentRunId: o.parentRunId ?? null,
@@ -637,14 +646,15 @@ export class DefaultSchedulerService extends SchedulerService {
   }
 
   protected async loadScheduleRow(name: string): Promise<ScheduleModel> {
-    const row = await ScheduleModel.where('Name', name).first();
+    const row = await ScheduleModel.where(scheduleRow(name)).first();
     if (!row) throw new ScheduleNotFound(name);
     return row;
   }
 
   /** A run in progress wins over the last finished one. */
   protected async lastRunOf(row: ScheduleModel): Promise<RunModel | null> {
-    const running = await RunModel.where('Schedule', row.Name)
+    const running = await RunModel.query()
+      .where(runsOf({ name: row.Name, tenant: row.Tenant }))
       .where('Status', 'running')
       .orderByDescending('StartedAt')
       .first();

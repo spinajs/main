@@ -6,10 +6,13 @@ import { isTerminalStatus, type RunStatus } from '../contract.js';
 import { ScheduleModel } from '../models/ScheduleModel.js';
 import { RunModel } from '../models/RunModel.js';
 import { defined } from '../models/converters.js';
+import { GLOBAL_TENANT, runScheduleKey, scheduleRow, type ScheduleRef } from './keys.js';
 import { defaultReplicaId } from './replica.js';
 
 export interface OccurrenceInput {
   name: string;
+  /** The tenant of the instance; absent for the global instance. */
+  tenant?: string;
   expectedNextRunAt: number;
   nextRunAt: number | null;
   /** Database time (DbClock), never the replica clock. */
@@ -34,6 +37,8 @@ const leaseFree = (now: number) =>
   function (this: IWhereBuilder<unknown>) {
     this.whereNull('LeaseOwner').orWhere('LeaseUntil', '<', now);
   };
+
+const occurrenceRow = (o: OccurrenceInput) => scheduleRow({ name: o.name, tenant: o.tenant ?? GLOBAL_TENANT });
 
 /**
  * Every write is a single conditional UPDATE whose WHERE is the ownership rule; the affected-row
@@ -63,7 +68,7 @@ export class LeaseStore {
       NextRunAt: o.nextRunAt,
       UpdatedAt: o.now,
     })
-      .where('Name', o.name)
+      .where(occurrenceRow(o))
       .where('Paused', false)
       .where('NextRunAt', o.expectedNextRunAt)
       .where(leaseFree(o.now));
@@ -73,7 +78,7 @@ export class LeaseStore {
   /** Moves past an occurrence without the lease; the replica that wins decides skip / queue / misfire for it. */
   public async advanceOccurrence(o: OccurrenceInput): Promise<boolean> {
     const r = await ScheduleModel.update({ NextRunAt: o.nextRunAt, UpdatedAt: o.now })
-      .where('Name', o.name)
+      .where(occurrenceRow(o))
       .where('Paused', false)
       .where('NextRunAt', o.expectedNextRunAt);
     return r.RowsAffected === 1;
@@ -83,11 +88,11 @@ export class LeaseStore {
    * Same rule as `leaseFree`, split in two statements to tell whether the expired lease was this
    * replica's own: a run of this replica may still be relying on it, so a failed claim must not release it.
    */
-  public async takeScheduleLease(name: string, now: number): Promise<ScheduleLeaseTake> {
+  public async takeScheduleLease(schedule: ScheduleRef, now: number): Promise<ScheduleLeaseTake> {
     const values = { LeaseOwner: this.ReplicaId, LeaseUntil: now + this.LeaseTtl, UpdatedAt: now };
     const me = this.ReplicaId;
     const fromOthers = await ScheduleModel.update(values)
-      .where('Name', name)
+      .where(scheduleRow(schedule))
       .where(function (this: IWhereBuilder<unknown>) {
         this.whereNull('LeaseOwner').orWhere(function (this: IWhereBuilder<unknown>) {
           this.where('LeaseUntil', '<', now).where('LeaseOwner', '<>', me);
@@ -96,30 +101,29 @@ export class LeaseStore {
     if (fromOthers.RowsAffected === 1) return 'free';
 
     const own = await ScheduleModel.update(values)
-      .where('Name', name)
+      .where(scheduleRow(schedule))
       .where('LeaseOwner', me)
       .where('LeaseUntil', '<', now);
     return own.RowsAffected === 1 ? 'own' : false;
   }
 
-  public async renewScheduleLease(name: string, now: number): Promise<boolean> {
+  public async renewScheduleLease(schedule: ScheduleRef, now: number): Promise<boolean> {
     const r = await ScheduleModel.update({ LeaseUntil: now + this.LeaseTtl })
-      .where('Name', name)
+      .where(scheduleRow(schedule))
       .where('LeaseOwner', this.ReplicaId);
     return r.RowsAffected === 1;
   }
 
-  public async releaseScheduleLease(name: string, now: number): Promise<boolean> {
+  public async releaseScheduleLease(schedule: ScheduleRef, now: number): Promise<boolean> {
     const r = await ScheduleModel.update({ LeaseOwner: null, LeaseUntil: null, UpdatedAt: now })
-      .where('Name', name)
+      .where(scheduleRow(schedule))
       .where('LeaseOwner', this.ReplicaId);
     return r.RowsAffected === 1;
   }
 
-  public async recordLast(name: string, now: number, status: RunStatus, runId: string): Promise<void> {
+  public async recordLast(schedule: ScheduleRef, now: number, status: RunStatus, runId: string): Promise<void> {
     await ScheduleModel.update({ LastFinishedAt: now, LastStatus: status, LastRunId: runId, UpdatedAt: now }).where(
-      'Name',
-      name,
+      scheduleRow(schedule),
     );
   }
 
@@ -130,7 +134,7 @@ export class LeaseStore {
   public async claimRun(run: RunModel, now: number): Promise<boolean> {
     if (run.Status !== 'queued' && run.Status !== 'retrying') return false;
 
-    const lease = run.Forced ? null : await this.takeScheduleLease(run.Schedule, now);
+    const lease = run.Forced ? null : await this.takeScheduleLease(runScheduleKey(run), now);
     if (lease === false) return false;
 
     const claimed = {
@@ -154,7 +158,7 @@ export class LeaseStore {
       });
 
     if (r.RowsAffected !== 1) {
-      if (lease === 'free') await this.releaseScheduleLease(run.Schedule, now);
+      if (lease === 'free') await this.releaseScheduleLease(runScheduleKey(run), now);
       return false;
     }
 
@@ -166,7 +170,7 @@ export class LeaseStore {
   public async renewRun(
     runId: string,
     attempt: number,
-    scheduleLease: string | null,
+    scheduleLease: ScheduleRef | null,
     now: number,
     patch: RunProgressPatch = {},
   ): Promise<{ ok: boolean; cancelRequested: boolean }> {

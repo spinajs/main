@@ -8,6 +8,7 @@ import type { AbortReason, RunStatus, TriggeredBy } from '../contract.js';
 import type { ScheduleDefinition } from '../interfaces.js';
 import { RunModel } from '../models/RunModel.js';
 import { LeaseStore } from '../store/LeaseStore.js';
+import { runsOf, scheduleKey } from '../store/keys.js';
 import { withRunContext } from './current.js';
 import type { ExecutionOutcome } from './outcome.js';
 import type { RunContext } from './RunContext.js';
@@ -174,7 +175,8 @@ export class InlineRunner {
   }
 
   protected async heldRunId(schedule: string, now: number): Promise<string | null> {
-    const r = await RunModel.where('Schedule', schedule)
+    const r = await RunModel.query()
+      .where(runsOf(scheduleKey(schedule)))
       .where('Status', 'running')
       .where('LeaseOwner', this.Leases.ReplicaId)
       .where('LeaseUntil', '>', now)
@@ -183,7 +185,8 @@ export class InlineRunner {
   }
 
   protected async runningRunId(schedule: string): Promise<string | null> {
-    const r = await RunModel.where('Schedule', schedule)
+    const r = await RunModel.query()
+      .where(runsOf(scheduleKey(schedule)))
       .where('Status', 'running')
       .orderByDescending('StartedAt')
       .first();

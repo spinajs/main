@@ -7,6 +7,10 @@ export class ScheduleModel extends ModelBase {
   @Primary()
   public Name: string;
 
+  /** The tenant of this instance of the schedule; `''` for the global instance. */
+  @Primary()
+  public Tenant: string;
+
   @Json()
   public Definition: Record<string, unknown>;
 
