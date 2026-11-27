@@ -170,6 +170,22 @@ describe('Authorizer.checkAll', () => {
     expect(logged[0].error?.message).to.equal('db down');
   });
 
+  it('denies each throwing entry of a batch on its own', async () => {
+    const out = await make([new FailingAncestors(['doc'], 'doc:d2', { rows: docRows() })]).checkAll(alice, [
+      { permission: 'doc:read', resource: d2 },
+      { permission: 'doc:read', resource: d1 },
+      { permission: 'task:read', resource: d2 },
+      { permission: 'doc:read', resource: d2 },
+    ]);
+    expect(out.map((d) => [d.permission, d.resource.id, d.allowed, d.reason?.code])).to.deep.equal([
+      ['doc:read', 'd2', false, 'model_error'],
+      ['doc:read', 'd1', true, undefined],
+      ['task:read', 'd2', false, 'invalid_request'],
+      ['doc:read', 'd2', false, 'model_error'],
+    ]);
+    expect(log.at('error')).to.have.length(2);
+  });
+
   it('denies with model_error an entry whose check against its loaded row throws', async () => {
     const tasks = new BatchAdapter(['task'], { rows: taskRows() });
     const t1Ancestors = l1Key('ancestors', 'root', 'task:t1');
