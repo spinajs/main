@@ -34,6 +34,12 @@ export interface IQueryStatement {
   // instead of parent query WHERE ( a statement's own clone() drops it, SelectQueryBuilder.clone() copies it )
   OnJoin?: boolean;
 
+  /** The statements this one holds: a group's conditions, a join's ON conditions and the joins nested in it. */
+  nested?(): readonly IQueryStatement[];
+
+  /** The select this statement compiles into its own SQL as a sub-query. */
+  readonly SubQuery?: SelectQueryBuilder;
+
   build(): IQueryStatementResult;
 
   clone(parent?: QueryBuilder | SelectQueryBuilder | WhereBuilder<any>): IQueryStatement;
@@ -158,6 +164,10 @@ export abstract class WhereQueryStatement extends QueryStatement {
 
   public get Builder(): WhereBuilder<any> {
     return this._builder;
+  }
+
+  public nested(): readonly IQueryStatement[] {
+    return this._builder.Statements;
   }
 
   public abstract build(): IQueryStatementResult;
@@ -365,6 +375,11 @@ export abstract class JoinStatement extends QueryStatement {
     return { table: descriptor ? descriptor.TableName : joinTable, alias, model: joinModel };
   }
 
+  public nested(): readonly IQueryStatement[] {
+    const own = this._whereBuilder === undefined ? [] : this._whereBuilder.Statements;
+    return [...own, ...(this._options.onStatements ?? []), ...(this._options.nestedJoins ?? [])];
+  }
+
   /**
    * For `SelectQueryBuilder.clone()`: the columns this join's builder gave the query it was merged into, each paired
    * with the same column of `copy`, the clone of this statement.
@@ -442,6 +457,10 @@ export abstract class SelectQueryStatement extends QueryStatement {
   constructor(builder: SelectQueryBuilder, tableAlias?: string) {
     super(tableAlias);
     this._builder = builder;
+  }
+
+  public get SubQuery(): SelectQueryBuilder {
+    return this._builder;
   }
 
   public abstract build(): IQueryStatementResult;
@@ -727,6 +746,10 @@ export abstract class ColumnConditionStatement extends QueryStatement {
 
   public get Alias(): string {
     return this._alias;
+  }
+
+  public nested(): readonly IQueryStatement[] {
+    return this._builder.Statements;
   }
 
   public abstract build(): IQueryStatementResult;
