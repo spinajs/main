@@ -1,12 +1,13 @@
 import { DI } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
 import { expect } from 'chai';
-import { DateTime } from 'luxon';
+import { DateTime, Settings } from 'luxon';
 import { AUTHN_CONFIGURATION_SCHEMA } from '@spinajs/authn/schemas';
 import { AUTHN_SESSION_CONFIGURATION_SCHEMA } from '../src/schema.js';
-import { AbsoluteExpiration, SlidingExpiration, SlidingCappedExpiration, UserSession } from '../src/index.js';
+import { AbsoluteExpiration, MemorySessionStore, SessionExpirationProvider, SlidingExpiration, SlidingCappedExpiration, UserSession } from '../src/index.js';
+import type { ISession } from '../src/index.js';
 import shipped from '../src/config/session.js';
-import { uncacheOwned, withSessionConfig } from './support.js';
+import { UNREADABLE_INSTANTS, uncacheOwned, withSessionConfig } from './support.js';
 
 async function withConfig(expiration: unknown) {
   await withSessionConfig({ authn: { session: { expiration } } });
@@ -112,6 +113,65 @@ describe('Session expiration strategies', () => {
       closeTo(result, cap);
     });
   });
+});
+
+/** A store whose expiration helpers a test can call with a strategy of its choice. */
+class HelperStore extends MemorySessionStore {
+  constructor(strategy: SessionExpirationProvider) {
+    super();
+    this.Expiration = strategy;
+  }
+  public initial(s: ISession): DateTime | undefined {
+    this.applyInitialExpiration(s);
+    return s.Expiration;
+  }
+  public renewed(s: ISession): DateTime | undefined {
+    this.applyRenewedExpiration(s);
+    return s.Expiration;
+  }
+}
+
+const STRATEGIES: [string, () => Promise<SessionExpirationProvider>][] = [
+  ['AbsoluteExpiration', async () => (await withConfig({ service: 'AbsoluteExpiration', ttl: 120 }), DI.resolve(AbsoluteExpiration))],
+  ['SlidingExpiration', async () => (await withConfig({ service: 'SlidingExpiration', ttl: 30 }), DI.resolve(SlidingExpiration))],
+  ['SlidingCappedExpiration', async () => (await withConfig({ service: 'SlidingCappedExpiration', ttl: 30, maxLifetime: 480 }), DI.resolve(SlidingCappedExpiration))],
+];
+
+describe('Session expiration through the store helpers', () => {
+  afterEach(() => {
+    Settings.now = () => Date.now();
+    uncacheOwned();
+  });
+
+  for (const [name, resolve] of STRATEGIES) {
+    it(`${name}: a session whose Creation is not a valid instant gets the epoch, a valid instant that has passed`, async () => {
+      const store = new HelperStore(await resolve());
+      for (const [label, at] of UNREADABLE_INSTANTS) {
+        const s = new UserSession({ Creation: at });
+        expect(store.initial(s)?.isValid, `${label}: initial is valid`).to.equal(true);
+        expect(s.Expiration?.toMillis(), `${label}: initial`).to.equal(0);
+        s.Expiration = DateTime.now().plus({ minutes: 10 });
+        expect(store.renewed(s)?.isValid, `${label}: renewed is valid`).to.equal(true);
+        expect(s.Expiration?.toMillis(), `${label}: renewed`).to.equal(0);
+        expect(store.isExpired(s), label).to.equal(true);
+      }
+    });
+
+    it(`${name}: the expiry of a valid session is exactly the strategy's`, async () => {
+      const strategy = await resolve();
+      const store = new HelperStore(strategy);
+      const now = DateTime.fromISO('2026-06-01T12:00:00.000Z').toMillis();
+      Settings.now = () => now;
+      for (const minutesAgo of [0, 1, 29, 31, 470, 479, 481, 600, 60 * 24 * 365]) {
+        const creation = DateTime.fromMillis(now).minus({ minutes: minutesAgo });
+        const stored = DateTime.fromMillis(now).plus({ minutes: 5 });
+        const s = new UserSession({ Creation: creation, Expiration: stored });
+        const fresh = new UserSession({ Creation: creation });
+        expect(store.initial(fresh)?.toMillis(), `initial, created ${minutesAgo} min ago`).to.equal(strategy.initial(new UserSession({ Creation: creation }))?.toMillis());
+        expect(store.renewed(s)?.toMillis(), `renewed, created ${minutesAgo} min ago`).to.equal(strategy.renew(new UserSession({ Creation: creation, Expiration: stored }))?.toMillis());
+      }
+    });
+  }
 });
 
 describe('Session expiration strategy defaults', () => {

@@ -15,6 +15,7 @@ import { SessionExpirationProvider, SessionProvider } from '../src/contracts.js'
 import type { ISession } from '../src/contracts.js';
 import * as contracts from '../src/contracts.js';
 import * as index from '../src/index.js';
+import { UNREADABLE_INSTANTS } from './support.js';
 
 const expect = chai.expect;
 
@@ -38,14 +39,26 @@ class FixedExpiration extends SessionExpirationProvider {
   }
 }
 
+class ConstantExpiration extends SessionExpirationProvider {
+  constructor(private readonly at: DateTime | undefined) {
+    super();
+  }
+  initial(_s: ISession): DateTime | undefined {
+    return this.at;
+  }
+  renew(_s: ISession): DateTime | undefined {
+    return this.at;
+  }
+}
+
 const sameSubject = (a: IdentityRef | undefined, b: IdentityRef) => !!a && a.type === b.type && a.id === b.id;
 
 // Enough of a store to show the 3.0 members can be implemented as documented.
 class MemoryStore extends SessionProvider {
   private rows = new Map<string, ISession>();
-  constructor() {
+  constructor(expiration: SessionExpirationProvider = new FixedExpiration()) {
     super();
-    this.Expiration = new FixedExpiration();
+    this.Expiration = expiration;
   }
   async restore(sessionId: string): Promise<ISession | null> {
     const s = this.rows.get(sessionId);
@@ -336,20 +349,67 @@ describe('@spinajs/authn-session contracts', function () {
 
     it('an expiration that is not a valid instant counts as passed; only an absent one never expires', () => {
       const store = new MemoryStore();
-      const unreadable: [string, DateTime][] = [
-        ['unparsable ISO text', DateTime.fromISO('not a date')],
-        ['DateTime.invalid', DateTime.invalid('test')],
-        ['millis past the Date range', DateTime.fromMillis(8.64e15 + 1)],
-        ['NaN millis', DateTime.fromMillis(NaN)],
-        ['epoch seconds past the Date range', DateTime.fromSeconds(1e13)],
-        ['arithmetic on an invalid instant', DateTime.invalid('test').plus({ minutes: 30 })],
-      ];
-      for (const [label, at] of unreadable) {
+      for (const [label, at] of UNREADABLE_INSTANTS) {
         expect(at.isValid, `${label} is invalid`).to.eq(false);
         expect(store.expired(session('u', { Expiration: at })), label).to.eq(true);
       }
       expect(store.expired(session('far', { Expiration: DateTime.fromISO('9999-12-31T23:59:59Z') }))).to.eq(false);
       expect(store.expired(session('none', { Expiration: undefined }))).to.eq(false);
+    });
+
+    it('a session whose Creation is not a valid instant counts as expired, whatever its Expiration', () => {
+      const store = new MemoryStore();
+      const future = DateTime.now().plus({ hours: 1 });
+      for (const [label, at] of UNREADABLE_INSTANTS) {
+        expect(store.expired(session('u', { Creation: at, Expiration: future })), `${label}, future Expiration`).to.eq(true);
+        expect(store.expired(session('u', { Creation: at })), `${label}, no Expiration`).to.eq(true);
+      }
+      // The db store's ORM hands an unreadable CreatedAt over as null.
+      expect(store.expired(Object.assign(session('n', { Expiration: future }), { Creation: null })), 'null Creation').to.eq(true);
+      expect(store.expired(session('ok', { Expiration: future }))).to.eq(false);
+    });
+
+    it('a Creation in the future (clock skew, a shifted zone) is a readable instant and does not expire the session', () => {
+      const store = new MemoryStore();
+      const ahead = DateTime.now().plus({ hours: 5 });
+      expect(store.expired(session('ahead', { Creation: ahead })), 'no Expiration').to.eq(false);
+      expect(store.expired(session('ahead', { Creation: ahead, Expiration: DateTime.now().plus({ minutes: 30 }) })), 'future Expiration').to.eq(false);
+      expect(store.expired(session('epoch', { Creation: DateTime.fromMillis(0) })), 'the epoch is a readable Creation').to.eq(false);
+    });
+
+    it('a strategy result that is not a valid instant is stored as the epoch, a valid past instant; an absent one stays absent', () => {
+      for (const [label, at] of UNREADABLE_INSTANTS) {
+        const store = new MemoryStore(new ConstantExpiration(at));
+        const s = session('u');
+        store.initial(s);
+        expect(s.Expiration?.isValid, `${label}: initial is valid`).to.eq(true);
+        expect(s.Expiration?.toMillis(), `${label}: initial`).to.eq(0);
+        s.Expiration = DateTime.now().plus({ hours: 1 });
+        store.renewed(s);
+        expect(s.Expiration?.isValid, `${label}: renewed is valid`).to.eq(true);
+        expect(s.Expiration?.toMillis(), `${label}: renewed`).to.eq(0);
+        expect(store.expired(s), label).to.eq(true);
+      }
+
+      const never = new MemoryStore(new ConstantExpiration(undefined));
+      const s = session('never');
+      never.initial(s);
+      expect(s.Expiration).to.eq(undefined);
+      never.renewed(s);
+      expect(s.Expiration).to.eq(undefined);
+      expect(never.expired(s)).to.eq(false);
+    });
+
+    it('a session whose Creation is not a valid instant gets the epoch as its expiry, also from a strategy that means never', () => {
+      for (const [label, at] of UNREADABLE_INSTANTS) {
+        const store = new MemoryStore(new ConstantExpiration(undefined));
+        const s = session('u', { Creation: at });
+        store.initial(s);
+        expect(s.Expiration?.toMillis(), `${label}: initial`).to.eq(0);
+        s.Expiration = DateTime.now().plus({ hours: 1 });
+        store.renewed(s);
+        expect(s.Expiration?.toMillis(), `${label}: renewed`).to.eq(0);
+      }
     });
   });
 

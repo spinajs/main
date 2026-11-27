@@ -44,6 +44,20 @@ export abstract class SessionExpirationProvider {
   public abstract renew(session: ISession): DateTime | undefined;
 }
 
+const readable = (at: unknown): at is DateTime => DateTime.isDateTime(at) && at.isValid;
+
+// Stores write an invalid DateTime as their "no expiry" (SQL NULL, an absent field), so what they get must be a real
+// instant; the epoch has passed and every store reads it back as expired.
+const PASSED = DateTime.fromMillis(0, { zone: 'utc' });
+
+function storable(s: ISession, strategy: (s: ISession) => DateTime | undefined): DateTime | undefined {
+  if (!readable(s.Creation)) {
+    return PASSED;
+  }
+  const at = strategy(s);
+  return at === undefined || readable(at) ? at : PASSED;
+}
+
 /** Storage only: SessionIssuer hashes ids; a store keys rows by whatever SessionId it gets. */
 export abstract class SessionProvider<T extends ISession = ISession> extends AsyncService {
   /** Shared by every store so expiration means the same everywhere. */
@@ -84,18 +98,18 @@ export abstract class SessionProvider<T extends ISession = ISession> extends Asy
     if (s.State === 'pending') {
       throw new InvalidOperation('A pending session must carry its own expiration (authn.session.pendingTtlSeconds)');
     }
-    s.Expiration = this.Expiration.initial(s);
+    s.Expiration = storable(s, (x) => this.Expiration.initial(x));
   }
 
   protected applyRenewedExpiration(s: ISession): void {
     if (s.State === 'pending') {
       return;
     }
-    s.Expiration = this.Expiration.renew(s);
+    s.Expiration = storable(s, (x) => this.Expiration.renew(x));
   }
 
-  /** Public so SessionIssuer judges a row the way its store does. An invalid instant counts as passed: only an absent Expiration means never. */
+  /** Public so SessionIssuer judges a row the way its store does. An unreadable Creation or Expiration counts as passed: only an absent Expiration means never. */
   public isExpired(s: ISession): boolean {
-    return !!s.Expiration && (!s.Expiration.isValid || s.Expiration <= DateTime.now());
+    return !readable(s.Creation) || (!!s.Expiration && (!readable(s.Expiration) || s.Expiration <= DateTime.now()));
   }
 }

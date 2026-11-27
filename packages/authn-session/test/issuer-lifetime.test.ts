@@ -52,9 +52,9 @@ describe('DefaultSessionIssuer lifetime', () => {
     expect(pendingTtlOf(rootIssuer, await rootIssuer.issue(alice, facts(), { pending: { steps: ['totp'] } }))).to.equal(300);
   });
 
-  describe('an unreadable Creation under the capped default strategy ends the session instead of making it immortal', () => {
-    async function issuedWithUnreadableCreation(pending: boolean) {
-      await withSessionConfig({ authn: { session: { service: 'MemorySessionStore' } } }, [DefaultSessionIssuer, SessionIssuer]);
+  describe('an unreadable Creation ends the session instead of making it immortal', () => {
+    async function issuedWithUnreadableCreation(pending: boolean, expiration?: Record<string, unknown>) {
+      await withSessionConfig({ authn: { session: { service: 'MemorySessionStore', ...(expiration ? { expiration } : {}) } } }, [DefaultSessionIssuer, SessionIssuer]);
       const issuer = await DI.resolve(DefaultSessionIssuer);
       const store = await DI.resolve(MemorySessionStore);
       const h = await issuer.issue(alice, facts(), pending ? { pending: { steps: ['totp'] } } : undefined);
@@ -64,7 +64,7 @@ describe('DefaultSessionIssuer lifetime', () => {
       return { issuer, store, h, key };
     }
 
-    it('restore renews it to an unreadable expiry at once and refuses it', async () => {
+    it('the capped default: restore refuses it and the row is gone', async () => {
       const { issuer, store, h, key } = await issuedWithUnreadableCreation(false);
       expect(await issuer.restore(h.id)).to.equal(null);
       expect(await store.restore(key)).to.equal(null);
@@ -78,5 +78,17 @@ describe('DefaultSessionIssuer lifetime', () => {
       expect(await store.restore(key)).to.equal(null);
       expect(await store.listBySubject(alice)).to.deep.equal([]);
     });
+
+    for (const expiration of [
+      { service: 'SlidingExpiration', ttl: 30 },
+      { service: 'AbsoluteExpiration', ttl: 30 },
+    ]) {
+      it(`${expiration.service}: restore refuses it and the row is gone, although the strategy needs no Creation to renew`, async () => {
+        const { issuer, store, h, key } = await issuedWithUnreadableCreation(false, expiration);
+        expect(await issuer.restore(h.id)).to.equal(null);
+        expect(await store.restore(key)).to.equal(null);
+        expect(await store.listBySubject(alice)).to.deep.equal([]);
+      });
+    }
   });
 });
