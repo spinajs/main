@@ -249,7 +249,7 @@ describe('db session provider', function () {
         await store.truncate();
         await store.save(new Session({ SessionId: 'x-touch', Subject: user('u-x'), State: 'pending', Expiration: DateTime.now().plus({ minutes: 5 }), Data: new Map() }));
 
-        await store.touch(Object.assign(new Session({ SessionId: 'x-touch', Subject: user('u-x'), State: 'pending', Data: new Map() }), { Expiration: value() }));
+        expect(await store.touch(Object.assign(new Session({ SessionId: 'x-touch', Subject: user('u-x'), State: 'pending', Data: new Map() }), { Expiration: value() }))).to.equal(false);
 
         expectEpoch(await column('x-touch'));
         expect(await store.restore('x-touch')).to.be.null;
@@ -289,12 +289,12 @@ describe('db session provider', function () {
       expect(await store.restore('x-never')).to.not.be.null;
     });
 
-    it('touch of a pending session without Expiration writes NULL and the session stays live', async () => {
-      const store = await makeProvider({ service: 'SlidingExpiration', ttl: 60 });
+    it('touch of a session a never-expiring strategy renews without Expiration writes NULL and the session stays live', async () => {
+      const store = await bootStore({ expiration: { service: NeverExpiration.name } });
       await store.truncate();
-      await store.save(new Session({ SessionId: 'x-never', Subject: user('u-x'), State: 'pending', Expiration: DateTime.now().plus({ minutes: 5 }), Data: new Map() }));
+      await store.save(new Session({ SessionId: 'x-never', Subject: user('u-x'), State: 'active', Data: new Map() }));
 
-      await store.touch(new Session({ SessionId: 'x-never', Subject: user('u-x'), State: 'pending', Data: new Map() }));
+      await store.touch(new Session({ SessionId: 'x-never', Subject: user('u-x'), State: 'active', Data: new Map() }));
 
       expect(await column('x-never')).to.be.null;
       expect(await store.restore('x-never')).to.not.be.null;
