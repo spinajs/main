@@ -6,7 +6,7 @@ import { DeleteQueryBuilder, InsertQueryBuilder, UpdateQueryBuilder } from '../b
 import type { QueryBuilder } from '../builders.js';
 import { extractModelDescriptor } from '../descriptor.js';
 import type { LiveIndex } from '../introspection.js';
-import { WriteCaptureLimitExceeded } from '../exceptions.js';
+import { WriteCaptureLimitExceeded, WriteCaptureRequired } from '../exceptions.js';
 import { QueryMiddleware } from '../interfaces.js';
 import { sqlDialectOf } from '../sql-dialect.js';
 import { WriteObserver } from './contracts.js';
@@ -58,6 +58,32 @@ function unionColumns(watches: readonly Watch[]): readonly string[] | '*' {
 // DI.clearCache, and Array.ofType returns it in registration order.
 const observers = (): WriteObserver[] => DI.resolve(Array.ofType(WriteObserver));
 
+const isTableList = (value: unknown): value is readonly string[] => Array.isArray(value) && value.every((name: unknown) => typeof name === 'string');
+
+/** The value of `db.WriteCapture.Required` as table names. Anything but a list of names throws: read as "no list", it would switch the check off. */
+export function requiredTables(value: unknown): readonly string[] {
+  if (value === undefined) return [];
+  if (!isTableList(value)) throw new InvalidOperation('write capture: db.WriteCapture.Required must be a list of table names');
+  return value;
+}
+
+// Without case: MySQL, MSSQL and SQLite take `Invoice` and `invoice` for one table, so an exact match would fail open.
+// Listing one of two tables that differ only by case guards both: the safe side.
+const sameTable = (a: string, b: string): boolean => a.toLowerCase() === b.toLowerCase();
+
+/** The names of `required` that match none of `tables`. */
+export function unmatchedTables(required: readonly string[], tables: readonly string[]): string[] {
+  return required.filter((name) => !tables.some((table) => sameTable(table, name)));
+}
+
+function refuseUnobserved(statement: WriteStatement): void {
+  const required = requiredTables(DI.get(Configuration)?.get<unknown>('db.WriteCapture.Required'));
+  if (required.length === 0) return;
+  const table = extractModelDescriptor(statement.model)?.TableName;
+  if (table === undefined || !required.some((name) => sameTable(name, table))) return;
+  throw new WriteCaptureRequired(`write capture: ${statement.model.name} writes ${table}, a table db.WriteCapture.Required lists, and no WriteObserver takes this ${statement.kind}; load the package that observes ${table} in this process or take the table off the list`);
+}
+
 function planOf(query: QueryBuilder): Plan | undefined {
   const statement = writeStatementOf(query);
   if (!statement) return undefined;
@@ -65,7 +91,10 @@ function planOf(query: QueryBuilder): Plan | undefined {
     const interest = observer.interest(statement);
     return interest ? [{ observer, interest }] : [];
   });
-  if (watches.length === 0) return undefined;
+  if (watches.length === 0) {
+    refuseUnobserved(statement);
+    return undefined;
+  }
   const d = extractModelDescriptor(statement.model);
   if (!d || d.PrimaryKey.length !== 1) throw new InvalidOperation(`write capture: ${statement.model.name} needs a single-column primary key, it has ${d?.PrimaryKey.length ?? 0}`);
   return { statement, table: d.TableName, pk: d.PrimaryKey[0], watches, columns: unionColumns(watches) };

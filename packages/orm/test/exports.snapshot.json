@@ -299,6 +299,7 @@
   "Wrapper",
   "WriteCaptureLimitExceeded",
   "WriteCaptureMiddleware",
+  "WriteCaptureRequired",
   "WriteObserver",
   "_delete",
   "_descriptor",

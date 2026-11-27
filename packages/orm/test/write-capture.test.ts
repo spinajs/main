@@ -1,10 +1,13 @@
 import * as chai from 'chai';
 import 'mocha';
 import { DI } from '@spinajs/di';
+import { InvalidOperation } from '@spinajs/exceptions';
 import { QueryMiddleware } from '../src/interfaces.js';
 import { WriteCaptureMiddleware, captureKeyText } from '../src/capture/index.js';
 import { countKeyless, keyTexts, keylessIdentity } from '../src/capture/keys.js';
+import { requiredTables, unmatchedTables } from '../src/capture/middleware.js';
 import { ORM_CONFIGURATION_SCHEMA } from '../src/configuration-schema.js';
+import { WriteCaptureRequired } from '../src/exceptions.js';
 
 const expect = chai.expect;
 
@@ -55,7 +58,35 @@ describe('write capture registration', () => {
     expect(countKeyless([[{ a: 1 }, true], [{ a: 1 }, { a: 2 }, true]])).to.eq(3);
   });
 
-  it('declares db.WriteCapture.MaxRows, 0 meaning no limit', () => {
-    expect(ORM_CONFIGURATION_SCHEMA.properties.WriteCapture).to.deep.equal({ type: 'object', properties: { MaxRows: { type: 'integer', minimum: 0, default: 0 } } });
+  it('declares db.WriteCapture closed to other keys: MaxRows with 0 meaning no limit, Required as a list of table names that is empty by default', () => {
+    expect(ORM_CONFIGURATION_SCHEMA.properties.WriteCapture).to.deep.equal({
+      type: 'object',
+      propertyNames: { enum: ['MaxRows', 'Required'] },
+      properties: {
+        MaxRows: { type: 'integer', minimum: 0, default: 0 },
+        Required: { type: 'array', items: { type: 'string', minLength: 1 }, default: [] },
+      },
+    });
+  });
+
+  it('reads the required tables, none while the key is not set', () => {
+    expect(requiredTables(undefined)).to.deep.eq([]);
+    expect(requiredTables([])).to.deep.eq([]);
+    expect(requiredTables(['invoice', 'invoice_line'])).to.deep.eq(['invoice', 'invoice_line']);
+  });
+
+  it('refuses a value that is not a list of names, so that it never reads as no list', () => {
+    for (const value of ['invoice', { invoice: true }, ['invoice', 7], null, 0]) {
+      expect(() => requiredTables(value)).to.throw(InvalidOperation, 'write capture: db.WriteCapture.Required must be a list of table names');
+    }
+  });
+
+  it('names the required tables no table matches, comparing without case', () => {
+    expect(unmatchedTables(['Invoice', 'INVOICE_LINE', 'invoce'], ['invoice', 'invoice_line'])).to.deep.eq(['invoce']);
+    expect(unmatchedTables(['invoice'], [])).to.deep.eq(['invoice']);
+  });
+
+  it('refuses an unobserved write with an InvalidOperation of its own', () => {
+    expect(new WriteCaptureRequired('refused')).to.be.instanceOf(InvalidOperation);
   });
 });

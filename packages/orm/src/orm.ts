@@ -27,6 +27,7 @@ import { installQueryExtensions, resolveQueryExtensions } from './extension-inst
 import { ReplicaRouter } from './replica-router.js';
 import { OrmMigrator } from './migrator.js';
 import { OrmMigrationGuard } from './migration-guard.js';
+import { requiredTables, unmatchedTables } from './capture/middleware.js';
 
 /**
  * Used to exclude sensitive data to others. eg. removed password field from cfg
@@ -311,6 +312,14 @@ export class Orm extends AsyncService {
     }
   }
 
+  // A warning, not a refusal: a process may lack the models of a table that another process of the application writes.
+  protected warnUnmatchedRequiredTables(): void {
+    const tables = this.Models.flatMap((m) => extractModelDescriptor(m.type)?.TableName ?? []);
+    for (const table of unmatchedTables(requiredTables(this.Configuration.get<unknown>('db.WriteCapture.Required')), tables)) {
+      this.Log.warn({ table }, 'db.WriteCapture.Required lists ${table}, and no model of this process has that table: no model write of it is refused here');
+    }
+  }
+
   /** `db.Models.Source = 'manifest'` holds in `require` mode only: any other mode may run without the manifest it reads. */
   protected manifestModelSource(): Manifest | undefined {
     if (this.Configuration.get<ModelColumnSource>('db.Models.Source', 'database') !== 'manifest') return undefined;
@@ -400,6 +409,7 @@ export class Orm extends AsyncService {
 
     this.warnMissingTables(missing);
     this.warnDrift(drift);
+    this.warnUnmatchedRequiredTables();
 
     this.wireRelations();
     this.applyModelMixins();
