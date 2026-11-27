@@ -6,7 +6,7 @@ import { Injectable, NewInstance } from '@spinajs/di';
 // emit the same query twice. QueryBuilder / TransactionCallback / ITransaction are gone with
 // the old `{ commit, rollback }` transaction shape this branch replaced. ConnectionState /
 // IPoolMetrics are orm-infra's connection-resilience + pool-telemetry work.
-import { QueryContext, OrmDriver, IColumnDescriptor, TableExistsCompiler, OrmException, ServerResponseMapper, ISupportedFeature, IsolationLevel, ITransactionContext, ITransactionOptions, ConnectionState, IPoolMetrics, InSetStatement, IdentifierQuoter, OnDuplicateQueryCompiler, ColumnQueryCompiler, AlterColumnQueryCompiler, AlterTableQueryCompiler, TableCloneQueryCompiler, LimitQueryCompiler, TruncateTableQueryCompiler, RecursiveQueryCompiler, DefaultValueBuilder, DropEventQueryCompiler, EventQueryCompiler, CreateViewCompiler, LiteralQuoter, InsertQueryCompiler, NowExpression, TextWrapper, SqlExpressions, LiveForeignKey, LiveIndex, groupIndexColumns, referentialRule, SqlDialect, MigrationLock, DatetimeValueConverter } from '@spinajs/orm';
+import { QueryContext, OrmDriver, IColumnDescriptor, TableExistsCompiler, OrmException, ServerResponseMapper, ISupportedFeature, IsolationLevel, ITransactionContext, ITransactionOptions, ConnectionState, IPoolMetrics, InSetStatement, IdentifierQuoter, OnDuplicateQueryCompiler, ColumnQueryCompiler, AlterColumnQueryCompiler, AlterTableQueryCompiler, TableCloneQueryCompiler, LimitQueryCompiler, TruncateTableQueryCompiler, RecursiveQueryCompiler, DefaultValueBuilder, DropEventQueryCompiler, EventQueryCompiler, CreateViewCompiler, LiteralQuoter, InsertQueryCompiler, NowExpression, TextWrapper, SqlExpressions, LiveForeignKey, LiveIndex, groupIndexColumns, referentialRule, SqlDialect, MigrationLock, DatetimeValueConverter, TransactionAborted } from '@spinajs/orm';
 import { MYSQL_SQL_DIALECT } from './sql-dialect.js';
 export { MYSQL_SQL_DIALECT } from './sql-dialect.js';
 import { BacktickIdentifierQuoter, SqlAlterColumnQueryCompiler, SqlAlterTableQueryCompiler, SqlDefaultValueBuilder, SqlDropEventQueryCompiler, SqlEventQueryCompiler, SqlLimitQueryCompiler, SqlOnDuplicateQueryCompiler, SqlTableCloneQueryCompiler, SqlTruncateTableQueryCompiler, SqlWithRecursiveCompiler, escapeIdentifier, SqlDriver, RowQueue } from '@spinajs/orm-sql';
@@ -40,6 +40,9 @@ export * from './migration-lock.js';
 
 export interface IMySqlTransactionContext extends ITransactionContext {
   connection: PoolConnection;
+
+  /** The error after which InnoDB rolled the whole transaction back; every later statement, savepoint and commit of it is refused. */
+  rolledBackBy?: unknown;
 }
 
 /**
@@ -51,6 +54,16 @@ export interface IMySqlTransactionContext extends ITransactionContext {
  * row stays text - a rarer and worse inconsistency than the one this fixes.
  */
 const MYSQL_NUMERIC_DEFAULT_TYPES = new Set(['tinyint', 'smallint', 'mediumint', 'int', 'integer', 'bigint', 'float', 'double']);
+
+// InnoDB rolls the whole transaction back on a deadlock and on a full lock table (ha_innodb.cc marks both for rollback);
+// on a lock wait timeout only under innodb_rollback_on_timeout. Every other error undoes the failed statement only.
+const ER_LOCK_DEADLOCK = 1213;
+const ER_LOCK_TABLE_FULL = 1206;
+const ER_LOCK_WAIT_TIMEOUT = 1205;
+
+function errnoOf(err: unknown): unknown {
+  return typeof err === 'object' && err !== null && 'errno' in err ? err.errno : undefined;
+}
 
 /**
  * A column's DEFAULT, as the type of the column it belongs to.
@@ -211,6 +224,10 @@ export class MySqlOrmDriver extends SqlDriver {
             done();
 
             if (err) {
+              if (txContext !== undefined && queryable === txContext.connection) {
+                void self.noteServerRollback(txContext, err).finally(() => fail(err));
+                return;
+              }
               return fail(err);
             }
 
@@ -245,6 +262,11 @@ export class MySqlOrmDriver extends SqlDriver {
       };
 
       if (txContext?.connection) {
+        const refused = this.refusedByServer(txContext);
+        if (refused !== undefined) {
+          reject(refused);
+          return;
+        }
         // A transaction owns its connection for its whole lifetime — releasing it after one
         // statement would hand the rest of the transaction to a different connection.
         run(txContext.connection, () => undefined);
@@ -737,11 +759,15 @@ export class MySqlOrmDriver extends SqlDriver {
   }
 
   /**
-   * Pulls the pooled connection out of a transaction context. The base class only ever hands
+   * Narrows a transaction context to this driver's. The base class only ever hands
    * us contexts this driver's own `_begin` produced, so the cast is safe.
    */
+  private mysqlContext(ctx: ITransactionContext): IMySqlTransactionContext {
+    return ctx as IMySqlTransactionContext;
+  }
+
   private txConnection(ctx: ITransactionContext): PoolConnection {
-    return (ctx as IMySqlTransactionContext).connection;
+    return this.mysqlContext(ctx).connection;
   }
 
   /**
@@ -791,6 +817,9 @@ export class MySqlOrmDriver extends SqlDriver {
   }
 
   protected _commit(ctx: ITransactionContext): Promise<void> {
+    const refused = this.refusedByServer(this.mysqlContext(ctx));
+    if (refused !== undefined) return Promise.reject(refused);
+
     return new Promise((resolve, reject) => {
       this.txConnection(ctx).commit((err) => (err ? reject(err) : resolve()));
     });
@@ -805,19 +834,56 @@ export class MySqlOrmDriver extends SqlDriver {
   // savepoint names cannot be bound parameters, so they are inlined through the identifier
   // escaper rather than passed as `?`
   protected _savepoint(ctx: ITransactionContext, name: string): Promise<void> {
-    return this.runOnConnection(this.txConnection(ctx), `SAVEPOINT ${escapeIdentifier(name)}`);
+    const refused = this.refusedByServer(this.mysqlContext(ctx));
+    return refused !== undefined ? Promise.reject(refused) : this.runOnConnection(this.txConnection(ctx), `SAVEPOINT ${escapeIdentifier(name)}`);
   }
 
   protected _releaseSavepoint(ctx: ITransactionContext, name: string): Promise<void> {
-    return this.runOnConnection(this.txConnection(ctx), `RELEASE SAVEPOINT ${escapeIdentifier(name)}`);
+    const refused = this.refusedByServer(this.mysqlContext(ctx));
+    return refused !== undefined ? Promise.reject(refused) : this.runOnConnection(this.txConnection(ctx), `RELEASE SAVEPOINT ${escapeIdentifier(name)}`);
   }
 
   protected _rollbackToSavepoint(ctx: ITransactionContext, name: string): Promise<void> {
+    // the server dropped the savepoint with the transaction: the caller keeps the error that ended it
+    if (this.refusedByServer(this.mysqlContext(ctx)) !== undefined) return Promise.resolve();
     return this.runOnConnection(this.txConnection(ctx), `ROLLBACK TO SAVEPOINT ${escapeIdentifier(name)}`);
   }
 
   protected async _dispose(ctx: ITransactionContext): Promise<void> {
     this.txConnection(ctx).release();
+  }
+
+  /** The error every later statement, savepoint and commit of a transaction the server rolled back gets; `undefined` while it did not. */
+  private refusedByServer(ctx: IMySqlTransactionContext): TransactionAborted | undefined {
+    const cause = ctx.rolledBackBy;
+    if (cause === undefined) return undefined;
+    return new TransactionAborted(
+      `transaction on connection ${this.Options.Name} was rolled back by MySQL when a statement failed with errno ${String(errnoOf(cause))} (a deadlock, a full lock table, or a lock wait timeout under innodb_rollback_on_timeout); the transaction is over: its later statements are refused and it cannot commit; retry the whole transaction, not the statement`,
+      cause,
+    );
+  }
+
+  private async noteServerRollback(ctx: IMySqlTransactionContext, err: unknown): Promise<void> {
+    const errno = errnoOf(err);
+    if (errno === ER_LOCK_DEADLOCK || errno === ER_LOCK_TABLE_FULL || (errno === ER_LOCK_WAIT_TIMEOUT && (await this.rollsBackOnTimeout(ctx.connection)))) {
+      ctx.rolledBackBy = err;
+    }
+  }
+
+  /** The error does not tell; the variable is global and fixed at server start. A failed read counts as "rolled back". */
+  private rollsBackOnTimeout(connection: PoolConnection): Promise<boolean> {
+    return new Promise((resolve) => {
+      try {
+        connection.query('SELECT @@innodb_rollback_on_timeout AS on_timeout', (err, rows) => {
+          const first: unknown = Array.isArray(rows) ? rows[0] : undefined;
+          const value = typeof first === 'object' && first !== null && 'on_timeout' in first ? first.on_timeout : undefined;
+          resolve(err !== null || Number(value) === 1);
+        });
+      } catch {
+        // a query that throws synchronously (a destroyed connection) must still settle the failed statement
+        resolve(true);
+      }
+    });
   }
 }
 

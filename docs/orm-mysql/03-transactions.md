@@ -74,6 +74,7 @@ export class CheckoutMySqlDriver extends MySqlOrmDriver {
 - A transaction holds one pooled connection from begin to release. Open `Pool.Max` transactions at once and every other statement queues.
 - Savepoint names are written through `escapeIdentifier()` from `@spinajs/orm-sql`, because MySQL does not accept them as bound parameters.
 - MySQL commits implicitly before DDL. A `CREATE TABLE` inside the callback commits everything before it and cannot be rolled back.
+- **A deadlock ends the whole transaction.** InnoDB rolls the whole transaction back when a statement fails with a deadlock (errno 1213) or a full lock table (1206), and on a lock wait timeout (1205) when the server runs with `innodb_rollback_on_timeout`; any other error undoes the failed statement only. The driver remembers it: if the callback catches that error and goes on, every later statement of the transaction, a nested `transaction()` included, is refused before it is sent with `TransactionAborted` (an `OrmException`; "… was rolled back by MySQL …", the server's error as `inner`), the commit is refused, and `transaction()` rejects with it. Nothing of the transaction is written by statements issued after the error, and no `afterCommit()` callback runs. A nested `transaction()` around the failing statement rethrows the server's error, not the "SAVEPOINT … does not exist" of its rollback. A statement the callback had already issued without awaiting it (in parallel) is sent anyway and commits on its own, because after a deadlock MySQL runs the session in autocommit mode (after a 1205 under `innodb_rollback_on_timeout`, also one issued while the driver reads that setting): await the statements of a transaction one after another where a deadlock is possible. An application that catches the deadlock and retries the statement inside the same transaction now gets the refusal on every retry, still with errno 1213 in `inner`: a retry loop must retry the whole `transaction()`, not the statement, and must be bounded (`err instanceof TransactionAborted` tells the refusal from a fresh deadlock). On every 1205 the driver reads `@@innodb_rollback_on_timeout` on that connection, one round trip before the error reaches the callback; a metadata-lock timeout is a 1205 as well and leaves the transaction intact even under that setting, and the driver then refuses the rest of the transaction anyway (fail closed). A killed statement (1317) and `max_execution_time` (3024) undo the statement only; a lost connection fails every later statement and the commit, and the server rolls the transaction back.
 - The context follows the async path. Work started with `setTimeout` or an event emitter outside the callback's chain runs outside the transaction.
 
 ## Best practices
@@ -81,6 +82,26 @@ export class CheckoutMySqlDriver extends MySqlOrmDriver {
 - Pass `{ isolation }` only when the default `REPEATABLE READ` is wrong for the task, eg. `SERIALIZABLE` for a check-then-insert.
 - Keep remote calls out of the callback; queue them with `driver.afterCommit()`.
 - Read a row you will change in the same transaction at `SERIALIZABLE`, so InnoDB locks it until commit (see the stock example below).
+- Retry a transaction that failed with a deadlock (errno 1213) or a lock wait timeout (1205) as a whole, a bounded number of times. A statement retried inside the same transaction after a deadlock is refused with `TransactionAborted` on every try.
+
+```ts
+import { OrmException } from '@spinajs/orm';
+
+// Retry the whole transaction on a lock conflict, a few times at most; never one statement inside it.
+const lockConflict = (err: unknown) => err instanceof OrmException && [1213, 1205].includes((err.inner as { errno?: number } | undefined)?.errno ?? 0);
+
+for (let attempt = 1; ; attempt++) {
+  try {
+    await driver.transaction(async () => {
+      await driver.insert().into('orders').values(order);
+      await driver.update().in('stock').update({ reserved: order.qty }).where('id', order.itemId);
+    });
+    break;
+  } catch (err) {
+    if (attempt === 3 || !lockConflict(err)) throw err;
+  }
+}
+```
 
 ## Patterns and antipatterns
 

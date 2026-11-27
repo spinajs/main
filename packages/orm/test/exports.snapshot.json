@@ -269,6 +269,7 @@
   "TableQueryCompiler",
   "TextWrapper",
   "TimeValueConverter",
+  "TransactionAborted",
   "TransactionRequired",
   "TruncateTableQueryBuilder",
   "TruncateTableQueryCompiler",
