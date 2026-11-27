@@ -17,7 +17,7 @@ const PLANTED = [PASSWORD, 'planted-token', Buffer.from(`\u0000${USER}\u0000${PA
 const REFUSAL = 'Email smtp connection orders-mail has a host that is not a host name: set host to the server name or IP address alone, and the user name and password in user / password';
 
 const URL_REFUSAL =
-  "Email smtp connection orders-mail has an options.url that is not a URL: percent-encode a '/', '?', '#' or '@' in its user name or password (%2F, %3F, %23, %40), or set user / password";
+  "Email smtp connection orders-mail has an options.url that is not a URL: percent-encode a '/', '?', '#' or '@' in its user name, password or query (%2F, %3F, %23, %40), or set user / password";
 
 class ConnectionConf extends FrameworkConfiguration {
   protected onLoad(): unknown {
@@ -264,6 +264,8 @@ describe('smtp transport - a host that is not a host name is refused before any 
     ['an unencoded ? in the password', () => `smtp://${USER}:planted?secret@mail.example.invalid:587`],
     ['an unencoded # in the password', () => `smtps://${USER}:planted#secret@mail.example.invalid:465`],
     ['an unencoded / in the user name', () => `smtp://planted/user:${PASSWORD}@mail.example.invalid:587`],
+    // dialled the right host before, but cannot be told apart from a password with an unencoded '/', '?' or '#'
+    ['an unencoded @ in the query', () => `smtp://mail.example.invalid:587/?name=planted@example.invalid`],
   ];
 
   for (const [form, url] of brokenUrls) {

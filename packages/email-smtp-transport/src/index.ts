@@ -92,7 +92,7 @@ export class EmailSenderSmtp extends EmailSender {
     const url = typeof option === 'string' && option !== '' ? option : undefined;
     if (url !== undefined && !isDialledAsWritten(url)) {
       throw new InvalidArgument(
-        `Email smtp connection ${this.Options.name} has an options.url that is not a URL: percent-encode a '/', '?', '#' or '@' in its user name or password (%2F, %3F, %23, %40), or set user / password`,
+        `Email smtp connection ${this.Options.name} has an options.url that is not a URL: percent-encode a '/', '?', '#' or '@' in its user name, password or query (%2F, %3F, %23, %40), or set user / password`,
       );
     }
     const host: unknown = options.host;
