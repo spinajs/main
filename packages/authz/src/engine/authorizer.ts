@@ -5,7 +5,7 @@ import { CHECK_SPAN, EXPLAIN_SPAN, decisionAttributes } from './tracing.js';
 import { AuthzConfigError } from '../contracts/errors.js';
 import { FALSE } from '../contracts/filter.js';
 import type { ResourceFilter } from '../contracts/filter.js';
-import type { Decision } from '../contracts/decision.js';
+import type { Decision, DenyReason } from '../contracts/decision.js';
 import type { AccessPlan } from '../contracts/plan.js';
 import type { AuthorizationModel } from '../contracts/model.js';
 import type { Permission, PermissionDef } from '../contracts/permission.js';
@@ -163,7 +163,8 @@ export class Authorizer {
    * with a residual is checked again against its row, as authz-http's `subject: 'load'` does: one loadMany
    * call per type (else load per ref); no row denies with unknown_resource, a failed load with model_error;
    * an adapter that cannot load leaves the decision conditional. An unregistered permission or a type the
-   * permission cannot be checked on is a denial with invalid_request, so one bad entry never fails the batch.
+   * permission cannot be checked on is a denial with invalid_request, and an entry whose check throws (an
+   * adapter fault) is logged and denied with model_error, so one bad entry never fails the batch.
    */
   async checkAll(principal: Principal, requests: readonly { readonly permission: Permission; readonly resource: ResourceRef }[], scope?: RequestScope): Promise<readonly Decision[]> {
     if (!Array.isArray(requests)) throw new AuthzConfigError(`${this.engine.where}: checkAll requests must be an array`);
@@ -173,7 +174,7 @@ export class Authorizer {
       const ref = requireRef(this.engine, r.resource);
       const def = typeof r.permission === 'string' ? this.engine.registry.get(r.permission) : undefined;
       if (!def || lateType(this.engine, ref.type) !== undefined || (ref.type !== GLOBAL_TYPE && !def.types.includes(ref.type))) {
-        out[i] = this.invalidRequest(principal, r.permission, ref);
+        out[i] = this.deniedEntry(principal, r.permission, ref, INVALID_REQUEST);
         return undefined;
       }
       return { def, ref };
@@ -183,7 +184,14 @@ export class Authorizer {
       items.flatMap((x) => (x ? [x.ref] : [])),
       shared.cache!,
     );
-    const check = async (def: PermissionDef, ref: ResourceRef, subject: unknown): Promise<Decision> => (await runAsync(this.pipeline({ principal, permission: def.name }, this.newRun(false, shared), { ref, subject }))).decision;
+    const check = async (def: PermissionDef, ref: ResourceRef, subject: unknown): Promise<Decision> => {
+      try {
+        return (await runAsync(this.pipeline({ principal, permission: def.name }, this.newRun(false, shared), { ref, subject }))).decision;
+      } catch (e) {
+        logAt(this.engine, 'error', { error: thrownError(e), permission: def.name, resource: resourceKey(ref) }, 'Authz domain ${domain}: checkAll entry ${permission} on ${resource} failed: ${error}');
+        return this.deniedEntry(principal, def.name, ref, ENGINE_FAULT);
+      }
+    };
     for (const [i, x] of items.entries()) if (x) out[i] = await check(x.def, x.ref, undefined);
     const conditional = items.flatMap((x, i) => (x && out[i].allowed && out[i].residual.op !== 'true' && x.ref.id !== undefined ? [i] : []));
     if (conditional.length > 0) {
@@ -200,11 +208,11 @@ export class Authorizer {
     return Object.freeze(out);
   }
 
-  /** The denial checkAll answers for an entry check() would throw on (UnknownPermission, AuthzConfigError). */
-  private invalidRequest(principal: unknown, permission: unknown, ref: ResourceRef): Decision {
+  /** The denial checkAll answers for an entry check() throws on: invalid_request before the check, model_error from it. */
+  private deniedEntry(principal: unknown, permission: unknown, ref: ResourceRef, reason: DenyReason): Decision {
     const gate = principalGate(principal);
     const who = gate.kind === 'system' ? SYSTEM_REF : gate.kind === 'deny' ? gate.principal : gate.ref;
-    return deepFreeze({ allowed: false, permission: String(permission), resource: ref, principal: who, residual: FALSE, fields: NO_FIELDS, roles: NO_ROLES, reason: { ...INVALID_REQUEST }, domain: this.domain });
+    return deepFreeze({ allowed: false, permission: String(permission), resource: ref, principal: who, residual: FALSE, fields: NO_FIELDS, roles: NO_ROLES, reason: { ...reason }, domain: this.domain });
   }
 
   async filter(principal: Principal, permission: Permission, type: ResourceType, scope?: RequestScope): Promise<ResourceFilter> {
