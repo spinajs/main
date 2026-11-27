@@ -625,7 +625,11 @@ export function assertLoginNotReserved(login: string): void {
 async function discardInsertedUser(u: User): Promise<void> {
   try {
     await createQuery(UserMetadataBase, DeleteQueryBuilder).query.where('user_id', u.Id);
-    await createQuery(User, DeleteQueryBuilder).query.where('Id', u.Id);
+    const { RowsAffected } = await createQuery(User, DeleteQueryBuilder).query.where('Id', u.Id);
+    // A middleware may narrow the delete instead of refusing it; the account then stays without an error.
+    if (RowsAffected !== 1) {
+      DI.resolve(Log, ['rbac']).warn({ userId: u.Id, userUuid: u.Uuid, rows: RowsAffected }, 'Removing the account ${userUuid} (id ${userId}) after its creation failed deleted ${rows} rows; delete it by hand.');
+    }
   } catch (err) {
     DI.resolve(Log, ['rbac']).error({ error: err, userUuid: u.Uuid }, 'Could not remove the account ${userUuid} after its creation failed; delete it by hand.');
   }

@@ -12,6 +12,7 @@ import { EmailSend } from '@spinajs/email';
 import { AuthzConfigError, AuthzService, DefaultAuthzAdmin, SYSTEM } from '@spinajs/authz';
 import type { Principal } from '@spinajs/authz';
 import { PasswordService } from '@spinajs/authn/contracts';
+import { Log } from '@spinajs/log';
 import { Connection, DeleteQueryBuilder, Model, QueryMiddleware, WriteObserver } from '@spinajs/orm';
 import type { CaptureInterest, CapturedWrite, QueryBuilder, WriteStatement } from '@spinajs/orm';
 import { join, normalize, resolve } from 'path';
@@ -64,6 +65,15 @@ class RefuseBareDeletes extends QueryMiddleware {
   beforeQueryExecution(query: QueryBuilder): void {
     if (query instanceof DeleteQueryBuilder && query.Model === undefined) throw new Error(`bare delete on ${query.Table}`);
   }
+}
+
+/** An application row filter keyed on the model: the user delete then reaches no row. */
+class NarrowUserDeletes extends QueryMiddleware {
+  afterQueryCreation(query: QueryBuilder): void {
+    if (query instanceof DeleteQueryBuilder && query.Model === User) query.where('Id', -1);
+  }
+
+  beforeQueryExecution(): void {}
 }
 
 describe('create(user, roles?)', function () {
@@ -306,6 +316,22 @@ describe('create(user, roles?)', function () {
         await nothingWritten('baredelete');
       } finally {
         DI.unregister(RefuseBareDeletes);
+      }
+    });
+
+    it('that the delete does not reach is logged by its ids, and the original error is rethrown', async () => {
+      DI.register(NarrowUserDeletes).as(QueryMiddleware);
+      try {
+        const warn = sinon.spy(DI.resolve(Log, ['rbac']), 'warn');
+        sinon.stub(TestPasswordService.prototype, 'set').rejects(new Error('credential store down'));
+
+        await expect(create({ Email: 'narrowed@spinajs.pl', Login: 'narrowed', Password: 'passw0rd123' })).to.be.rejectedWith('credential store down');
+
+        const left = await User.query().whereLogin('narrowed').firstOrFail();
+        expect(warn.callCount).to.eq(1);
+        expect(warn.firstCall.args[0]).to.deep.eq({ userId: left.Id, userUuid: left.Uuid, rows: 0 });
+      } finally {
+        DI.unregister(NarrowUserDeletes);
       }
     });
 
