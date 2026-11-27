@@ -72,7 +72,8 @@ export class TenantModel extends ModelBase<TenantModel> {
    * Moves an active tenant to suspended, or a suspended one to active, and writes `suspension` in the same statement, so
    * a state and its reason never part; false when the tenant is in any other state, also when another call moved it
    * first. The source state is a condition of the statement, never the state this row was read in. A move to active
-   * throws `InvalidOperation` once a deletion started (`assertDeletionNotStarted`).
+   * throws `InvalidOperation`, before the state is looked at, once a deletion started or when the lifecycle record
+   * cannot be read.
    */
   public async writeSuspension(to: 'active' | 'suspended', suspension: TenantSuspension | null): Promise<boolean> {
     if (to === 'active') this.assertDeletionNotStarted();

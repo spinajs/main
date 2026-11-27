@@ -82,17 +82,21 @@ const states = await DI.resolve(TenantStateService);
 await states.transition('t1', 'suspended');
 ```
 
-`transition` writes the state only. To suspend a tenant with its reason, and to resume it, call
+`transition` writes the state only. Write `state` and `suspension` only through `TenantStateService.transition` and
+`TenantLifecycle`; a plain update of `TenantModel` (`TenantModel.update({ state })`, `row.state = ...; row.update()`)
+checks neither the state machine nor a started deletion. To suspend a tenant with its reason, and to resume it, call
 `TenantLifecycle.suspend(id, reason)` and `resume(id)` ([the tenant lifecycle](07-lifecycle.md#suspending-and-resuming)).
 `transition` refuses a move to `active` once the tenant's lifecycle record names a deletion, with the refusal `resume()`
-gives (a deletion that started is finished, never undone), and a move to `active` clears the suspension record.
+gives (a deletion that started is finished, never undone), and a lifecycle record it cannot read is refused the same
+way; a move to `active` clears the suspension record.
 `suspend()` / `resume()` do not call `transition`, so an override of it does not see them.
 
 `nextStates(from)` lists the states a tenant may move to, `canTransition(from, to)` checks one step, and
 `isTenantState(value)` checks a value.
 
 `transition` throws `TenantUnavailable` for an unknown tenant, `InvalidOperation` for a step the machine does not have,
-and `ConcurrencyConflict` when the tenant left its state while the call was running: the update names the old state in
+or for a move to `active` of a tenant whose deletion started or whose lifecycle record cannot be read, and
+`ConcurrencyConflict` when the tenant left its state while the call was running: the update names the old state in
 its condition, so of two concurrent moves from one state only one changes the row. A row the registry cannot read is still moved,
 so that a broken tenant can be suspended or deleted; `transition` then throws `InvalidOperation` when it reads the row
 back, after it dropped the tenant from the cache.
