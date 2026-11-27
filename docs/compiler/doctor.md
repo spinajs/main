@@ -43,7 +43,7 @@ spinajs doctor --manifest dist/app.manifest.json
 | AUTHZ004 | warning | a queue handler of the app that declares neither `@Job({ access })` nor `@SystemTask(reason)`; `runAs: 'system'` alone does not count |
 | AUTHZ005 | warning | a permission an entry point of the app checks that is not in the catalogue (`--config`) |
 | AUTHZ007 | warning | the resource extractor of an entry point yields a type its permissions are not checked on, or `fromModel` names a model that is no access resource |
-| AUTHZ008 | warning | a route that checks a permission declared with `fields: true` and does not filter its fields with `@Access(…, { fields: 'filter' })` (`--config`) |
+| AUTHZ008 | warning | a route that checks a permission declared with `fields: true` and does not filter its fields with `@Access(…, { fields: 'filter' })` (`--config`); a `fields` the build cannot read counts as filtering and is not reported: the build notes such a route with `CMP001` "the fields option of @Access cannot be read (…): recorded as filtering, AUTHZ008 does not check this route" |
 | AUTHZ009 | warning | a schedule, CLI command or `runAs: 'system'` job of the app with no `@SystemTask(reason)` saying why it runs as SYSTEM |
 | AUTHZ001 | warning | No entry point reaches a multi-row read of an access resource without `.accessible()`, `.unscoped(reason)` or `runAs(SYSTEM, reason)`, across helpers and injected services |
 | AUTHZ002 | warning | No entry point reaches an update or delete builder of an access resource without `.accessible()`, `.unscoped(reason)` or `runAs(SYSTEM, reason)` |

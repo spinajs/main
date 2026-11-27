@@ -1,7 +1,7 @@
 import ts from 'typescript';
 import type { GlobalMiddlewareRef, MiddlewareRef, PolicyRef } from '@spinajs/manifest';
 import type { ExtractorContext } from '../context.js';
-import { decoratorsOf, identifierName, literalValue, type DecoratorInfo } from '../decorators.js';
+import { decoratorsOf, identifierName, literalValue, type DecoratorInfo, type LiteralContext } from '../decorators.js';
 import { decoratorOrigin, originOf } from './decorator-origin.js';
 
 const refOf = (expr: ts.Expression | undefined, ctx: ExtractorContext): string => {
@@ -14,19 +14,78 @@ interface AccessInfo {
   allowAnonymous?: boolean;
   also: string[];
   fieldsFilter: boolean;
+  /** The options whose `fields` the build cannot read. */
+  unreadFields: ts.Expression | undefined;
 }
 
-function accessOptions(arg: ts.Expression | undefined, ctx: ExtractorContext): { also: string[]; fieldsFilter: boolean } {
-  if (!arg || !ts.isObjectLiteralExpression(arg)) return { also: [], fieldsFilter: false };
+/** What `@Access` options do with `fields`; a value the build cannot read is `undefined`. */
+type FieldsRead = { set: false } | { set: true; value: unknown };
+
+const FIELDS_UNSET: FieldsRead = { set: false };
+const FIELDS_UNREAD: FieldsRead = { set: true, value: undefined };
+
+function initializerOf(symbol: ts.Symbol | undefined, ctx: LiteralContext): ts.Expression | undefined {
+  const decl = symbol && (symbol.flags & ts.SymbolFlags.Alias ? ctx.checker.getAliasedSymbol(symbol) : symbol).valueDeclaration;
+  // a let or var may be reassigned before the decorator runs, so only a const is held to its initializer
+  return decl && ts.isVariableDeclaration(decl) && ts.getCombinedNodeFlags(decl) & ts.NodeFlags.Const ? decl.initializer : undefined;
+}
+
+/** The object literal `expr` is written as, through wrappers and constants. */
+function objectLiteralOf(expr: ts.Expression, ctx: LiteralContext): ts.ObjectLiteralExpression | undefined {
+  if (ts.isObjectLiteralExpression(expr)) return expr;
+  if (ts.isParenthesizedExpression(expr) || ts.isAsExpression(expr) || ts.isSatisfiesExpression(expr)) return objectLiteralOf(expr.expression, ctx);
+  if (ts.isCallExpression(expr) && expr.expression.getText() === 'Object.freeze' && expr.arguments[0]) return objectLiteralOf(expr.arguments[0], ctx);
+  if (!ts.isIdentifier(expr) && !ts.isPropertyAccessExpression(expr)) return undefined;
+  const initializer = initializerOf(ctx.checker.getSymbolAtLocation(ts.isIdentifier(expr) ? expr : expr.name), ctx);
+  return initializer && objectLiteralOf(initializer, ctx);
+}
+
+function memberFields(member: ts.ObjectLiteralElementLike, ctx: LiteralContext): FieldsRead {
+  if (ts.isSpreadAssignment(member)) return fieldsOf(member.expression, ctx);
+  const key = ts.isComputedPropertyName(member.name) ? literalValue(member.name.expression, ctx) : member.name.text;
+  if (key !== 'fields') return typeof key === 'string' || typeof key === 'number' ? FIELDS_UNSET : FIELDS_UNREAD;
+  if (ts.isPropertyAssignment(member)) return { set: true, value: literalValue(member.initializer, ctx) };
+  // literalValue resolves a shorthand name to the property itself, not to the variable it copies
+  if (ts.isShorthandPropertyAssignment(member)) {
+    const initializer = initializerOf(ctx.checker.getShorthandAssignmentValueSymbol(member), ctx);
+    return initializer ? { set: true, value: literalValue(initializer, ctx) } : FIELDS_UNREAD;
+  }
+  return FIELDS_UNREAD;
+}
+
+/** The last member that may set `fields` decides, as in the object the runtime receives; options the build cannot follow may set it. */
+function fieldsOf(options: ts.Expression, ctx: LiteralContext): FieldsRead {
+  const literal = objectLiteralOf(options, ctx);
+  if (!literal) return FIELDS_UNREAD;
+  for (const member of [...literal.properties].reverse()) {
+    const read = memberFields(member, ctx);
+    if (read.set) return read;
+  }
+  return FIELDS_UNSET;
+}
+
+type FieldsFilter = Pick<AccessInfo, 'fieldsFilter' | 'unreadFields'>;
+
+/** A `fields` the build cannot read counts as filtering: a redacted reply must not be documented or cached as unredacted. */
+function fieldsFilterOf(options: ts.Expression, ctx: ExtractorContext): FieldsFilter {
+  const fields = fieldsOf(options, { checker: ctx.checker, info: () => undefined });
+  if (fields.set && fields.value === undefined) return { fieldsFilter: true, unreadFields: options };
+  return { fieldsFilter: fields.set && (fields.value === 'filter' || fields.value === 'filter-rows'), unreadFields: undefined };
+}
+
+function accessOptions(arg: ts.Expression | undefined, ctx: ExtractorContext): FieldsFilter & { also: string[] } {
+  if (!arg) return { also: [], fieldsFilter: false, unreadFields: undefined };
+  const fields = fieldsFilterOf(arg, ctx);
+  if (!ts.isObjectLiteralExpression(arg)) return { also: [], ...fields };
   const alsoProp = arg.properties.find((p): p is ts.PropertyAssignment => ts.isPropertyAssignment(p) && p.name.getText() === 'also');
   const also = alsoProp && ts.isArrayLiteralExpression(alsoProp.initializer) ? alsoProp.initializer.elements.map((e) => refOf(e, ctx)) : [];
-  const fields = (literalValue(arg, ctx) as { fields?: string } | undefined)?.fields;
-  const fieldsFilter = fields === 'filter' || fields === 'filter-rows';
-  return { also, fieldsFilter };
+  // read once with notes, as before: fieldsFilterOf reads quietly so that nothing is noted twice
+  literalValue(arg, ctx);
+  return { also, ...fields };
 }
 
 export function accessOf(node: ts.HasDecorators, ctx: ExtractorContext): AccessInfo {
-  const info: AccessInfo = { also: [], fieldsFilter: false };
+  const info: AccessInfo = { also: [], fieldsFilter: false, unreadFields: undefined };
   for (const d of decoratorsOf(node)) {
     if (d.name === 'Access') {
       const first = literalValue(d.args[0], ctx);
@@ -154,7 +213,10 @@ export function middlewaresOf(node: ts.HasDecorators, ctx: ExtractorContext): Mi
     return factory ? [{ ref: factory, replacesGate: factory.type === FACTORY_MIDDLEWARES.Idempotent.type }] : [];
   });
   const out = asMounted(decorated);
-  if (accessOf(node, ctx).fieldsFilter) out.push({ type: 'AuthzFieldsMiddleware', options: [] });
+  const { fieldsFilter, unreadFields } = accessOf(node, ctx);
+  // noted here, not in accessOf: middlewaresOf reads a node once, accessOf three times
+  if (unreadFields) ctx.info('CMP001', `the fields option of @Access cannot be read (${unreadFields.getText()}): recorded as filtering, AUTHZ008 does not check this route`, unreadFields);
+  if (fieldsFilter) out.push({ type: 'AuthzFieldsMiddleware', options: [] });
   return out;
 }
 
