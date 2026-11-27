@@ -57,6 +57,7 @@ One folder per package under `docs/`. Each package page lists its features and l
 | [`@spinajs/http-socket-example`](http-socket-example/README.md) | A runnable notes server and client, with a bundle recipe |
 | [`@spinajs/intl-http`](intl-http/README.md) | Per-request language |
 | [`@spinajs/tenancy-http`](tenancy-http/README.md) | Tenant of a request or socket connection, `TenantMiddleware`, tenant route decorators |
+| [`@spinajs/cache-http`](cache-http/README.md) | Response cache: `@ResponseCache` keeps the JSON reply of a GET route per principal |
 
 ## Data and storage
 
