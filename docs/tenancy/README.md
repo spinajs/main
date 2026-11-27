@@ -19,6 +19,7 @@ npm install @spinajs/tenancy
 | [Tenant registries](03-tenant-registries.md) | `TenantRegistry`, `ConfigTenantRegistry`, `MemoryTenantRegistry`, `ListedTenantRegistry`, the `CachedTenantRegistry` behind `tenantRegistry()` and its `invalidate()` |
 | [Tenant admission and access](04-admission-and-access.md) | `admitTenant` checks that a proposed tenant is known, active and open to the principal; the `TenantAccess` and `TenantResolver` ports |
 | [Running across tenants](05-running-across-tenants.md) | `forEachTenant` runs a job once per tenant, each in its own scope, and reports the failures |
+| [Files per tenant](08-files-per-tenant.md) | `@spinajs/tenancy/fs`: the providers listed in `tenancy.fs.prefixed` keep each tenant's files under its prefix or on its own provider |
 | [Configuration](06-configuration.md) | Every `tenancy.*` key, its default and the configuration schema |
 
 ## Quick start
