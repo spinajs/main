@@ -37,6 +37,13 @@ function refOf(key: unknown): IdentityRef | undefined {
   return { type: key.slice(0, at).replace(/%(25|3A)/g, (_, code: string) => (code === '25' ? '%' : ':')), id: key.slice(at + 1) };
 }
 
+function unreadableRevocationAttribute(item: AttributeMap): 'ImpersonatorId' | 'ExternalKey' | undefined {
+  if (item.ImpersonatorId !== undefined && !refOf(item.ImpersonatorId.S)?.id) {
+    return 'ImpersonatorId';
+  }
+  return item.ExternalKey !== undefined && typeof item.ExternalKey.S !== 'string' ? 'ExternalKey' : undefined;
+}
+
 /** Fractional seconds keep the millisecond precision the session round-trips. */
 const toTtl = (d: DateTime) => `${d.toMillis() / 1000}`;
 
@@ -203,10 +210,24 @@ export class DynamoDbSessionProvider extends SessionProvider {
       ':now': { N: toTtl(DateTime.now()) },
       ':data': { S: encodeSessionData(session.Data) },
     };
+    const names: Record<string, string> = { '#id': 'SessionId', '#state': 'State', '#exp': 'Expiration', '#data': 'Data' };
     let update = 'SET #data = :data REMOVE #exp';
     if (session.Expiration !== undefined) {
       values[':exp'] = { N: toTtl(session.Expiration) };
       update = 'SET #exp = :exp, #data = :data';
+    }
+
+    // The caller read these as readable; a rewrite since (an unreadable value the revocations cannot match) is not renewed.
+    let condition = 'attribute_exists(#id) AND #state = :state AND (attribute_not_exists(#exp) OR #exp > :now)';
+    if (session.Impersonator) {
+      names['#imp'] = 'ImpersonatorId';
+      values[':imp'] = { S: principalKey(session.Impersonator) };
+      condition += ' AND #imp = :imp';
+    }
+    if (session.ExternalKey !== undefined) {
+      names['#ext'] = 'ExternalKey';
+      values[':ext'] = { S: session.ExternalKey };
+      condition += ' AND #ext = :ext';
     }
 
     try {
@@ -215,8 +236,8 @@ export class DynamoDbSessionProvider extends SessionProvider {
           TableName: this.Table,
           Key: { SessionId: { S: session.SessionId } },
           UpdateExpression: update,
-          ConditionExpression: 'attribute_exists(#id) AND #state = :state AND (attribute_not_exists(#exp) OR #exp > :now)',
-          ExpressionAttributeNames: { '#id': 'SessionId', '#state': 'State', '#exp': 'Expiration', '#data': 'Data' },
+          ConditionExpression: condition,
+          ExpressionAttributeNames: names,
           ExpressionAttributeValues: values,
         }),
       );
@@ -360,7 +381,7 @@ export class DynamoDbSessionProvider extends SessionProvider {
    */
   protected toSession(item: AttributeMap, lenient = false): ISession | null {
     const subject = refOf(item.Subject?.S);
-    if (!subject) {
+    if (!subject?.id) {
       return null;
     }
 
@@ -381,10 +402,24 @@ export class DynamoDbSessionProvider extends SessionProvider {
       Impersonator: refOf(item.ImpersonatorId?.S),
       State: item.State?.S === 'active' ? 'active' : 'pending',
       Creation: DateTime.fromISO(item.Creation?.S ?? ''),
-      Expiration: item.Expiration ? this.instant(item.Expiration) : undefined,
+      Expiration: this.expirationOf(item, subject),
       Data: data,
       ExternalKey: item.ExternalKey?.S,
     });
+  }
+
+  /**
+   * Revocations find an item by an exact `S` match on ImpersonatorId and ExternalKey:
+   * one present but unreadable would leave the session live after its revocation,
+   * so the item counts as expired. Only an absent attribute means none.
+   */
+  protected expirationOf(item: AttributeMap, subject: IdentityRef): DateTime | undefined {
+    const attribute = unreadableRevocationAttribute(item);
+    if (attribute === undefined) {
+      return item.Expiration ? this.instant(item.Expiration) : undefined;
+    }
+    this.Log.warn(`A session of ${principalKey(subject)} has an ${attribute} the store cannot read; it is treated as expired`);
+    return DateTime.fromMillis(0);
   }
 
   /** An Expiration that is not a number counts as already passed. */
