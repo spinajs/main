@@ -97,7 +97,9 @@ export class EmailSenderSmtp extends EmailSender {
     }
     const host: unknown = options.host;
     if (url === undefined && typeof host === 'string' && isIP(host) === 0 && NOT_A_HOST_NAME.test(host)) {
-      throw new InvalidArgument(`Email smtp connection ${this.Options.name} has a host that is not a host name: set host to the server name or IP address alone, and the user name and password in user / password`);
+      throw new InvalidArgument(
+        `Email smtp connection ${this.Options.name} has a host that is not a host name: set host to the server name or IP address alone (no scheme, port or brackets; the port goes in port), and the user name and password in user / password`,
+      );
     }
     const server = loggableServer(url, host, options.port, options.secure);
 
