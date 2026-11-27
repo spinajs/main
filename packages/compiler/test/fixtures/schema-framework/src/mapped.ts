@@ -18,6 +18,9 @@ export class Editorial extends ModelBase<Editorial> {
   public Shelf?: Partial<Shelf>;
 }
 
+type DataOf<T> = ModelData<T>;
+type EditorialData = ModelData<Editorial>;
+
 @BasePath('mapped')
 export class MappedController extends BaseController {
   @Get('a-partial')
@@ -43,6 +46,14 @@ export class MappedController extends BaseController {
   @Get('a-data')
   public async aData(): Promise<Ok<Partial<ModelData<Author>>>> {
     return new Ok({});
+  }
+  @Get('a-data-alias')
+  public async aDataAlias(): Promise<Ok<DataOf<Author>[]>> {
+    return new Ok([]);
+  }
+  @Get('e-data-alias')
+  public async eDataAlias(): Promise<Ok<EditorialData[]>> {
+    return new Ok([]);
   }
   @Get('a-array')
   public async aArray(): Promise<Ok<Partial<Author>[]>> {

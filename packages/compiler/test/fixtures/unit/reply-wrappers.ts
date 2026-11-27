@@ -132,6 +132,25 @@ export interface ModelDataReplies {
   OkModelDataWithRelationData: Http.Ok<ModelDataWithRelationData<Payload>>;
 }
 
+type DataOf<T> = ModelData<T>;
+type RelDataOf<T> = ModelDataWithRelationData<T>;
+type UserData = ModelData<Payload>;
+type DataAgain<T> = DataOf<T>;
+type Swap<A, B> = ModelData<B>;
+type ListData<T> = ModelData<T[]>;
+export interface ModelDataAliases {
+  DataOf: DataOf<Payload>;
+  PromisedDataOf: Promise<DataOf<Payload>>;
+  RelDataOf: RelDataOf<Payload>;
+  UserData: UserData;
+  OkUserData: Http.Ok<UserData>;
+  DataAgain: DataAgain<Payload>;
+  Swap: Swap<string, Payload>;
+}
+export interface ModelDataListAlias {
+  ListData: ListData<Payload>;
+}
+
 type AsyncOk<T> = Promise<Http.Ok<T>>;
 type PromiseList<T> = Promise<T[]>;
 type PromisedPayload = Promise<Payload>;
@@ -142,10 +161,12 @@ export interface PromiseAliases {
 }
 
 type LookAsync<T> = Look.Promise<T>;
+type LookData<T> = Look.ModelData<T>;
 export interface WrapperLookalikes {
   Promise: Look.Promise<Payload>;
   AliasedPromise: LookAsync<Payload>;
   ModelData: Look.ModelData<Payload>;
+  AliasedModelData: LookData<Payload>;
   ModelDataWithRelationData: Look.ModelDataWithRelationData<Payload>;
 }
 

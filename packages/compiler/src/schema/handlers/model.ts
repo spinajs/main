@@ -2,8 +2,9 @@ import ts from 'typescript';
 import { declarationFileClass, isModelType, isRelationType, modelMembers, ORM, type ModelMember } from '../../model-members.js';
 import type { DeriveContext, JsonSchema, TypeHandler } from '../derive.js';
 import { diagnose } from '../diagnose.js';
-import { baseClassOf, declaringPackage, extendsFrameworkClass, isDeclaredIn } from '../framework-members.js';
+import { baseClassOf, declaringPackage, extendsFrameworkClass } from '../framework-members.js';
 import { jsdocConstraints } from '../jsdoc.js';
+import { ormModelDataArgument } from '../wrappers.js';
 
 const MODEL_DATA = new Set(['ModelData', 'ModelDataWithRelationData', 'ModelDataWithRelationDataSearchable']);
 
@@ -85,8 +86,6 @@ export const modelType: TypeHandler = (ctx, type) => {
 
 /** `ModelData<M>` and its relation variants are what `dehydrate()` returns for M: they derive as M itself. */
 export const modelDataType: TypeHandler = (ctx, type) => {
-  const alias = type.aliasSymbol;
-  if (!alias || !MODEL_DATA.has(alias.name) || !isDeclaredIn(alias.declarations?.[0], ORM)) return undefined;
-  const model = type.aliasTypeArguments?.[0];
+  const model = ormModelDataArgument(ctx.checker, type, MODEL_DATA);
   return model && isModelType(ctx.checker, model) ? ctx.derive(ctx, model) : undefined;
 };

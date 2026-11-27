@@ -155,6 +155,11 @@ describe('schema derivation: types derived from a model', () => {
     const body = registered(route('aBody').params[0].runtimeType.schema!.replace('spinajs/fw/', ''));
     expect(body).to.deep.include({ properties: authorProperties });
   });
+  it('derives a type alias of ModelData<M> as M, generic or not', () => {
+    expect(returned('aDataAlias')).to.deep.equal({ type: 'array', items: { $ref: 'spinajs/fw/Author' } });
+    expect(returned('eDataAlias')).to.deep.equal({ type: 'array', items: { $ref: 'spinajs/fw/Editorial' } });
+    expect(registered('Editorial')).to.deep.include({ required: ['Id'], additionalProperties: false });
+  });
   it('derives every type built from a declaration-file model to an open object', () => {
     for (const handler of ['sPartial', 'sPick', 'sOmit', 'sReadonly', 'sRequired', 'sData']) expect(returned(handler), handler).to.deep.equal({ type: 'object' });
     expect(returned('sArray')).to.deep.equal({ type: 'array', items: { type: 'object' } });
