@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { AUTHZ_CONNECTION } from '@spinajs/authz';
 import type { ScopeAttributeLeaf } from '@spinajs/authz';
 import { Column, Connection, DateTime as DateTimeColumn, Json, Model, ModelBase, Primary } from '@spinajs/orm';
@@ -8,6 +9,7 @@ export const SCOPE_ATTRIBUTE_VERSION_TABLE = 'authz_scope_attribute_version';
 
 /** An `authz_scope_attribute` row: one scalar leaf of a scope node's attributes. */
 export interface ScopeAttributeFields {
+  readonly id: string;
   readonly scope_type: string;
   readonly scope_id: string;
   readonly path: string;
@@ -18,17 +20,25 @@ export interface ScopeAttributeFields {
   readonly updated_at: DateTime;
 }
 
+/**
+ * The `id` of the leaf row `path` of the scope node `(scopeType, scopeId)`: the SHA-256 hex of the JSON array of the
+ * three, as `authz_rebac_tuple.tuple_key` is built. `scopeId` is `''` for `$global`, as the row stores it.
+ */
+export function scopeAttributeId(scopeType: string, scopeId: string, path: string): string {
+  // JSON escapes quotes, backslashes, control characters and lone surrogates, so no two triples give one text.
+  return createHash('sha256').update(JSON.stringify([scopeType, scopeId, path])).digest('hex');
+}
+
 @Connection(AUTHZ_CONNECTION)
 @Model(SCOPE_ATTRIBUTE_TABLE)
 export class ScopeAttributeRecord extends ModelBase<ScopeAttributeRecord> implements ScopeAttributeFields {
   @Primary({ generated: 'assigned' })
+  public id!: string;
+
   public scope_type!: string;
 
-  // '' for $global, which `generated: 'assigned'` refuses.
-  @Primary()
   public scope_id!: string;
 
-  @Primary({ generated: 'assigned' })
   public path!: string;
 
   @Json()

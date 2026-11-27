@@ -21,7 +21,7 @@ The package ships the `spinajs` bin (`lib/cli.js`).
 | [Running the CLI](01-running-the-cli.md) | The `spinajs` bin: boot order, framework options, help, version, exit codes, the built-in `configuration:dump` |
 | [Commands](02-commands.md) | `CliCommand` and `@Command`: names, aliases, subcommands, how a command is resolved from DI and how to replace one |
 | [Arguments and options](03-arguments-and-options.md) | `@Argument` and `@Option`: required, variadic, choices, parsers, env- and config-backed defaults |
-| [Lifecycle hooks and commander access](04-lifecycle-hooks.md) | `onCreation`, `onPreAction`, `onPostAction` and the re-exported commander API |
+| [Lifecycle hooks and commander access](04-lifecycle-hooks.md) | `onCreation`, `onPreAction`, `onPostAction`, `CliCommandHook` around every command's action, and the re-exported commander API |
 | [Command discovery](05-command-discovery.md) | `system.dirs.cli`: how command files are found, and how a package ships its own commands |
 | [Argv provider](06-argv-provider.md) | The `__cli_argv_provider__` factory that hands argv to the parser; replace it for tests and custom entry points |
 | [`Cli` service](07-cli-service.md) | The service that builds the command tree and runs it; subclass it, translate help text, run it from your own entry point |
