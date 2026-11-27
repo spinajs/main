@@ -49,20 +49,16 @@ function connectFailureText(err: unknown): unknown {
   return err instanceof Error ? err.message : err;
 }
 
-/** Text the helper cannot tell from the url: the password sent from the fields, the pieces of a broken-up userinfo. */
-function connectSecrets(endpoint: string, password: string | undefined): string[] {
-  const url = parsedUrl(endpoint);
-  const pieces = url !== undefined && isBrokenUserinfo(url) ? [url.hostname, url.port] : [];
-  return [password ?? '', ...pieces].filter((secret) => secret.length >= 4);
-}
+const BROKEN_USERINFO = "the host url has an '@' after the host: percent-encode a '/', '?', '#' or '@' in its userinfo, vhost or query";
 
 /** A connect failure with only its class, code and a message that cannot repeat the credentials of a url host. */
 function loggableConnectError(err: unknown, host: string | undefined, password: string | undefined): Error {
   // a bare host name given as the endpoint would have every mention of it replaced by '<not a URL>'
   const endpoint = host?.includes('://') ? host : '';
-  let reason = loggableReason(connectFailureText(err), endpoint);
-  for (const secret of connectSecrets(endpoint, password)) reason = reason.split(secret).join('***');
-  const error = new Error(reason);
+  const url = parsedUrl(endpoint);
+  // the client dialed pieces of the userinfo as host and port, and its messages quote them at any length
+  const reason = url !== undefined && isBrokenUserinfo(url) ? BROKEN_USERINFO : loggableReason(connectFailureText(err), endpoint);
+  const error = new Error(password !== undefined && password.length >= 4 ? reason.split(password).join('***') : reason);
   error.name = err instanceof Error ? err.name : 'Error';
   const code = err instanceof Error && 'code' in err ? err.code : undefined;
   return typeof code === 'string' || typeof code === 'number' ? Object.assign(error, { code }) : error;
