@@ -297,8 +297,10 @@ interface IBuiltStatement {
 }
 
 /**
- * The default scopes (soft delete, archive) are ANDed with the other statements as one group, so an OR among those
- * cannot reach past them: `<scopes> AND ( a OR b )`. A clause without a top-level OR compiles as it always did.
+ * The ORM's own conditions (the soft-delete and archive scopes, a keyset page predicate) are ANDed with the other
+ * statements as one group, so an OR among those cannot reach past them: `<scopes> AND ( a OR b ) AND <keyset>`. The
+ * marked statements after the last other one stay after the group, the rest go first. A clause without a top-level OR
+ * compiles as it always did.
  */
 function joinScoped(statements: IBuiltStatement[], bindings: any[]): string {
   const flatBindings: any[] = [];
@@ -308,13 +310,16 @@ function joinScoped(statements: IBuiltStatement[], bindings: any[]): string {
     return flat;
   }
 
-  const scopes = joinBuiltStatements(statements.filter((s) => s.scope).map((s) => ({ ...s, boolean: WhereBoolean.AND })), bindings);
-  const conditions = joinBuiltStatements(statements.filter((s) => !s.scope), bindings);
-  if (conditions === '') {
-    return scopes;
-  }
+  const groupBindings: any[] = [];
+  const conditions = joinBuiltStatements(statements.filter((s) => !s.scope), groupBindings);
+  const group: IBuiltStatement = { boolean: WhereBoolean.AND, result: { Statements: [hasTopLevelOr(conditions) ? `( ${conditions} )` : conditions], Bindings: groupBindings } };
 
-  return `${scopes} AND ${hasTopLevelOr(conditions) ? `( ${conditions} )` : conditions}`;
+  const last = statements.findLastIndex((s) => !s.scope);
+  const before = statements.slice(0, last + 1).filter((s) => s.scope);
+  const after = statements.slice(last + 1);
+  const anded = (marked: IBuiltStatement[]) => marked.map((s) => ({ ...s, boolean: WhereBoolean.AND }));
+
+  return joinBuiltStatements([...anded(before), group, ...anded(after)], bindings);
 }
 
 // Quoted text, a lone quote, a parenthesis, `||`, or a word with its qualifier (`t.or` is a column, not the keyword).

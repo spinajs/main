@@ -96,6 +96,12 @@ export function applyKeysetPredicate(query: IWhereBuilder<unknown>, columns: Key
       }
     }
   });
+
+  // an OR among the query's own conditions would otherwise capture it: `a OR b AND keyset` returns `a` on every page
+  const predicate = query.Statements.at(-1);
+  if (predicate) {
+    predicate.Scope = true;
+  }
 }
 
 interface CursorPayload {
