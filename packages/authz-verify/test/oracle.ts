@@ -2,7 +2,8 @@ import type { PolicyIR, RelationDef, Rewrite, SubjectTypeRef } from '@spinajs/au
 
 /**
  * A brute-force reading of `never(holder, permission)`, written from the IR's semantics and sharing no code with the
- * engines: every set of at most `size` tuples over two objects per type is evaluated directly.
+ * engines: every set of at most `size` tuples over two objects per type is evaluated directly. Reads `tuples`
+ * relations, `this`, `computed`, tuple-to-userset, union, intersection and exclusion.
  */
 
 /** `doc:d1#viewer@user:u1`, with `user:*` for the wildcard and `group:g1#member` for a subject set. */
@@ -19,17 +20,11 @@ const refText = (ref: SubjectTypeRef): string => (typeof ref === 'string' ? ref 
 const entries = <T>(o: Record<string, T>): Map<string, T> => new Map(Object.entries(o));
 const namesPrincipal = (t: Tuple): boolean => t.subject === PRINCIPAL || t.subject === WILDCARD;
 
-interface Type {
-  readonly permissions: Map<string, Rewrite>;
-  readonly relations: Map<string, RelationDef>;
-}
-const compiled = new WeakMap<PolicyIR, Map<string, Type>>();
-function typesOf(ir: PolicyIR): Map<string, Type> {
-  let types = compiled.get(ir);
-  if (types === undefined) {
-    types = new Map([...entries(ir.types)].map(([name, def]) => [name, { permissions: entries(def.permissions), relations: entries(def.relations) }]));
-    compiled.set(ir, types);
-  }
+type Types = Map<string, { readonly permissions: Map<string, Rewrite>; readonly relations: Map<string, RelationDef> }>;
+const compiled = new WeakMap<PolicyIR, Types>();
+function typesOf(ir: PolicyIR): Types {
+  const types: Types = compiled.get(ir) ?? new Map([...entries(ir.types)].map(([n, d]) => [n, { permissions: entries(d.permissions), relations: entries(d.relations) }]));
+  compiled.set(ir, types);
   return types;
 }
 
@@ -42,7 +37,7 @@ interface Cut {
 const NO_CUT: Cut = { named: new Set(), wild: new Set(), all: false };
 
 class Run {
-  private readonly types: Map<string, Type>;
+  private readonly types: Types;
 
   constructor(ir: PolicyIR, private readonly tuples: readonly Tuple[], private readonly cut: Cut = NO_CUT) {
     this.types = typesOf(ir);
@@ -81,8 +76,6 @@ class Run {
   }
 
   private subjects(object: string, relation: string): string[] {
-    const rel = this.types.get(typeOf(object))?.relations.get(relation);
-    if (rel?.source.kind === 'ancestor' && rel.source.via === '$global') return typeOf(object) === '$global' ? [] : ['$global:$global'];
     return this.tuples.filter((t) => t.object === object && t.relation === relation).map((t) => t.subject);
   }
 
@@ -102,13 +95,11 @@ function named(ir: PolicyIR, selector: string): Set<string> {
 /** Does the principal get `<type>#<relation>` on `resource` with these tuples? */
 export const allowed = (ir: PolicyIR, tuples: readonly Tuple[], resource: string, relation: string): boolean => new Run(ir, tuples).node(resource, relation);
 
-export type Broken = 'narrow' | 'broad' | undefined;
-
 /**
  * `narrow`: the permission is allowed, every tuple naming the principal makes it a holder by itself, and the
  * permission goes once the holder is taken away. `broad`: the first two only (another way to the permission counts).
  */
-export function neverBroken(ir: PolicyIR, tuples: readonly Tuple[], resource: string, relation: string, selector: string): Broken {
+export function neverBroken(ir: PolicyIR, tuples: readonly Tuple[], resource: string, relation: string, selector: string): 'narrow' | 'broad' | undefined {
   if (!allowed(ir, tuples, resource, relation)) return undefined;
   const wildOnly = selector === 'public' || selector.startsWith('public:');
   const relations = selector === 'public' ? new Set<string>() : named(ir, wildOnly ? selector.slice('public:'.length) : selector);
@@ -119,69 +110,15 @@ export function neverBroken(ir: PolicyIR, tuples: readonly Tuple[], resource: st
   return new Run(ir, tuples, cut).node(resource, relation) ? 'broad' : 'narrow';
 }
 
-/** The stored relations a check of `type#name` can read, at any depth. */
-function relevant(ir: PolicyIR, type: string, name: string): Set<string> {
-  const types = typesOf(ir);
-  const out = new Set<string>();
-  const seen = new Set<string>();
-  const visit = (t: string, n: string): void => {
-    if (seen.has(`${t}#${n}`)) return;
-    seen.add(`${t}#${n}`);
-    const rewrite = types.get(t)?.permissions.get(n);
-    if (rewrite === undefined) stored(t, n);
-    else walk(t, n, rewrite);
-  };
-  const stored = (t: string, n: string): void => {
-    out.add(`${t}#${n}`);
-    for (const a of (types.get(t)?.relations.get(n)?.allowed ?? []).map(refText)) if (a.includes('#')) visit(a.slice(0, a.indexOf('#')), a.slice(a.indexOf('#') + 1));
-  };
-  const walk = (t: string, self: string, r: Rewrite): void => {
-    if ('this' in r) stored(t, self);
-    else if ('computed' in r) visit(t, r.computed);
-    else if ('tupleToUserset' in r) {
-      out.add(`${t}#${r.tupleToUserset.tupleset}`);
-      for (const a of (types.get(t)?.relations.get(r.tupleToUserset.tupleset)?.allowed ?? []).map(refText)) visit(a, r.tupleToUserset.computed);
-    } else if ('union' in r) r.union.forEach((c) => walk(t, self, c));
-    else if ('intersection' in r) r.intersection.forEach((c) => walk(t, self, c));
-    else if ('exclusion' in r) [r.exclusion.base, r.exclusion.subtract].forEach((c) => walk(t, self, c));
-  };
-  visit(type, name);
-  return out;
-}
-
-/** Every tuple a relevant relation can store over two objects per type (`$global` has one), the principal and the wildcard. */
-function candidates(ir: PolicyIR, type: string, relation: string): Tuple[] {
-  const ids = (t: string): string[] => (t === 'user' ? [PRINCIPAL] : t === '$global' ? ['$global:$global'] : [`${t}:${t}1`, `${t}:${t}2`]);
-  const subjects = (a: string): string[] => {
-    const hash = a.indexOf('#');
-    if (a === WILDCARD) return [a];
-    return hash < 0 ? ids(a) : ids(a.slice(0, hash)).map((id) => `${id}${a.slice(hash)}`);
-  };
-  const out: Tuple[] = [];
-  for (const key of relevant(ir, type, relation)) {
-    const [t, r] = key.split('#');
-    const rel = typesOf(ir).get(t)?.relations.get(r);
-    if (rel === undefined || !(rel.source.kind === 'tuples' || (rel.source.kind === 'ancestor' && rel.source.via !== '$global'))) continue;
-    for (const object of ids(t)) for (const subject of rel.allowed.map(refText).flatMap(subjects)) out.push({ object, relation: r, subject });
-  }
-  return out;
-}
-
-export interface Found {
-  narrow?: Tuple[];
-  broad?: Tuple[];
-}
-
 /** The smallest tuple sets, up to `size` tuples, that break `never(selector, <type>:<relation>)` on `<type>:<type>1` in each reading. */
-export function search(ir: PolicyIR, type: string, relation: string, selectors: readonly string[], size: number): Map<string, Found> {
-  const pool = candidates(ir, type, relation);
+export function search(ir: PolicyIR, type: string, relation: string, selectors: readonly string[], size: number): Map<string, { narrow?: Tuple[]; broad?: Tuple[] }> {
+  const ids = (t: string): string[] => (t === 'user' ? [PRINCIPAL] : [`${t}:${t}1`, `${t}:${t}2`]);
+  const subjects = (a: string): string[] => (a === WILDCARD ? [a] : a.includes('#') ? ids(a.slice(0, a.indexOf('#'))).map((id) => `${id}${a.slice(a.indexOf('#'))}`) : ids(a));
+  const pool = [...typesOf(ir)].flatMap(([t, def]) => [...def.relations].filter(([, rel]) => rel.source.kind === 'tuples').flatMap(([r, rel]) => ids(t).flatMap((object) => rel.allowed.map(refText).flatMap(subjects).map((subject) => ({ object, relation: r, subject })))));
   const resource = `${type}:${type}1`;
-  const found = new Map<string, Found>(selectors.map((s) => [s, {}]));
+  const found = new Map<string, { narrow?: Tuple[]; broad?: Tuple[] }>(selectors.map((s) => [s, {}]));
   const visit = (picked: Tuple[], rest: readonly Tuple[], left: number): void => {
-    if (left > 0) {
-      rest.forEach((t, i) => visit([...picked, t], rest.slice(i + 1), left - 1));
-      return;
-    }
+    if (left > 0) return rest.forEach((t, i) => visit([...picked, t], rest.slice(i + 1), left - 1));
     if (!allowed(ir, picked, resource, relation)) return;
     for (const [selector, f] of found) {
       const got = f.narrow === undefined ? neverBroken(ir, picked, resource, relation, selector) : undefined;
@@ -211,8 +148,9 @@ export function randomPolicy(seed: number): PolicyIR {
   const rels = new Map(types.map((t) => [t, ['r0', 'r1', 'r2', 'r3'].slice(0, 2 + Math.floor(next() * 3))]));
   const relsOf = (t: string): string[] => rels.get(t) ?? [];
   const all = types.flatMap((t) => relsOf(t).map((r) => `${t}#${r}`));
+  // `up` holds objects only, so it is read as a tupleset and never names a principal.
   const ups = new Map(types.filter(() => next() < 0.5).map((t) => [t, pick(types)]));
-  const allowed = (): string[] => {
+  const allowedRefs = (): string[] => {
     const out = [...(next() < 0.6 ? ['user'] : []), ...(next() < 0.35 ? ['user:*'] : []), ...(next() < 0.4 ? [pick(all)] : [])];
     return out.length === 0 ? ['user'] : out;
   };
@@ -229,20 +167,19 @@ export function randomPolicy(seed: number): PolicyIR {
     return op === 'union' ? { union: [x, y] } : op === 'intersection' ? { intersection: [x, y] } : { exclusion: { base: x, subtract: y } };
   };
   const tuples = (refs: string[]): RelationDef => ({ allowed: refs, source: { kind: 'tuples', store: 'authz_rebac_tuple' } });
-  const defs = new Map(
-    types.map((t) => {
-      const up = ups.get(t);
-      const relations = Object.fromEntries([...relsOf(t).map((r) => [r, tuples(allowed())] as const), ...(up === undefined ? [] : [['up', tuples([up])] as const])]);
-      return [t, { relations, permissions: Object.fromEntries(['p0', ...(next() < 0.5 ? ['p1'] : [])].map((p) => [p, rewrite(t, 0)])) }];
-    }),
-  );
+  const defs = types.map((t) => {
+    const up = ups.get(t);
+    const relations = Object.fromEntries([...relsOf(t).map((r) => [r, tuples(allowedRefs())] as const), ...(up === undefined ? [] : [['up', tuples([up])] as const])]);
+    return [t, { relations, permissions: Object.fromEntries(['p0', ...(next() < 0.5 ? ['p1'] : [])].map((p) => [p, rewrite(t, 0)])) }] as const;
+  });
+  // Later roles often share a relation with the first one, the case a role's label hides.
   const first = [pick(all), ...(next() < 0.3 ? [pick(all)] : [])];
   const roles = ['ra', 'rb', 'rc'].slice(0, 1 + Math.floor(next() * 3)).map((r, i) => [r, [...new Set(i === 0 ? first : next() < 0.6 ? [pick(first), pick(all)] : [pick(all)])]] as const);
   const source = { origin: 'oracle' };
   return {
     version: 1,
     types: { user: { relations: {}, permissions: {} }, ...Object.fromEntries(defs) },
-    permissions: Object.fromEntries([...defs].flatMap(([t, d]) => Object.keys(d.permissions).map((p) => [`${t}:${p}`, { type: t, relation: p, list: false, source }]))),
+    permissions: Object.fromEntries(defs.flatMap(([t, d]) => Object.keys(d.permissions).map((p) => [`${t}:${p}`, { type: t, relation: p, list: false, source }]))),
     caveats: {},
     combine: { default: { algorithm: 'deny-overrides' } },
     principal: { ceiling: false, delegation: false, ancestry: 'up', roles: Object.fromEntries(roles.map(([r, keys]) => [r, keys.map((k) => ({ type: k.split('#')[0], relation: k.split('#')[1] }))])) },
