@@ -12,6 +12,7 @@ import type { MetricReader, PushMetricExporter, ResourceMetrics } from '@opentel
 import { OTLPMetricExporter } from '@opentelemetry/exporter-metrics-otlp-http';
 import { resourceFromAttributes } from '@opentelemetry/resources';
 import { ATTR_SERVICE_NAME } from '@opentelemetry/semantic-conventions';
+import { loggableEndpoint } from './loggable-endpoint.js';
 
 export const PERF_METER_NAME = '@spinajs/perf';
 
@@ -234,16 +235,6 @@ class FailureLoggingExporter implements PushMetricExporter {
 
   public shutdown(): Promise<void> {
     return this.inner.shutdown();
-  }
-}
-
-/** The endpoint without userinfo and query, for logs. */
-function loggableEndpoint(endpoint: string): string {
-  try {
-    const url = new URL(endpoint);
-    return `${url.protocol}//${url.host}${url.pathname}`;
-  } catch {
-    return '<not a URL>';
   }
 }
 
