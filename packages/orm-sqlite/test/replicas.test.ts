@@ -1,7 +1,7 @@
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { Class, DI, IContainer } from '@spinajs/di';
 import '@spinajs/log';
-import { Connection, ConnectionSessionSettings, ConnectionState, DefaultReplicaRouter, HasMany, Migration, Model, ModelBase, Orm, OrmDriver, OrmMigration, OrmMigrator, Primary, readYourWrites, Relation, ReplicaRouter, resolveMigrationTool } from '@spinajs/orm';
+import { Connection, ConnectionSessionSettings, ConnectionState, DataException, DefaultReplicaRouter, HasMany, Migration, Model, ModelBase, Orm, OrmDriver, OrmMigration, OrmMigrator, Primary, QueryContext, readYourWrites, Relation, ReplicaRouter, resolveMigrationTool } from '@spinajs/orm';
 import type { IBuilderMiddleware } from '@spinajs/orm';
 import { expect } from 'chai';
 import _ from 'lodash';
@@ -431,6 +431,119 @@ describe('read replicas on sqlite', function () {
         await driver.del().from('routed_item').where({ Id: 2 });
       }
     }
+  });
+
+  describe('the probe of a refused keyset cursor', () => {
+    const orderBy: Array<['Id', 'asc']> = [['Id', 'asc']];
+
+    interface SentSelect {
+      on: string;
+      sql: string;
+      rows: Promise<unknown>;
+    }
+
+    beforeEach(async () => {
+      // a lagging replica: rows 2 and 3 are on the primary only
+      await primary.insert().into('routed_item').values([
+        { Id: 2, Name: 'primary' },
+        { Id: 3, Name: 'primary' },
+      ]);
+    });
+
+    afterEach(async () => {
+      await primary.del().from('routed_item').where('Id', '>', 1);
+    });
+
+    /** Every select `run` sends; the first, the page, is refused as postgres refuses a label outside an enum. */
+    async function refusedPage(run: () => Promise<unknown>): Promise<SentSelect[]> {
+      const sent: SentSelect[] = [];
+      const stubs = [primary, replica].map((driver) => {
+        if (!(driver instanceof SqliteOrmDriver)) {
+          throw new Error('booted without SqliteOrmDriver');
+        }
+        const send = driver.executeOnDb.bind(driver);
+        return sinon.stub(driver, 'executeOnDb').callsFake((sql: string, params: unknown[], context: QueryContext) => {
+          if (!sql.startsWith('SELECT')) {
+            return send(sql, params, context);
+          }
+          const rows = sent.length === 0 ? Promise.reject(new DataException('invalid input value')) : send(sql, params, context);
+          sent.push({ on: driver === primary ? 'primary' : 'replica', sql, rows });
+          return rows;
+        });
+      });
+      try {
+        let error: unknown;
+        await run().catch((err: unknown) => (error = err));
+        expect(error).to.be.instanceOf(DataException);
+      } finally {
+        stubs.forEach((s) => s.restore());
+      }
+      return sent;
+    }
+
+    const firstCursor = async () => (await RoutedItem.select().onPrimary().paginate({ orderBy, limit: 1 })).next ?? undefined;
+
+    it('runs on the primary an onPrimary() page read, with the SQL of both unchanged', async () => {
+      const after = await firstCursor();
+      const page = RoutedItem.select().onPrimary();
+      const sent = await refusedPage(() => page.paginate({ orderBy, limit: 1, after }));
+
+      expect(sent.map(({ on, sql }) => [on, sql])).to.deep.equal([
+        ['primary', 'SELECT * FROM `routed_item` WHERE ( ( `Id` > ? ) ) ORDER BY `Id` ASC LIMIT ?'],
+        ['primary', 'SELECT `Id` FROM `routed_item` WHERE ( ( `Id` > ? ) ) LIMIT ?'],
+      ]);
+      expect(page.toDB()).to.have.property('expression', sent[0].sql);
+    });
+
+    it('runs on the primary a row-locking page read', async () => {
+      const after = await firstCursor();
+      const sent = await refusedPage(() => RoutedItem.select().forUpdate().paginate({ orderBy, limit: 1, after }));
+
+      expect(sent.map((s) => s.on)).to.deep.equal(['primary', 'primary']);
+    });
+
+    it('runs on the connection the page read when the round robin moves on', async () => {
+      const after = await firstCursor();
+      const router = container.get(ReplicaRouter)!;
+      router.register(primary, [replica, primary]);
+      try {
+        for (let i = 0; i < 2; i++) {
+          const sent = await refusedPage(() => RoutedItem.select().paginate({ orderBy, limit: 1, after }));
+          expect(sent.map((s) => s.on)).to.deep.equal([sent[0].on, sent[0].on]);
+        }
+      } finally {
+        router.register(primary, [replica]);
+      }
+    });
+
+    it('sees the rows written in the transaction the page runs in', async () => {
+      await primary.transaction(async () => {
+        await primary.insert().into('routed_item').values({ Id: 4, Name: 'written' });
+        const after = (await RoutedItem.select().paginate({ orderBy, limit: 3 })).next ?? undefined;
+        const sent = await refusedPage(() => RoutedItem.select().paginate({ orderBy, limit: 1, after }));
+
+        expect(sent.map((s) => s.on)).to.deep.equal(['primary', 'primary']);
+        expect(await sent[1].rows).to.deep.equal([{ Id: 4 }]);
+      });
+    });
+
+    it('leaves the primary rows of an onPrimary() walk and stream to the page itself', async () => {
+      const walked: number[] = [];
+      let after: string | undefined;
+      do {
+        const page = await RoutedItem.select().onPrimary().paginate({ orderBy, limit: 1, after });
+        walked.push(...page.items.map((i) => i.Id));
+        after = page.next ?? undefined;
+      } while (after !== undefined);
+
+      const streamed: number[] = [];
+      for await (const item of RoutedItem.select().onPrimary().order('Id').stream({ batchSize: 1 })) {
+        streamed.push(item.Id);
+      }
+
+      expect(walked).to.deep.equal([1, 2, 3]);
+      expect(streamed).to.deep.equal([1, 2, 3]);
+    });
   });
 
   function loseReplica() {

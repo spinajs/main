@@ -953,6 +953,8 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
     const probe = new SelectQueryBuilder<T>(this._container, this._driver, this._model);
     // a row filter can be switched on by a per-query mark (authz-orm's accessible/within, tenancy-orm's acrossTenants)
     runCloneHooks(this, probe);
+    // where the page read, as a stream pins its pages: a lagging replica or the round robin's next one holds other rows
+    probe._pinnedDriver = this._readDriver ?? this.executionDriver();
     probe.setTable(this._table);
     if (this._database) {
       probe.database(this._database);
