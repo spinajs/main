@@ -99,6 +99,7 @@ describe('PuppeteerRenderer page logs', function () {
       '<html><head></head><body>',
       `<link rel="stylesheet" href="signed/${SIGNED_PATH_SEGMENT}/theme.css?X-Amz-Signature=${RESPONSE_TOKEN}">`,
       `<img src="http://127.0.0.1:${refusedPort}/assets/photo.png?token=${FAILED_TOKEN}">`,
+      // `defer`: a parser-blocking script makes Chromium print a console warning that quotes its URL, and console lines are logged as printed
       `<script defer src="boom.js?X-Amz-Signature=${SCRIPT_TOKEN}"></script>`,
       `<img src="http://${USER}:${PASSWORD}@127.0.0.1:${refusedPort}/private/badge.png">`,
       `<script type="module">await import('./lazy-module.js?X-Amz-Signature=${IMPORT_TOKEN}');</script>`,
@@ -107,7 +108,8 @@ describe('PuppeteerRenderer page logs', function () {
 
     const renderer = await DI.resolve(LogTestRenderer);
     await renderer.renderHtmlToFile(html, join(sandbox, 'out.log-test'), { assetBasePath: sandbox });
-    await new Promise((resolve) => setImmediate(resolve));  });
+    await new Promise((resolve) => setImmediate(resolve));
+  });
 
   after(async () => {
     await DI.dispose();
