@@ -1,0 +1,13 @@
+export declare class Ok<T> { data: T; }
+export declare class Json<T> { data: T; }
+export declare class Created<T> { data: T; }
+export declare class NotFound<T> { data: T; }
+export declare class ServerError<T> { data: T; }
+export declare class Unauthorized<T> { data: T; }
+export declare class Conflict<T> { data: T; }
+export declare class NoContent<T> { data: T; }
+export declare class ValidationError<T> { data: T; }
+export declare class NotAllowed<T> { data: T; }
+export declare class EntityTooLarge<T> { data: T; }
+export declare class BadRequest<T> { data: T; }
+export declare class Forbidden<T> { data: T; }
