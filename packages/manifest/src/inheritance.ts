@@ -143,7 +143,7 @@ export function inheritSocketHandlers(entry: SocketControllerEntry, bases: reado
   const events = [...entry.events];
   const diArgs = [...(entry.diArgs ?? [])];
   let contract = entry.contract;
-  let { access, policies = [] } = entry;
+  let { access, fields, policies = [] } = entry;
 
   for (const base of bases) {
     // A class's own @SocketAccess replaces the inherited one; other inherited class groups stay alternatives before its own.
@@ -151,11 +151,12 @@ export function inheritSocketHandlers(entry: SocketControllerEntry, bases: reado
     const present = new Set(policies.map((g) => JSON.stringify(g)));
     const inherited = (base.policies ?? []).filter((g) => (access === undefined || !isSocketAccessGroup(g)) && !present.has(JSON.stringify(g)));
     policies = [...inherited, ...policies];
+    if (access === undefined) fields ??= base.fields;
     access ??= base.access;
     commands.push(...base.commands.filter((c) => !commands.some((own) => own.handler === c.handler)).map((c) => ({ ...c, inheritedFrom: c.inheritedFrom ?? base.id })));
     events.push(...base.events.filter((e) => !events.some((own) => own.name === e.name)).map((e) => ({ ...e, inheritedFrom: e.inheritedFrom ?? base.id })));
     diArgs.push(...(base.diArgs ?? []).filter((a) => !diArgs.some((own) => own.handler === a.handler)));
     contract ??= base.contract;
   }
-  return { ...entry, ...(access ? { access } : {}), ...(policies.length ? { policies } : {}), commands, events, ...(diArgs.length ? { diArgs } : {}), ...(contract ? { contract } : {}) };
+  return { ...entry, ...(access ? { access } : {}), ...(fields ? { fields } : {}), ...(policies.length ? { policies } : {}), commands, events, ...(diArgs.length ? { diArgs } : {}), ...(contract ? { contract } : {}) };
 }

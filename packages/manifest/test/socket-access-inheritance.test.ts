@@ -27,3 +27,23 @@ describe('inheritSocketHandlers: the class access group', () => {
     expect(inheritSocketHandlers(sub, [base]).policies).to.deep.equal([[own]]);
   });
 });
+
+describe('inheritSocketHandlers: the class fields', () => {
+  const base = entry({ id: 'app:Base', className: 'Base', access: ['doc:read'], fields: 'filter', policies: [[own]] });
+
+  it("gives a subclass without its own class access the base's fields, through every level", () => {
+    const mid = entry({ id: 'app:Mid', className: 'Mid' });
+    expect(inheritSocketHandlers(entry({}), [base]).fields).to.equal('filter');
+    expect(inheritSocketHandlers(entry({}), [mid, base]).fields).to.equal('filter');
+  });
+
+  it('drops them under a class access of its own without fields, and keeps its own', () => {
+    expect(inheritSocketHandlers(entry({ access: ['doc:update'] }), [base])).to.not.have.property('fields');
+    expect(inheritSocketHandlers(entry({ access: ['doc:update'], fields: 'filter-rows' }), [base]).fields).to.equal('filter-rows');
+  });
+
+  it('records none when the base comes from a fragment older than the field', () => {
+    const older = entry({ id: 'dep:Base', className: 'Base', access: ['doc:read'], policies: [[own]] });
+    expect(inheritSocketHandlers(entry({}), [older])).to.deep.include({ access: ['doc:read'] }).and.not.have.property('fields');
+  });
+});
