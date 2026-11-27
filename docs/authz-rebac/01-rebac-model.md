@@ -38,7 +38,7 @@ Only what the namespaces admit is followed (Keto's strict mode): a tuple written
 - **Depth**: the requested object is at depth 0; a subject set or a tuple-to-userset edge adds one hop; computed usersets and set operators add none. A node past `limit.maxDepth` is not read and makes its branch `unknown`, so a proof within `maxDepth` hops is always found and a check whose only proof is deeper is refused.
 - **Calls**: past `limit.maxCalls` node evaluations in one check, the check stops (`RebacLimitExceeded`).
 - **Cycles**: a node already on the current path answers `not`, so nested groups that name each other end without a grant and without an error.
-- Answers are memoised per node and depth within a check; tuple reads are memoised per request in `ctx.cache`.
+- Answers are memoised per node and depth within a check; tuple reads are shared within a check while they run, and kept per request in `ctx.cache` once read, until the model's version moves. A check that finds another check's read still in flight reads for itself, and a failed read is not kept.
 
 ### Votes
 

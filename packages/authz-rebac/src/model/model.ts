@@ -69,6 +69,13 @@ interface Walk {
   readonly undecided: Set<string>;
 }
 
+class SettledTuples {
+  constructor(
+    readonly generation: number,
+    readonly tuples: readonly Tuple[],
+  ) {}
+}
+
 /**
  * ReBAC (design ARCH-7): tuples in a TupleStore, namespaces with relations and rewritten permissions.
  * A concrete resource gets a definite vote, or an indeterminate one when a limit stops the check; a
@@ -262,12 +269,25 @@ export class RebacModel extends AuthorizationModel {
 
   private async walk(object: ResourceRef, name: string, principal: PrincipalRef, ctx?: EvaluationContext, request?: CaveatRequest): Promise<{ membership: Membership; tooDeep?: string; cacheable: boolean; undecided: string[] }> {
     const store = this.store();
-    const local = new Map<string, Promise<readonly Tuple[]>>();
-    const cache: Map<string, unknown> = ctx?.cache ?? local;
+    const generation = this.generation;
+    /*
+     * A walk shares its own reads while they run: they all start at one transaction level. The request
+     * shares only settled reads, of the generation they were read in: a check inside a savepoint that
+     * awaited a read another check issued on the enclosing level would wait for a statement queued
+     * behind its own savepoint.
+     */
+    const running = new Map<string, Promise<readonly Tuple[]>>();
+    const load = async (key: string, o: ResourceRef, relation: string): Promise<readonly Tuple[]> => {
+      const tuples = await store.read(o, relation);
+      if (ctx && this.generation === generation) ctx.cache.set(key, new SettledTuples(generation, tuples));
+      return tuples;
+    };
     const read = (o: ResourceRef, relation: string): Promise<readonly Tuple[]> => {
       const key = `rebac:read:${objectKey(o)}#${relation}`;
-      let tuples = cache.get(key) as Promise<readonly Tuple[]> | undefined;
-      if (!tuples) cache.set(key, (tuples = store.read(o, relation)));
+      const known = ctx?.cache.get(key);
+      if (known instanceof SettledTuples && known.generation === this.generation) return Promise.resolve(known.tuples);
+      let tuples = running.get(key);
+      if (!tuples) running.set(key, (tuples = load(key, o, relation)));
       return tuples;
     };
     const caveats = new RebacCaveats(this.schema().caveats);
