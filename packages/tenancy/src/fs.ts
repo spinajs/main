@@ -191,7 +191,7 @@ export class TenantFs extends fs {
 
   protected async doUpload(srcPath: string, destPath: string, options?: IFsUploadOptions): Promise<void> {
     const t = await this.writable(destPath);
-    this.assertOwnSource(srcPath);
+    assertOwnSource(srcPath, tenantOf(this.Name), this.settings());
     return t.fs.upload(srcPath, t.path, options);
   }
 
@@ -315,26 +315,32 @@ export class TenantFs extends fs {
     if (target.prefix !== undefined) await target.fs.mkdir(target.prefix);
     return target;
   }
+}
 
-  // upload() takes a local path unchecked (copy and move between providers pass one too): inside a tenant provider's
-  // directory it must be the current tenant's own file.
-  private assertOwnSource(srcPath: string): void {
-    const real = realpathOrUndefined(resolve(srcPath));
-    if (real === undefined) return;
-    const tenant = tenantOf(this.Name);
-    const { prefixed, prefix, dedicated } = this.settings();
-    const areas: Array<[string, string | undefined]> = [];
-    for (const name of prefixed) {
-      const tenants = dedicated.get(name) ?? new Map<string, string>();
-      areas.push([name, tenants.has(tenant) ? undefined : prefix.replace(PLACEHOLDER, tenant)]);
-      for (const [owner, own] of tenants) areas.push([own, owner === tenant ? '' : undefined]);
-    }
-    for (const [name, own] of areas) {
-      const provider = publishedFs(name);
-      const base = provider instanceof fsNative && provider.BasePath !== undefined ? realpathOrUndefined(provider.BasePath) : undefined;
-      if (base !== undefined && inside(base, real) && (own === undefined || !inside(join(base, own), real))) {
-        throw new InvalidArgument(`upload source ${JSON.stringify(srcPath)} lies in the files of fs "${name}" outside this tenant's own`, 'srcPath');
-      }
+function refuseUnzipIntoRoot(ctx: FsActionContext): void {
+  const destination = ctx.action === 'unzip' ? ctx.targets[1] : undefined;
+  const mapped = destination?.fs instanceof TenantFs ? destination.fs.target(destination.path) : undefined;
+  if (mapped !== undefined && mapped.path === (mapped.prefix ?? '')) {
+    throw new InvalidOperation(`fs "${mapped.fs.Name}": unzip into a directory below the tenant's root, not into the root itself`);
+  }
+}
+
+// upload() takes a local path unchecked (copy and move between providers pass one too): inside a tenant provider's
+// directory it must be the current tenant's own file, whatever provider it is uploaded into.
+function assertOwnSource(srcPath: string, tenant: string, { prefixed, prefix, dedicated }: TenantFsSettings): void {
+  const real = realpathOrUndefined(resolve(srcPath));
+  if (real === undefined) return;
+  const areas: Array<[string, string | undefined]> = [];
+  for (const name of prefixed) {
+    const tenants = dedicated.get(name) ?? new Map<string, string>();
+    areas.push([name, tenants.has(tenant) ? undefined : prefix.replace(PLACEHOLDER, tenant)]);
+    for (const [owner, own] of tenants) areas.push([own, owner === tenant ? '' : undefined]);
+  }
+  for (const [name, own] of areas) {
+    const provider = publishedFs(name);
+    const base = provider instanceof fsNative && provider.BasePath !== undefined ? realpathOrUndefined(provider.BasePath) : undefined;
+    if (base !== undefined && inside(base, real) && (own === undefined || !inside(join(base, own), real))) {
+      throw new InvalidArgument(`upload source ${JSON.stringify(srcPath)} lies in the files of fs "${name}" outside this tenant's own`, 'srcPath');
     }
   }
 }
@@ -472,8 +478,9 @@ export class TenantFsGuard extends FsMiddleware {
   @Config('tenancy.fs', { defaultValue: {} })
   protected Section!: unknown;
 
+  // While anything is listed it runs for every provider: an upload into an unlisted one checks its local source too.
   public override isEnabled(provider: fs): boolean {
-    return provider instanceof TenantFs || this.tenantFiles(provider.Name);
+    return provider instanceof TenantFs || tenantFsSettings(this.Section).prefixed.size > 0;
   }
 
   public before(ctx: FsActionContext): Promise<void> {
@@ -488,11 +495,8 @@ export class TenantFsGuard extends FsMiddleware {
     if (shared.length > 0 && tenant !== undefined) {
       throw new InvalidOperation(`fs "${shared[0].Name}" holds tenants' files, and this ${ctx.action} in tenant "${tenant}" reached them without the tenant's view (publishedFs(), a kept instance or a dedicated provider's own name); use getFs() of the listed provider`);
     }
-    const destination = ctx.action === 'unzip' ? ctx.targets[1] : undefined;
-    const mapped = destination?.fs instanceof TenantFs ? destination.fs.target(destination.path) : undefined;
-    if (mapped !== undefined && mapped.path === (mapped.prefix ?? '')) {
-      throw new InvalidOperation(`fs "${mapped.fs.Name}": unzip into a directory below the tenant's root, not into the root itself`);
-    }
+    if (ctx.action === 'upload' && tenant !== undefined && typeof ctx.args[0] === 'string') assertOwnSource(ctx.args[0], tenant, tenantFsSettings(this.Section));
+    refuseUnzipIntoRoot(ctx);
     return Promise.resolve();
   }
 
