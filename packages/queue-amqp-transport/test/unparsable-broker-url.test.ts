@@ -129,12 +129,12 @@ describe('amqp transport - a host that is not a url is refused before any dial',
       const before = accepted;
       const { client, thrown, looked, ms } = await attempt({ host: host() });
 
+      expect(looked, `asked the resolver for ${looked.join(', ')}`).to.deep.eq([]);
+      expect(client.Targets).to.deep.eq([]);
+      expect(accepted).to.eq(before);
       expect(thrown).to.be.instanceOf(InvalidArgument);
       const message = thrown instanceof Error ? thrown.message : '';
       expect(message).to.eq(`Queue connection orders has a host that is not a URL: <not a URL>${hint ? `; ${BROKEN_USERINFO}` : ''}`);
-      expect(looked).to.deep.eq([]);
-      expect(client.Targets).to.deep.eq([]);
-      expect(accepted).to.eq(before);
       expect(ms).to.be.lessThan(1000);
       const text = inspect([thrown, client.LogCalls], { depth: 6, showHidden: true });
       for (const value of planted) expect(text).to.not.contain(value);
