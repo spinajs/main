@@ -104,8 +104,8 @@ describe('reads of many resources', function () {
 
       it('writes and reads the ancestor rows of every task in one statement per step', async () => {
         const d = db.driver(dialect);
-        // the tasks' parents, their projects' rows (none), the delete, the insert
-        expect((await statements(d, () => rebuildNodes(d, tasks()))).count).to.equal(4);
+        // the tasks' parents, the tasks' own rows (none) and their projects' rows (none), the delete, the insert
+        expect((await statements(d, () => rebuildNodes(d, tasks()))).count).to.equal(5);
 
         const { result, count } = await statements(d, () => readAncestors(tasks()));
         expect(count).to.equal(1);

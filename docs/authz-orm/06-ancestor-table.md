@@ -85,9 +85,15 @@ The table and its migration `AuthzResourceAncestor_2026_10_14_00_00_00` are desc
 | Command | Does |
 | --- | --- |
 | `authz:ancestors-verify [type]` | Recomputes the expected rows from the `@Parent` columns and compares them with the table. Prints `missing`, `extra` and `depth` lines (at most 50 per type, then `… and N more`), one summary line per type, and sets exit code 1 on any difference. Without `type` it checks every registered type and every type the table lists. |
-| `authz:ancestors-rebuild [type]` | Rewrites the rows of each type from the `@Parent` columns: one transaction per type deletes its rows and inserts the expected ones. Prints `<type>: <n> rows`. Without `type` it rebuilds every registered type. |
+| `authz:ancestors-rebuild [type] [--prune]` | Rewrites the rows of each type from the `@Parent` columns: one transaction per type deletes its rows and inserts the expected ones. Prints `<type>: <n> rows`. Without `type` it rebuilds every registered type. It first checks every type: when rows link to an ancestor type that no `@Parent` of the type names in this process (a parent declared by a module the CLI did not load), it rewrites nothing, prints the types and exits with code 1. `--prune` deletes those links; with a type no model declares, it deletes that type's rows. |
 
-Both run as `SYSTEM`. A `type` with no `@AccessResource` model fails with `no @AccessResource model has type '<type>'` and exit code 1. Both read whole tables: every table of the type and of every type above it (`typesAbove()`).
+A write keeps the same rule. When an insert, an update of a `@Parent` column, a delete or an upsert of an
+`@AccessResource` row would rewrite rows (the row's own, and those the table lists below it) that link to an ancestor
+type no `@Parent` names in the running process, the write fails with `AuthzConfigError` and rolls back. Import every
+module that declares parents (for tenants: `@spinajs/tenancy-orm/authz`) in every process that writes such rows.
+`authz:ancestors-verify` prints the same line next to the extra rows of such a type.
+
+Both run as `SYSTEM`. A `type` with no `@AccessResource` model fails with `no @AccessResource model has type '<type>'` and exit code 1, except for `authz:ancestors-rebuild <type> --prune`. Both read whole tables: every table of the type and of every type above it (`typesAbove()`).
 
 ## Important behaviour
 

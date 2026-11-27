@@ -15,7 +15,7 @@ import { ormLog } from '../../src/host.js';
 import { AccessResource, Parent } from '../../src/index.js';
 import { TestDb } from '../support/db.js';
 import type { Dialect } from '../support/db.js';
-import { ancestorLinks, createAncestorTable, dropAncestorTable } from '../support/ancestors.js';
+import { ancestorLinks, createAncestorTable, dropAncestorTable, insertLinks } from '../support/ancestors.js';
 
 const expect = chai.expect;
 
@@ -121,6 +121,28 @@ describe('AncestorObserver', function () {
         expect((await ancestorLinks(driver)).filter((l) => l.startsWith('task:1>'))).to.deep.equal(['task:1>org:o2@2', 'task:1>project:p2@1']);
         await Project.update({ org_id: 'o9' }).where('id', 'p2');
         expect((await ancestorLinks(driver)).filter((l) => l.startsWith('task:1>'))).to.deep.equal(['task:1>org:o9@2', 'task:1>project:p2@1']);
+      });
+
+      it('refuses a write that would drop links to an ancestor type no @Parent names in this process, and keeps them', async () => {
+        await Task.insert({ id: 1, title: 'a', project_id: 'p1' });
+        // What a process that declares one more parent wrote (@spinajs/tenancy-orm/authz: the tenant of every row).
+        const foreign = ['project:p1>tenant:acme@1', 'task:1>tenant:acme@2'];
+        await insertLinks(driver, foreign);
+        const writes = [() => Task.update({ project_id: 'p2' }).where('id', 1), () => Project.update({ org_id: 'o9' }).where('id', 'p1'), () => Project.destroy('p1')];
+        for (const write of writes) {
+          let err: unknown;
+          try {
+            await write();
+          } catch (e) {
+            err = e;
+          }
+          expect(err).to.be.instanceOf(AuthzConfigError);
+          expect(String((err as Error | undefined)?.message)).to.contain('rows link to tenant, which no @Parent of');
+        }
+        expect(await ancestorLinks(driver)).to.include.members([...foreign, 'task:1>project:p1@1', 'task:1>org:o1@2', 'project:p1>org:o1@1']);
+        const task = (await driver.select().from(db.table(Task)).where('id', 1)) as { project_id: string }[];
+        expect(task[0].project_id, 'the refused update rolled back').to.equal('p1');
+        expect(await driver.select().from(db.table(Project)).where('id', 'p1')).to.have.length(1);
       });
 
       it('an update that leaves the @Parent columns alone touches nothing and needs no transaction', async () => {
