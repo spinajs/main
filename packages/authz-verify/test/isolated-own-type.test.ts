@@ -30,6 +30,46 @@ function tenantsIR(nested: boolean): PolicyIR {
   };
 }
 
+/** A user sees its own profile through `@Self()`. */
+function selfIR(): PolicyIR {
+  return {
+    version: 1,
+    types: {
+      user: { relations: { self: { allowed: ['user'], source: { kind: 'self' } } }, permissions: {} },
+      $global: { relations: {}, permissions: {} },
+    },
+    permissions: { 'user:profile': { type: 'user', relation: 'self', list: false, source: { origin: 'config:authz' } } },
+    caveats: {},
+    combine: { default: { algorithm: 'deny-overrides' } },
+    principal: { ceiling: false, delegation: false, ancestry: 'parent', roles: {} },
+    opaque: [],
+  };
+}
+
+/** Tenants are principals: a tenant enters the partners of the tenants it is a member of, and tenants nest. */
+function partnerTenantsIR(): PolicyIR {
+  const tuples = { kind: 'tuples', store: 'authz_rebac_tuple' } as const;
+  return {
+    version: 1,
+    types: {
+      $global: { relations: {}, permissions: {} },
+      tenant: {
+        relations: {
+          parent: { allowed: ['$global', 'tenant'], source: { kind: 'ancestor', via: 'tenant' } },
+          member: { allowed: ['tenant'], source: tuples },
+          partner: { allowed: ['tenant'], source: tuples },
+        },
+        permissions: { enter: { union: [{ computed: 'member' }, { tupleToUserset: { tupleset: 'partner', computed: 'member' } }] } },
+      },
+    },
+    permissions: { 'tenant:enter': { type: 'tenant', relation: 'enter', list: false, source: { origin: 'config:authz' } } },
+    caveats: {},
+    combine: { default: { algorithm: 'deny-overrides' } },
+    principal: { ceiling: false, delegation: false, ancestry: 'parent', roles: {} },
+    opaque: [],
+  };
+}
+
 describe('isolated(T) on a permission of T itself', function () {
   this.timeout(120_000);
   let z3: SatSolver | undefined;
@@ -58,5 +98,20 @@ describe('isolated(T) on a permission of T itself', function () {
   it('is not decided with one tenant in the universe', async () => {
     const [result] = await verifyAssertions(tenantsIR(true), isolatedTenant, { k: 1, solver: () => Promise.resolve(z3) });
     expect(result.verdict).to.include({ result: 'unknown', message: 'isolated(tenant) needs k >= 2' });
+  });
+
+  it('holds when a user reaches only itself', async () => {
+    const isolatedUser = defineAssertions(({ isolated }) => [isolated('user')]);
+    const [result] = await verifyAssertions(selfIR(), isolatedUser, { k: 2, solver: () => Promise.resolve(z3) });
+    expect(result.verdict).to.include({ result: 'holds', engine: 'bounded', bound: 2 });
+  });
+
+  it('finds a tenant that enters another tenant through a tenant under it', async () => {
+    const [result] = await verifyAssertions(partnerTenantsIR(), isolatedTenant, { k: 3, solver: () => Promise.resolve(z3) });
+    expect(result.verdict.result).to.eq('violated');
+    const cx = result.verdict.counterexample;
+    expect(cx?.principal.type).to.eq('tenant');
+    expect(cx?.resource.type).to.eq('tenant');
+    expect(cx?.principal.id).to.not.eq(cx?.resource.id);
   });
 });
