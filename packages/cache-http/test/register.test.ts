@@ -142,6 +142,16 @@ describe('ResponseCacheMiddleware registration', () => {
     await reading({ ...SHARED, vary: ['X-Region', 'user-agent', 'Cookie'] }, ...[ParameterType.FromQuery, ParameterType.QueryField, ParameterType.FromParams, ParameterType.ParamField, ParameterType.FromDi, ParameterType.RequestType, ParameterType.UserAgent, ParameterType.FromCookie].map((type, Index) => ({ ...arg(type, `a${Index}`), Index })), { ...arg(ParameterType.FromHeader, 'xRegion', { key: 'x-region' }), Index: 8 }, { ...arg(ParameterType.FromHeader, '', { key: 'Accept' }), Index: 9 }, { ...arg(ParameterType.FromHeader, 'transform', { key: 'X-Data-Transform' }), Index: 10 });
   });
 
+  it('refuses a route that reads the request body on every scope: a GET body is in no key', async () => {
+    for (const type of [ParameterType.FromBody, ParameterType.BodyField, ParameterType.FromForm, ParameterType.FormField, ParameterType.FromFile, ParameterType.FromCSV, ParameterType.FromJSONFile, ParameterType.FromXml, ParameterType.RawBody, ParameterType.FromModel, 'ContentDigestArg', 'RequestStreamArg']) {
+      for (const options of [{ ttl: '1m' }, SHARED]) {
+        const err = await rejection(reading(options, arg(type, '')));
+        expect(err, type).to.be.instanceOf(InvalidArgument);
+        expect((err as Error).message).to.eq(`GET /items/list: @ResponseCache keys no request body, but the route reads the argument #1 of type '${type}': a route that reads a body is not cached`);
+      }
+    }
+  });
+
   it('refuses a tenant scope while nothing puts a tenant into the key', async () => {
     const err = await rejection(mount({ ...SHARED, scope: 'tenant' }, RouteType.GET));
     expect(err).to.be.instanceOf(InvalidArgument);

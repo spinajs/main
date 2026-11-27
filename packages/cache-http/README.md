@@ -33,6 +33,8 @@ Limits of this version:
   arguments fails the registration, but one that reads them through a default or rest parameter or `arguments` cannot
   be seen. A `'tenant'` or `'shared'` action must not read the request at all; it takes what it needs as `@Query`,
   `@Param` or `@Header` arguments.
+- A route that reads the request body (`@Body`, a form, a file, the raw body, `@ContentDigest`, `@RequestStream`)
+  fails the registration on every scope, per principal too: a GET body is in no key.
 - A `'tenant'` route fails the registration unless something puts the tenant into the key: `@spinajs/tenancy-http`,
   an `IdempotencyScopePart` or a `CacheScope`.
 - What the action reads of the request without an argument is not in the key either. On a `'tenant'` or `'shared'`

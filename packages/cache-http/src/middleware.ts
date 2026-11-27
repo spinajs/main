@@ -32,6 +32,20 @@ const HEADER_ARGUMENTS: ReadonlyMap<string, readonly string[]> = new Map([
 ]);
 const REQUEST_OBJECTS: ReadonlySet<string> = new Set([ParameterType.Req, ParameterType.Res]);
 const REQ: string = ParameterType.Req;
+const BODY_ARGUMENTS: ReadonlySet<string> = new Set([
+  ParameterType.FromBody,
+  ParameterType.BodyField,
+  ParameterType.FromForm,
+  ParameterType.FormField,
+  ParameterType.FromFile,
+  ParameterType.FromCSV,
+  ParameterType.FromJSONFile,
+  ParameterType.FromXml,
+  ParameterType.RawBody,
+  ParameterType.FromModel,
+  'ContentDigestArg',
+  'RequestStreamArg',
+]);
 const DECLARE = 'or take what it reads as @Query, @Param or @Header arguments';
 const FROM_HEADER: string = ParameterType.FromHeader;
 
@@ -134,10 +148,7 @@ export class ResponseCacheMiddleware extends RouteMiddleware {
     if (this.options.scope === 'tenant' && this.ScopeParts.length === 0 && !this.Container.hasRegistered(CacheScope)) {
       throw new InvalidArgument(`${String(route.Type).toUpperCase()} ${path}: @ResponseCache scope 'tenant' needs a tenant in the key: install @spinajs/tenancy-http, or register an IdempotencyScopePart or a CacheScope`);
     }
-    const unkeyed = this.options.scope === 'principal' ? undefined : this.unkeyedArgument(route, controller);
-    if (unkeyed !== undefined) {
-      throw new InvalidArgument(`${String(route.Type).toUpperCase()} ${path}: @ResponseCache scope '${this.options.scope}' would give one caller's reply to others, but the route reads ${unkeyed[0]}: cache it with scope 'principal', ${unkeyed[1]}`);
-    }
+    this.refuseUnkeyedArguments(route, `${String(route.Type).toUpperCase()} ${path}`, controller);
     const service = await this.Container.resolve(CacheService);
     cacheSettings(service.config, this.options.cache);
     this.routeMethod = String(route.Type).toUpperCase();
@@ -247,6 +258,18 @@ export class ResponseCacheMiddleware extends RouteMiddleware {
     // a global route middleware is not among the descriptors onRegister checked
     const shaper = this.options.scope === 'principal' ? undefined : mounted.find((m) => repliesPerPrincipal(m.constructor));
     return shaper === undefined ? undefined : `${shaper.constructor.name} shapes the reply per principal, which scope '${this.options.scope}' would share`;
+  }
+
+  /** A request body on every scope (a GET body is in no key); on a wider scope any input of one caller the key does not hold. */
+  private refuseUnkeyedArguments(route: IRoute, at: string, controller: IController): void {
+    const body = [...route.Parameters.values()].find((param) => BODY_ARGUMENTS.has(param.Type));
+    if (body !== undefined) {
+      throw new InvalidArgument(`${at}: @ResponseCache keys no request body, but the route reads the argument ${nameOf(body)} of type '${body.Type}': a route that reads a body is not cached`);
+    }
+    const unkeyed = this.options.scope === 'principal' ? undefined : this.unkeyedArgument(route, controller);
+    if (unkeyed !== undefined) {
+      throw new InvalidArgument(`${at}: @ResponseCache scope '${this.options.scope}' would give one caller's reply to others, but the route reads ${unkeyed[0]}: cache it with scope 'principal', ${unkeyed[1]}`);
+    }
   }
 
   /** What a route argument reads of the request that the key of a wider scope does not hold, and what to do about it. */

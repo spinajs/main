@@ -17,3 +17,5 @@ On a `'tenant'` or `'shared'` route `@Header()` must name its header (`@Header('
 On a `'tenant'` or `'shared'` route an action that takes `@Req()` or `@Res()`, or has more parameters than declared arguments (and so reads the `req`, `res`, `next` http passes after them), fails the registration instead of logging a warning: it shared whatever it read of one caller's request with the next caller.
 
 A per-principal reply keeps the same headers as a shared one: a route header that is not one of those, such as the first request's `X-Request-Id`, is not replayed to the principal's later requests.
+
+A route whose action reads the request body (`@Body`, a form, a file, the raw body, `@ContentDigest`, `@RequestStream`) fails its registration on every scope, per principal too: the body of a GET request is in no key.
