@@ -137,7 +137,7 @@ const ids = (await Task.query().select('id').accessible('task:read')).map((t) =>
 const comments = await Comment.query().whereIn('task_id', ids);
 ```
 
-Not seen by the check: SQL text (`RawQuery`, raw joins), a sub-query attached inside a `Lazy` callback or by a query middleware ordered after 90, and a statement sent with `driver.execute(builder)`, which runs no query middleware.
+Not seen by the check: SQL text (`RawQuery`, raw joins), a sub-query attached inside a `Lazy` callback or by a query middleware ordered after 90, a select compiled into a schema statement (a view body, a table-clone filter, an event action), and a statement sent with `driver.execute(builder)` or `executeStream(builder)`, which run no query middleware.
 
 ## Best practices
 
