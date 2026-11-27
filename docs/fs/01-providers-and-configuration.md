@@ -11,7 +11,7 @@ A provider is a named file system instance, eg. `documents` on local disk or `me
 5. It orders the entries with `sortByDependencies()`, so an entry whose `provider` key names another entry is created after it. A missing, self or circular reference fails the boot.
 6. For each entry it finds the class registered under the `fs` token whose class name equals `service`. No match throws `ResolveException` (`Type <service> not registered`).
 7. It resolves that class with the entry as the only constructor argument (`DI.resolve(type, [entry])`), awaits its `resolve()`, and stores it in the `'__file_provider_instance__'` map under `name`. The map holds the provider itself: nothing wraps it.
-8. `getFs('documents')` resolves `'__file_provider__'` with `['documents']`. The factory returns the map entry, or throws `ResolveException` (`File provider documents not registered`). Every call on that provider then runs the registered [middlewares](07-middlewares.md).
+8. `getFs('documents')` resolves `'__file_provider__'` with `['documents']`. The factory returns the map entry as the registered [provider layers](08-boot-service-and-provider-lookup.md#provider-layers) hand it out (the entry itself when none is registered), or throws `ResolveException` (`File provider documents not registered`). Every call on that provider then runs the registered [middlewares](07-middlewares.md).
 
 ```mermaid
 sequenceDiagram
