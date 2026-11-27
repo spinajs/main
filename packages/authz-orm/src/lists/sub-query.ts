@@ -1,12 +1,11 @@
 import { AuthzConfigError } from '@spinajs/authz';
 import { Injectable } from '@spinajs/di';
-import { QueryMiddleware, SelectQueryBuilder } from '@spinajs/orm';
+import { DeleteQueryBuilder, QueryMiddleware, SelectQueryBuilder, UpdateQueryBuilder } from '@spinajs/orm';
 import type { IQueryStatement, ISelectQueryBuilder, QueryBuilder } from '@spinajs/orm';
 
 import { marksOf } from '../marker.js';
 import type { AccessMarks } from '../marker.js';
 import { nameOf } from '../registry.js';
-import { isUpdateOrDelete } from '../sync-statement.js';
 
 type SelectParts = Pick<ISelectQueryBuilder, 'Statements' | 'JoinStatements' | 'getColumns' | 'Relations'>;
 
@@ -69,6 +68,6 @@ export class SubQueryMarksMiddleware extends QueryMiddleware {
 
   beforeQueryExecution(query: QueryBuilder): void {
     if (query instanceof SelectQueryBuilder) refuseMarked(partsOf(query));
-    else if (isUpdateOrDelete(query)) refuseMarked(query.Statements);
+    else if (query instanceof UpdateQueryBuilder || query instanceof DeleteQueryBuilder) refuseMarked(query.Statements);
   }
 }
