@@ -225,7 +225,8 @@ A request waits at most `cache.http.waitTimeout` (5 s by default); then it runs 
 warning at most once a minute. So a route up to that slow runs once per key for a burst of concurrent misses; a slower
 one runs once per `waitTimeout` wave, each waiter after waiting that long first. When the run stores nothing (above),
 its waiters answer only after that whole run and their own. A lookup the store did not answer within
-`cache.http.timeout` is read as a miss and never waits. A request of another key never waits; one of another cache scope (a tenant that only a `CacheScope` puts
+`cache.http.timeout` is read as a miss and never waits. Disposing the application's container ends every wait at once,
+with its timer; each waiter then goes on as one that gave up. A request of another key never waits; one of another cache scope (a tenant that only a `CacheScope` puts
 into the key) may wait for the run of the same key in another scope, and then runs its own.
 
 ## Invalidation and failures
