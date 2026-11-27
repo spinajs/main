@@ -11,7 +11,10 @@ import { QueryMiddleware } from '../interfaces.js';
 import { sqlDialectOf } from '../sql-dialect.js';
 import { WriteObserver } from './contracts.js';
 import type { CaptureInterest, CapturedRow, RowChange, WriteStatement } from './contracts.js';
-import { captureKeyText, countKeyless, insertedKeyTexts, lockedReads, noKeys, upsertKeys, writeTargetKeyTexts } from './keys.js';
+import { lookupValue } from '../column-kind.js';
+import { findColumn } from '../helpers.js';
+import { captureKeyText, countKeyless, insertedKeyTexts, lockedReads, upsertKeys, writeTargetKeyTexts } from './keys.js';
+import type { KeyTexts } from './keys.js';
 import { keylessRead, mergeReads, noReads, readRows } from './read.js';
 import type { Reads } from './read.js';
 
@@ -168,11 +171,35 @@ async function targetRows(query: QueryBuilder, plan: Plan, conflict: readonly st
     refuseAbove(plan, query.Values.length, max);
     return conflict && conflict.length > 0 ? conflictingRows(query, plan, conflict) : noReads();
   }
+  if (!(query instanceof UpdateQueryBuilder || query instanceof DeleteQueryBuilder)) return noReads();
   // One key above the limit is enough to refuse, so a runaway statement never loads all of its keys.
-  const target = query instanceof UpdateQueryBuilder || query instanceof DeleteQueryBuilder ? await writeTargetKeyTexts(query, plan.pk, max === Infinity ? undefined : max + 1) : noKeys();
+  const target = await writeTargetKeyTexts(query, plan.pk, max === Infinity ? undefined : max + 1);
   refuseAbove(plan, target.keys.length + target.keyless.length, max);
+  confineToKeys(query, plan, target);
   const rows = await readRows(query.Driver, plan.statement.model, plan.table, plan.pk, plan.columns, target.keys, plan.pk, lockedReads(query.Driver));
   return mergeReads([keylessRead(target.keyless), rows]);
+}
+
+/**
+ * Limits an update or delete to the rows its key select read. Under READ COMMITTED the statement would otherwise also
+ * change a row another transaction committed into its where after that select, and no observer would see it. The
+ * caller's conditions become one group first, so an OR among them cannot widen the key list; an empty list compiles to
+ * `1 = 0`, as a query middleware cannot keep the statement from being sent.
+ */
+function confineToKeys(query: UpdateQueryBuilder<unknown> | DeleteQueryBuilder<unknown>, plan: Plan, target: KeyTexts): void {
+  const column = findColumn(extractModelDescriptor(plan.statement.model)?.Columns, plan.pk);
+  const values: unknown[] = [...target.keys.map((k) => (column ? (lookupValue(column, k) ?? k) : k)), ...target.keyless];
+  // A list of numbers and strings travels as one parameter where it is long; a keyless value is bound on its own.
+  if (target.keyless.length > 0 && values.length > query.Driver.MaxBindings) {
+    throw new WriteCaptureLimitExceeded(`write capture: ${STATEMENT_PHRASES[plan.statement.kind]} of ${plan.statement.model.name} reaches ${values.length} rows, some with a key that has no key text, more than the ${query.Driver.MaxBindings} values one statement may bind on connection ${query.Driver.Options.Name}; narrow the statement`);
+  }
+  const caller = query.Statements.splice(0);
+  if (caller.length > 0) {
+    query.where(function () {
+      this.Statements.push(...caller);
+    });
+  }
+  query.whereIn(plan.pk, values);
 }
 
 /** Undefined when the rows an insert wrote cannot be known. */
