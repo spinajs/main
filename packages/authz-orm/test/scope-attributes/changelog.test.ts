@@ -6,7 +6,7 @@ import type { AuthzTx, ChangeRecord, ResourceRef } from '@spinajs/authz';
 import type { OrmDriver } from '@spinajs/orm';
 import { createHash } from 'node:crypto';
 
-import { DbScopeAttributeStore, SCOPE_ATTRIBUTE_TABLE, attributeChangeKey } from '../../src/index.js';
+import { DbScopeAttributeStore, SCOPE_ATTRIBUTE_TABLE, attributeChangeKey, scopeAttributeId } from '../../src/index.js';
 import { TestDb } from '../support/db.js';
 import type { Dialect } from '../support/db.js';
 import { createScopeAttributeTables, dropScopeAttributeTables } from '../support/scope-attributes.js';
@@ -107,7 +107,7 @@ describe('DbScopeAttributeStore changelog', function () {
       });
 
       it('a forget logs a leaf whose stored value does not parse without a value', async () => {
-        await driver.insert().into(SCOPE_ATTRIBUTE_TABLE).values({ scope_type: 'org', scope_id: 'o1', path: 'bad', value_json: '{not json', value_text: null, value_num: null, updated_by: 'sql', updated_at: new Date() });
+        await driver.insert().into(SCOPE_ATTRIBUTE_TABLE).values({ id: scopeAttributeId('org', 'o1', 'bad'), scope_type: 'org', scope_id: 'o1', path: 'bad', value_json: '{not json', value_text: null, value_num: null, updated_by: 'sql', updated_at: new Date() });
         const logged = await loggedAfter(() => inTx((tx) => store.forget(o1, tx)));
         expect(logged.map(shape)).to.deep.equal([['remove', keyOf('org:o1', 'bad'), { scope: 'org:o1', path: 'bad' }, null]]);
       });

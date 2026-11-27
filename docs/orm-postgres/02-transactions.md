@@ -83,7 +83,7 @@ Select it with `Driver: 'orm-driver-postgres-bounded'` on the connections that n
 
 - A transaction holds one pool client from `_begin()` to `_dispose()`. A pool of `Pool.Max` clients runs at most `Pool.Max` transactions at once; further `transaction()` calls wait up to `Pool.AcquireTimeout`.
 - Statements inside a transaction are never retried: `isRetryableError()` returns `false` while `TransactionStorage` holds a context. A transport failure inside a transaction rejects the transaction.
-- After any failed statement PostgreSQL rejects every further statement of that transaction with `current transaction is aborted` (SQLSTATE `25P02`) until it rolls back. Catching the error inside the callback does not make the transaction usable again; a nested `transaction()` around the risky statement does, because it rolls back to its savepoint.
+- After any failed statement PostgreSQL rejects every further statement of that transaction with `current transaction is aborted` (SQLSTATE `25P02`) until it rolls back. Catching the error inside the callback does not make the transaction usable again; a nested `transaction()` around the risky statement does, because it rolls back to its savepoint. If the callback catches such an error and returns, PostgreSQL answers the driver's `COMMIT` with `ROLLBACK`: `transaction()` rejects with `OrmException` ("… was aborted by an earlier failed statement …"), nothing of the transaction is written, and no `afterCommit()` callback runs. The rejection carries the error of the first failed statement as `inner` and repeats its message; a failure that a nested `transaction()` rolled back to its savepoint is not reported. This refusal has no error class of its own yet: tell it from other `OrmException`s by its message. Earlier releases resolved such a `transaction()` and ran its `afterCommit()` callbacks although nothing was written; do not swallow a statement's error inside a transaction, or wrap that statement in a nested `transaction()`.
 - The isolation level is set inside the transaction, right after `BEGIN`. It must be the first statement, so the driver sends it before your callback runs.
 - Savepoint names are generated (`sp_1`, `sp_2`, ...) and quoted with `pgEscapeIdentifier()`; nothing caller-supplied reaches them.
 - `transaction()` itself does not go through `withReconnect()`. A pool that cannot hand out a client fails `_begin()` with the `pg` error.
@@ -91,7 +91,7 @@ Select it with `Driver: 'orm-driver-postgres-bounded'` on the connections that n
 
 ## Best practices
 
-- Wrap a statement that may fail and be recovered from (an insert that can hit a unique key) in a nested `driver.transaction()`, so its failure rolls back to a savepoint instead of aborting the outer transaction.
+- Wrap a statement that may fail and be recovered from (an insert that can hit a unique key) in a nested `driver.transaction()`, so its failure rolls back to a savepoint instead of aborting the outer transaction. Catch the nested call's rejection, outside its callback; a `catch` inside the callback leaves the savepoint aborted and the nested call rejects with `25P02` (the driver then rolls back to the savepoint, so the outer transaction stays usable).
 - Retry the whole `transaction()` call on SQLSTATE `40001` (serialization failure) when you use `SERIALIZABLE` or `REPEATABLE READ`; the driver does not.
 - Keep slow work (HTTP calls, file I/O) outside the callback: the client stays checked out until commit.
 - Use `driver.afterCommit()` for side effects that must only happen once the data is committed.
@@ -109,6 +109,14 @@ await driver.transaction(async () => {
 await driver.transaction(async () => {
   try { await driver.transaction(async () => driver.insert().into('coupons').values({ code })); } catch { /* duplicate, ignore */ }
   await driver.update().in('orders').update({ coupon: code }).where('id', orderId);
+});
+
+// Don't: the swallowed failure is the last statement; COMMIT is answered with ROLLBACK,
+// so transaction() rejects, the payment is not written and the receipt is not sent
+await driver.transaction(async () => {
+  await driver.insert().into('payments').values(payment);
+  await driver.afterCommit(() => receipts.send(payment.id));
+  try { await driver.insert().into('audit_log').values(entry); } catch { /* best effort, ignore */ }
 });
 ```
 
