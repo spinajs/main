@@ -30,7 +30,10 @@ const settle = (p: Promise<unknown>): Promise<unknown> => p.then((value) => valu
 
 function column(rows: unknown, name: string): unknown[] {
   if (!Array.isArray(rows)) throw new Error('expected rows');
-  return rows.map((row: unknown) => (typeof row === 'object' && row !== null ? Reflect.get(row, name) : undefined));
+  return rows.map((row: unknown) => {
+    const value: unknown = typeof row === 'object' && row !== null ? Reflect.get(row, name) : undefined;
+    return value;
+  });
 }
 
 function signal() {
@@ -364,7 +367,7 @@ describe('MySQL transaction autocommit (live server, pool of one)', function () 
           inside = await session();
           await run("INSERT INTO `log` (`who`) VALUES ('disconnected')");
           await driver.disconnect();
-          return run('SELECT 1', QueryContext.Select);
+          await run('SELECT 1', QueryContext.Select);
         }),
       );
 

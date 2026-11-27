@@ -43,6 +43,9 @@ export interface IMySqlTransactionContext extends ITransactionContext {
 
   /** The error after which InnoDB rolled the whole transaction back; every later statement, savepoint and commit of it is refused. */
   rolledBackBy?: unknown;
+
+  /** COMMIT or ROLLBACK answered OK: the session holds no open transaction, so autocommit can be restored. */
+  ended?: boolean;
 }
 
 /**
@@ -781,53 +784,60 @@ export class MySqlOrmDriver extends SqlDriver {
     });
   }
 
-  protected _begin(options?: ITransactionOptions): Promise<ITransactionContext> {
+  protected async _begin(options?: ITransactionOptions): Promise<ITransactionContext> {
+    const connection = await new Promise<PoolConnection>((resolve, reject) => {
+      this.acquire((err, acquired) => (err ? reject(err) : resolve(acquired!)));
+    });
+
+    if (options?.isolation) {
+      try {
+        // isolation levels are a fixed, validated enum — never caller-supplied free text
+        await this.runOnConnection(connection, `SET TRANSACTION ISOLATION LEVEL ${options.isolation}`);
+      } catch (err) {
+        connection.release();
+        throw err;
+      }
+    }
+
+    try {
+      // After a deadlock InnoDB has rolled the transaction back; with autocommit on, a statement already queued
+      // behind the failed one would commit on its own. With it off, that statement opens an implicit transaction
+      // that the driver's ROLLBACK discards.
+      await this.runOnConnection(connection, 'SET autocommit = 0');
+      await new Promise<void>((resolve, reject) => {
+        connection.beginTransaction((err) => (err ? reject(err) : resolve()));
+      });
+    } catch (err) {
+      // a half-set session is never pooled
+      connection.destroy();
+      throw err;
+    }
+
+    return { connection, depth: 0 };
+  }
+
+  protected _commit(ctx: ITransactionContext): Promise<void> {
+    const tx = this.mysqlContext(ctx);
+    const refused = this.refusedByServer(tx);
+    if (refused !== undefined) return Promise.reject(refused);
+
     return new Promise((resolve, reject) => {
-      this.acquire((err, acquired) => {
-        if (err) {
-          reject(err);
-          return;
-        }
-        const connection = acquired!;
-
-        const begin = () => {
-          connection.beginTransaction((err) => {
-            if (err) {
-              connection.release();
-              reject(err);
-              return;
-            }
-
-            resolve({ connection, depth: 0 });
-          });
-        };
-
-        if (options?.isolation) {
-          // isolation levels are a fixed, validated enum — never caller-supplied free text
-          this.runOnConnection(connection, `SET TRANSACTION ISOLATION LEVEL ${options.isolation}`).then(begin, (err) => {
-            connection.release();
-            reject(err);
-          });
-          return;
-        }
-
-        begin();
+      tx.connection.commit((err) => {
+        if (err) return reject(err);
+        tx.ended = true;
+        resolve();
       });
     });
   }
 
-  protected _commit(ctx: ITransactionContext): Promise<void> {
-    const refused = this.refusedByServer(this.mysqlContext(ctx));
-    if (refused !== undefined) return Promise.reject(refused);
-
-    return new Promise((resolve, reject) => {
-      this.txConnection(ctx).commit((err) => (err ? reject(err) : resolve()));
-    });
-  }
-
   protected _rollback(ctx: ITransactionContext): Promise<void> {
+    const tx = this.mysqlContext(ctx);
     return new Promise((resolve, reject) => {
-      this.txConnection(ctx).rollback((err?: unknown) => (err ? reject(err) : resolve()));
+      tx.connection.rollback((err) => {
+        if (err) return reject(err);
+        tx.ended = true;
+        resolve();
+      });
     });
   }
 
@@ -849,8 +859,26 @@ export class MySqlOrmDriver extends SqlDriver {
     return this.runOnConnection(this.txConnection(ctx), `ROLLBACK TO SAVEPOINT ${escapeIdentifier(name)}`);
   }
 
+  /**
+   * Restoring autocommit commits a transaction that is still open, so it is sent only after COMMIT or ROLLBACK answered.
+   * A connection whose restore was not confirmed is destroyed: left at autocommit 0 in the pool, it would never commit
+   * a write of its next user.
+   */
   protected async _dispose(ctx: ITransactionContext): Promise<void> {
-    this.txConnection(ctx).release();
+    const { connection, ended } = this.mysqlContext(ctx);
+    const restored =
+      ended === true &&
+      (await this.restoreAutocommit(connection).then(
+        () => true,
+        () => false,
+      ));
+    if (restored) connection.release();
+    else connection.destroy();
+  }
+
+  /** Puts the session of a transaction that ended back into autocommit, the mode every statement outside a transaction expects. */
+  protected restoreAutocommit(connection: PoolConnection): Promise<void> {
+    return this.runOnConnection(connection, 'SET autocommit = 1');
   }
 
   /** The error every later statement, savepoint and commit of a transaction the server rolled back gets; `undefined` while it did not. */

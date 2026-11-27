@@ -1,0 +1,5 @@
+---
+"@spinajs/orm-mysql": patch
+---
+
+A MySQL transaction now runs with `autocommit = 0` on its connection, from begin to release. After a deadlock, InnoDB rolls the whole transaction back. A statement the callback had issued in parallel (not awaited) and that was already queued on the connection used to commit on its own, while `transaction()` rejected: one write stayed. That statement now lands in a new implicit transaction, and the driver's final `ROLLBACK` discards it. The connection goes back to the pool only after `COMMIT` or `ROLLBACK` succeeded and `SET autocommit = 1` answered. Otherwise it is destroyed, because a pooled connection left at autocommit 0 would never commit a write of its next user. Before this change, a connection whose `ROLLBACK` failed went back to the pool with its transaction still open. Statements after a DDL inside a transaction are now part of the transaction: a rollback discards them, where each used to commit on its own. Each transaction costs two more round trips.
