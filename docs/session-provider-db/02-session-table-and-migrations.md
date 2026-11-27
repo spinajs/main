@@ -64,10 +64,10 @@ this.Config = _.merge(this.Config, {
 | `CreatedAt` | `NOT NULL`; the driver's datetime type: `DATETIME(3)` on MySQL, `TIMESTAMPTZ(3)` on PostgreSQL, `TEXT` on SQLite | Creation time. |
 | `Expiration` | same type as `CreatedAt`, nullable | Absolute expiration; `NULL` means never. A value no datetime converter reads [counts as passed](01-db-session-store.md#unreadable-expiration). |
 | `Data` | `NOT NULL`; `JSON` on MySQL, `JSONB` on PostgreSQL, no declared type on SQLite | Session data encoded by `encodeSessionData()`. |
-| `Subject` | `VARCHAR(100)`, nullable, index `user_sessions_subject_idx` | Principal key of the owner. The store reads a row without one as absent. |
-| `ImpersonatorId` | `VARCHAR(100)`, nullable, index `user_sessions_impersonator_idx` | Principal key of the impersonator; `NULL` when nobody impersonates. |
+| `Subject` | `VARCHAR(100)`, nullable, index `user_sessions_subject_idx` | Principal key of the owner. The store reads a row without one, or with an empty type or id, as absent. |
+| `ImpersonatorId` | `VARCHAR(100)`, nullable, index `user_sessions_impersonator_idx` | Principal key of the impersonator; `NULL` when nobody impersonates. Any other value that is not a principal key with a non-empty type and id [makes the session count as expired](01-db-session-store.md#unreadable-impersonatorid-or-externalkey). |
 | `State` | `VARCHAR(16)`, nullable, no default | `active` or `pending`. Any other value reads as `pending`; `touch()` never updates a row with `NULL`. |
-| `ExternalKey` | `VARCHAR(64)`, nullable, index `user_sessions_external_key_idx` | `sha256(provider + NUL + sid)` of a login whose ID token carried `sid`; read by back-channel logout. Added by `UserSessionExternalKey_2026_10_21_00_01_00`. |
+| `ExternalKey` | `VARCHAR(64)`, nullable, index `user_sessions_external_key_idx` | `sha256(provider + NUL + sid)` of a login whose ID token carried `sid`; read by back-channel logout. Added by `UserSessionExternalKey_2026_10_21_00_01_00`. A SQLite blob here makes the session count as expired. |
 
 ### `DbSession` model
 
