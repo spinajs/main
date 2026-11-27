@@ -23,6 +23,7 @@ spinajs report:monthly                  # no tenant scope: a tenant model throws
 | a tenant in state `provisioning`, `suspended`, `deleting` or `deleted` | `TenantUnavailable` (`inactive`); the command does not run |
 | `--all-tenants` with an empty or blank reason | `InvalidArgument`; the command does not run |
 | both options | commander's conflict error; the command does not run |
+| either option given twice (`--tenant acme --tenant globex`) | commander's invalid-argument error (`given more than once`); the command does not run |
 
 A refusal is a command error: the bin prints the message and exits with `-1`.
 
@@ -32,7 +33,8 @@ A refusal is a command error: the bin prints the message and exits with `-1`.
 - `onCreation`, `onPreAction`, `onPostAction` and the command's own resolution run outside the scope: tenant models throw there.
 - The options belong to the program. A command must not declare `--tenant` or `--all-tenants` itself: its option never receives a value, not even its default. It reads `currentTenant()` or `tenantScope()` instead.
 - `admitTenant` gets no principal, so `TenantAccess.canEnter` is not asked: whoever can run the CLI can enter every active tenant, as they hold the application's configuration and database credentials.
-- An application that sets `system.dirs.cli` itself replaces the package folders; list `node_modules/@spinajs/tenancy/lib/cli` there too, or a file of your own that imports `@spinajs/tenancy/cli`. Without the hook the two options are unknown and every command that is given one stops.
+- Every command runs inside a new async store, also with neither option, so authz memoises its decisions and row sets for the life of the command: a long-running command (a worker, a server) sees what it decided first until it ends.
+- The hook's folder joins `system.dirs.cli` like every package's folder; an application's own `system.dirs.cli` entries are added to it, not replacing it (`system.dirs.*` is one of the configuration arrays every merge adds to). Code that replaces the list itself (`Configuration.set('system.dirs.cli', [...])`, as tests do) must keep `node_modules/@spinajs/tenancy/lib/cli`, or import `@spinajs/tenancy/cli` in a file of its own folder. Without the hook the two options are unknown and a command given one stops.
 
 ## Related
 
