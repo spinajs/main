@@ -7,7 +7,7 @@ import type { QueryBuilder } from '../builders.js';
 import { extractModelDescriptor } from '../descriptor.js';
 import type { LiveIndex } from '../introspection.js';
 import { WriteCaptureLimitExceeded } from '../exceptions.js';
-import { QueryMiddleware } from '../interfaces.js';
+import { QueryMiddleware, ValueConverter } from '../interfaces.js';
 import { sqlDialectOf } from '../sql-dialect.js';
 import { WriteObserver } from './contracts.js';
 import type { CaptureInterest, CapturedRow, RowChange, WriteStatement } from './contracts.js';
@@ -189,8 +189,13 @@ interface Confinement {
 const confinedKeys = new WeakMap<object, Confinement>();
 
 function keyValues(query: UpdateQueryBuilder<unknown> | DeleteQueryBuilder<unknown>, plan: Plan, target: KeyTexts): unknown[] {
-  const column = findColumn(extractModelDescriptor(plan.statement.model)?.Columns, plan.pk);
-  const values: unknown[] = [...target.keys.map((k) => (column ? (lookupValue(column, k) ?? k) : k)), ...target.keyless];
+  const descriptor = extractModelDescriptor(plan.statement.model);
+  const column = findColumn(descriptor?.Columns, plan.pk);
+  const raw: unknown[] = [...target.keys.map((k) => (column ? (lookupValue(column, k) ?? k) : k)), ...target.keyless];
+  // whereIn() converts each value to the database form, so the keys read raw go in as the model holds them.
+  const declared = descriptor?.Converters.get(plan.pk);
+  const converter = declared && query.Container.resolve<ValueConverter>(declared.Class);
+  const values = declared && converter ? raw.map((v): unknown => converter.fromDB(v, { [plan.pk]: v }, declared.Options)) : raw;
   // A list of numbers and strings travels as one parameter where it is long; a keyless value is bound on its own.
   if (target.keyless.length > 0 && values.length > query.Driver.MaxBindings) {
     throw new WriteCaptureLimitExceeded(`write capture: ${STATEMENT_PHRASES[plan.statement.kind]} of ${plan.statement.model.name} reaches ${values.length} rows, some with a key that has no key text, more than the ${query.Driver.MaxBindings} values one statement may bind on connection ${query.Driver.Options.Name}; narrow the statement`);
