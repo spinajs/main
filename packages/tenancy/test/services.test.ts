@@ -126,8 +126,7 @@ class AcmeClosedToVisitorsAccess extends PrincipalAttributeTenantAccess {
     return super.canEnter(principal, tenant);
   }
 
-  // No `override`: the same class must compile against the base, where the member does not exist, for the red run.
-  public admitsVisitor(principal: Principal, tenant: TenantRecord): Promise<boolean> {
+  public override admitsVisitor(principal: Principal, tenant: TenantRecord): Promise<boolean> {
     this.asked.push(`admitsVisitor ${principal.id}@${tenant.id}`);
     return Promise.resolve(tenant.id !== 'acme');
   }
@@ -140,7 +139,7 @@ class FailingTenantAccess extends TenantAccess {
     return Promise.reject(storeDown);
   }
 
-  public admitsVisitor(): Promise<boolean> {
+  public override admitsVisitor(): Promise<boolean> {
     return Promise.reject(storeDown);
   }
 }
@@ -259,7 +258,7 @@ describe('tenancy services', () => {
       }
     });
 
-    it('admits every caller that is not authenticated through the attribute rule, and asks it for the others', async () => {
+    it('admits every caller that is not authenticated, and asks the attribute rule for the others', async () => {
       const outcomes: [string, string][] = [];
       for (const [name, principal] of callers(user('alice', ['acme']), user('bob', ['globex']))) outcomes.push([name, await reasonOf(admitTenant('acme', principal))]);
 
