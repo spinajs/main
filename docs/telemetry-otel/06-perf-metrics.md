@@ -52,7 +52,8 @@ exported at all.
 | Metric names | 256 | the measurement is dropped and counted |
 
 A dropped measurement adds one to the counter `spinajs.perf.dropped`, attribute `reason`: `instruments` past the name
-limit, `value` for a value that is not a finite number or a negative counter delta.
+limit or under the sink's own name `spinajs.perf.dropped`, `value` for a value that is not a finite number or a
+negative counter delta.
 
 ## Failures
 

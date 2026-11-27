@@ -177,6 +177,16 @@ describe('OtelPerfSink', () => {
     await sink.dispose();
   });
 
+  it('keeps spinajs.perf.dropped to its own reasons: a producer cannot write into it', async () => {
+    const sink = new OtelPerfSink();
+    const reader = new TestReader();
+    configure(sink, true, undefined, reader);
+    sink.collect({ name: 'spinajs.perf.dropped', kind: 'counter', value: 1, labels: { reason: 'x' } });
+    const dropped = points(named(await collected(reader), 'spinajs.perf.dropped')).map((p) => [p.attributes, p.value]);
+    expect(dropped).to.deep.eq([[{ reason: 'instruments' }, 1]]);
+    await sink.dispose();
+  });
+
   it('names the service from tracing.*, as the traces do, and not from the removed otel.* keys', async () => {
     const sink = new OtelPerfSink();
     const reader = new TestReader();

@@ -178,6 +178,7 @@ export class OtelPerfSink extends PerfSink {
 
   private instrumentFor(meter: Meter, metric: IPerfMetric): Counter | Histogram | Gauge | undefined {
     const { name } = metric;
+    if (name === DROPPED_METRIC) return undefined;
     if (metric.kind === 'counter') return this.instrument(this.counters, name, () => meter.createCounter(name));
     if (metric.kind === 'span') return this.instrument(this.histograms, name, () => meter.createHistogram(name, { unit: 'ms' }));
     return this.instrument(this.gauges, name, () => meter.createGauge(name));
