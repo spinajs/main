@@ -139,7 +139,7 @@ this.Config = _.merge(this.Config, {
 
 ### Unreadable `Expiration`
 
-An `Expiration` that holds a value no datetime converter reads (text written by hand on SQLite, a MySQL zero date, a PostgreSQL `infinity` or `-infinity`) counts as passed: `restore` answers `null`, listings leave it out, and the store logs a warning that names the subject, never the session id. Only `NULL` means never. The sweep compares in SQL and does not remove such a row on SQLite when the text sorts after the current date (`not a date`), or for a PostgreSQL `infinity`; revoking the subject's sessions (`deleteBySubject`) deletes it. The store never writes such a value. To find and delete these rows on the session connection:
+An `Expiration` that holds a value no datetime converter reads (text written by hand on SQLite, a MySQL zero date, a PostgreSQL `infinity` or `-infinity`) counts as passed: `restore` answers `null`, listings leave it out, and the store logs a warning that names the subject, never the session id. Only `NULL` means never. The sweep compares in SQL and does not remove such a row on SQLite when the text sorts after the current date (`not a date`), or for a PostgreSQL `infinity` or a date after the year 275760; revoking the subject's sessions (`deleteBySubject`) deletes it. The store never writes such a value. To find and delete these rows on the session connection:
 
 ```sql
 -- PostgreSQL

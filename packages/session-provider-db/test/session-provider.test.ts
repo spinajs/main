@@ -5,6 +5,8 @@ import { UserSession as Session, encodeSessionData, decodeSessionData } from '@s
 import type { ISession } from '@spinajs/authn-session';
 import { DateTime } from 'luxon';
 import sinon from 'sinon';
+import { DI } from '@spinajs/di';
+import { Log } from '@spinajs/log';
 import { QueryContext } from '@spinajs/orm';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 import { runSessionProviderConformance, IConformanceExpiration, SessionProviderFactory } from '../../authn-session/test/conformance/session-provider-conformance.js';
@@ -223,8 +225,8 @@ describe('db session provider', function () {
     const save = (store: DbSessionStore, sessionId: string, subject: string, extra: Partial<ISession> = {}) =>
       store.save(new Session({ SessionId: sessionId, Subject: user(subject), State: 'active', Expiration: DateTime.now().plus({ hours: 1 }), Data: new Map(), ...extra }));
 
-    function warnings(store: DbSessionStore): sinon.SinonSpy {
-      return sinon.spy((store as unknown as { Log: { warn: (...args: unknown[]) => void } }).Log, 'warn');
+    function warnings(): sinon.SinonSpy {
+      return sinon.spy(DI.resolve(Log, ['db-session-store']), 'warn');
     }
 
     afterEach(() => sinon.restore());
@@ -238,7 +240,7 @@ describe('db session provider', function () {
         await save(store, 'sx21-never', 'u-21', { Expiration: undefined });
         await writeExpiration('sx21-never', 'NULL');
         await writeExpiration('sx21-bad', value);
-        const warn = warnings(store);
+        const warn = warnings();
 
         expect(await store.restore('sx21-bad'), value).to.equal(null);
         expect(await store.restore('sx21-good'), value).to.not.equal(null);
@@ -274,7 +276,7 @@ describe('db session provider', function () {
         await save(store, id, 'u-23');
         await writeExpiration(id, sql);
       }
-      const warn = warnings(store);
+      const warn = warnings();
 
       expect(await store.restore('past')).to.equal(null);
       expect(await store.restore('pre1970')).to.equal(null);
