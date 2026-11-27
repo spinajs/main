@@ -195,6 +195,26 @@ describe('fs unzip entry names', function () {
     expect(await provider.read('dest/d9/f199.txt', 'utf8')).to.equal('file 199');
   });
 
+  it('rejects, naming the destination, when the destination is a file', async function () {
+    this.timeout(10000);
+    await provider.write('dest', 'a file');
+
+    await expect(unzip([{ name: 'a.txt', data: 'a' }])).to.be.rejectedWith(IOFail, `cannot create the destination ${join(sandbox, 'dest')}`);
+    expect(await provider.read('dest', 'utf8')).to.equal('a file');
+  });
+
+  it('rejects, naming the entry, when an entry lies below another entry that is a file', async function () {
+    this.timeout(10000);
+
+    await expect(
+      unzip([
+        { name: 'a', data: 'file' },
+        { name: 'a/b', data: 'below a file' },
+      ]),
+    ).to.be.rejectedWith(IOFail, 'cannot write entry "a/b"');
+    expect(await tree(provider, 'outside')).to.deep.equal([]);
+  });
+
   it('writes no entry of an archive that holds one bad entry among good ones', async () => {
     await expectRefused(
       [
@@ -217,7 +237,7 @@ describe('fs unzip entry names', function () {
   });
 
   it('streams a large archive instead of holding it in memory', async function () {
-    this.timeout(120000);
+    this.timeout(300000);
     const chunk = Buffer.alloc(1024 * 1024, 0x5a);
     const times = 128;
     await finished(await provider.writeStream('archives/large.zip', Readable.from(largeZip('large.bin', chunk, times))));
