@@ -1,13 +1,14 @@
 import * as chai from 'chai';
 import 'mocha';
 
-import { GLOBAL, PermissionRegistryImpl, TRUE } from '@spinajs/authz';
+import { FALSE, GLOBAL, PermissionRegistryImpl, TRUE } from '@spinajs/authz';
 import type { EvaluationContext, ResourceRef, Vote } from '@spinajs/authz';
 import { ManualClock, fakeEvaluationContext, fakeModelInitContext, userPrincipal } from '@spinajs/authz-testing';
+import { QueryContext } from '@spinajs/orm';
 
-import { AssignmentStore, DbAssignmentStore, MemoryRoleStore, RbacModel, scopeToColumns, subjectKeyOf, subjectToColumns } from '../../src/index.js';
+import { AssignmentStore, DbAssignmentStore, DbMembershipStore, MembershipStore, MemoryAssignmentStore, MemoryRoleStore, RbacModel, scopeToColumns, subjectKeyOf, subjectToColumns } from '../../src/index.js';
 import type { Assignment, AssignmentSubject, RbacModelOptions, RoleDef } from '../../src/index.js';
-import { bootDb, DB_KINDS } from '../support/db.js';
+import { bootDb, DB_KINDS, rawQuery } from '../support/db.js';
 import type { TestDb } from '../support/db.js';
 import { microtasks, within } from '../support/deadline.js';
 
@@ -43,6 +44,34 @@ class CountedAssignments extends AssignmentStore {
 
   byId(id: string): Promise<Assignment | null> {
     return this.inner.byId(id);
+  }
+}
+
+/** Counts the reads that reach the DB membership store; `failures` fail before reaching it; `hold` keeps an answer back after the store answered. */
+class CountedMembership extends MembershipStore {
+  loads = 0;
+  answered = 0;
+  failures = 0;
+  hold?: Promise<void>;
+
+  constructor(private readonly inner: MembershipStore) {
+    super();
+  }
+
+  async setsOf(memberKeys: readonly string[], at: Date): Promise<readonly { readonly setKey: string; readonly expiresAt?: Date }[]> {
+    this.loads++;
+    if (this.failures > 0) {
+      this.failures--;
+      throw new Error('membership store unavailable');
+    }
+    const sets = await this.inner.setsOf(memberKeys, at);
+    this.answered++;
+    await this.hold;
+    return sets;
+  }
+
+  membersOf(setKey: string, at: Date): Promise<readonly string[]> {
+    return this.inner.membersOf(setKey, at);
   }
 }
 
@@ -117,6 +146,80 @@ for (const kind of DB_KINDS) {
         const expired = await loads(other.model, other.assignments, () => request(other.clock));
 
         expect({ sameRequest, requests, warm, expired }).to.deep.equal({ sameRequest: CONCURRENT, requests: CONCURRENT, warm: 0, expired: CONCURRENT });
+      });
+    });
+
+    describe('the request memo of DbMembershipStore.setsOf', () => {
+      const TEAM: AssignmentSubject = { set: { role: 'team.member', scope: { type: 'team', id: 't1' } } };
+      const TEAM_MEMBER: RoleDef = { name: 'team.member', extends: [], assignable: true, source: 'test', subjectSet: true, grants: [] };
+      const membershipRow = { member_key: subjectKeyOf(ALICE), set_key: subjectKeyOf(TEAM), depth: 1, expires_at: null };
+
+      beforeEach(async () => {
+        await rawQuery(db.driver, 'DELETE FROM authz_subject_membership', [], QueryContext.Delete);
+        await db.driver.insert().into('authz_subject_membership').values(membershipRow);
+      });
+
+      async function withSets() {
+        const membership = new CountedMembership(db.container.resolve(DbMembershipStore));
+        const viewerOfTeam: Assignment = { id: 's1', subject: TEAM, role: 'viewer', scope: GLOBAL, source: 'test' };
+        const built = await rbac({ roles: new MemoryRoleStore([VIEWER, TEAM_MEMBER]), assignments: new MemoryAssignmentStore([viewerOfTeam]), membership });
+        return { ...built, membership };
+      }
+
+      it('a check settles beside a nested transaction that makes the same check in the same request, cold and warm, however late it starts', async () => {
+        for (const warm of [false, true]) {
+          for (let ticks = 0; ticks <= 60; ticks++) {
+            const { model, clock } = await withSets();
+            if (warm) await check(model, request(clock));
+            await beside(model, request(clock), ticks, `a membership check beside a nested one, ${warm ? 'warm' : 'cold'}`);
+          }
+        }
+      });
+
+      it('store loads: concurrent checks of a request read each, a settled answer serves the rest of the request', async () => {
+        const { model, clock, membership } = await withSets();
+        const ctx = request(clock);
+        await Promise.all(Array.from({ length: CONCURRENT }, () => check(model, ctx)));
+        const concurrent = membership.loads;
+        await Promise.all(Array.from({ length: CONCURRENT }, () => check(model, ctx)));
+        expect({ concurrent, settled: membership.loads - concurrent }).to.deep.equal({ concurrent: CONCURRENT, settled: 0 });
+      });
+
+      it('a failed read is not kept: the next check of the request reads again', async () => {
+        const { model, clock, membership } = await withSets();
+        const ctx = request(clock);
+        membership.failures = 1;
+        const failed = await check(model, ctx).then(
+          () => undefined,
+          (e: Error) => e,
+        );
+        expect(failed?.message).to.equal('membership store unavailable');
+        expect((await check(model, ctx)).permitWhen).to.deep.equal(TRUE);
+        expect(membership.loads).to.equal(2);
+      });
+
+      it('a membership read before an invalidate, settled or in flight, does not answer a check of the request after it', async () => {
+        for (const inFlight of [false, true]) {
+          await rawQuery(db.driver, 'DELETE FROM authz_subject_membership', [], QueryContext.Delete);
+          await db.driver.insert().into('authz_subject_membership').values(membershipRow);
+          const { model, clock, membership } = await withSets();
+          const ctx = request(clock);
+          let release = (): void => undefined;
+          if (inFlight) {
+            membership.hold = new Promise<void>((resolve) => {
+              release = resolve;
+            });
+          }
+          const first = check(model, ctx);
+          while (inFlight && membership.answered === 0) await new Promise<void>((resolve) => setImmediate(resolve));
+          if (!inFlight) expect((await first).permitWhen).to.deep.equal(TRUE);
+          await rawQuery(db.driver, 'DELETE FROM authz_subject_membership', [], QueryContext.Delete);
+          model.invalidate([`subject:${subjectKeyOf(ALICE)}`]);
+          release();
+          membership.hold = undefined;
+          await first;
+          expect((await check(model, ctx)).permitWhen, inFlight ? 'in flight' : 'settled').to.deep.equal(FALSE);
+        }
       });
     });
   });

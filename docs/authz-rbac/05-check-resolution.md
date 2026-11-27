@@ -66,6 +66,8 @@ sequenceDiagram
 
 Without a membership store the `setsOf` read is skipped; without a rule store, `forPath` is.
 
+The request (`ctx.cache`) keeps a `setsOf` answer per member key list once it was read, until the next `RbacModel.invalidate`. A check that finds the read still in flight reads for itself, and a failed read is not kept.
+
 ### Lists, summaries and covers
 
 - `RbacModel.listPlan()` runs the gather and the steps through `cap`, then `rbacListPlan` turns the state into `rbac.assignment` terms ([List filter term](01-list-filter-term.md)). Any live rule that can match the permission and type fails the plan.

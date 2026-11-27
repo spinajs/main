@@ -83,6 +83,8 @@ export class RbacModel extends AuthorizationModel {
   private readonly warnedListRules = new Set<string>();
   private warnedMaxPlanSubjects = false;
   private storedRulesAt?: { readonly version: string; readonly rules: readonly RuleDef[] };
+  /** Moves on every invalidate, so a request does not keep a membership read from before it. */
+  private invalidations = 0;
   /*
    * Role reload on a RoleStore version change: every stale mark bumps roleMarks; the
    * roles are fresh while rolesFreshAt has caught up. A reload records the mark it started at, so a
@@ -353,16 +355,20 @@ export class RbacModel extends AuthorizationModel {
     };
   }
 
-  /** One store read per request and member key list; the assignment cache is the cross-request cache. */
-  private setsOf(memberKeys: readonly string[], ctx: EvaluationContext): Promise<readonly { readonly setKey: string; readonly expiresAt?: Date }[]> {
+  /**
+   * Kept per request and member key list once read, until the next invalidate; the assignment cache is
+   * the cross-request cache. A read still in flight is not shared: a check inside a savepoint that
+   * awaited a read another check issued on the enclosing level would wait for a statement queued
+   * behind its own savepoint. A failed read is not kept.
+   */
+  private async setsOf(memberKeys: readonly string[], ctx: EvaluationContext): Promise<readonly MemberSet[]> {
     const key = `${SETS_MEMO}${ctx.now.getTime()}:${JSON.stringify([...memberKeys].sort())}`;
-    let read = ctx.cache.get(key) as Promise<readonly { readonly setKey: string; readonly expiresAt?: Date }[]> | undefined;
-    if (!read) {
-      read = this.opts.membership!.setsOf(memberKeys, ctx.now);
-      ctx.cache.set(key, read);
-      read.catch(() => ctx.cache.delete(key));
-    }
-    return read;
+    const known = ctx.cache.get(key);
+    if (known instanceof KnownSets && known.invalidations === this.invalidations) return known.sets;
+    const invalidations = this.invalidations;
+    const sets = await this.opts.membership!.setsOf(memberKeys, ctx.now);
+    if (invalidations === this.invalidations) ctx.cache.set(key, new KnownSets(invalidations, sets));
+    return sets;
   }
 
   /**
@@ -385,6 +391,7 @@ export class RbacModel extends AuthorizationModel {
    * store version and recompiles when it changed.
    */
   invalidate(tags: readonly string[]): void {
+    this.invalidations++;
     if (!this.loaded) return;
     this.loaded.assignments.invalidate(tags);
     if (touchesRoles(tags, this.name)) this.roleMarks++;
@@ -586,5 +593,14 @@ function cacheConfig(ctx: ModelInitContext): { ttlMs: number; maxEntries: number
 const ROLES_PROBE: Permission = 'rbac:roles';
 
 const SETS_MEMO = '\u0000rbac:sets:';
+
+type MemberSet = { readonly setKey: string; readonly expiresAt?: Date };
+
+class KnownSets {
+  constructor(
+    readonly invalidations: number,
+    readonly sets: readonly MemberSet[],
+  ) {}
+}
 
 const STORED_RULES_PAGE = 500;
