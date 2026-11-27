@@ -66,12 +66,14 @@ Build filters with the exported helpers: `TRUE`, `FALSE`, `and(...)`, `or(...)`,
 | Member | Use |
 | --- | --- |
 | `domain`, `now`, `permissions` | The domain, the check's instant, the registry. |
-| `ancestors(ref)`, `attributes(ref)` | Ancestors and scope attributes of any node, memoised per request. |
+| `ancestors(ref)`, `attributes(ref)` | Ancestors and scope attributes of any node, kept per request once read (below). |
 | `conditions` | The domain's `ConditionCompiler` ([Conditions](07-conditions.md)). |
 | `relation(type, name)` | The `RelationResolver` of a relation. |
 | `check(req)` | A nested check; its tags flow into the outer decision's cache entry. |
 | `cache` | A per-request, per-model, per-principal `Map` for memos. |
 | `trace(step)` | Adds a step to an `explain()` trace. |
+
+**What a request shares, and when.** The engine keeps a node's ancestors and scope attributes in the request's L1 map once the read has settled: every later check of the request, nested `ctx.check()` calls and `checkAll` included, gets the kept answer without a read. A read still running is never handed to a second caller, so two checks that overlap on a node's first read each read it. Inside one ORM transaction the savepoints take turns ([Transactions](../orm/08-transactions.md)): a check in a nested `transaction()` that awaited the read another check had started on the enclosing level would wait for a statement queued behind its own savepoint, and never settle. A failed or timed-out read is not kept, so the next check reads again; a read that settles after an `invalidate()` is not kept, and what the request kept before an `invalidate()` is read again after it.
 
 ## Registration
 
@@ -180,7 +182,7 @@ Route it with `authz: { combine: { types: { payout: { algorithm: 'unanimous', mo
 ## Important behaviour
 
 - **Throw on missing or failed data; never vote "no".** A thrown or timed-out vote is indeterminate (`model_error`): it fails closed and is never cached. A "no" vote looks like a clean answer and gets cached.
-- **Memoise the promise of a load in `ctx.cache`, or memoise nothing.** A placeholder written before the load settles is read by a concurrent check as a clean answer.
+- **Memoise a settled answer in `ctx.cache`, never a placeholder or the promise of a load still running.** A placeholder written before the load settles is read by a concurrent check as a clean answer; a running load awaited by a check inside a nested ORM `transaction()` waits for a statement queued behind that check's savepoint, as above. A check that finds no settled answer loads for itself.
 - **Key every cache on everything the answer depends on**: principal state, permission, resource, scope, version. A missing part leaks one answer into another request.
 - **Never derive a cacheable vote from `principal.identity` or `env`**; the cache key holds neither. Set `cacheable: false` on such a vote.
 - **Report reasons with priorities.** One `denies[]` entry per deny source, each with `reason.priority` (lower wins) and, for ties, `sortKey`.
