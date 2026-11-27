@@ -119,6 +119,7 @@ describe('amqp transport - a host that is not a url is refused before any dial',
     ['an unencoded # in the password', () => `amqp://planted-user:planted#secret@127.0.0.1:${port}/vh`, ['planted-user', 'planted#secret'], false],
     ['an amqps url with an unencoded / in the password', () => `amqps://planted-user:pa/ss@127.0.0.1:${port}/vh`, ['planted-user', 'pa/ss'], false],
     ['an unencoded / in the user name', () => `amqp://planted-user/ss@127.0.0.1:${port}/vh`, ['planted-user'], true],
+    ['an amqps url with an unencoded / in the user name', () => `amqps://planted-user/ss@127.0.0.1:${port}/vh`, ['planted-user'], true],
     ['a digits-only password start before an unencoded /', () => `amqp://planted-user:65001/planted-secret@127.0.0.1:${port}/vh`, ['planted-user', 'planted-secret', '65001'], true],
     ['a token with an unencoded #', () => `amqp://planted-secret#tail@127.0.0.1:${port}/vh`, ['planted-secret'], true],
     ['an unencoded @ in the vhost', () => 'amqp://planted-user:planted-secret@rabbit.internal.invalid/vh@x', ['planted-user', 'planted-secret'], true],
@@ -141,6 +142,28 @@ describe('amqp transport - a host that is not a url is refused before any dial',
     });
   }
 
+  const SCHEMELESS_USERINFO = "the host has an '@' but no scheme: write it as amqp://user:password@broker/vhost, or set login / password";
+  const schemeless: Array<[form: string, host: () => string]> = [
+    ['a scheme-less host with userinfo', () => 'planted-user:planted-secret@rabbit.internal.invalid'],
+    ['a scheme-less host with a user name only', () => 'planted-user@rabbit.internal.invalid'],
+    ['a protocol-relative host with userinfo', () => `//planted-user:planted-secret@127.0.0.1:${port}/vh`],
+  ];
+
+  for (const [form, host] of schemeless) {
+    it(`refuses ${form} at once: nothing is dialled or looked up, nothing planted is shown`, async () => {
+      const before = accepted;
+      const { client, thrown, looked } = await attempt({ host: host() });
+
+      expect(looked, `asked the resolver for ${looked.join(', ')}`).to.deep.eq([]);
+      expect(client.Targets).to.deep.eq([]);
+      expect(accepted).to.eq(before);
+      expect(thrown).to.be.instanceOf(InvalidArgument);
+      expect(thrown instanceof Error ? thrown.message : '').to.eq(`Queue connection orders has a host that is not a host name: <not a URL>; ${SCHEMELESS_USERINFO}`);
+      const text = inspect([thrown, client.LogCalls], { depth: 6, showHidden: true });
+      for (const value of ['planted-user', 'planted-secret']) expect(text).to.not.contain(value);
+    });
+  }
+
   const dialled: Array<[form: string, options: () => Partial<IQueueConnectionOptions>, hostname: string, looked: string[]]> = [
     ['an amqp url', () => ({ host: `amqp://planted-user:planted-secret@127.0.0.1:${port}/vh` }), '127.0.0.1', []],
     ['an amqps url', () => ({ host: `amqps://planted-user:planted-secret@127.0.0.1:${port}/vh`, options: { servername: 'localhost' } }), '127.0.0.1', []],
@@ -153,6 +176,7 @@ describe('amqp transport - a host that is not a url is refused before any dial',
     ['an IPv6 literal', () => ({ host: `amqp://planted-user:planted-secret@[::1]:${port6}/vh` }), '::1', []],
     ['discrete fields', () => ({ host: 'rabbit.internal.invalid', login: 'planted-user', password: 'planted-secret' }), 'rabbit.internal.invalid', ['rabbit.internal.invalid']],
     ['no host at all', () => ({}), 'localhost', ['localhost']],
+    ['a scheme-less host with a port', () => ({ host: 'rabbit.internal.invalid:5672' }), 'rabbit.internal.invalid:5672', ['rabbit.internal.invalid:5672']],
     ['a host in the socket options', () => ({ host: `amqp://127.0.0.1:${port}/vh`, options: { host: 'other.internal.invalid' } }), '127.0.0.1', []],
   ];
 
