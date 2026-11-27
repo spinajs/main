@@ -17,7 +17,7 @@ class EntriesOf extends ConfiguratioDbSource {
   public async read(driver: OrmDriver): Promise<Record<string, unknown>> {
     this.Connection = driver;
     this.Options = { connection: 'default', table: 'configuration' } satisfies IConfiguratioDbSourceConfig;
-    return (await this.LoadEntries()) as Record<string, unknown>;
+    return await this.LoadEntries();
   }
 }
 

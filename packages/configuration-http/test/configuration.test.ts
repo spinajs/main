@@ -24,6 +24,8 @@ const JSON_HEADERS = { Accept: 'application/json' };
 
 const permitted = { permitWhen: { op: 'true' } } as const;
 
+const field = (value: unknown, key: string): unknown => (value !== null && typeof value === 'object' ? (Reflect.get(value, key) as unknown) : undefined);
+
 // what the `masked` principal may read
 const MASKED_READ = ['Slug', 'Group', 'Type', 'Label'];
 
@@ -147,8 +149,8 @@ describe('configuration-http api', function () {
       });
 
       const one = await req().get('configuration/app.name').set(JSON_HEADERS);
-      expect(one.body.Value).to.equal('spinajs');
-      expect(one.body.Scope).to.equal('shared');
+      expect(field(one.body, 'Value')).to.equal('spinajs');
+      expect(field(one.body, 'Scope')).to.equal('shared');
       const all = await req().get('configuration').set(JSON_HEADERS);
       expect(all.body).to.be.an('array').with.lengthOf(11);
     });
@@ -463,8 +465,8 @@ describe('configuration-http api', function () {
     });
 
     it("a read in a tenant answers that tenant's row, never another tenant's nor a shared one", async () => {
-      expect((await req().get('configuration/mail.from').set(inTenant('acme'))).body.Value).to.equal('billing@acme.test');
-      expect((await req().get('configuration/mail.from').set(inTenant('globex'))).body.Value).to.equal('ops@globex.test');
+      expect(field((await req().get('configuration/mail.from').set(inTenant('acme'))).body, 'Value')).to.equal('billing@acme.test');
+      expect(field((await req().get('configuration/mail.from').set(inTenant('globex'))).body, 'Value')).to.equal('ops@globex.test');
       expect(await req().get('configuration/app.maxUsers').set(inTenant('acme'))).to.have.status(404);
       expect(await req().get('configuration/mail.from').set(inTenant('initech'))).to.have.status(404);
     });
@@ -472,7 +474,8 @@ describe('configuration-http api', function () {
     it('a tenant lists its own rows only', async () => {
       const acme = await req().get('configuration').set(inTenant('acme'));
       expect(acme).to.have.status(200);
-      expect(acme.body.map((e: { Scope: string; Slug: string }) => `${e.Scope} ${e.Slug}`).sort()).to.deep.equal(['tenant:acme app.name', 'tenant:acme mail.from']);
+      const listed: unknown = acme.body;
+      expect((Array.isArray(listed) ? listed : []).map((e: unknown) => `${String(field(e, 'Scope'))} ${String(field(e, 'Slug'))}`).sort()).to.deep.equal(['tenant:acme app.name', 'tenant:acme mail.from']);
       expect((await req().get('configuration?group=mail').set(inTenant('initech'))).body).to.deep.equal([]);
     });
 
@@ -480,7 +483,7 @@ describe('configuration-http api', function () {
       const res = await req().patch('configuration/mail.from?Scope=tenant:globex&tenant=globex').set(inTenant('acme')).send({ Value: 'new@acme.test', Scope: 'tenant:globex' });
 
       expect(res).to.have.status(200);
-      expect(res.body.Scope).to.equal('tenant:acme');
+      expect(field(res.body, 'Scope')).to.equal('tenant:acme');
       expect(await stored('mail.from')).to.deep.equal([SHARED_MAIL, 'tenant:acme new@acme.test', 'tenant:globex ops@globex.test']);
     });
 

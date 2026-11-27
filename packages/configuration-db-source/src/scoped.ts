@@ -63,24 +63,24 @@ export class ScopedDbConfiguration extends ScopedConfigurationSource {
     if (this.disposed) return Promise.resolve();
     // Stamped when the read starts, so reads while it runs or after it failed wait one ttl before the next.
     this.loadedAt = Date.now();
-    this.reading ??= this.read()
-      .then(
-        (rows) => {
-          if (!this.disposed) this.replace(rows);
-        },
-        (error: unknown) => {
-          InternalLogger.warn({ error }, 'Failed to read the scoped configuration rows again; the rows held stay', 'configuration-db-source');
-        },
-      )
-      .finally(() => {
-        this.reading = undefined;
-      });
+    this.reading ??= this.readAgain().finally(() => {
+      this.reading = undefined;
+    });
     return this.reading;
   }
 
   public override async dispose(): Promise<void> {
     this.disposed = true;
     await this.reading;
+  }
+
+  private async readAgain(): Promise<void> {
+    try {
+      const rows = await this.read();
+      if (!this.disposed) this.replace(rows);
+    } catch (error) {
+      InternalLogger.warn({ error }, 'Failed to read the scoped configuration rows again; the rows held stay', 'configuration-db-source');
+    }
   }
 
   protected async read(): Promise<ScopedConfigurationRow[]> {
