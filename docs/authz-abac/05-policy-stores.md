@@ -97,7 +97,7 @@ export function reloadFilePolicies(): void {
 ## Important behaviour
 
 - **One failing store fails the load.** At boot that fails the domain; at a reload the model keeps routing on its last good policies and retries.
-- **Stores are read together.** `load()` runs on every store at once, so the slowest store sets the load time, and requests of the model wait for it during a reload.
+- **Stores are read together.** `load()` runs on every store at once, so the slowest store sets the load time; while a reload is pending each check of the model reads them itself and waits for its own read.
 - **Ids are global to the model.** Two stores with one policy id fail the index.
 - **A config-only model is static.** It ignores invalidations and can be `sync: 'always'`; adding any other store, even an empty `MemoryPolicyStore`, makes it `'never'`.
 - **`MemoryPolicyStore` does not check.** Its `put` stores what it gets; the model checks at the next load. Through `AuthzAdmin` the handler checks first.
@@ -133,7 +133,7 @@ export function freezeInvoices(store: MemoryPolicyStore, model: AbacModel): void
 }
 ```
 
-The next check of the model waits for the reload and sees the deny.
+The next check of the model reads the stores itself (the reload runs in the background) and sees the deny.
 
 ## Related
 

@@ -19,7 +19,7 @@ The message reads: `abac policy "<id>" (source: <store>) <why>, so <permission> 
 
 ### On a list
 
-1. The engine calls `AbacModel.listPlan(req, ctx)` for each list plan, after any pending reload.
+1. The engine calls `AbacModel.listPlan(req, ctx)` for each list plan; while a reload is pending it reads the stores itself first.
 2. For each candidate policy that `targets()` the principal and actor, a policy without `when` holds; one with `when` is compiled and must come out `TRUE` (holds) or `FALSE` (skipped). Anything else throws.
 3. The plan:
    - a deny holds: `{ kind: 'deny-all', reason }`, the reason with the lowest `(priority, sortKey)`;
