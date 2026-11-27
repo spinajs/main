@@ -2,7 +2,7 @@
 
 The MySQL and MariaDB driver for [`@spinajs/orm`](../orm/README.md), built on [`@spinajs/orm-sql`](../orm-sql/README.md) and `mysql2`. It ships `MySqlOrmDriver` (`orm-driver-mysql`) and `MySqlSSHOrmDriver` (`orm-driver-mysql-ssh`), which tunnels the pool through an SSH bastion.
 
-`Encoding` becomes the `mysql2` `charset`, and `Options` is passed to `mysql2` as is, so TLS and similar settings need no subclass. `TimeZone` picks the session zone of the connection's datetimes: `SYSTEM` (default) keeps the server's zone, `UTC` or an offset such as `+02:00` is set on every session; it wins over a `timezone` in `Options`. It has no `RETURNING`; generated keys come from `LAST_INSERT_ID()`.
+`Encoding` becomes the `mysql2` `charset`, and `Options` is passed to `mysql2` as is, so TLS and similar settings need no subclass. `TimeZone` picks the session zone of the connection's datetimes: `UTC` (default, as in 3.x) or an offset such as `+02:00` is set on every session, `SYSTEM` keeps the server's zone; it wins over a `timezone` in `Options`. It has no `RETURNING`; generated keys come from `LAST_INSERT_ID()`.
 
 ## Install
 
@@ -75,9 +75,9 @@ export async function bootstrap(): Promise<Orm> {
 | Views | `OR REPLACE`, `ALGORITHM`, `SQL SECURITY`, every `CHECK OPTION`; no `IF NOT EXISTS`, no `TEMPORARY` |
 | Set membership | `FIND_IN_SET` |
 | `DECIMAL` values | strings |
-| Session time zone | `TimeZone`: `SYSTEM` by default (the server's zone, no `SET`); `UTC` or an offset is set on every connection, and a connection that cannot be pinned fails the acquire |
+| Session time zone | `TimeZone`: `UTC` by default; `UTC` or an offset is set on every connection, and a connection that cannot be pinned fails the acquire; `SYSTEM` keeps the server's zone (no `SET`) |
 | `dateTime()` / `timestamp()` columns | `DATETIME(3)` / `TIMESTAMP(3)`; a `timestamp()` without `notNull()` is written `NULL`, so it stays nullable on MySQL 5.7 |
-| `driver.now()` | `NOW(3)`; `UTC_TIMESTAMP(3)` with `TimeZone: 'UTC'` |
+| `driver.now()` | `UTC_TIMESTAMP(3)` by default; `NOW(3)` with `TimeZone: 'SYSTEM'` or an offset |
 | Duplicate key | `UniqueViolation`; NOT NULL, FK and CHECK failures `ConstraintViolation` |
 | Bind-parameter limit | `MaxBindings` `65535`; `mysql2` interpolates on the client, so `max_allowed_packet` bounds a statement |
 | `lockTableShared()` | `SELECT COUNT(*) ... FOR UPDATE` |

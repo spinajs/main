@@ -68,6 +68,7 @@
   "DropViewQueryBuilder",
   "EventQueryBuilder",
   "EventQueryCompiler",
+  "ExactlyStatement",
   "ExistsQueryStatement",
   "ExistsRelationHandler",
   "ExtensionMethodCollision",

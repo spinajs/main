@@ -193,15 +193,22 @@ describe('a primary key the database generates on PGlite', function () {
     });
 
     it('aborts the transaction of the caller', async () => {
-      const next = await driver.transaction(async () => {
-        await failureOfInsert();
-        return PglSerialItem.all().then(
-          () => 'the next statement ran',
+      let next = '';
+      const outcome = await driver
+        .transaction(async () => {
+          await failureOfInsert();
+          next = await PglSerialItem.all().then(
+            () => 'the next statement ran',
+            (err: Error) => err.message,
+          );
+        })
+        .then(
+          () => 'committed',
           (err: Error) => err.message,
         );
-      });
 
       expect(next).to.match(/current transaction is aborted/);
+      expect(outcome).to.match(/aborted by an earlier failed statement/);
     });
   });
 
