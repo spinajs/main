@@ -122,8 +122,7 @@ export class DbSessionStore extends SessionProvider {
 
     s.SessionId = session.SessionId;
     s.CreatedAt = session.Creation;
-    // column is nullable; a never-expiring session persists a NULL Expiration
-    s.Expiration = (session.Expiration ?? null) as DateTime;
+    s.Expiration = this.persistable(session.Expiration) as DateTime;
     s.Subject = refKey(session.Subject);
     s.ImpersonatorId = session.Impersonator ? refKey(session.Impersonator) : null;
     s.State = session.State;
@@ -138,9 +137,10 @@ export class DbSessionStore extends SessionProvider {
     const current = session.Expiration;
     this.applyRenewedExpiration(session);
 
+    const written = this.persistable(session.Expiration);
     const now = DateTime.now();
     const result = await DbSession.update({
-      Expiration: (session.Expiration ?? null) as DateTime,
+      Expiration: written as DateTime,
       Data: encodeSessionData(session.Data),
     })
       .where('SessionId', session.SessionId)
@@ -154,7 +154,7 @@ export class DbSessionStore extends SessionProvider {
       return false;
     }
 
-    return !this.expirationEquals(current, session.Expiration);
+    return !this.expirationEquals(this.persistable(current), written);
   }
 
   public async delete(sessionId: string): Promise<boolean> {
@@ -256,8 +256,16 @@ export class DbSessionStore extends SessionProvider {
     });
   }
 
-  private expirationEquals(a: DateTime | undefined, b: DateTime | undefined): boolean {
-    if (a === undefined || b === undefined) {
+  /** NULL is "never expires" in this table: only an absent Expiration may become NULL, any other value that is not a valid DateTime ends the session. */
+  protected persistable(expiration: unknown): DateTime | null {
+    if (expiration === undefined) {
+      return null;
+    }
+    return DateTime.isDateTime(expiration) && expiration.isValid ? expiration : DateTime.fromMillis(0, { zone: 'utc' });
+  }
+
+  private expirationEquals(a: DateTime | null, b: DateTime | null): boolean {
+    if (a === null || b === null) {
       return a === b;
     }
     return a.toMillis() === b.toMillis();
