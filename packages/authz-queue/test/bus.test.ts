@@ -6,8 +6,11 @@ import type { Class } from '@spinajs/di';
 import { Configuration, ConfigurationSource, FrameworkConfiguration, JsFileSource } from '@spinajs/configuration';
 import type { IConfigLike } from '@spinajs/configuration';
 import type { AuthzChange } from '@spinajs/authz';
+import { installTestLog } from '@spinajs/authz-testing';
+import { InvalidOperation } from '@spinajs/exceptions';
+import type { QueueService } from '@spinajs/queue';
 
-import { AuthzBusRouteSource, AuthzChangeEvent, reviveChange } from '../src/index.js';
+import { AuthzBusRouteSource, AuthzChangeEvent, QueueChangeBus, reviveChange } from '../src/index.js';
 import { MemoryBroker, MemoryQueueClient } from './support/memory-client.js';
 import { NodeBus, PeerQueueService } from './support/nodes.js';
 
@@ -24,6 +27,16 @@ async function node(broker: string) {
 }
 
 const change = (extra: Partial<AuthzChange> = {}): AuthzChange => ({ tags: ['subject:user:alice'], at: new Date('2030-01-02T03:04:05.000Z'), ...extra });
+
+const consumers = (client: MemoryQueueClient) => client.subscriptions.filter((s) => s.active).length;
+
+async function until(what: string, done: () => boolean, ms = 1000): Promise<void> {
+  const deadline = Date.now() + ms;
+  while (!done()) {
+    if (Date.now() > deadline) throw new Error(`timed out waiting until ${what}`);
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+}
 
 describe('QueueChangeBus', () => {
   let broker: string;
@@ -127,6 +140,31 @@ describe('QueueChangeBus', () => {
     );
     expect(a.heard).to.have.length(1);
   });
+
+  it('a disposed bus consumes nothing more: a change from another node reaches no subscriber, and a second dispose is harmless', async () => {
+    const [a, b] = [await start(), await start()];
+
+    await b.bus.dispose();
+    await b.bus.dispose();
+    await a.bus.publish(change());
+
+    expect(consumers(b.client)).to.eq(0);
+    expect(b.heard).to.have.length(0);
+  });
+
+  it('a publish after dispose is refused and does not consume again', async () => {
+    const [a] = [await start()];
+    const sent = a.client.published.length;
+
+    await a.bus.dispose();
+    await a.bus.publish(change()).then(
+      () => expect.fail('should reject'),
+      (e: unknown) => expect(e).to.be.instanceOf(InvalidOperation),
+    );
+
+    expect(consumers(a.client)).to.eq(0);
+    expect(a.client.published).to.have.length(sent);
+  });
 });
 
 describe('AuthzBusRouteSource', () => {
@@ -220,5 +258,58 @@ describe('reviveChange', () => {
     expect(Object.keys(c).sort()).to.deep.equal(['at', 'tags']);
     expect(c.at).to.be.instanceOf(Date);
     expect(Number.isNaN(c.at.getTime())).to.equal(false);
+  });
+});
+
+// One client per bus: a client's unsubscribe ends every consumer on it.
+class SubscribingBus extends QueueChangeBus {
+  static service: QueueService;
+  protected async queueService(): Promise<QueueService> {
+    return SubscribingBus.service;
+  }
+}
+
+class PublishOnlyBus extends QueueChangeBus {
+  static service: QueueService;
+  protected async queueService(): Promise<QueueService> {
+    return PublishOnlyBus.service;
+  }
+}
+
+class UnreachableBus extends QueueChangeBus {
+  static attempts = 0;
+  protected retryMs = 5;
+  protected async queueService(): Promise<QueueService> {
+    UnreachableBus.attempts++;
+    throw new Error('broker down');
+  }
+}
+
+// Last in the file: DI.dispose() clears the root container's cache.
+describe('QueueChangeBus in a container', () => {
+  it('ends with the container that resolved it, also when it only published: DI.dispose() stops consuming and the retry', async () => {
+    const uninstallLog = installTestLog();
+    const broker = `bus-${++seq}`;
+    const clients = [new MemoryQueueClient({ name: `n${++seq}`, options: { broker } } as never), new MemoryQueueClient({ name: `n${++seq}`, options: { broker } } as never)];
+    for (const c of clients) await c.resolve();
+    [SubscribingBus.service, PublishOnlyBus.service] = clients.map((c) => new PeerQueueService(c));
+    try {
+      const app = DI.child();
+      app.resolve(SubscribingBus).subscribe(() => undefined);
+      await app.resolve(PublishOnlyBus).publish(change());
+      app.resolve(UnreachableBus).subscribe(() => undefined);
+      await until('both buses consume and the unreachable one retried', () => clients.every((c) => consumers(c) === 1) && UnreachableBus.attempts >= 2);
+
+      await DI.dispose();
+      await until('both buses stopped consuming', () => clients.every((c) => consumers(c) === 0));
+      const attempts = UnreachableBus.attempts;
+      await new Promise((resolve) => setTimeout(resolve, 30));
+
+      expect(UnreachableBus.attempts).to.eq(attempts);
+    } finally {
+      for (const c of clients) await c.dispose();
+      MemoryBroker.drop(broker);
+      uninstallLog();
+    }
   });
 });

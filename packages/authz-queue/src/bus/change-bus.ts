@@ -1,8 +1,10 @@
 import { randomUUID } from 'node:crypto';
 
-import { DI, Injectable, Singleton } from '@spinajs/di';
+import { Autoinject, Container, DI, Injectable, Singleton } from '@spinajs/di';
+import type { IContainer } from '@spinajs/di';
 import { ChangeBus, changeTagsField, engineLog, isValidField, thrownError } from '@spinajs/authz';
 import type { AuthzChange } from '@spinajs/authz';
+import { InvalidOperation } from '@spinajs/exceptions';
 import { Event, QueueEvent, QueueService } from '@spinajs/queue';
 
 interface WireChange {
@@ -50,11 +52,16 @@ export function reviveChange(raw: unknown): AuthzChange | undefined {
 @Singleton()
 @Injectable(ChangeBus)
 export class QueueChangeBus extends ChangeBus {
+  /** The container that resolved the bus; undefined when it was built with new. */
+  @Autoinject(Container)
+  protected Container: IContainer | undefined;
+
   protected readonly node = randomUUID();
   private readonly subscribers = new Set<(c: AuthzChange) => void>();
   private readonly log = engineLog('authz-queue-bus');
   private queue?: Promise<QueueService>;
   private retried = false;
+  private watching = false;
   private disposed = false;
   private timer?: NodeJS.Timeout;
   protected retryMs = 5000;
@@ -81,6 +88,7 @@ export class QueueChangeBus extends ChangeBus {
 
   /** AuthzService subscribes once, at boot: a queue that is not ready yet must not leave the node deaf. */
   private listenWithRetry(): void {
+    if (this.disposed) return;
     this.start().then(
       () => {
         // Changes made while the node was deaf are unknown: drop everything.
@@ -118,6 +126,10 @@ export class QueueChangeBus extends ChangeBus {
   }
 
   protected start(): Promise<QueueService> {
+    // A disposed bus must not consume again: nothing would stop that consumer. Refused rather than dropped,
+    // so a publisher learns that the other nodes keep their decisions.
+    if (this.disposed) return Promise.reject(new InvalidOperation('authz change bus: the bus is disposed, the change is not sent to the other nodes'));
+    this.watchDispose();
     if (this.queue === undefined) {
       this.queue = this.listen();
       // A failed start is retried by the next call.
@@ -126,6 +138,13 @@ export class QueueChangeBus extends ChangeBus {
       });
     }
     return this.queue;
+  }
+
+  /** Container.dispose() disposes Services only; this bus is a plain singleton and would keep its consumer and retry. */
+  private watchDispose(): void {
+    if (this.watching || this.Container === undefined) return;
+    this.watching = true;
+    this.Container.once('di.dispose', () => void this.dispose());
   }
 
   private async listen(): Promise<QueueService> {
