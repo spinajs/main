@@ -235,17 +235,17 @@ describe('DomainListSync', () => {
     const { url, secrets } = credentialUrl();
     stub = stubFetch(() => text(200, 'x.com'));
     const s = await boot(DomainListSync, { lists: { sources: [{ ...SOURCES[0], url }] } }, [SafeFetch, EmailVerificationStore, MemoryEmailVerificationStore]);
-    const log = (s as unknown as { Log: Record<(typeof LOG_LEVELS)[number], (...args: unknown[]) => void> }).Log;
-    const originals = LOG_LEVELS.map((level) => log[level]);
+    const log = (s as unknown as { Log: object }).Log;
+    const originals = LOG_LEVELS.map((level) => ({ level, write: Reflect.get(log, level) as unknown }));
     const logged: unknown[][] = [];
-    for (const level of LOG_LEVELS) log[level] = (...args) => logged.push(args);
+    for (const level of LOG_LEVELS) Reflect.set(log, level, (...args: unknown[]) => logged.push(args));
     const dnsCalls = dnsTripwire();
     let outcomes: Awaited<ReturnType<DomainListSync['run']>>;
     try {
       outcomes = await s.run('a');
     } finally {
       dnsCalls.restore();
-      LOG_LEVELS.forEach((level, i) => (log[level] = originals[i]));
+      originals.forEach(({ level, write }) => Reflect.set(log, level, write));
     }
     expect(outcomes).to.deep.eq([{ source: 'a', status: 'failed', error: 'URLs with a user name or password are not fetched' }]);
     expect(logged).to.have.length(1);
