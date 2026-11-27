@@ -21,6 +21,7 @@
 ## Important behaviour
 
 - The check always enforces, whatever the filesystem's mode, even for `off` and `audit`.
+- On a filesystem a provider layer hands out as another provider (one listed in `tenancy.fs.prefixed`), every call throws `AuthzConfigError` before the check, in every mode and for `SYSTEM` too; see [ACL store](07-acl-store.md#important-behaviour).
 - `fs:manage` lets the holder grant any configured relation, `owner` included. A policy that gives owners `fs:*` lets them re-delegate.
 - System code that needs unchecked writes uses [`FileAclStore`](07-acl-store.md) directly.
 - A row granted on a path that does not exist yet is cleared as stale when the path is created through the middleware on a checked (not `off`) filesystem.

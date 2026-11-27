@@ -36,6 +36,7 @@ Add the middleware to `http.upload.middlewares` (keep the default `FileInfoMiddl
 - Keep the default upload filesystem `off`: it is a temp location, not a user's file space.
 - Uploads that call `fs.upload(..., { exclusive: true })` directly, such as `ConfigFileUploads` of `@spinajs/configuration-http`, do not pass through `AuthzUploadMiddleware`. `AuthzFsMiddleware` checks them as `fs:write` on the stored name; see [File uploads](../configuration-http/05-file-uploads.md).
 - In `@Access` give a resource extractor, so a relation grant is settled on the row, and the filesystem's `domain` when it is not `root`.
+- On a filesystem a provider layer hands out as another provider, no relation grant is held: the store refuses the read, the check counts the relation as unknown, so a `fromFsPath` route answers 403 unless a grant without a relation allows it. `AuthzUploadMiddleware` throws `AuthzConfigError` for an upload to such a filesystem in `audit` and `enforce`. See [ACL store](07-acl-store.md#important-behaviour).
 
 ## Examples
 

@@ -68,6 +68,7 @@ Time counts from the `AuthzClock` of the filesystem's domain. An `until` that is
 - `IZipResult.unlink()` runs `rm` on the archive outside the zip action, so it is checked as `fs:delete`.
 - `writeStream`: the ACL update runs when the stream emits `close`, and `close` waits for it (`fs.middlewareTimeoutMs`).
 - `SYSTEM` is never checked.
+- A target on a filesystem that a provider layer (`FsProviderLayer` of `@spinajs/fs`) hands out as another provider throws `AuthzConfigError` in `audit` and `enforce` before any check or IO, for `SYSTEM` too: its file ACL is refused ([ACL store](07-acl-store.md#important-behaviour)). Keep its mode `off`.
 
 ## Errors
 
@@ -75,7 +76,7 @@ Time counts from the `AuthzClock` of the filesystem's domain. An `until` that is
 | --- | --- |
 | `AccessDenied` (403) | `enforce`: a missing permission or a conditional permit. |
 | `InvalidArgument` | A path above the root, a NUL byte, a path outside the base path, a written path over 512 characters, an invalid signed URL `until`. |
-| `AuthzConfigError` | A malformed `authz.fs` entry, an unknown domain, a missing `Configuration` while an `AuthzService` runs. |
+| `AuthzConfigError` | A malformed `authz.fs` entry, an unknown domain, a missing `Configuration` while an `AuthzService` runs, a checked filesystem that a provider layer hands out as another provider. |
 | `InvalidConfiguration` | An unknown key at boot. |
 
 ## Related

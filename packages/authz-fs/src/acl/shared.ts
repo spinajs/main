@@ -4,7 +4,7 @@ import type { AssignmentSubject } from '@spinajs/authz-rbac';
 import { SUBJECT_KEY_MAX_LENGTH, parsePrincipalKey, parsePrincipalSubjectKey, parseSetKey, principalSubjectKey, subjectKeyOf } from '@spinajs/authz-rbac';
 import type { IContainer } from '@spinajs/di';
 import { InvalidArgument } from '@spinajs/exceptions';
-import { normalizeFsPath } from '@spinajs/fs';
+import { layeredFs, normalizeFsPath, publishedFs } from '@spinajs/fs';
 import { _check_arg, _is_string, _non_empty } from '@spinajs/util';
 import { sha256 } from '@spinajs/util/crypto';
 
@@ -24,7 +24,27 @@ export function fits(value: string, column: Column): string {
   return value;
 }
 
-export const aclFs = (fs: unknown): string => fits(checkFsName(fs), 'fs');
+/**
+ * Whether a lookup by `name` hands out another object than the published provider. Rows are keyed by filesystem name
+ * and path, and such a provider, a tenant's view from `@spinajs/tenancy/fs` for one, may map one path to a different file
+ * per scope, so one row would answer for all of them. Root container only: it is where getFs() applies the layers.
+ * A name with no published provider has no layer to ask.
+ */
+export function isLayeredFs(name: string): boolean {
+  const published = publishedFs(name);
+  return published !== undefined && layeredFs(published) !== published;
+}
+
+const LAYERED = 'a provider layer (such as @spinajs/tenancy/fs) hands this provider out as another one, so one ACL path would name a different file in each tenant';
+
+/** `name`, unless its file ACL is refused (isLayeredFs); `mode` is the authz.fs mode of a check that would use it. */
+export function notLayered(name: string, mode?: string): string {
+  if (!isLayeredFs(name)) return name;
+  if (mode === undefined) throw new AuthzConfigError(`file ACL of fs "${name}": ${LAYERED}. Keep files that need file ACLs on a provider no layer wraps`);
+  throw new AuthzConfigError(`authz.fs.${name} is "${mode}", whose checks read and keep the file ACL of fs "${name}": ${LAYERED}. Set its mode to "off" or keep files that need file ACLs on a provider no layer wraps`);
+}
+
+export const aclFs = (fs: unknown): string => notLayered(fits(checkFsName(fs), 'fs'));
 
 export const aclPath = (path: string): string => fits(normalizeFsPath(path), 'path');
 

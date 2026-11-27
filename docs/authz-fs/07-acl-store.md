@@ -117,6 +117,7 @@ export async function shareAndRead(): Promise<void> {
 - `AuthzFsMiddleware` and `FsAclRelation` read paths and keys exactly: a store must compare them case-sensitively, as `OrmFileAclStore` does with binary collation.
 - A store must hold paths up to 512 characters and subject keys up to 200, and refuse longer ones, as `OrmFileAclStore` does with `InvalidArgument`.
 - `holds` must ignore expired rows (`expiresAt` before `at`).
+- `OrmFileAclStore` refuses every call for a filesystem that a provider layer (`FsProviderLayer` of `@spinajs/fs`) hands out as another provider, with `AuthzConfigError`, whatever its `authz.fs` mode. Its rows are keyed by name and path, and such a provider, one listed in `tenancy.fs.prefixed` for example, may map one path to a different file in each tenant. `FsAcl`, `FsAclRelation` and system code that resolves the store all meet the refusal, and `AuthzFsMiddleware` refuses an action on such a filesystem in `audit` and `enforce` before any check. A store of your own does not check it. A file moved from a checked filesystem into such a provider (in mode `off`) leaves its rows behind, and they are deleted, as for a destination too long for a row.
 
 ## Related
 
