@@ -11,7 +11,7 @@ import { IDriverOptions, Orm, OrmDriver } from '@spinajs/orm';
 import { IConfiguratioDbSourceConfig, IConfigurationEntry } from './types.js';
 import _ from 'lodash';
 import { DbConfigValueConverter } from './converter.js';
-import { ScopedDbConfiguration, isScopedEntry } from './scoped.js';
+import { ScopedDbConfiguration, isScopedEntry, wellScoped } from './scoped.js';
 
 @Singleton()
 @Injectable(ConfigurationSource)
@@ -106,6 +106,7 @@ export class ConfiguratioDbSource extends ConfigurationSource {
       entry.Value = this.Converter.fromDB(entry.Value as unknown as string, entry, { TypeColumn: 'Type' });
     });
 
+    dbOptions = wellScoped(dbOptions);
     this.Scoped.replace(dbOptions.filter(isScopedEntry).map((entry) => ({ scope: entry.Scope, slug: entry.Slug, value: entry.Value })));
     dbOptions = dbOptions.filter((entry) => !isScopedEntry(entry));
 

@@ -160,7 +160,8 @@ export class ConfigurationController extends BaseController {
     const service = authz();
     const scope = requestScope();
     const entry = await service.runAs(SYSTEM, 'configuration-http:load', () => DbConfig.where('Slug', slug).where('Scope', scope).first());
-    if (!entry) throw new ResourceNotFound(`configuration entry ${slug} not found`);
+    // MySQL compares Scope without case, so the query alone could answer a SHARED row.
+    if (!entry || entry.Scope !== scope) throw new ResourceNotFound(`configuration entry ${slug} not found`);
     const ref = { type: 'configuration', id: String(entry.Id) };
     for (const permission of permissions) {
       if (!(await service.can(caller, permission, ref, entry))) throw new ResourceNotFound(`configuration entry ${slug} not found`);

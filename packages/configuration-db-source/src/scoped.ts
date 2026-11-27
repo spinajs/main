@@ -10,6 +10,9 @@ export const SHARED_SCOPE = 'shared';
 
 const DEFAULT_TTL_MS = 60_000;
 
+// @spinajs/tenancy's id pattern, copied: this package does not depend on tenancy.
+const TENANT_SCOPE = /^tenant:[a-z0-9_-]{1,64}$/;
+
 export interface ScopedConfigurationRow {
   readonly scope: string;
   readonly slug: string;
@@ -19,6 +22,18 @@ export interface ScopedConfigurationRow {
 /** A row of one scope; a row read before the Scope column existed has none and is shared. */
 export function isScopedEntry<T extends { Scope?: unknown }>(entry: T): entry is T & { Scope: string } {
   return typeof entry.Scope === 'string' && entry.Scope !== SHARED_SCOPE;
+}
+
+/**
+ * The rows whose `Scope` is exactly `shared`, `tenant:<id>` or absent (read before the column existed); any other is
+ * dropped with a warning. MySQL compares the column without case, so `TENANT:ACME` would answer `tenant:acme` there.
+ */
+export function wellScoped<T extends { Slug: string; Scope?: unknown }>(rows: readonly T[]): T[] {
+  return rows.filter((row) => {
+    if (row.Scope === undefined || row.Scope === null || row.Scope === SHARED_SCOPE || (typeof row.Scope === 'string' && TENANT_SCOPE.test(row.Scope))) return true;
+    InternalLogger.warn({ scope: row.Scope, slug: row.Slug }, 'Configuration row ${slug} has the scope ${scope}, which is neither shared nor tenant:<id>; it is ignored', 'configuration-db-source');
+    return false;
+  });
 }
 
 /**
@@ -85,6 +100,6 @@ export class ScopedDbConfiguration extends ScopedConfigurationSource {
 
   protected async read(): Promise<ScopedConfigurationRow[]> {
     const rows = await asSystem(() => DbConfig.where('Scope', '!=', SHARED_SCOPE).where('Exposed', true));
-    return rows.map((row) => ({ scope: row.Scope, slug: row.Slug, value: row.Value }));
+    return wellScoped(rows).map((row) => ({ scope: row.Scope, slug: row.Slug, value: row.Value }));
   }
 }

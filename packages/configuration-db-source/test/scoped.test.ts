@@ -1,5 +1,7 @@
 import { expect } from 'chai';
 import 'mocha';
+import * as sinon from 'sinon';
+import { InternalLogger } from '@spinajs/internal-logger';
 import { DI } from '@spinajs/di';
 import { ScopedConfigurationSource } from '@spinajs/configuration-common';
 import { Orm } from '@spinajs/orm';
@@ -98,6 +100,28 @@ describe('configuration rows of one scope', function () {
     expect([...(scoped.valuesOf('tenant:globex') ?? [])]).to.deep.equal([['scoped.only', 'globex']]);
     expect(scoped.valuesOf('tenant:initech')).to.equal(undefined);
     expect(scoped.valuesOf(SHARED_SCOPE)).to.equal(undefined);
+  });
+
+  // MySQL compares Scope without case: TENANT:ACME would answer tenant:acme there, SHARED would pass as shared.
+  it('ignores, with a warning naming the scope and the slug, a row whose scope is neither shared nor tenant:<id>', async () => {
+    for (const scope of ['TENANT:ACME', 'Shared', 'org:acme']) await asSystem(() => DbConfig.insert(row('scoped.odd', scope, scope)));
+    await asSystem(() => DbConfig.insert(row('scoped.from', 'billing@acme.test', 'tenant:acme')));
+    const warn = sinon.stub(InternalLogger, 'warn');
+    try {
+      const loaded = await (await DI.resolve(EntriesOf)).read(DI.get(Orm)!.Connections.get('sqlite')!);
+      const scoped = await DI.resolve(ScopedDbConfiguration);
+      expect(loaded).to.deep.equal({});
+      expect([...scoped.valuesOf('tenant:acme')!.keys()]).to.deep.equal(['scoped.from']);
+
+      await scoped.refresh();
+      expect([...scoped.valuesOf('tenant:acme')!.keys()]).to.deep.equal(['scoped.from']);
+      expect([...(scoped.valuesOf('TENANT:ACME')?.keys() ?? [])]).to.deep.equal([]);
+
+      const named = warn.getCalls().map((c) => c.args[0] as { scope?: unknown; slug?: unknown }).filter((d) => d.slug === 'scoped.odd').map((d) => d.scope);
+      expect(named).to.include.members(['TENANT:ACME', 'Shared', 'org:acme']);
+    } finally {
+      warn.restore();
+    }
   });
 
   it('the watch poll applies only the shared row of a slug', async () => {
