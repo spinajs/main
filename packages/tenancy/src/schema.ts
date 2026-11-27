@@ -24,6 +24,7 @@ export const TENANCY_DEFAULTS = {
 
 const text = { type: 'string', minLength: 1 };
 const texts = { type: 'array', items: text };
+const CONFIG_PROPERTIES = { overridable: { type: 'array', items: { type: 'string', pattern: OVERRIDABLE_PATH_PATTERN }, default: [] } };
 
 // Open at the root and inside `http`: tenancy.orm and later sections belong to the packages that read them.
 export const TENANCY_CONFIGURATION_SCHEMA = {
@@ -38,10 +39,8 @@ export const TENANCY_CONFIGURATION_SCHEMA = {
     config: {
       type: 'object',
       // A refusal, not the dropped-key warning of additionalProperties: a misspelt key would silently leave paths open or closed.
-      propertyNames: { enum: Object.keys(TENANCY_DEFAULTS.config) },
-      properties: {
-        overridable: { type: 'array', items: { type: 'string', pattern: OVERRIDABLE_PATH_PATTERN }, default: [] },
-      },
+      propertyNames: { enum: Object.keys(CONFIG_PROPERTIES) },
+      properties: CONFIG_PROPERTIES,
     },
     tenants: {
       type: 'array',
