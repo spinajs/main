@@ -111,7 +111,7 @@ An `auth` object in `options` replaces the one built from `user` and `password` 
 - `service` is matched against the class name, not against a string token. A subclass is selected by its own class name.
 - `@NewInstance()`: two entries with `service: 'EmailSenderSmtp'` get two senders and two transporters. `DI.resolve(EmailSenderSmtp, [entry])` outside `EmailService` also builds and verifies a new one each time.
 - Without `user` and `password` no `auth` is passed, so the sender does not log in, even on a server that advertises `AUTH`.
-- The `info` connect log line includes the SMTP user name. The password is never logged, and an `options.url` is printed without its user name, password and query.
+- The `info` connect log line includes the SMTP user name. The package does not log the configured password, and prints an `options.url` without its user name, password and query. A server whose authentication error quotes the client's `AUTH` line puts the base64 of the credentials into the error that is logged at `error` and set as the cause of `UnexpectedServerError`.
 - The transporter is never closed. With `pool: true` the pooled sockets stay open until the process exits.
 
 ## Best practices

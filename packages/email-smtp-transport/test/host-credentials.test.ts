@@ -229,7 +229,7 @@ describe('smtp transport - a host that is not a host name is refused before any 
       level: 'info',
       args: [{ user: USER, host: `smtp://127.0.0.1:${server.Port}`, secure: undefined }, 'Creating connection to smtp: ${user} at ${host}, secure: ${secure}'],
     });
-    // nodemailer quotes the server reply and the command name, never the credential it sent
+    // this server's 535 does not quote the AUTH line, so no form of the credential may reach the error or a log line
     expect(planted(printed)).to.deep.eq([]);
   });
 
