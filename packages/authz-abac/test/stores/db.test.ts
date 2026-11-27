@@ -8,7 +8,7 @@ import { fakeEvaluationContext, fakeModelInitContext, userPrincipal } from '@spi
 import { MIGRATION_DESCRIPTION_SYMBOL, QueryContext, UniqueViolation } from '@spinajs/orm';
 import type { OrmDriver } from '@spinajs/orm';
 
-import { AUTHZ_POLICY_TABLE, AbacModel, AuthzAbac_2026_10_01_00_00_00, DbPolicyStore, PolicyRecord } from '../../src/index.js';
+import { AUTHZ_POLICY_TABLE, AbacModel, AuthzAbac_2026_10_01_00_00_00, DbPolicyStore, PolicyRecord, policyTags } from '../../src/index.js';
 import { DB_KINDS, bootDb, rawQuery } from '../support/db.js';
 import type { TestDb } from '../support/db.js';
 
@@ -170,6 +170,85 @@ for (const kind of DB_KINDS) {
       const e = await failure(store.load());
       expect(e).to.be.instanceOf(AuthzConfigError);
       expect((e as Error).message).to.match(/^authz_policy: a row holds a JSON column that does not parse \(/);
+    });
+
+    // What each driver's expires_at column takes and no datetime converter reads; Postgres refuses other text at the insert.
+    const unreadable: readonly string[] = kind === 'sqlite' ? [`'not a date'`, `''`, `'0000-00-00 00:00:00'`, '1e300'] : [`'-infinity'`, `'infinity'`];
+    const rowExpiring = (id: string, effect: Policy['effect'], expiresAt: string): Promise<unknown> =>
+      rawQuery(db.driver, `INSERT INTO ${AUTHZ_POLICY_TABLE} (id, effect, permissions, scope_type, scope_id, expires_at, created_at) VALUES ('${id}', '${effect}', '["file:read"]', '$global', '', ${expiresAt}, '2026-10-01 00:00:00')`, [], QueryContext.Insert);
+    const setExpiry = (id: string, expiresAt: string): Promise<unknown> => rawQuery(db.driver, `UPDATE ${AUTHZ_POLICY_TABLE} SET expires_at = ${expiresAt} WHERE id = '${id}'`, [], QueryContext.Update);
+    const readFile = (): PermissionRegistryImpl => {
+      const reg = new PermissionRegistryImpl();
+      reg.register([{ name: 'file:read', types: ['file'] }], 'test');
+      reg.freeze();
+      return reg;
+    };
+    const decide = async (model: AbacModel, reg: PermissionRegistryImpl, now: Date) => {
+      const vote = await model.evaluate({ principal: alice, permission: 'file:read', resource: { type: 'file' }, env: { now } }, fakeEvaluationContext({ now, permissions: reg, conditions: new DefaultConditionCompiler() }));
+      return { permitWhen: vote.permitWhen, denyWhen: vote.denyWhen };
+    };
+    /** The vote of a model booted over the store on alice's file:read at `now`, or the error its boot fails with. */
+    const bootAndDecide = async (now: Date): Promise<unknown> => {
+      const reg = readFile();
+      const model = new AbacModel({ stores: [store] });
+      try {
+        await model.init(fakeModelInitContext({ permissions: reg, container: db.container }));
+        return await decide(model, reg, now);
+      } catch (err) {
+        return err;
+      } finally {
+        await model.dispose();
+      }
+    };
+
+    it('refuses a row whose expires_at holds no datetime, naming the policy, instead of loading a policy that never expires', async () => {
+      for (const value of unreadable) {
+        await db.driver.del().from(AUTHZ_POLICY_TABLE);
+        await rowExpiring('limited', 'permit', value);
+        const e = await failure(store.load());
+        expect(e, value).to.be.instanceOf(AuthzConfigError);
+        expect((e as Error).message, value).to.equal('authz_policy: the expires_at of policy "limited" is not a datetime the store can read');
+        expect(await failure(store.version()), value).to.be.instanceOf(AuthzConfigError);
+      }
+    });
+
+    it('fails the boot on an unreadable expiry of a permit, which would otherwise grant forever', async () => {
+      await rowExpiring('limited', 'permit', unreadable[0]);
+      expect(await bootAndDecide(new Date('2100-01-01T00:00:00.000Z'))).to.be.instanceOf(AuthzConfigError);
+    });
+
+    it('fails the boot on an unreadable expiry of a deny too, rather than dropping the deny as expired', async () => {
+      await rowExpiring('open', 'permit', 'NULL');
+      await rowExpiring('limited', 'deny', unreadable[0]);
+      expect(await bootAndDecide(NOW)).to.be.instanceOf(AuthzConfigError);
+    });
+
+    it('fails the decisions of a running model whose reload meets an unreadable expiry, until the row is repaired', async () => {
+      await write((tx) => store.put({ id: 'limited', effect: 'permit', permissions: ['file:read'], expiresAt: new Date('2026-12-01T00:00:00.000Z') }, alice, tx, NOW));
+      const reg = readFile();
+      const model = new AbacModel({ stores: [store], retryMs: 60_000 });
+      try {
+        await model.init(fakeModelInitContext({ permissions: reg, container: db.container }));
+        expect((await decide(model, reg, NOW)).permitWhen).to.equal(TRUE);
+        await setExpiry('limited', unreadable[0]);
+        model.invalidate(policyTags('limited'));
+        expect(await failure(decide(model, reg, NOW))).to.be.instanceOf(AuthzConfigError);
+        await setExpiry('limited', 'NULL');
+        expect((await decide(model, reg, NOW)).permitWhen).to.equal(TRUE);
+      } finally {
+        await model.dispose();
+      }
+    });
+
+    it('still loads rows without an expiry next to rows with one', async () => {
+      await write((tx) => store.put(input(policies[0]), alice, tx, NOW));
+      await write((tx) => store.put(input(policies[1]), alice, tx, NOW));
+      await rowExpiring('sql-text', 'permit', `'2026-12-01 00:00:00'`);
+      expect((await store.load()).map((p) => [p.id, p.expiresAt?.toISOString()])).to.deep.equal([
+        ['full', '2026-12-01T00:00:00.000Z'],
+        ['plain', undefined],
+        ['sql-text', '2026-12-01T00:00:00.000Z'],
+      ]);
     });
   });
 }
