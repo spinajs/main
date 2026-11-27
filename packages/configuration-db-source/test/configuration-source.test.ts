@@ -313,6 +313,20 @@ describe('Sqlite driver migration, updates, deletions & inserts', function () {
     expect(c.get('late-watch')).to.equal('b');
   });
 
+  it('loads the shared row of an exposed option, never a row of another scope', async () => {
+    const c = await cfg();
+    // 'org:' sorts before 'shared', so without the Scope filter the (Slug, Scope) index answers this row first
+    await DbConfig.insert({ Slug: 'late-scoped', Value: 'org', Group: 'db-config', Type: 'string', Watch: false, Exposed: true, Scope: 'org:acme' });
+
+    DI.register({
+      path: 'late-scoped',
+      options: { expose: true, defaultValue: 'a', exposeOptions: { type: 'string', group: 'db-config' } },
+    }).asValue('__configuration_property__');
+
+    await wait(500);
+    expect(c.get('late-scoped')).to.equal('a');
+  });
+
   it('Should arm the watch timer from the first watched slug registered after ORM resolve, when nothing was watched at resolve time', async () => {
     const c = await cfg();
 
