@@ -253,6 +253,12 @@ describe('smtp transport - a host that is not a host name is refused before any 
     }
   });
 
+  it('logs an internationalised host name as written', async () => {
+    const { logs } = await attempt({ host: 'bücher.example.invalid', port: 587 });
+
+    expect(logs[0].args[0]).to.have.property('host', 'smtp://bücher.example.invalid:587');
+  });
+
   it('dials a pooled transport', async () => {
     const { thrown } = await attempt({ host: '127.0.0.1', port: server.Port, user: USER, password: PASSWORD, options: { pool: true } });
 
