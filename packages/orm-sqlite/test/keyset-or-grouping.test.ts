@@ -1,4 +1,4 @@
-import { Connection, Model, ModelBase, OrmDriver, Primary, RawQuery, SoftDelete } from '@spinajs/orm';
+import { Archived, Connection, Model, ModelBase, OrmDriver, Primary, RawQuery, SoftDelete } from '@spinajs/orm';
 import type { ISelectQueryBuilder } from '@spinajs/orm';
 import { DI } from '@spinajs/di';
 import * as chai from 'chai';
@@ -34,6 +34,20 @@ class KoSoft extends ModelBase {
 
   @SoftDelete()
   public DeletedAt: DateTime;
+}
+
+@Connection('sqlite')
+@Model('ko_arch')
+class KoArch extends ModelBase {
+  @Primary()
+  public Id: number;
+
+  public Title: string;
+
+  public Score: number;
+
+  @Archived()
+  public ArchivedAt: DateTime;
 }
 
 interface Row {
@@ -98,6 +112,7 @@ function sorted<R>(query: ISelectQueryBuilder<R[]>, orderBy: Order): ISelectQuer
 
 const plainOr = () => KoItem.where('Title', 'a').orWhere('Title', 'b');
 const scopedOr = () => KoSoft.where('Title', 'a').orWhere('Title', 'b');
+const archivedOr = () => KoArch.where('Title', 'a').orWhere('Title', 'b');
 const rawOr = () => KoItem.where(RawQuery.create("`Title` = 'a' OR `Title` = 'b'"));
 
 const ORDERS: Array<[string, Order]> = [
@@ -113,7 +128,7 @@ describe('keyset pages of a query with a top-level OR', function () {
   before(() => registerUowConnection());
   beforeEach(async () => {
     await bootUow();
-    for (const table of ['ko_item', 'ko_soft']) {
+    for (const table of ['ko_item', 'ko_soft', 'ko_arch']) {
       await sqlite()
         .schema()
         .createTable(table, (t) => {
@@ -121,6 +136,7 @@ describe('keyset pages of a query with a top-level OR', function () {
           t.string('Title').notNull();
           t.int('Score').notNull();
           if (table === 'ko_soft') t.dateTime('DeletedAt');
+          if (table === 'ko_arch') t.dateTime('ArchivedAt');
         });
     }
     await db().reloadTableInfo();
@@ -130,6 +146,10 @@ describe('keyset pages of a query with a top-level OR', function () {
       .insert()
       .into('ko_soft')
       .values([...ROWS.map((r) => ({ ...r, DeletedAt: null })), ...DELETED.map((r) => ({ ...r, DeletedAt: stamp }))]);
+    await sqlite()
+      .insert()
+      .into('ko_arch')
+      .values([...ROWS.map((r) => ({ ...r, ArchivedAt: null })), ...DELETED.map((r) => ({ ...r, ArchivedAt: stamp }))]);
     executed = sandbox.spy(SqliteOrmDriver.prototype, 'executeOnDb');
   });
   afterEach(() => {
@@ -195,6 +215,23 @@ describe('keyset pages of a query with a top-level OR', function () {
     const plain = selects('ko_item');
     await streamed(rawOr().order('Id'), 4);
     expect(plain()[1]).to.eq("SELECT * FROM `ko_item` WHERE ( `Title` = 'a' OR `Title` = 'b' ) AND ( ( `Id` > ? ) ) ORDER BY `Id` ASC LIMIT ?");
+  });
+
+  // only a clone of a paged builder reaches withDeleted() / withArchived() with the predicate on it
+  it('withDeleted() and withArchived() on a clone of a page keep the keyset predicate', async () => {
+    const soft = selects('ko_soft');
+    const arch = selects('ko_arch');
+    const pastTwo = (await scopedOr().paginate({ orderBy: [['Id', 'asc']], limit: 2 })).next ?? undefined;
+
+    const deleted = scopedOr();
+    await deleted.paginate({ orderBy: [['Id', 'asc']], limit: 10, after: pastTwo });
+    expect(ids(await deleted.clone().withDeleted())).to.deep.eq([3, 5, 6, 7, 9, 10]);
+    expect(soft().at(-1)).to.eq('SELECT * FROM `ko_soft` WHERE ( `Title` = ? OR `Title` = ? ) AND ( ( `Id` > ? ) ) ORDER BY `Id` ASC LIMIT ?');
+
+    const archived = archivedOr();
+    await archived.paginate({ orderBy: [['Id', 'asc']], limit: 10, after: pastTwo });
+    expect(ids(await archived.clone().withArchived())).to.deep.eq([3, 5, 6, 7, 9, 10]);
+    expect(arch().at(-1)).to.eq('SELECT * FROM `ko_arch` WHERE ( `Title` = ? OR `Title` = ? ) AND ( ( `Id` > ? ) ) ORDER BY `Id` ASC LIMIT ?');
   });
 
   // literal strings recorded on the base, before the fix
