@@ -1,7 +1,8 @@
 import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
-import { UserSession as Session, encodeSessionData } from '@spinajs/authn-session';
+import { UserSession as Session, SessionExpirationProvider, encodeSessionData } from '@spinajs/authn-session';
 import type { ISession } from '@spinajs/authn-session';
+import { Injectable } from '@spinajs/di';
 import { DateTime } from 'luxon';
 import { RedisSessionStore } from '../src/index.js';
 import { runSessionProviderConformance, IConformanceExpiration, SessionProviderFactory } from '../../authn-session/test/conformance/session-provider-conformance.js';
@@ -26,6 +27,18 @@ const session = (over: Partial<ISession>) => new Session({ Subject: user('u-1'),
 const stored = async (key: string) => JSON.parse((await rawClient().get(key))!);
 const members = async (key: string) => (await rawClient().smembers(key)).sort();
 const ids = (list: ISession[]) => list.map((s) => s.SessionId).sort();
+const keyExpiresAt = async (key: string) => Date.now() + (await rawClient().pttl(key));
+
+@Injectable(SessionExpirationProvider)
+class NeverExpiration extends SessionExpirationProvider {
+  public initial(): DateTime | undefined {
+    return undefined;
+  }
+
+  public renew(): DateTime | undefined {
+    return undefined;
+  }
+}
 
 /** Runs `between` once, after touch has read the row and before its compare-and-set reaches Redis. */
 function raceTouch(store: RedisSessionStore, between: () => Promise<unknown>): () => number {
@@ -314,6 +327,84 @@ describe('redis session provider', function () {
       expect(await store.touch(restored)).to.be.false;
       expect(calls(), 'the first compare-and-set lost and was retried').to.equal(2);
       expect((await store.restore('t-race-data'))!.Data.get('ActiveRole')).to.equal('editor');
+    });
+
+    it('a pending touch without Expiration keeps the stored expiration', async () => {
+      const store = await makeProvider(SLIDING);
+      await store.truncate();
+
+      const fixed = DateTime.now().plus({ minutes: 5 });
+      await store.save(session({ SessionId: 't-pending-bare', State: 'pending', Expiration: fixed }));
+
+      const view = session({ SessionId: 't-pending-bare', State: 'pending', Expiration: undefined });
+      view.Data.set('Ip', '203.0.113.7');
+      expect(await store.touch(view)).to.be.false;
+
+      const after = (await store.restore('t-pending-bare'))!;
+      expect(after.Expiration, 'an absent expiration would mean the pending session never expires').to.not.be.undefined;
+      expect(after.Expiration!.toMillis()).to.equal(fixed.toMillis());
+      expect(after.Data.get('Ip')).to.equal('203.0.113.7');
+      expect(await keyExpiresAt('session:t-pending-bare')).to.be.closeTo(fixed.toMillis(), 1000);
+    });
+
+    it('a pending touch with a later Expiration keeps the stored expiration', async () => {
+      const store = await makeProvider(SLIDING);
+      await store.truncate();
+
+      const fixed = DateTime.now().plus({ minutes: 5 });
+      await store.save(session({ SessionId: 't-pending-later', State: 'pending', Expiration: fixed }));
+
+      expect(await store.touch(session({ SessionId: 't-pending-later', State: 'pending', Expiration: fixed.plus({ minutes: 2 }) }))).to.be.false;
+
+      expect((await store.restore('t-pending-later'))!.Expiration!.toMillis()).to.equal(fixed.toMillis());
+      expect(await keyExpiresAt('session:t-pending-later'), 'the key keeps its PEXPIREAT').to.be.closeTo(fixed.toMillis(), 1000);
+    });
+
+    it('PTTL stays positive after the pending touch', async () => {
+      const store = await makeProvider(SLIDING);
+      await store.truncate();
+
+      await store.save(session({ SessionId: 't-pending-pttl', State: 'pending', Expiration: DateTime.now().plus({ minutes: 5 }) }));
+      await store.touch(session({ SessionId: 't-pending-pttl', State: 'pending', Expiration: undefined }));
+
+      expect(await rawClient().pttl('session:t-pending-pttl'), '-1 would mean the key never expires').to.be.within(1, 5 * 60 * 1000);
+    });
+
+    it('a pending touch keeps the expiration stored when its compare-and-set lands, not the one it first read', async () => {
+      const store = await makeProvider(SLIDING);
+      await store.truncate();
+
+      await store.save(session({ SessionId: 't-pending-race', State: 'pending', Expiration: DateTime.now().plus({ minutes: 5 }) }));
+      const shorter = DateTime.now().plus({ minutes: 1 });
+      const calls = raceTouch(store, () => store.save(session({ SessionId: 't-pending-race', State: 'pending', Expiration: shorter })));
+
+      expect(await store.touch(session({ SessionId: 't-pending-race', State: 'pending', Expiration: undefined }))).to.be.false;
+      expect(calls(), 'the first compare-and-set lost and was retried').to.equal(2);
+      expect((await store.restore('t-pending-race'))!.Expiration!.toMillis()).to.equal(shorter.toMillis());
+      expect(await keyExpiresAt('session:t-pending-race')).to.be.closeTo(shorter.toMillis(), 1000);
+    });
+
+    it('an active touch still moves the expiration to the renewed instant', async () => {
+      const store = await makeProvider(SLIDING);
+      await store.truncate();
+
+      await store.save(session({ SessionId: 't-active-later', Expiration: DateTime.now().plus({ minutes: 5 }) }));
+      const renewed = DateTime.now().plus({ minutes: 60 });
+      expect(await store.touch(session({ SessionId: 't-active-later', Expiration: DateTime.now().plus({ minutes: 7 }) }))).to.be.true;
+
+      expect((await store.restore('t-active-later'))!.Expiration!.toMillis()).to.be.closeTo(renewed.toMillis(), 5000);
+      expect(await keyExpiresAt('session:t-active-later')).to.be.closeTo(renewed.toMillis(), 5000);
+    });
+
+    it('touch of an active session a never-expiring strategy renews removes its expiry', async () => {
+      const store = await bootStore({ expiration: { service: NeverExpiration.name } });
+      await store.truncate();
+
+      await store.save(session({ SessionId: 't-active-never', Expiration: DateTime.now().plus({ minutes: 5 }) }));
+      expect(await store.touch(session({ SessionId: 't-active-never', Expiration: DateTime.now().plus({ minutes: 5 }) }))).to.be.true;
+
+      expect((await store.restore('t-active-never'))!.Expiration).to.be.undefined;
+      expect(await rawClient().pttl('session:t-active-never')).to.equal(-1);
     });
   });
 
