@@ -267,7 +267,7 @@ describe('files per tenant', function () {
           (error: unknown) => ({ error }),
         );
         rmSync(join(other, 'z.zip'), { force: true });
-        const shown = 'error' in outcome ? String((outcome.error as Error)?.message) : JSON.stringify(outcome.value) ?? '';
+        const shown = 'error' in outcome ? String(outcome.error instanceof Error ? outcome.error.message : outcome.error) : JSON.stringify(outcome.value) ?? '';
         const label = `${name}(${JSON.stringify(path)})`;
         if (CLIMBS.includes(path) && !('error' in outcome && outcome.error instanceof InvalidArgument)) failures.push(`${label} was not refused`);
         if (/BETA-SECRET|zz-beta-marker/.test(shown) || (!path.includes(betaRoot) && shown.includes(betaRoot))) failures.push(`${label} showed ${shown}`);
@@ -327,7 +327,7 @@ describe('files per tenant', function () {
     for (const raw of [join(uploads, 'raw.txt'), join(docs, 'raw.txt'), tenantFile('alpha', 'stolen.txt')]) expect(existsSync(raw)).to.equal(false);
   });
 
-  it("another tenant's dedicated provider is refused by name, by an instance taken in its owner's scope and as a destination", async () => {
+  it("a dedicated provider is refused by its own name in every tenant, its owner's included, by an instance taken in its owner's scope and as a destination", async () => {
     await runInTenant('bigcorp', () => getFs('uploads').write('logo.png', 'BIG'));
     const earlier = await runInTenant('bigcorp', async () => getFs('bucket'));
     writeFileSync(OWN, 'local');
@@ -352,7 +352,7 @@ describe('files per tenant', function () {
     });
     expect(failures).to.deep.equal([]);
     expect(tree(bucket, '')).to.equal(before);
-    expect(await runInTenant('bigcorp', () => getFs('bucket').read('logo.png', 'utf-8'))).to.equal('BIG');
+    for (const raw of [() => getFs('bucket').read('logo.png', 'utf-8'), () => getFs('bucket').upload(tenantFile('beta', 'secret.txt'), 'x'), () => getFs('bucket').unzip('good.zip', '')]) await expect(runInTenant('bigcorp', async () => { await raw(); })).to.be.rejectedWith(InvalidOperation);
     expect(await getFs('bucket').read('logo.png', 'utf-8')).to.equal('BIG');
   });
 
