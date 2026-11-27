@@ -8,13 +8,23 @@ import { baseClassOf, extendsFrameworkClass, isDeclaredIn } from './framework-me
 export const TRANSPARENT_WRAPPERS: ReadonlySet<string> = new Set(['Promise', 'ModelDataWithRelationData', 'ModelData']);
 
 const HTTP = '@spinajs/http';
+const ORM = '@spinajs/orm';
 const isHttpResponse = (checker: ts.TypeChecker, type: ts.Type): boolean => extendsFrameworkClass(checker, type, 'Response', HTTP);
 const isNullish = (type: ts.Type): boolean => (type.flags & (ts.TypeFlags.Null | ts.TypeFlags.Undefined | ts.TypeFlags.Void)) !== 0;
 
+// The global `Promise` is one symbol (lib files and `declare global` merges); `ModelData*` come from the orm.
+function isTransparentWrapper(checker: ts.TypeChecker, symbol: ts.Symbol | undefined): symbol is ts.Symbol {
+  if (!symbol || !TRANSPARENT_WRAPPERS.has(symbol.name)) return false;
+  if (symbol.name === 'Promise') return symbol === checker.resolveName('Promise', undefined, ts.SymbolFlags.Type, false);
+  return isDeclaredIn(symbol.declarations?.[0], ORM);
+}
+
 function singleWrapperName(checker: ts.TypeChecker, type: ts.Type): string | undefined {
+  // An alias of a wrapper (`type AsyncOk<T> = Promise<Ok<T>>`) is named by the alias; the wrapper is the type's own symbol.
+  const wrapper = [type.aliasSymbol, type.getSymbol()].find((symbol) => isTransparentWrapper(checker, symbol));
+  if (wrapper) return wrapper.name;
   const symbol = type.aliasSymbol ?? type.getSymbol();
-  if (!symbol) return undefined;
-  return TRANSPARENT_WRAPPERS.has(symbol.name) || isHttpResponse(checker, type) ? symbol.name : undefined;
+  return symbol && isHttpResponse(checker, type) ? symbol.name : undefined;
 }
 
 /** A union is a wrapper when every member is one (`Ok | Unauthorized`): one schema cannot describe several responses. */
