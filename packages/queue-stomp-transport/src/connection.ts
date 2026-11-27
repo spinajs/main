@@ -63,6 +63,18 @@ function socketFailure(event: unknown, reason: string): Error {
   return 'code' in inner && typeof inner.code === 'string' ? Object.assign(failure, { code: inner.code }) : failure;
 }
 
+const WEBSOCKET_PROTOCOLS = new Set(['ws:', 'wss:', 'http:', 'https:', 'ws+unix:']);
+
+/** What makes `new WebSocket(host)` of `ws` throw before it dials, or `undefined` when it would dial. */
+function unopenableHost(host: string): string | undefined {
+  if (!URL.canParse(host)) return 'its host is not a URL';
+  const url = new URL(host);
+  if (!WEBSOCKET_PROTOCOLS.has(url.protocol)) return 'its host is not a ws://, wss://, http://, https:// or ws+unix: URL';
+  if (url.protocol === 'ws+unix:' && url.pathname === '') return 'its ws+unix: host has no socket path';
+  if (url.hash !== '') return 'its host has a fragment';
+  return undefined;
+}
+
 // stompjs prints every frame it sends, the CONNECT frame with its passcode header too. Not `.*$`: `.` stops at a CR,
 // U+2028 or U+2029, which an unescaped CONNECT header can carry.
 const PASSCODE_HEADER = /^passcode:[^\n]*/gm;
@@ -140,6 +152,7 @@ interface IStompTransportOptions {
   emitRetries?: number;
   prefetch?: unknown;
   virtualTopics?: unknown;
+  webSocketFactory?: unknown;
 }
 
 interface IReadyWaiter {
@@ -301,6 +314,11 @@ export class StompQueueClient extends QueueClient {
     const host = this.Options.host;
     if (!host) {
       throw new InvalidArgument(`Queue connection ${this.Options.name} has no host configured`);
+    }
+
+    const unopenable = this.TransportOptions?.webSocketFactory === undefined ? unopenableHost(host) : undefined;
+    if (unopenable) {
+      throw new InvalidArgument(`Queue connection ${this.Options.name} cannot open a websocket to ${loggableEndpoint(host)}: ${unopenable}`);
     }
 
     this.PrefetchSize = this.readPrefetch();
