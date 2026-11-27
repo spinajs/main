@@ -26,8 +26,10 @@ export * from './migration-lock.js';
 
 export interface IPostgresTransactionContext extends ITransactionContext {
   connection: pg.PoolClient;
-  /** ROLLBACK failed: the session may still be inside the transaction, with its transaction-local settings. */
+  /** A ROLLBACK or a ROLLBACK TO SAVEPOINT failed: the session may still hold the transaction, with work reported as undone. */
   rollbackFailed?: boolean;
+  /** The error of the failed ROLLBACK TO SAVEPOINT, the `inner` of the commit's refusal. */
+  savepointRollbackFailure?: Error;
   /** The first statement failure since `BEGIN` or the last `ROLLBACK TO SAVEPOINT`. */
   failure?: Error;
 }
@@ -703,11 +705,16 @@ export class PostgresOrmDriver extends SqlDriver {
   }
 
   protected async _commit(ctx: ITransactionContext): Promise<void> {
-    const result = await this.txConnection(ctx).query('COMMIT');
+    const tx = ctx as IPostgresTransactionContext;
+    // A nested transaction rejected as undone, but its ROLLBACK TO may never have reached the server: a COMMIT would write its work.
+    if (tx.rollbackFailed === true) {
+      const failure = tx.savepointRollbackFailure;
+      throw new OrmException(`transaction on connection ${this.Options.Name} was not committed: the ROLLBACK TO SAVEPOINT of a nested transaction failed (it may never have reached the server), so work the nested call reported as undone may still be in it; nothing of it was written; the failure: ${failure?.message ?? 'unknown'}`, undefined, undefined, undefined, failure);
+    }
+    const result = await tx.connection.query('COMMIT');
     // A COMMIT of an aborted transaction raises no error: PostgreSQL rolls it back and answers with this tag.
     if (result.command === 'ROLLBACK') {
-      const failure = (ctx as IPostgresTransactionContext).failure;
-      throw new OrmException(`transaction on connection ${this.Options.Name} was aborted by an earlier failed statement whose error was caught; PostgreSQL rolled it back when it was asked to commit, and nothing of it was written; the first failure: ${failure?.message ?? 'unknown'}`, undefined, undefined, undefined, failure);
+      throw new OrmException(`transaction on connection ${this.Options.Name} was aborted by an earlier failed statement whose error was caught; PostgreSQL rolled it back when it was asked to commit, and nothing of it was written; the first failure: ${tx.failure?.message ?? 'unknown'}`, undefined, undefined, undefined, tx.failure);
     }
   }
 
@@ -732,9 +739,17 @@ export class PostgresOrmDriver extends SqlDriver {
   }
 
   protected async _rollbackToSavepoint(ctx: ITransactionContext, name: string): Promise<void> {
-    await this.txConnection(ctx).query(`ROLLBACK TO SAVEPOINT ${pgEscapeIdentifier(name)}`);
+    const tx = ctx as IPostgresTransactionContext;
+    try {
+      await tx.connection.query(`ROLLBACK TO SAVEPOINT ${pgEscapeIdentifier(name)}`);
+    } catch (err) {
+      // Never cleared, not even by a later successful ROLLBACK TO: this savepoint's work may still be in the transaction.
+      tx.rollbackFailed = true;
+      tx.savepointRollbackFailure ??= err instanceof Error ? err : new Error(String(err));
+      throw err;
+    }
     // A savepoint can only be taken in a healthy transaction, so rolling back to it heals the transaction.
-    (ctx as IPostgresTransactionContext).failure = undefined;
+    tx.failure = undefined;
   }
 
   protected _dispose(ctx: ITransactionContext): Promise<void> {
