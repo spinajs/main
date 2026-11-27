@@ -6,7 +6,7 @@ import { ConcurrencyConflict, InvalidArgument, InvalidOperation, NotSupported, R
 import type { TestApp } from '@spinajs/testing';
 import { TenantSwitchDenied, currentTenant, runInTenant, tenantRegistry } from '@spinajs/tenancy';
 
-import { DefaultTenantLifecycle, LIFECYCLE_LEASE_MS, TenantLifecycle, TenantSeeder } from '../../src/index.js';
+import { DefaultTenantLifecycle, LIFECYCLE_LEASE_MS, TenantLifecycle, TenantModel, TenantSeeder } from '../../src/index.js';
 import { claimLifecycle } from '../../src/lifecycle/lease.js';
 import type { LifecycleLease } from '../../src/lifecycle/lease.js';
 import { requireRow } from '../../src/lifecycle/record.js';
@@ -80,6 +80,16 @@ class Overtaken extends DefaultTenantLifecycle {
   }
 }
 
+/** Its lease cannot be freed, as when the connection broke after the seeder failed. */
+class Unreleasable extends DefaultTenantLifecycle {
+  protected override leased<T>(id: string, fn: (lease: LifecycleLease) => Promise<T>): Promise<T> {
+    return super.leased(id, (lease) => {
+      lease.release = () => Promise.reject(new Error('the connection broke'));
+      return fn(lease);
+    });
+  }
+}
+
 const ACME = { id: 'acme', slug: 'acme', name: 'Acme Ltd', domains: ['ACME.example ', 'acme.example'] };
 const customers = (): Promise<number> => runInTenant('acme', async () => (await LcCustomer.all()).length);
 
@@ -123,7 +133,9 @@ describe('provisioning a row-mode tenant', function () {
 
   it('leaves a failed provisioning inactive and free, names the seeder, and does not run the finished seeders again', async () => {
     Flaky.failures = 1;
-    await expect(lifecycle.provision(ACME)).to.be.rejectedWith(InvalidOperation, 'the tenant seeder "flaky" failed for tenant "acme": the seed failed');
+    await expect(lifecycle.provision(ACME))
+      .to.be.rejectedWith(InvalidOperation, 'the tenant seeder "flaky" failed for tenant "acme": the seed failed')
+      .and.eventually.have.nested.property('cause.message', 'the seed failed');
 
     const half = await requireRow('acme');
     expect(half.state).to.eq('provisioning');
@@ -136,10 +148,18 @@ describe('provisioning a row-mode tenant', function () {
     expect(await customers()).to.eq(1);
   });
 
+  it('reports the error of a seeder when the lease cannot be freed afterwards', async () => {
+    Flaky.failures = 1;
+    await expect(new Unreleasable().provision(ACME)).to.be.rejectedWith(InvalidOperation, 'the tenant seeder "flaky" failed for tenant "acme"');
+  });
+
   it('refuses a retry with other input, an active or suspended tenant, a taken slug and a taken domain', async () => {
     Flaky.failures = 1;
     await expect(lifecycle.provision(ACME)).to.be.rejected;
-    await expect(lifecycle.provision({ ...ACME, name: 'ACME' })).to.be.rejectedWith(InvalidArgument, 'is being provisioned with another slug, name or placement');
+    const other = 'is being provisioned with another slug, name, placement, domains or settings';
+    await expect(lifecycle.provision({ ...ACME, name: 'ACME' })).to.be.rejectedWith(InvalidArgument, other);
+    await expect(lifecycle.provision({ ...ACME, domains: ['acme.example', 'www.acme.example'] })).to.be.rejectedWith(InvalidArgument, other);
+    await expect(lifecycle.provision({ ...ACME, settings: { plan: 'pro' } })).to.be.rejectedWith(InvalidArgument, other);
     await lifecycle.provision(ACME);
 
     await expect(lifecycle.provision(ACME)).to.be.rejectedWith(ResourceDuplicated, 'tenant "acme" exists and is active');
@@ -217,5 +237,36 @@ describe('provisioning a row-mode tenant', function () {
     await expect(lifecycle.provision(ACME)).to.be.rejected;
     await expect(new Overtaken().provision(ACME)).to.be.rejectedWith(ResourceDuplicated, 'tenant "acme" exists and is active');
     expect(ran).to.deep.eq([]);
+  });
+});
+
+class Dup extends TenantSeeder {
+  public readonly name = 'dup';
+
+  public seed(): Promise<void> {
+    return Promise.resolve();
+  }
+}
+
+class AlsoDup extends Dup {}
+
+describe('provisioning with two tenant seeders of one name', function () {
+  this.timeout(30_000);
+  let app: TestApp;
+
+  before(async () => {
+    app = await bootRowApp({}, (c) => {
+      c.register(Dup).as(TenantSeeder);
+      c.register(AlsoDup).as(TenantSeeder);
+    });
+  });
+
+  after(async () => {
+    await app?.dispose();
+  });
+
+  it('refuses before it writes the tenant', async () => {
+    await expect((await app.resolve(TenantLifecycle)).provision(ACME)).to.be.rejectedWith(InvalidOperation, 'two tenant seeders are named "dup"');
+    expect(await TenantModel.where('id', 'acme').first()).to.eq(undefined);
   });
 });

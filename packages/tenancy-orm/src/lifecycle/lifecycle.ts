@@ -4,6 +4,7 @@ import { InvalidArgument, InvalidOperation, NotSupported, ResourceDuplicated } f
 import { isTenantId, tenantRef } from '@spinajs/tenancy';
 import type { TenantPlacement, TenantRecord } from '@spinajs/tenancy';
 import { DateTime } from 'luxon';
+import { isDeepStrictEqual } from 'node:util';
 
 import { TenantModel } from '../models/TenantModel.js';
 import { toTenantRecord } from '../records.js';
@@ -57,17 +58,29 @@ function assertMigratable(row: TenantModel): void {
   throw new InvalidOperation(`tenancy-orm: tenant "${row.id}" is ${row.state}; ${row.state === 'provisioning' ? 'provision() migrates it' : 'a tenant on its way out is not migrated'}`);
 }
 
+function sameInput(row: TenantModel, plan: ProvisionPlan): boolean {
+  const stored = toTenantRecord(row);
+  return (
+    row.slug === plan.slug &&
+    row.name === plan.name &&
+    (row.placement?.schema ?? null) === (plan.placement?.schema ?? null) &&
+    isDeepStrictEqual([...stored.domains].sort(), [...plan.domains].sort()) &&
+    isDeepStrictEqual(stored.settings, plan.settings)
+  );
+}
+
 @Injectable(TenantLifecycle)
 export class DefaultTenantLifecycle extends TenantLifecycle {
   public async provision(input: TenantProvisionInput): Promise<TenantRecord> {
     refuseTenantScope('provision');
     const plan = this.planProvision(input);
+    const seeders = await tenantSeeders();
     const row = await TenantModel.where('id', plan.id).first();
     if (row) this.assertResumable(row, plan);
     else await this.insertProvisioning(plan);
 
     const body = async (steps: LifecycleSteps): Promise<TenantRecord> => {
-      await this.seed(plan.id, steps);
+      await this.seed(plan.id, steps, seeders);
       await this.activate(plan.id, steps);
       return toTenantRecord(await requireRow(plan.id));
     };
@@ -123,8 +136,7 @@ export class DefaultTenantLifecycle extends TenantLifecycle {
     if (row.state !== 'provisioning' && !(row.state === 'active' && unfinished)) {
       throw new InvalidOperation(`tenancy-orm: tenant "${row.id}" is ${row.state}; only a provisioning that did not finish is provisioned again`);
     }
-    const same = row.slug === plan.slug && row.name === plan.name && (row.placement?.schema ?? null) === (plan.placement?.schema ?? null);
-    if (!same) throw new InvalidArgument(`tenancy-orm: tenant "${row.id}" is being provisioned with another slug, name or placement; retry with the input of the first call`, 'input');
+    if (!sameInput(row, plan)) throw new InvalidArgument(`tenancy-orm: tenant "${row.id}" is being provisioned with another slug, name, placement, domains or settings; retry with the input of the first call`, 'input');
   }
 
   protected async insertProvisioning(plan: ProvisionPlan): Promise<void> {
@@ -137,8 +149,8 @@ export class DefaultTenantLifecycle extends TenantLifecycle {
     await announce(plan.id);
   }
 
-  protected async seed(id: string, steps: LifecycleSteps): Promise<void> {
-    for (const seeder of await tenantSeeders()) {
+  protected async seed(id: string, steps: LifecycleSteps, seeders: readonly TenantSeeder[]): Promise<void> {
+    for (const seeder of seeders) {
       await steps.step(`seed:${seeder.name}`, async () => {
         const record = toTenantRecord(await requireRow(id));
         try {
@@ -166,7 +178,8 @@ export class DefaultTenantLifecycle extends TenantLifecycle {
       return await fn(lease);
     } finally {
       clearInterval(beat);
-      await lease.release();
+      // The operation's own outcome is the one to report; a lease left behind expires by itself.
+      await lease.release().catch(() => undefined);
     }
   }
 
