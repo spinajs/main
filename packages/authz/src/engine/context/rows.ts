@@ -1,17 +1,17 @@
 import type { ResourceRef } from '../../contracts/principal.js';
 import { resourceKey } from '../../contracts/resource.js';
-import { l1Key } from '../context.js';
 import { settleWithin } from '../run.js';
 import { describeError, thrownError } from '../vote.js';
 import { byType } from '../support/misc.js';
 import { logAt } from '../support/plumbing.js';
 import { FAILED_ROW, MISSING_ROW } from '../types.js';
 import type { Engine, RowLoad } from '../types.js';
-import { ancestorList } from './scope.js';
+import { ancestorList, keepAncestors, knowsAncestors } from './scope.js';
 
 /** One ancestorsMany call per type for the refs with an id the L1 lacks; a failure leaves them to ancestors() per ref. */
 export async function prefillAncestors(engine: Engine, refs: readonly ResourceRef[], scope: Map<string, unknown>): Promise<void> {
-  const pending = refs.filter((r) => r.id !== undefined && !scope.has(l1Key('ancestors', engine.domain, resourceKey(r))));
+  const generation = engine.generation;
+  const pending = refs.filter((r) => r.id !== undefined && !knowsAncestors(engine, r, scope));
   await Promise.all(
     [...byType(pending)].map(async ([type, list]) => {
       const adapter = engine.adapterByType.get(type);
@@ -30,7 +30,7 @@ export async function prefillAncestors(engine: Engine, refs: readonly ResourceRe
       for (const ref of list) {
         const key = resourceKey(ref);
         try {
-          scope.set(l1Key('ancestors', engine.domain, key), ancestorList(engine, found.get(key) ?? null, ref));
+          keepAncestors(engine, ref, scope, ancestorList(engine, found.get(key) ?? null, ref), generation);
         } catch (e) {
           logAt(engine, 'error', { error: thrownError(e), adapter: adapter.kind, resource: key }, 'Authz domain ${domain}: ancestorsMany of adapter ${adapter} answered a malformed list for ${resource}, asking ancestors()');
         }

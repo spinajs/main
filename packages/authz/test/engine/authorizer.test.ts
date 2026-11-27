@@ -1329,10 +1329,8 @@ describe('Authorizer: an intersect delegate checked with a subject narrows to th
         return { model: 'm', permitWhen: grants[req.principal.id] ?? FALSE, denyWhen: FALSE, cacheable: true };
       },
     });
-  const setup = (m: StaticModel, options: Partial<AuthorizerOptions> = {}) => {
-    const adapter = new FakeAdapter(['doc', 'folder'], { rows: [new FakeRow('folder', 'f1'), d1, d2, d3, d4], relations: [new FakeRelation('doc', 'owner', (p, _ref, subject) => (subject as FakeRow).owner === p.id)] });
-    return make({ adapters: [adapter], models: [m], ...options });
-  };
+  const docs = () => new FakeAdapter(['doc', 'folder'], { rows: [new FakeRow('folder', 'f1'), d1, d2, d3, d4], relations: [new FakeRelation('doc', 'owner', (p, _ref, subject) => (subject as FakeRow).owner === p.id)] });
+  const setup = (m: StaticModel, options: Partial<AuthorizerOptions> = {}) => make({ adapters: [docs()], models: [m], ...options });
   const delegateDenial = { code: 'delegate', priority: 200, delegate: 'user:bob' };
 
   it('a relation the delegate holds on the row is stripped from the filter, so the check denies the row too (delegate)', async () => {
@@ -1487,6 +1485,10 @@ describe('Authorizer: an intersect delegate checked with a subject narrows to th
       const scope = { cache: new Map<string, unknown>() };
       let loads = 0;
       let armed = hang;
+      let hanging = false;
+      const adapter = docs();
+      const read = adapter.ancestors.bind(adapter);
+      adapter.ancestors = (ref) => (hanging ? new Promise(() => undefined) : read(ref));
       const m = byId({ t1: TRUE, bob: or(ownerOp, underF1) }, (req, ctx) => {
         if (req.principal.id !== 't1') return;
         if (!ctx.cache.has('roles')) {
@@ -1494,12 +1496,15 @@ describe('Authorizer: an intersect delegate checked with a subject narrows to th
           ctx.cache.set('roles', true);
         }
         // After the models only the strip evaluation reads the row's ancestors.
-        if (armed) scope.cache.set(ancestorsKey, new Promise(() => undefined));
+        if (armed) {
+          scope.cache.delete(ancestorsKey);
+          hanging = true;
+        }
       });
-      const a = setup(m, { config: { modelTimeoutMs: 30 } });
+      const a = setup(m, { adapters: [adapter], config: { modelTimeoutMs: 30 } });
       const first = await a.check({ principal: agent, permission: 'doc:read', resource: d4 }, scope);
       armed = false;
-      scope.cache.delete(ancestorsKey);
+      hanging = false;
       const second = await a.check({ principal: agent, permission: 'doc:read', resource: d4 }, scope);
       return { first, second, loads };
     };

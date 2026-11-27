@@ -5,7 +5,7 @@ Adapters and resolvers tell the engine about resources: what type an object is, 
 ## How it works
 
 1. **Ref.** `check()` hands an object resource to each `ResourceAdapter` in turn; the first whose `accepts(object)` is true answers `refOf(object)`, and the object becomes the subject.
-2. **Ancestors.** For a ref with an id, the engine asks the adapter of its type, else the `ScopeResolver` of its type, for `ancestors(ref)`: the whole path `[self, parent, ..., GLOBAL]`, or `null` for an unknown resource (denied `unknown_resource`). A type with neither answers `[ref, GLOBAL]`. The answer is memoised per request.
+2. **Ancestors.** For a ref with an id, the engine asks the adapter of its type, else the `ScopeResolver` of its type, for `ancestors(ref)`: the whole path `[self, parent, ..., GLOBAL]`, or `null` for an unknown resource (denied `unknown_resource`). A type with neither answers `[ref, GLOBAL]`. The answer is kept per request once read; overlapping first reads each ask ([what a request shares](08-writing-a-model.md#the-evaluation-context)).
 3. **Relations.** A residual op `{ op: 'relation', relation }` is settled on the row by the `RelationResolver` registered for `(type, relation)`: `holds(principal, ref, subject)`.
 4. **Attributes.** `ctx.attributes(ref)` and `scope.<type>.*` condition refs read a node's attributes: the schema defaults of the type, then the adapter's `scopeAttributes(ref)` (else the resolver's `attributes(ref)`), then the `ScopeAttributeStore` row. Later layers win. `null` from the adapter or resolver means an unknown node.
 5. **Rows.** `checkAll()` and the conditional allows of authz-http's `@Access` load rows through `loadMany()` or `load()`; `attribute(subject, field)` reads a field of a row for `cmp` residuals.

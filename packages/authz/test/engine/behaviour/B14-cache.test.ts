@@ -352,7 +352,8 @@ describe('B14: decision caches (L1 per request, L2 across requests)', () => {
       };
       const a = new Authorizer(options);
       const d = await a.check(read(alice, D1), fresh());
-      expect(d.residual).to.deep.equal(eq('a', 1));
+      // m reads O1 itself (a load still running is not shared): its own load or its vote times out.
+      expect(d.residual).to.deep.oneOf([eq('a', 1), FALSE]);
       expect(cache.sets).to.have.length(0);
       expect((await pipelineOf(new Authorizer({ ...options, cache: undefined }), read(alice, D1))).uncacheable).to.equal(true);
     });

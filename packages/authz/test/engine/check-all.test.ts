@@ -3,7 +3,6 @@ import 'mocha';
 
 import { Authorizer } from '../../src/engine/authorizer.js';
 import type { AuthorizerOptions } from '../../src/engine/authorizer.js';
-import { l1Key } from '../../src/engine/context.js';
 import { FALSE, GLOBAL, TRUE } from '../../src/index.js';
 import type { DecisionRequest, ResourceAdapter, ResourceFilter, ResourceRef, Vote } from '../../src/index.js';
 import { BatchAdapter, FakeAdapter, FakeRow, LoadingAdapter, RecordingLog, StaticModel, fakeClock, principal, registryOf } from './fakes.js';
@@ -79,9 +78,34 @@ describe('Authorizer.checkAll', () => {
 
   it('fills the shared request scope with the ancestors', async () => {
     const scope = { cache: new Map<string, unknown>() };
-    await make([new BatchAdapter(['doc'], { rows: docRows() })]).checkAll(alice, [{ permission: 'doc:read', resource: d1 }, { permission: 'doc:read', resource: d9 }], scope);
-    expect(scope.cache.get(l1Key('ancestors', 'root', 'doc:d1'))).to.deep.equal([d1, GLOBAL]);
-    expect(scope.cache.get(l1Key('ancestors', 'root', 'doc:d9'))).to.equal(null);
+    const docs = new BatchAdapter(['doc'], { rows: docRows() });
+    const a = make([docs]);
+    await a.checkAll(alice, [{ permission: 'doc:read', resource: d1 }, { permission: 'doc:read', resource: d9 }], scope);
+    expect(await a.ancestors(d1, scope)).to.deep.equal([d1, GLOBAL]);
+    expect(await a.ancestors(d9, scope)).to.equal(null);
+    expect(docs.ancestorCalls).to.deep.equal([]);
+  });
+
+  it('keeps no ancestors from a batch that settles after an invalidate', async () => {
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    class GatedBatch extends BatchAdapter {
+      override async ancestorsMany(refs: readonly ResourceRef[]): Promise<ReadonlyMap<string, readonly ResourceRef[] | null>> {
+        const found = await super.ancestorsMany(refs);
+        await gate;
+        return found;
+      }
+    }
+    const scope = { cache: new Map<string, unknown>() };
+    const docs = new GatedBatch(['doc'], { rows: docRows() });
+    const a = make([docs]);
+    const all = a.checkAll(alice, [{ permission: 'doc:read', resource: d1 }], scope);
+    for (let i = 0; i < 50 && docs.ancestorsManyCalls.length === 0; i++) await new Promise((resolve) => setImmediate(resolve));
+    a.invalidate(['*']);
+    release();
+    await all;
+    await a.ancestors(d1, scope);
+    expect(docs.ancestorCalls).to.have.length(1);
   });
 
   it('asks about a ref named twice once', async () => {
