@@ -246,12 +246,14 @@ function loggableEndpoint(endpoint: string): string {
   }
 }
 
+const cut = (text: string): string => (text.length > MAX_ATTRIBUTE_LENGTH ? text.slice(0, MAX_ATTRIBUTE_LENGTH) : text);
+
 const NO_ATTRIBUTES: Attributes = Object.freeze({});
 
 function boundedAttributes(labels: IPerfMetric['labels']): Attributes {
   if (labels === undefined) return NO_ATTRIBUTES;
   const bounded = Object.entries(labels)
     .slice(0, MAX_ATTRIBUTES)
-    .map(([key, value]): [string, string | number | boolean] => [key, typeof value === 'string' && value.length > MAX_ATTRIBUTE_LENGTH ? value.slice(0, MAX_ATTRIBUTE_LENGTH) : value]);
+    .map(([key, value]): [string, string | number | boolean] => [cut(key), typeof value === 'string' ? cut(value) : value]);
   return Object.fromEntries(bounded);
 }

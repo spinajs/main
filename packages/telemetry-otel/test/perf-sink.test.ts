@@ -138,6 +138,16 @@ describe('OtelPerfSink', () => {
     await sink.dispose();
   });
 
+  it('cuts an attribute key at 128 characters like a value', async () => {
+    const sink = new OtelPerfSink();
+    const reader = new TestReader();
+    configure(sink, true, undefined, reader);
+    sink.collect({ name: 'long.key', kind: 'counter', value: 1, labels: { ['k'.repeat(500)]: 'v' } });
+    const [point] = points(named(await collected(reader), 'long.key'));
+    expect(Object.keys(point.attributes)).to.deep.eq(['k'.repeat(128)]);
+    await sink.dispose();
+  });
+
   it('bounds the series of one metric at 100: further label sets fold into the overflow series', async () => {
     const sink = new OtelPerfSink();
     const reader = new TestReader();

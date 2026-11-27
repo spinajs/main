@@ -47,7 +47,7 @@ exported at all.
 | Bound | Limit | Past it |
 | --- | --- | --- |
 | Attributes per measurement | 8 | the labels after the eighth are left out |
-| Length of a string attribute value | 128 characters | the value is cut |
+| Length of an attribute key and of a string attribute value | 128 characters | cut |
 | Series (attribute sets) per metric name | 100 | further sets add to one series with the attribute `otel.metric.overflow: true` |
 | Metric names | 256 | the measurement is dropped and counted |
 
