@@ -1,5 +1,5 @@
 import { AUTHZ_CONNECTION } from '@spinajs/authz';
-import { Connection, DateTime as DateTimeColumn, Int64, Json, Model, ModelBase, Primary } from '@spinajs/orm';
+import { Connection, DateTime as DateTimeColumn, Int64, Json, Model, ModelBase, Primary, type ISelectQueryBuilder, type IWhereBuilder } from '@spinajs/orm';
 import { DateTime } from 'luxon';
 
 import { AUTHZ_ASSIGNMENT_TABLE, AUTHZ_LINK_TABLE, AUTHZ_RULE_SUBJECT_TABLE, AUTHZ_RULE_TABLE, AUTHZ_SUBJECT_MEMBERSHIP_TABLE, AUTHZ_VERSION_TABLE } from './tables.js';
@@ -19,6 +19,8 @@ export interface AssignmentFields {
   readonly scope_id: string;
   readonly tags: string;
   readonly expires_at: DateTime | null;
+  /** No column: selected by withExpirySet, true when the row holds an expires_at. */
+  readonly expires_at_set?: boolean;
   readonly granted_by: string | null;
   readonly source: string;
   readonly created_at: DateTime;
@@ -49,6 +51,8 @@ export class AssignmentRecord extends ModelBase<AssignmentRecord> implements Ass
   @DateTimeColumn()
   public expires_at!: DateTime;
 
+  public expires_at_set?: boolean;
+
   public granted_by!: string | null;
 
   public source!: string;
@@ -63,6 +67,8 @@ export interface MembershipFields {
   readonly set_key: string;
   readonly depth: number;
   readonly expires_at: DateTime | null;
+  /** No column: selected by withExpirySet, true when the row holds an expires_at. */
+  readonly expires_at_set?: boolean;
 }
 
 @Connection(AUTHZ_CONNECTION)
@@ -78,6 +84,8 @@ export class MembershipRecord extends ModelBase<MembershipRecord> implements Mem
 
   @DateTimeColumn()
   public expires_at!: DateTime;
+
+  public expires_at_set?: boolean;
 }
 
 /** An `authz_rule` row; `definition` is the rule without the id, scope and expiry its columns hold. */
@@ -88,6 +96,8 @@ export interface RuleFields {
   readonly scope_id: string;
   readonly definition: object;
   readonly expires_at: DateTime | null;
+  /** No column: selected by withExpirySet, true when the row holds an expires_at. */
+  readonly expires_at_set?: boolean;
   readonly created_by: string | null;
   readonly created_at: DateTime;
 }
@@ -109,6 +119,8 @@ export class RuleRecord extends ModelBase<RuleRecord> implements RuleFields {
 
   @DateTimeColumn()
   public expires_at!: DateTime;
+
+  public expires_at_set?: boolean;
 
   public created_by!: string | null;
 
@@ -153,6 +165,8 @@ export interface LinkFields {
   readonly scope_id: string;
   readonly attributes: Readonly<Record<string, unknown>> | null;
   readonly expires_at: DateTime | null;
+  /** No column: selected by withExpirySet, true when the row holds an expires_at. */
+  readonly expires_at_set?: boolean;
   readonly revoked_at: DateTime | null;
   readonly created_by: string | null;
   readonly created_at: DateTime;
@@ -175,6 +189,8 @@ export class LinkRecord extends ModelBase<LinkRecord> implements LinkFields {
 
   @DateTimeColumn()
   public expires_at!: DateTime;
+
+  public expires_at_set?: boolean;
 
   @DateTimeColumn()
   public revoked_at!: DateTime;
@@ -214,4 +230,26 @@ export function fromDateTime(value: DateTime): Date;
 export function fromDateTime(value: DateTime | null | undefined): Date | null;
 export function fromDateTime(value: DateTime | null | undefined): Date | null {
   return value ? value.toJSDate() : null;
+}
+
+/** The select with the flag that tells a NULL expires_at from a stored value the datetime converter read as null. */
+export function withExpirySet<T>(query: ISelectQueryBuilder<T>): ISelectQueryBuilder<T> {
+  query.select('*');
+  query.selectCondition('expires_at_set', function () {
+    whereExpiresAtSet(this);
+  });
+  return query;
+}
+
+// A builder typed by a generic row names no column; every record withExpirySet takes has expires_at.
+function whereExpiresAtSet(where: IWhereBuilder<unknown>): void {
+  where.whereNotNull('expires_at');
+}
+
+/**
+ * A stored value that is no datetime (text, a MySQL zero date, a PostgreSQL infinity) reads as null, which would mean
+ * "never expires"; it becomes an invalid Date instead, which the model refuses.
+ */
+export function expiryOf(row: { readonly expires_at: DateTime | null; readonly expires_at_set?: boolean }): Date | null {
+  return row.expires_at_set === true && row.expires_at == null ? new Date(NaN) : fromDateTime(row.expires_at);
 }

@@ -119,6 +119,11 @@ describe('authz-rbac subject sets (B33)', () => {
         const rows = [assignment('m1', to(alice), 'org.guest', O1), assignment('m2', to(alice), 'org.member', O2, { expiresAt: NOW }), assignment('m3', to(alice), 'closed', O1), assignment('n1', setOf('group.member', G1), 'group.member', G2)];
         expect([...new RbacSubjectResolver().memberships(rows, g, NOW)]).to.deep.equal([]);
       });
+
+      it('refuses a membership row whose expiry no converter reads instead of dropping it (its set may hold a deny role)', () => {
+        expect(() => sets([assignment('m1', to(alice), 'org.member', O1, { expiresAt: new Date(NaN) })])).to.throw(/assignment 'm1' .*unreadable expiresAt/);
+        expect(sets([assignment('v1', to(alice), 'viewer', O1, { expiresAt: new Date(NaN) })])).to.deep.equal([]);
+      });
     });
   });
 

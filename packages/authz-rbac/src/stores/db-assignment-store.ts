@@ -16,7 +16,7 @@ import { requireTransaction } from './context.js';
 import { withDbRbacStore } from './db-store.js';
 import { applyWindow, pageWindow, requireScopeNode, trimWindow, whereLive } from './queries.js';
 import type { ListWindow } from './queries.js';
-import { AssignmentRecord, recordValues, toDateTime } from './records.js';
+import { AssignmentRecord, recordValues, toDateTime, withExpirySet } from './records.js';
 import type { AssignmentFields } from './records.js';
 import { normaliseTags, parseTags } from './tags.js';
 import { bumpVersion } from './version.js';
@@ -76,7 +76,7 @@ export class DbAssignmentStore extends withDbRbacStore(AdminAssignmentStore) {
   }
 
   async holders(role: string, scope: ResourceRef, at: Date): Promise<readonly AssignmentSubject[]> {
-    const query = AssignmentRecord.query().where('role', role).where(scopeToColumns(scope));
+    const query = withExpirySet(AssignmentRecord.query().where('role', role).where(scopeToColumns(scope)));
     whereLive(query, at);
 
     return (await query).map((r) => rowToAssignment(r).subject);
@@ -108,7 +108,7 @@ export class DbAssignmentStore extends withDbRbacStore(AdminAssignmentStore) {
 
     if (existing) {
       await AssignmentRecord.update(recordValues<AssignmentRecord>(change)).where('id', existing.id);
-      row = { ...existing, ...change };
+      row = { ...existing, ...change, expires_at_set: change.expires_at != null };
     } else {
       row = { id: randomUUID(), ...key, subject_key: subjectKey, ...change, source: 'db', created_at: toDateTime(this.now()) };
       try {
@@ -244,7 +244,7 @@ export class DbAssignmentStore extends withDbRbacStore(AdminAssignmentStore) {
   private async rowsForKeys(keys: readonly string[], at: Date | undefined): Promise<AssignmentRecord[]> {
     const unique = [...new Set(keys)];
     if (unique.length === 0) return [];
-    const query = AssignmentRecord.query().whereIn('subject_key', unique);
+    const query = withExpirySet(AssignmentRecord.query().whereIn('subject_key', unique));
     if (at) whereLive(query, at);
     return query;
   }
@@ -259,20 +259,20 @@ export class DbAssignmentStore extends withDbRbacStore(AdminAssignmentStore) {
     };
 
     if (!window) {
-      const items = (await filtered().orderBy('created_at').orderBy('id')).map(rowToAssignment);
+      const items = (await withExpirySet(filtered()).orderBy('created_at').orderBy('id')).map(rowToAssignment);
       return { items, total: items.length };
     }
 
     const total = await filtered().selectCount();
     if (window.limit === 0) return { items: [], total };
 
-    const { rows, next } = trimWindow(await applyWindow(filtered().orderBy('created_at').orderBy('id'), window), window);
+    const { rows, next } = trimWindow(await applyWindow(withExpirySet(filtered()).orderBy('created_at').orderBy('id'), window), window);
 
     return { items: rows.map(rowToAssignment), total, ...(next === undefined ? {} : { next }) };
   }
 
   protected async existingRow(key: AssignmentKey): Promise<AssignmentRecord | undefined> {
-    const [row] = await AssignmentRecord.query().where(key);
+    const [row] = await withExpirySet(AssignmentRecord.query().where(key));
     return row;
   }
 
@@ -297,7 +297,7 @@ export class DbAssignmentStore extends withDbRbacStore(AdminAssignmentStore) {
   }
 
   private async deleteWhere(tx: AuthzTx, where: string, filter: (query: IWhereBuilder<unknown>) => void): Promise<readonly Assignment[]> {
-    const query = AssignmentRecord.query();
+    const query = withExpirySet(AssignmentRecord.query());
     filter(query);
     return this.deleteRows(tx, where, await query);
   }
@@ -317,7 +317,7 @@ export class DbAssignmentStore extends withDbRbacStore(AdminAssignmentStore) {
   }
 
   private async logPut(row: AssignmentRecord, change: Partial<Pick<AssignmentFields, 'tags' | 'expires_at'>>, actor?: PrincipalRef): Promise<Assignment> {
-    const assignment = rowToAssignment({ ...row, ...change });
+    const assignment = rowToAssignment({ ...row, ...change, ...('expires_at' in change ? { expires_at_set: change.expires_at != null } : {}) });
     await this.logChanges([{ kind: 'assignment', op: 'put', key: assignment.id, payload: assignment, before: rowToAssignment(row), ...(actor ? { actor: principalKey(actor) } : {}) }]);
     return assignment;
   }
@@ -330,7 +330,7 @@ function whereFilter(query: IWhereBuilder<unknown>, filter: { scope?: ResourceRe
 }
 
 async function rowById(id: string): Promise<AssignmentRecord | undefined> {
-  const [row] = await AssignmentRecord.query().where('id', id);
+  const [row] = await withExpirySet(AssignmentRecord.query().where('id', id));
   return row;
 }
 

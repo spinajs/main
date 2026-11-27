@@ -77,6 +77,10 @@ export class RbacSubjectResolver extends SubjectResolver implements SetResolver 
     for (const row of rows) {
       if ('set' in row.subject) continue;
       const expires = expiryTime(row);
+      // Dropping the membership would drop the set's deny roles too (fail open); the engine makes a throw model_error.
+      if (Number.isNaN(expires) && [...(roles.get(row.role)?.closure ?? [])].some((r) => roles.get(r)?.def.subjectSet === true)) {
+        throw new Error(`rbac: assignment '${row.id}' (source: ${row.source}, role '${row.role}') has an unreadable expiresAt`);
+      }
       if (expires !== undefined && !(expires > now.getTime())) continue;
       if (assignmentProblem(roles, row.role, row.scope)) continue;
       for (const r of roles.get(row.role)!.closure) {

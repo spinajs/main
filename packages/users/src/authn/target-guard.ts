@@ -146,7 +146,8 @@ export async function heldRoles(rbac: RbacService, domain: string, principal: Pr
   const { authn: _authn, ceiling: _ceiling, ...account } = principal;
   const now = rbac.model.currentTime();
   const input = await rbac.model.inputAt(account as Principal, GLOBAL, scanContext(rbac.model, domain, now));
-  return input.assignments.filter((a) => a.expiresAt == null || a.expiresAt.getTime() > now.getTime()).map((a) => a.role);
+  // An expiry the store could not read (an invalid Date) keeps the role held: the protected-role check must not lose it.
+  return input.assignments.filter((a) => a.expiresAt == null || !(a.expiresAt.getTime() <= now.getTime())).map((a) => a.role);
 }
 
 // The context RbacService.rolesOf reads with: a read at GLOBAL asks for nothing else; anything more fails, never guesses.

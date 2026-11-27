@@ -445,6 +445,12 @@ describe('DefaultAdminGuard', function () {
         await passes(p('root'), [setExpiry('a-old', null), setExpiry('a-exp', null)]);
       });
 
+      it('setExpiry on a row whose expiry no converter reads is a renewal: it needs the role covered', async () => {
+        await world({ rows: [...BASE, ...admins('root'), row('a-bad', user('dave'), 'admin', G, { expiresAt: new Date(NaN) })] });
+        await refused(p('ops'), [setExpiry('a-bad', at(HOUR))], 'escalation');
+        await passes(p('root'), [setExpiry('a-bad', at(HOUR))]);
+      });
+
       it('a ladder role renewed must rank at or below the actor', async () => {
         await world({ rows: [...BASE, ...admins('root'), row('d-mt', user('dave'), 'maintainer', P1, { expiresAt: at(-HOUR) }), row('d-ed', user('dave'), 'editor', P1, { expiresAt: at(-HOUR) })] });
         await refused(p('bob'), [setExpiry('d-mt', null)], 'escalation');

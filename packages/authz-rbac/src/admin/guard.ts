@@ -628,7 +628,8 @@ export class DefaultAdminGuard extends AdminGuard {
 function extendsExpiry(current: Date | null | undefined, next: unknown): boolean {
   if (next === undefined || current == null) return false;
   const until = readExpiry(next);
-  return until == null || until.getTime() > current.getTime();
+  // An expiry the store could not read holds nothing, so any new one renews the row.
+  return until == null || Number.isNaN(current.getTime()) || until.getTime() > current.getTime();
 }
 
 /** The earlier of two expiries; null is "never". */

@@ -140,7 +140,8 @@ export class RulesExtension implements RbacExtension {
     const onPath = new Set(input.path.map(resourceKey));
     const rowDependent: string[] = [];
     const now = input.now.getTime();
-    const live = (def: RuleDef) => (!def.resourceTypes || def.resourceTypes.includes(type)) && (def.expiresAt == null || def.expiresAt.getTime() > now);
+    // An invalid Date is live, so compileRule refuses it instead of the rule being skipped.
+    const live = (def: RuleDef) => (!def.resourceTypes || def.resourceTypes.includes(type)) && (def.expiresAt == null || !(def.expiresAt.getTime() <= now));
     // The request-level selectors; a rule they leave out cannot touch this request.
     const selects = (def: RuleDef, rule: CompiledRule) => principalSelects(rule, request.principal, request.actor) && (def.kind !== 'threshold' || rule.permissions!.has(request.permission));
     if (typeLevel) {

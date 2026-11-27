@@ -1,4 +1,4 @@
-import { adminContainer, optionalAdminService, principalKey } from '@spinajs/authz';
+import { AuthzConfigError, adminContainer, optionalAdminService, principalKey } from '@spinajs/authz';
 import type { AdminContext, AuthzTx } from '@spinajs/authz';
 import { sortedUnique } from '@spinajs/util';
 
@@ -29,7 +29,10 @@ export function membershipEdges(roles: RoleIndex, rows: readonly Assignment[]): 
   for (const row of rows) {
     if (!honoured(roles, row)) continue;
     if (!setRoles.has(row.role)) setRoles.set(row.role, setRolesOf(roles, row.role));
-    for (const role of setRoles.get(row.role)!) out.push({ memberKey: subjectKeyOf(row.subject), setKey: subjectKeyOf({ set: { role, scope: row.scope } }), expiresAt: row.expiresAt ?? null });
+    const sets = setRoles.get(row.role)!;
+    // A recompute would write an unreadable expiry back as NULL: a membership that never expires.
+    if (sets.length > 0 && row.expiresAt != null && Number.isNaN(row.expiresAt.getTime())) throw new AuthzConfigError(`rbac: assignment '${row.id}' has an unreadable expiresAt; repair its expires_at before the memberships of ${subjectKeyOf(row.subject)} are recomputed`);
+    for (const role of sets) out.push({ memberKey: subjectKeyOf(row.subject), setKey: subjectKeyOf({ set: { role, scope: row.scope } }), expiresAt: row.expiresAt ?? null });
   }
   return out;
 }

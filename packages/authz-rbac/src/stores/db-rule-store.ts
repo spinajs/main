@@ -15,7 +15,7 @@ import { requireTransaction } from './context.js';
 import { withDbRbacStore } from './db-store.js';
 import { applyWindow, pageWindow, requireScopeNode, trimWindow, whereLive } from './queries.js';
 import type { ListWindow } from './queries.js';
-import { RuleRecord, RuleSubjectRecord, fromDateTime, recordValues, toDateTime } from './records.js';
+import { RuleRecord, RuleSubjectRecord, expiryOf, recordValues, toDateTime, withExpirySet } from './records.js';
 import type { RuleFields, RuleSubjectFields } from './records.js';
 import { toRuleRows } from './rule-rows.js';
 import type { RuleSubjectList } from './rule-rows.js';
@@ -74,7 +74,7 @@ export class DbRuleStore extends withDbRbacStore(AdminRuleStore) {
    * path ends in; so an empty path gives the GLOBAL rules.
    */
   async forPath(path: readonly ResourceRef[], at: Date): Promise<readonly RuleDef[]> {
-    const query = RuleRecord.query();
+    const query = withExpirySet(RuleRecord.query());
     whereScopes(query, uniqueScopes([...path, GLOBAL]));
     whereLive(query, at);
 
@@ -162,7 +162,7 @@ export class DbRuleStore extends withDbRbacStore(AdminRuleStore) {
     requireTransaction(RuleRecord, tx, where);
     const columns = scopeToColumns(scope);
 
-    const ruleRows = await RuleRecord.query().where(columns).orderBy('id');
+    const ruleRows = await withExpirySet(RuleRecord.query().where(columns).orderBy('id'));
     const rules = await this.rulesOf(ruleRows);
     if (ruleRows.length > 0) {
       const ids = ruleRows.map((r) => r.id);
@@ -173,7 +173,7 @@ export class DbRuleStore extends withDbRbacStore(AdminRuleStore) {
     const setAtScope = { subject_type: columns.scope_type, subject_id: columns.scope_id };
     const subjectRows = await RuleSubjectRecord.query().where(setAtScope).where('subject_role', '!=', '');
     // A rule that lost a subject entry changed: read it before the delete, so its change carries both states.
-    const narrowedRows = subjectRows.length === 0 ? [] : await RuleRecord.query().whereIn('id', [...new Set(subjectRows.map((s) => s.rule_id))]).orderBy('id');
+    const narrowedRows = subjectRows.length === 0 ? [] : await withExpirySet(RuleRecord.query().whereIn('id', [...new Set(subjectRows.map((s) => s.rule_id))]).orderBy('id'));
     const held = await this.subjectsOf(narrowedRows);
     if (subjectRows.length > 0) await RuleSubjectRecord.destroy().where(setAtScope).where('subject_role', '!=', '');
 
@@ -216,14 +216,14 @@ export class DbRuleStore extends withDbRbacStore(AdminRuleStore) {
     };
 
     if (!window) {
-      const items = await this.rulesOf(await filtered().orderBy('created_at').orderBy('id'));
+      const items = await this.rulesOf(await withExpirySet(filtered()).orderBy('created_at').orderBy('id'));
       return { items, total: items.length };
     }
 
     const total = await filtered().selectCount();
     if (window.limit === 0) return { items: [], total };
 
-    const { rows, next } = trimWindow(await applyWindow(filtered().orderBy('created_at').orderBy('id'), window), window);
+    const { rows, next } = trimWindow(await applyWindow(withExpirySet(filtered()).orderBy('created_at').orderBy('id'), window), window);
 
     return { items: await this.rulesOf(rows), total, ...(next === undefined ? {} : { next }) };
   }
@@ -257,7 +257,7 @@ export class DbRuleStore extends withDbRbacStore(AdminRuleStore) {
  * and `subjects.refs` keep only the entries that still have a subject row, so what `forgetScope`
  * removed is gone.
  */
-export function rowToRule(row: Pick<RuleFields, 'id' | 'kind' | 'scope_type' | 'scope_id' | 'definition' | 'expires_at'>, subjectRows: readonly RuleSubjectFields[]): RuleDef {
+export function rowToRule(row: Pick<RuleFields, 'id' | 'kind' | 'scope_type' | 'scope_id' | 'definition' | 'expires_at' | 'expires_at_set'>, subjectRows: readonly RuleSubjectFields[]): RuleDef {
   const def = row.definition as Partial<RuleDef>;
   const held = new Set(subjectRows.map((s) => subjectKey(s.list, s)));
   const keep = <T extends AssignmentSubject>(list: RuleSubjectList, xs: readonly T[]) => xs.filter((s) => held.has(subjectKey(list, subjectToColumns(s))));
@@ -269,7 +269,7 @@ export function rowToRule(row: Pick<RuleFields, 'id' | 'kind' | 'scope_type' | '
     id: row.id,
     kind: row.kind as RuleDef['kind'],
     scope: scopeFromColumns(row.scope_type, row.scope_id),
-    expiresAt: fromDateTime(row.expires_at),
+    expiresAt: expiryOf(row),
     source: 'db',
   };
 }
@@ -299,6 +299,6 @@ function whereScopes(query: IWhereBuilder<unknown>, scopes: readonly ScopeRefCol
 }
 
 async function ruleById(id: string): Promise<RuleRecord | undefined> {
-  const [row] = await RuleRecord.query().where('id', id);
+  const [row] = await withExpirySet(RuleRecord.query().where('id', id));
   return row;
 }

@@ -15,7 +15,7 @@ import { requireTransaction } from './context.js';
 import { DbAssignmentStore } from './db-assignment-store.js';
 import { withDbRbacStore } from './db-store.js';
 import { applyWindow, pageWindow, requireScopeNode, trimWindow } from './queries.js';
-import { LinkRecord, fromDateTime, recordValues, toDateTime } from './records.js';
+import { LinkRecord, expiryOf, recordValues, toDateTime, withExpirySet } from './records.js';
 import type { LinkFields } from './records.js';
 import { LINK_SECRET_MIN_LENGTH } from './schema.js';
 import { normaliseTags } from './tags.js';
@@ -88,7 +88,7 @@ export class DbLinkStore extends withDbRbacStore(AdminLinkStore) {
     if (!isLookupToken(token)) return null;
 
     const hash = linkTokenHash(secret, token);
-    const [row] = await LinkRecord.query().where('token_hash', hash).whereNull('revoked_at');
+    const [row] = await withExpirySet(LinkRecord.query().where('token_hash', hash).whereNull('revoked_at'));
 
     return row && this.hashesEqual(row.token_hash, hash) ? rowToLink(row) : null;
   }
@@ -154,7 +154,7 @@ export class DbLinkStore extends withDbRbacStore(AdminLinkStore) {
     }
     if (assignmentWrites === 0) await bumpVersion(tx, this.domain(), where);
 
-    return rowToLink({ ...row, ...change });
+    return rowToLink({ ...row, ...change, ...('expires_at' in change ? { expires_at_set: change.expires_at != null } : {}) });
   }
 
   /**
@@ -202,14 +202,14 @@ export class DbLinkStore extends withDbRbacStore(AdminLinkStore) {
     };
 
     if (!window) {
-      const items = (await filtered().orderBy('created_at').orderBy('id')).map(rowToLink);
+      const items = (await withExpirySet(filtered()).orderBy('created_at').orderBy('id')).map(rowToLink);
       return { items, total: items.length };
     }
 
     const total = await filtered().selectCount();
     if (window.limit === 0) return { items: [], total };
 
-    const { rows, next } = trimWindow(await applyWindow(filtered().orderBy('created_at').orderBy('id'), window), window);
+    const { rows, next } = trimWindow(await applyWindow(withExpirySet(filtered()).orderBy('created_at').orderBy('id'), window), window);
 
     return { items: rows.map(rowToLink), total, ...(next === undefined ? {} : { next }) };
   }
@@ -219,12 +219,12 @@ export class DbLinkStore extends withDbRbacStore(AdminLinkStore) {
   }
 
   protected async liveRow(id: string): Promise<LinkRecord | undefined> {
-    const [row] = await LinkRecord.query().where('id', id).whereNull('revoked_at');
+    const [row] = await withExpirySet(LinkRecord.query().where('id', id).whereNull('revoked_at'));
     return row;
   }
 
   protected async liveRowsAt(scope: ResourceRef): Promise<LinkRecord[]> {
-    return LinkRecord.query().where(scopeToColumns(scope)).whereNull('revoked_at');
+    return withExpirySet(LinkRecord.query().where(scopeToColumns(scope)).whereNull('revoked_at'));
   }
 
   /** Defence in depth: the row was found by this hash; the keyed hash is what makes the indexed lookup timing-safe. */
@@ -281,7 +281,7 @@ function rowToLink(row: LinkFields): LinkDef {
   return {
     id: row.id,
     scope: scopeFromColumns(row.scope_type, row.scope_id),
-    expiresAt: fromDateTime(row.expires_at),
+    expiresAt: expiryOf(row),
     attributes: row.attributes ?? {},
     ...(createdBy ? { createdBy } : {}),
   };

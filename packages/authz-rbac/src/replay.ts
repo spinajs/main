@@ -10,7 +10,7 @@ import { ruleCanMatch } from './model/list/support.js';
 import { rowToAssignment } from './stores/assignment-row.js';
 import { scopeToColumns, subjectToColumns } from './stores/columns.js';
 import { DB_RULE_STORE_NAME, rowToRule } from './stores/db-rule-store.js';
-import { AssignmentRecord, RuleRecord, RuleSubjectRecord } from './stores/records.js';
+import { AssignmentRecord, RuleRecord, RuleSubjectRecord, withExpirySet } from './stores/records.js';
 import type { RuleSubjectFields } from './stores/records.js';
 import { AUTHZ_ASSIGNMENT_TABLE } from './stores/tables.js';
 
@@ -78,12 +78,12 @@ export class AssignmentHistoryContributor extends HistoryContributors {
   }
 
   async current(object: ObjectRef, relation: RelationName): Promise<CurrentItem<TupleSubjectRef>[]> {
-    const rows = await AssignmentRecord.query().onPrimary().where('role', relation).where(scopeToColumns(scopeOf(object)));
+    const rows = await withExpirySet(AssignmentRecord.query().onPrimary().where('role', relation).where(scopeToColumns(scopeOf(object))));
     return rows.map((row) => this.item(row, (g) => g.subject, object));
   }
 
   async currentReverse(subject: TupleSubjectRef, relation: RelationName, objectType: TypeName): Promise<CurrentItem<ObjectRef>[]> {
-    const rows = await AssignmentRecord.query().onPrimary().where('role', relation).where('scope_type', objectType).where(subjectToColumns(assignmentSubject(subject)));
+    const rows = await withExpirySet(AssignmentRecord.query().onPrimary().where('role', relation).where('scope_type', objectType).where(subjectToColumns(assignmentSubject(subject))));
     return rows.map((row) => this.item(row, (g) => g.scope, { type: objectType, id: row.scope_id }));
   }
 
@@ -151,7 +151,7 @@ export class RuleSplicer extends StoredPolicySplicers {
   /** Every rule, expired ones included: the splicer does not know the `now` an expiry was judged at, so it never drops one. */
   async current(store: string): Promise<Array<{ key: string; image: unknown }>> {
     if (store !== DB_RULE_STORE_NAME) return [];
-    const rows = await RuleRecord.query().onPrimary();
+    const rows = await withExpirySet(RuleRecord.query().onPrimary());
     const subjects = new Map<string, RuleSubjectFields[]>();
     for (const s of rows.length === 0 ? [] : await RuleSubjectRecord.query().onPrimary()) {
       const of = subjects.get(s.rule_id) ?? [];
