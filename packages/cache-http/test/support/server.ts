@@ -86,7 +86,7 @@ class CacheHttpConfiguration extends FrameworkConfiguration {
         targets: [...SILENT_LOGGER.targets, { name: 'Capture', type: 'CaptureLogTarget' }],
         rules: [...SILENT_LOGGER.rules, { name: 'cache', level: 'warn', target: 'Capture' }],
       },
-      http: { port: 0, middlewares: [], AcceptHeaders: 1 | 2, routes: { middlewares: [...globalRouteMiddlewares] } },
+      http: { port: 0, shutdownTimeout: 1000, middlewares: [], AcceptHeaders: 1 | 2, routes: { middlewares: [...globalRouteMiddlewares] } },
       cache: { caches: { hung: { store: 'HangingStore' } }, http: { timeout: 200, ...cacheHttp } },
       intl: { queryParameter: 'lang', defaultLocale: 'en' },
     };

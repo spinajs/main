@@ -15,6 +15,7 @@ import { resolveResponseCacheOptions } from './options.js';
 import type { ResolvedResponseCacheOptions } from './options.js';
 import { CachedResponse, replayableReply, replyToStore } from './response.js';
 import { RESPONSE_CACHE_DEFAULT_TIMEOUT_MS, RESPONSE_CACHE_DEFAULT_WAIT_TIMEOUT_MS } from './schema.js';
+import { ResponseCacheWaits } from './waits.js';
 
 type HttpRequest = IRouteInvocation['req'];
 type HttpResponse = IRouteInvocation['res'];
@@ -116,6 +117,9 @@ export class ResponseCacheMiddleware extends RouteMiddleware {
   @Config('cache.http.waitTimeout', { defaultValue: RESPONSE_CACHE_DEFAULT_WAIT_TIMEOUT_MS })
   protected WaitTimeout!: number;
 
+  @Autoinject(ResponseCacheWaits)
+  protected Waits!: ResponseCacheWaits;
+
   /** `http:<ROUTE TYPE> <mounted path>` */
   protected namespace = '';
 
@@ -197,8 +201,10 @@ export class ResponseCacheMiddleware extends RouteMiddleware {
     // a lookup the store did not answer is read as a miss: waiting and looking again would cost a second timeout
     const running = found?.hit === false ? this.inFlight.get(key) : undefined;
     if (running === undefined) return found;
-    const outcome = `took longer than ${this.WaitTimeout} ms (cache.http.waitTimeout), so the request runs the route itself; further ones in the next minute are not logged`;
-    await this.inStore(storage, 'the run of the key by another request', () => running, this.WaitTimeout, outcome);
+    // ended by the container's dispose too: the waiter then looks again and runs the route like one that gave up
+    if ((await this.Waits.until(running, this.WaitTimeout)) === 'late') {
+      this.failed('the run of the key by another request', `took longer than ${this.WaitTimeout} ms (cache.http.waitTimeout), so the request runs the route itself; further ones in the next minute are not logged`);
+    }
     return this.lookup(key, storage);
   }
 
@@ -284,30 +290,32 @@ export class ResponseCacheMiddleware extends RouteMiddleware {
 
   /**
    * onAround runs outside the action's AsyncLocalStorage context, and a CacheScope provider (the tenant) reads that
-   * context. Bounded by cache.http.timeout for a store call: a store that does not answer (a Redis client queueing while it reconnects)
+   * context. Bounded by cache.http.timeout: a store that does not answer (a Redis client queueing while it reconnects)
    * must not hold the request.
    */
-  protected async inStore<T>(storage: IActionLocalStoregeContext, what: string, op: () => Promise<T>, bound = this.Timeout, outcome = 'failed and is read as a miss; further failures of it in the next minute are not logged'): Promise<T | undefined> {
+  protected async inStore<T>(storage: IActionLocalStoregeContext, what: string, op: () => Promise<T>): Promise<T | undefined> {
     let timer: NodeJS.Timeout | undefined;
     const late = new Promise<never>((_resolve, reject) => {
-      timer = setTimeout(() => reject(new Error(`no answer within ${bound} ms`)), bound);
-      // a wait of seconds must not keep a stopping process alive
-      timer.unref();
+      timer = setTimeout(() => reject(new Error(`the cache did not answer within ${this.Timeout} ms`)), this.Timeout);
     });
     try {
       return await Promise.race([this.Storage.run(storage, op), late]);
     } catch (error) {
-      const now = Date.now();
-      const last = this.failedAt.get(what);
-      // a store that is down fails every request: one warning per call and minute, not one per request
-      if (last === undefined || now - last >= FAILURE_LOG_INTERVAL_MS) {
-        this.failedAt.set(what, now);
-        // what and outcome are this class's own texts, written into the template so the logger does not quote them
-        this.Log.warn({ error, route: this.namespace, what }, `Response cache of \${route}: ${what} ${outcome}`);
-      }
+      this.failed(what, 'failed and is read as a miss; further failures of it in the next minute are not logged', error);
       return undefined;
     } finally {
       clearTimeout(timer);
+    }
+  }
+
+  /** A store that is down fails every request: one warning per call and minute, not one per request. */
+  private failed(what: string, outcome: string, error?: unknown): void {
+    const now = Date.now();
+    const last = this.failedAt.get(what);
+    if (last === undefined || now - last >= FAILURE_LOG_INTERVAL_MS) {
+      this.failedAt.set(what, now);
+      // what and outcome are this class's own texts, written into the template so the logger does not quote them
+      this.Log.warn({ error, route: this.namespace, what }, `Response cache of \${route}: ${what} ${outcome}`);
     }
   }
 

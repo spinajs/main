@@ -456,3 +456,57 @@ describe('@ResponseCache with concurrent and stale requests', function () {
     expect(inTheAir()).to.eq(0);
   });
 });
+
+@BasePath('stuck')
+class Stuck extends BaseController {
+  @Get('forever')
+  @ResponseCache(shared({ ttl: '1m' }))
+  public async forever() {
+    run('stuck');
+    await new Promise<void>(() => undefined);
+    return new Ok({});
+  }
+}
+
+const sizeOf = (owner: unknown, field: string): number => {
+  const value: unknown = typeof owner === 'object' && owner !== null ? Reflect.get(owner, field) : undefined;
+  return value instanceof Map || value instanceof Set ? value.size : NaN;
+};
+
+describe('@ResponseCache waits when the application is disposed', function () {
+  this.timeout(180000);
+
+  // a wait far longer than the test server's shutdown (http.shutdownTimeout 1000)
+  const { server, get } = useServer([Stuck], () => undefined, [], { waitTimeout: 60000 });
+
+  it('ends all 500 waits on a run that never finishes: no timer, no flight and no dispose listener left behind', async () => {
+    const warnings: string[] = [];
+    const onWarning = (warning: Error): void => void warnings.push(warning.message);
+    process.on('warning', onWarning);
+    try {
+      const listed = await (await server.app!.resolve(Controllers)).Controllers;
+      const stuck = listed.map((c) => c.instance).find((c) => c instanceof Stuck);
+      const middleware = stuck?.MountedMiddlewares('forever').find((m) => m instanceof ResponseCacheMiddleware);
+      const waiting = (): number => sizeOf(Reflect.get(middleware ?? {}, 'Waits'), 'pending');
+      const timers = (): number => process.getActiveResourcesInfo().filter((type) => type === 'Timeout').length;
+      const listeners = (): number => server.app!.container.listenerCount('di.dispose');
+      const before = { timers: timers(), listeners: listeners() };
+
+      const sent = [get('/stuck/forever').catch(() => undefined)];
+      await until(() => runs.get('stuck') === 1);
+      for (let batch = 1; batch <= 5; batch++) {
+        for (let i = 0; i < 100; i++) sent.push(get('/stuck/forever').catch(() => undefined));
+        await until(() => waiting() === batch * 100, 30000);
+      }
+      expect([timers() >= before.timers + 500, listeners()]).to.deep.eq([true, before.listeners]);
+
+      await server.app!.dispose();
+      expect(waiting()).to.eq(0);
+      await Promise.all(sent);
+      await until(() => sizeOf(middleware, 'inFlight') === 0, 15000);
+      expect([timers() <= before.timers, listeners(), warnings]).to.deep.eq([true, before.listeners, []]);
+    } finally {
+      process.off('warning', onWarning);
+    }
+  });
+});
