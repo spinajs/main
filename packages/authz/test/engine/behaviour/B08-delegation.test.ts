@@ -184,7 +184,8 @@ describe('B08: onBehalfOf with intersect delegation', () => {
     await a.check({ principal: token(bob), permission: 'doc:read' }, scope);
     expect(seen.t1).to.be.instanceOf(Map);
     expect(seen.bob).to.be.instanceOf(Map);
-    expect(seen.t1).to.not.equal(seen.bob);
+    seen.t1.set('t1', true);
+    expect(seen.bob.has('t1')).to.equal(false);
     await a.check({ principal: bob, permission: 'doc:read' }, scope);
     const again = seen.bob;
     await a.check({ principal: token(bob), permission: 'doc:read' }, scope);
