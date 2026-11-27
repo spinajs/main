@@ -139,6 +139,8 @@ describe('authz-orm: a subclass of a resource that adds a key column', function 
         const Leaf = await db.define({ name: 'Leaf', base: Middle, columns: { tenant: 'TEXT', owner_id: 'TEXT' }, primary: ['id', 'tenant'] }, dialect);
         expect(await boot()).to.be.instanceOf(AuthzConfigError).with.property('message', refusal(Leaf, Doc, 'doc'));
         expect(() => entryOf(Leaf)).to.throw(AuthzConfigError, refusal(Leaf, Doc, 'doc'));
+        // Middle has no @Model of its own, so it shares Doc's table.
+        expect(() => entryOf(Middle)).to.throw(AuthzConfigError, refusal(Middle, Doc, 'doc'));
       });
 
       it("refuses a subclass of a resource another package registered with registerAccessResource(), as a fragment does", async () => {
