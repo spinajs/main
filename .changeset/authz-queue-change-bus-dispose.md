@@ -1,0 +1,5 @@
+---
+"@spinajs/authz-queue": patch
+---
+
+`QueueChangeBus` now ends with the container that resolved it: `DI.dispose()` (or `dispose()` of that container) runs the bus's `dispose()`, which stops its listen retry and its `AuthzChangeEvent` consumer, also on a bus that only published. Before, `Container.dispose()` skipped the bus because it is not a `Service`: its listen retry, and a publish after the dispose, started a new consumer on a QueueService resolved again after the dispose. The bus stops after the container disposed its QueueService, so stopping the consumer can fail there; that is logged as a warn (the disposed QueueService already closed its connections), never an unhandled rejection. A `publish` after `dispose()` is refused with `InvalidOperation` instead of starting to consume again, and a `subscribe` after `dispose()` throws `InvalidOperation`, so a disposed bus has no local subscriber left to hear a change. A start that fails after `dispose()` no longer logs "cannot listen on the queue, retrying".
