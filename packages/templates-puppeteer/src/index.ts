@@ -11,6 +11,7 @@ import { AddressInfo } from 'net';
 import { RenderProgressReporter } from './progress.js';
 import { LocalAssetServer } from './asset-server.js';
 import { BrowserPool } from './browser-pool.js';
+import { loggableEndpoint } from './loggable-endpoint.js';
 
 export * from './progress.js';
 export * from './asset-server.js';
@@ -58,6 +59,32 @@ const DEFAULT_RENDER_DURATION_WARNING_MS = 5000;
 const noop = () => {
   /* nothing to cancel */
 };
+
+// A URL up to a space, a quote or a bracket; a sentence mark after it is not part of it.
+const URL_RUN = /\b[a-z][a-z\d+.-]*:\/\/[^\s'"`<>()[\]{}]*[^\s'"`<>()[\]{}.,;:!?]/gi;
+// A stack frame's `:line:column` after the script's URL.
+const POSITION = /(?::\d+){1,2}$/;
+
+function hostOf(url: string): string | undefined {
+  try {
+    return new URL(url).host;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Text the page or Chromium writes (console lines, a page error and its stack) quotes asset URLs, presigned ones
+ * included, and URLs a script built: each is printed as `loggableEndpoint` prints it, a stack frame keeps its position.
+ */
+function loggableText(text: string): string {
+  return text.replace(URL_RUN, (run) => {
+    const position = POSITION.exec(run)?.[0] ?? '';
+    const url = run.slice(0, run.length - position.length);
+    // `http://host:8080` ends like a position: it is one only when cutting it leaves the host as it was
+    return position !== '' && hostOf(url) === hostOf(run) ? loggableEndpoint(url) + position : loggableEndpoint(run);
+  });
+}
 
 export abstract class PuppeteerRenderer extends TemplateRenderer implements IInstanceCheck {
   protected abstract Options: IPuppeteerRendererOptions;
@@ -357,12 +384,16 @@ export abstract class PuppeteerRenderer extends TemplateRenderer implements IIns
    */
   protected addPageEventListeners(page: Page): () => void {
     const listeners = {
-      console: (message: ConsoleMessage) => this.Log.trace({ consoleType: message.type().slice(0, 3).toUpperCase(), text: message.text() }, '${consoleType} ${text}'),
-      pageerror: (error: unknown) => this.Log.error({ error }, 'Page error'),
-      response: (response: HTTPResponse) => this.Log.trace({ status: response.status(), url: response.url() }, '${status} ${url}'),
+      console: (message: ConsoleMessage) => this.Log.trace({ consoleType: message.type().slice(0, 3).toUpperCase(), text: loggableText(message.text()) }, '${consoleType} ${text}'),
+      pageerror: (error: unknown) => {
+        const reason = loggableText(error instanceof Error ? `${error.name}: ${error.message}` : String(error));
+        const stack = error instanceof Error && error.stack !== undefined ? loggableText(error.stack) : undefined;
+        this.Log.error({ reason, stack }, 'Page error: ${reason}');
+      },
+      response: (response: HTTPResponse) => this.Log.trace({ status: response.status(), url: loggableEndpoint(response.url()) }, '${status} ${url}'),
       requestfailed: (request: HTTPRequest) => {
         const failure = request.failure();
-        this.Log.error({ reason: failure ? failure.errorText : 'request failed', url: request.url() }, '${reason} ${url}');
+        this.Log.error({ reason: failure ? failure.errorText : 'request failed', url: loggableEndpoint(request.url()) }, '${reason} ${url}');
       }
     };
 

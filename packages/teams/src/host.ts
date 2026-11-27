@@ -4,6 +4,8 @@ import { Configuration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 
+import { TeamRootScope } from './ports.js';
+
 /** The domain authz-orm keeps the teams' ancestors in. */
 export async function teamsDomain(): Promise<string> {
   const cfg = (await DI.resolve(Configuration)) as Configuration;
@@ -39,3 +41,6 @@ export async function execute(actor: Principal, commands: readonly AuthzCommand[
   for (const r of results) if (!r.ok) throw new AuthzAdminFailure(r.error.code, r.error.message, r.error.field);
   return results;
 }
+
+/** Resolved on every call: a bridge imported after teams registers its own. */
+export const rootScope = (): TeamRootScope => DI.resolve(TeamRootScope);
