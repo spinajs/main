@@ -1,7 +1,8 @@
 import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 import { DbSession } from '../src/models/DbSession.js';
-import { UserSession as Session, encodeSessionData, decodeSessionData } from '@spinajs/authn-session';
+import { UserSession as Session, SessionExpirationProvider, encodeSessionData, decodeSessionData } from '@spinajs/authn-session';
+import { Injectable } from '@spinajs/di';
 import type { ISession } from '@spinajs/authn-session';
 import { DateTime } from 'luxon';
 import { runSessionProviderConformance, IConformanceExpiration, SessionProviderFactory } from '../../authn-session/test/conformance/session-provider-conformance.js';
@@ -11,6 +12,17 @@ chai.use(chaiAsPromised);
 const expect = chai.expect;
 
 const user = (id: string) => ({ type: 'user', id });
+
+@Injectable(SessionExpirationProvider)
+class NeverExpiration extends SessionExpirationProvider {
+  public initial(): DateTime | undefined {
+    return undefined;
+  }
+
+  public renew(): DateTime | undefined {
+    return undefined;
+  }
+}
 
 async function makeProvider(expiration: IConformanceExpiration) {
   return bootStore({ expiration });
@@ -196,6 +208,96 @@ describe('db session provider', function () {
 
       expect(await store.touch(view)).to.be.false;
       expect(await store.restore('k-expired')).to.be.null;
+    });
+  });
+
+  // Application code may hand save or a pending touch anything; NULL is "never expires" in this table.
+  describe('an Expiration that is not a valid DateTime is written as the epoch, never as NULL', () => {
+    const unreadable: Array<[string, () => unknown]> = [
+      ['an invalid DateTime', () => DateTime.invalid('test')],
+      ['DateTime.fromMillis(NaN)', () => DateTime.fromMillis(NaN)],
+      ['a JS Date', () => new Date(Date.now() + 3_600_000)],
+      ['an ISO string', () => DateTime.now().plus({ hours: 1 }).toISO()],
+      ['a number of milliseconds', () => Date.now() + 3_600_000],
+      ['null', () => null],
+    ];
+
+    async function column(sessionId: string): Promise<unknown> {
+      const rows = (await (await sessionConnection()).select().from('user_sessions').where('SessionId', sessionId)) as Array<{ Expiration: unknown }>;
+      return rows[0]?.Expiration;
+    }
+
+    function expectEpoch(stored: unknown) {
+      expect(stored, 'NULL would mean the session never expires').to.not.be.null;
+      expect(DateTime.fromISO(String(stored)).toMillis()).to.equal(0);
+    }
+
+    for (const [name, value] of unreadable) {
+      it(`save of ${name}`, async () => {
+        const store = await makeProvider({ service: 'SlidingExpiration', ttl: 60 });
+        await store.truncate();
+
+        await store.save(Object.assign(new Session({ SessionId: 'x-save', Subject: user('u-x'), State: 'active', Data: new Map() }), { Expiration: value() }));
+
+        expectEpoch(await column('x-save'));
+        expect(await store.restore('x-save')).to.be.null;
+        expect(await store.listBySubject(user('u-x'))).to.be.empty;
+      });
+
+      it(`touch of a pending session with ${name}`, async () => {
+        const store = await makeProvider({ service: 'SlidingExpiration', ttl: 60 });
+        await store.truncate();
+        await store.save(new Session({ SessionId: 'x-touch', Subject: user('u-x'), State: 'pending', Expiration: DateTime.now().plus({ minutes: 5 }), Data: new Map() }));
+
+        expect(await store.touch(Object.assign(new Session({ SessionId: 'x-touch', Subject: user('u-x'), State: 'pending', Data: new Map() }), { Expiration: value() }))).to.equal(false);
+
+        expectEpoch(await column('x-touch'));
+        expect(await store.restore('x-touch')).to.be.null;
+      });
+    }
+
+    it('save of a valid DateTime writes it verbatim', async () => {
+      const store = await makeProvider({ service: 'SlidingExpiration', ttl: 60 });
+      await store.truncate();
+      const fixed = DateTime.now().plus({ hours: 1 }).startOf('second');
+
+      await store.save(new Session({ SessionId: 'x-valid', Subject: user('u-x'), State: 'active', Expiration: fixed, Data: new Map() }));
+
+      expect(DateTime.fromISO(String(await column('x-valid'))).toMillis()).to.equal(fixed.toMillis());
+      expect((await store.restore('x-valid'))!.Expiration!.toMillis()).to.equal(fixed.toMillis());
+    });
+
+    it('touch of a pending session with a valid DateTime writes it verbatim', async () => {
+      const store = await makeProvider({ service: 'SlidingExpiration', ttl: 60 });
+      await store.truncate();
+      const fixed = DateTime.now().plus({ minutes: 7 }).startOf('second');
+      await store.save(new Session({ SessionId: 'x-valid', Subject: user('u-x'), State: 'pending', Expiration: DateTime.now().plus({ minutes: 5 }), Data: new Map() }));
+
+      await store.touch(new Session({ SessionId: 'x-valid', Subject: user('u-x'), State: 'pending', Expiration: fixed, Data: new Map() }));
+
+      expect(DateTime.fromISO(String(await column('x-valid'))).toMillis()).to.equal(fixed.toMillis());
+      expect((await store.restore('x-valid'))!.Expiration!.toMillis()).to.equal(fixed.toMillis());
+    });
+
+    it('save of a session a never-expiring strategy leaves without Expiration writes NULL and the session stays live', async () => {
+      const store = await bootStore({ expiration: { service: NeverExpiration.name } });
+      await store.truncate();
+
+      await store.save(new Session({ SessionId: 'x-never', Subject: user('u-x'), State: 'active', Data: new Map() }));
+
+      expect(await column('x-never')).to.be.null;
+      expect(await store.restore('x-never')).to.not.be.null;
+    });
+
+    it('touch of a session a never-expiring strategy renews without Expiration writes NULL and the session stays live', async () => {
+      const store = await bootStore({ expiration: { service: NeverExpiration.name } });
+      await store.truncate();
+      await store.save(new Session({ SessionId: 'x-never', Subject: user('u-x'), State: 'active', Data: new Map() }));
+
+      await store.touch(new Session({ SessionId: 'x-never', Subject: user('u-x'), State: 'active', Data: new Map() }));
+
+      expect(await column('x-never')).to.be.null;
+      expect(await store.restore('x-never')).to.not.be.null;
     });
   });
 

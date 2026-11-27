@@ -15,7 +15,7 @@
 
 1. When `session.Expiration` is `undefined`, `SessionProvider.applyInitialExpiration()` asks the configured `SessionExpirationProvider` for the initial expiration. A `pending` session without an expiration throws `InvalidOperation`: the issuer must set it from `authn.session.pendingTtlSeconds`.
 2. `DbSession.getOrNew({ SessionId })` loads the row or builds a new one.
-3. The store sets every column: `Subject`, `ImpersonatorId` and `State` as [principal keys](#principal-keys), `Data` through `encodeSessionData()`, and `Expiration` (`NULL` for a never-expiring session).
+3. The store sets every column: `Subject`, `ImpersonatorId` and `State` as [principal keys](#principal-keys), `Data` through `encodeSessionData()`, and `Expiration` (`NULL` for a never-expiring session). Only an absent (`undefined`) `Expiration` is written as `NULL`: a present value that is not a valid luxon `DateTime` (an invalid `DateTime`, a JS `Date`, a string, a number, `null`) is written as the epoch, so the session is expired, and `touch()` of a `pending` session writes its `Expiration` the same way.
 4. `insert(InsertBehaviour.InsertOrUpdate)` writes the row as an upsert.
 
 ### Restore, `restore(sessionId)`
