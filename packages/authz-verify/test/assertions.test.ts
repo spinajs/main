@@ -81,15 +81,35 @@ describe('assertions that name a permission the policy does not have', () => {
     ]);
   });
 
-  it('take a glob only in never: elsewhere a glob names no permission, and the empty name is shown quoted', async () => {
-    const set = defineAssertions(({ implies, onlyVia, never }) => [implies('invoice:*', 'invoice:read'), onlyVia('*', []), never({ holder: 'public', permission: '' }), implies('', 'nosuch:read')]);
+  it('take a glob only in never: elsewhere a glob names no permission, and the empty or blank-padded name is shown quoted', async () => {
+    const set = defineAssertions(({ implies, onlyVia, never }) => [
+      implies('invoice:*', 'invoice:read'),
+      onlyVia('*', []),
+      never({ holder: 'public', permission: '' }),
+      implies('', 'nosuch:read'),
+      never({ holder: 'public', permission: ' invoice:read ' }),
+    ]);
     const results = await verifyAssertions(monotoneInvoices(), set, unavailable);
-    expect(results.map((r) => r.verdict.result)).to.deep.equal(['unknown', 'unknown', 'unknown', 'unknown']);
+    expect(results.map((r) => r.verdict.result)).to.deep.equal(['unknown', 'unknown', 'unknown', 'unknown', 'unknown']);
     expect(azv006(results)).to.deep.equal([
       ['error invoice:* names no permission of the policy'],
       ['error * names no permission of the policy'],
       ["error '' names no permission of the policy"],
       ["error '', nosuch:read name no permission of the policy"],
+      ["error ' invoice:read ' names no permission of the policy"],
+    ]);
+  });
+
+  it('isolated with a type the policy does not have is AZV006 too; a known type is left to the engines', async () => {
+    const set = defineAssertions(({ isolated }) => [isolated('nosuch'), isolated('Org'), isolated(''), isolated(' org '), isolated('org')]);
+    const results = await verifyAssertions(monotoneInvoices(), set, unavailable);
+    expect(results.map((r) => r.verdict.result)).to.deep.equal(['unknown', 'unknown', 'unknown', 'unknown', 'unknown']);
+    expect(codes(results)).to.deep.equal([
+      'AZV006 error isolated(nosuch): nosuch names no type of the policy',
+      'AZV006 error isolated(Org): Org names no type of the policy',
+      "AZV006 error isolated(): '' names no type of the policy",
+      "AZV006 error isolated( org ): ' org ' names no type of the policy",
+      'AZV090 warning isolated(org): not verified: z3-solver is not installed; non-monotone assertions are not verified',
     ]);
   });
 

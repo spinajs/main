@@ -89,7 +89,7 @@ function unknownPermissions(ir: PolicyIR, a: Assertion): string[] {
   }
 }
 
-const shown = (name: string): string => (name === '' ? "''" : name);
+const shown = (name: string): string => (name !== '' && name.trim() === name ? name : `'${name}'`);
 
 /** The exact engine first; what it leaves `unknown` goes to the bounded engine. */
 export async function verifyAssertion(ir: PolicyIR, a: Assertion, options: BoundedOptions = {}): Promise<Verdict> {
@@ -97,6 +97,9 @@ export async function verifyAssertion(ir: PolicyIR, a: Assertion, options: Bound
   if (unknown.length > 0) {
     // Nothing was analysed, so no opaque part of the IR bears on this verdict.
     return { result: 'unknown', engine: 'exact', opaque: [], code: 'AZV006', message: `${unknown.map(shown).join(', ')} ${unknown.length === 1 ? 'names' : 'name'} no permission of the policy` };
+  }
+  if (a.kind === 'isolated' && !Object.prototype.hasOwnProperty.call(ir.types, a.type)) {
+    return { result: 'unknown', engine: 'exact', opaque: [], code: 'AZV006', message: `${shown(a.type)} names no type of the policy` };
   }
   switch (a.kind) {
     case 'implies': {
