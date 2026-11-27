@@ -78,6 +78,8 @@ export class QueueChangeBus extends ChangeBus {
   }
 
   subscribe(fn: (c: AuthzChange) => void): () => void {
+    // A deaf subscriber would keep decisions another node revoked: fail the boot instead.
+    if (this.disposed) throw new InvalidOperation('authz change bus: the bus is disposed, a subscriber would never hear the other nodes');
     const entry = (c: AuthzChange) => fn(c);
     this.subscribers.add(entry);
     this.listenWithRetry();
@@ -88,7 +90,6 @@ export class QueueChangeBus extends ChangeBus {
 
   /** AuthzService subscribes once, at boot: a queue that is not ready yet must not leave the node deaf. */
   private listenWithRetry(): void {
-    if (this.disposed) return;
     this.start().then(
       () => {
         // Changes made while the node was deaf are unknown: drop everything.

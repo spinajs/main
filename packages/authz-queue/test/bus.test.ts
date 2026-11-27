@@ -170,6 +170,15 @@ describe('QueueChangeBus', () => {
     expect(consumers(a.client)).to.eq(0);
     expect(a.client.published).to.have.length(sent);
   });
+
+  it('a subscribe after dispose throws instead of leaving a subscriber that never hears the other nodes', async () => {
+    const [a] = [await start()];
+
+    await a.bus.dispose();
+
+    expect(() => a.bus.subscribe(() => undefined)).to.throw(InvalidOperation);
+    expect(consumers(a.client)).to.eq(0);
+  });
 });
 
 describe('AuthzBusRouteSource', () => {
