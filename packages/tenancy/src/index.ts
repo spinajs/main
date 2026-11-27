@@ -7,4 +7,7 @@ export * from './registries.js';
 export * from './cache.js';
 export * from './access.js';
 export * from './services.js';
+export * from './settings.js';
+// Registers TenantConfigurationOverlay as the ConfigurationOverlay.
+export * from './overlay.js';
 export * from './each.js';

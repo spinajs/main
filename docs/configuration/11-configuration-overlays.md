@@ -1,6 +1,6 @@
 # Configuration overlays
 
-An overlay answers some configuration reads differently per unit of work, for example a tenant's own values inside its tenant scope. Without a registered overlay `Configuration.get` reads the merged tree only.
+An overlay answers some configuration reads differently per unit of work, for example a tenant's own values inside its tenant scope. Without a registered overlay `Configuration.get` reads the merged tree only. `@spinajs/tenancy` registers one, which answers only the paths of `tenancy.config.overridable` and refuses at boot every path under its closed roots ([Configuration overrides per tenant](../tenancy/07-configuration-overrides.md)).
 
 Nothing in `@spinajs/configuration` limits what an overlay covers: `get` asks it about every path, `authn.*`, `db.*` and `process.*` included, so its own `covers` must refuse connection settings, secrets and security settings, because whatever writes its values can change every path it covers.
 

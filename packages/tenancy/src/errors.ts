@@ -32,3 +32,6 @@ export class TenantIterationAborted extends Exception {
     super(message, cause);
   }
 }
+
+/** A read of an overridable configuration path inside a tenant whose settings this process has not loaded. */
+export class TenantSettingsUnavailable extends Exception {}

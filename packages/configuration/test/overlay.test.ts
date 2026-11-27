@@ -24,12 +24,14 @@ class FixedOverlay extends ConfigurationOverlay {
   public static paths: string[][] = [];
   public static current: ReadonlyMap<string, unknown> | undefined;
   public static attached = 0;
+  public static rewrite: string | undefined;
 
   public attach(): void {
     FixedOverlay.attached += 1;
   }
 
   public covers(path: readonly string[]): boolean {
+    if (FixedOverlay.rewrite !== undefined) Reflect.set(path, path.length - 1, FixedOverlay.rewrite);
     return FixedOverlay.paths.some((p) => isPrefix(p, path));
   }
 
@@ -85,6 +87,7 @@ describe('configuration overlay', () => {
     ];
     FixedOverlay.current = undefined;
     FixedOverlay.attached = 0;
+    FixedOverlay.rewrite = undefined;
   });
 
   afterEach(async () => {
@@ -131,6 +134,16 @@ describe('configuration overlay', () => {
     expect(config.isOverlaid('')).to.equal(false);
     expect(config.get([])).to.equal(undefined);
     expect(config.isOverlaid('mail')).to.equal(true);
+  });
+
+  it('hands an overlay a parsed path it cannot change for the next read of that path', async () => {
+    const config = await boot(true);
+    FixedOverlay.current = new Map([['mail.from', 'billing@acme.test']]);
+    FixedOverlay.rewrite = 'retries';
+    config.get('mail.from');
+    FixedOverlay.rewrite = undefined;
+
+    expect(config.get('mail.from')).to.equal('billing@acme.test');
   });
 
   it('lays an override into a copy of the parent a read asks for, and leaves the merged tree alone', async () => {
