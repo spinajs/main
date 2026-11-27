@@ -332,6 +332,18 @@ describe('db session provider', function () {
       });
     }
 
+    for (const impersonator of [user('admin'), { type: 'svc:ops', id: 'a:b' }]) {
+      it(`touch still renews a session impersonated by ${impersonator.type}:${impersonator.id}, read back from its row`, async () => {
+        const store = await makeProvider({ service: 'SlidingExpiration', ttl: 60 });
+        await store.truncate();
+        const old = DateTime.now().plus({ minutes: 5 });
+        await store.save(new Session({ SessionId: 'sx53-renew', Subject: user('u-42'), Impersonator: impersonator, State: 'active', Expiration: old, Data: new Map() }));
+
+        expect(await store.touch((await store.restore('sx53-renew'))!)).to.equal(true);
+        expect((await store.restore('sx53-renew'))!.Expiration!.toMillis()).to.be.greaterThan(old.toMillis());
+      });
+    }
+
     it('a Subject with an empty id is no owner: the session is not restored or listed', async () => {
       const store = await makeProvider({ service: 'SlidingExpiration', ttl: 60 });
       await store.truncate();
