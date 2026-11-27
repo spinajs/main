@@ -12,14 +12,20 @@ interface AssertionSet {
  * The part of `@spinajs/authz-verify` this command calls. Typed here rather than imported: that package depends on
  * `@spinajs/authz`, which depends on this CLI, so a project reference would be circular.
  */
+interface VerifyResult {
+  readonly diagnostics: readonly { readonly code: string }[];
+}
+
 interface VerifyModule {
-  verifyAssertions(ir: unknown, set: AssertionSet, options: { k: number; requireSolver: boolean }): Promise<unknown[]>;
-  formatResults(results: unknown[], format: 'text' | 'json' | 'github'): string[];
-  summarize(results: unknown[]): { error: number; warning: number; info: number };
+  verifyAssertions(ir: unknown, set: AssertionSet, options: { k: number; requireSolver: boolean }): Promise<VerifyResult[]>;
+  formatResults(results: VerifyResult[], format: 'text' | 'json' | 'github'): string[];
+  summarize(results: VerifyResult[]): { error: number; warning: number; info: number };
   releaseSolver(): Promise<void>;
 }
 
 const VERIFY_MODULE = '@spinajs/authz-verify';
+/** The warning of a holds that only the bounded engine found: `--fail-on bounded` fails on it and on errors, not on other warnings. */
+const BOUNDED_HOLDS = 'AZV007';
 
 interface AuthzVerifyOptions {
   ir: string;
@@ -27,7 +33,7 @@ interface AuthzVerifyOptions {
   format: 'text' | 'json' | 'github';
   bound: number;
   requireSolver?: boolean;
-  failOn: 'warning' | 'error';
+  failOn: 'warning' | 'error' | 'bounded';
 }
 
 const isAssertionSet = (v: unknown): v is AssertionSet => typeof v === 'object' && v !== null && Array.isArray((v as { assertions?: unknown }).assertions);
@@ -47,7 +53,7 @@ function parseBound(value: string): number {
 @Option({ flags: '-f, --format <format>', description: 'output format', defaultValue: 'text', choices: ['text', 'json', 'github'] })
 @Option('-k, --bound <k>', false, `objects per type for the bounded engine, 1 to ${MAX_BOUND}`, 3, parseBound)
 @Option('--require-solver', false, 'report a missing z3-solver (AZV090) as an error')
-@Option({ flags: '--fail-on <severity>', description: 'severity that sets a non-zero exit code', defaultValue: 'error', choices: ['warning', 'error'] })
+@Option({ flags: '--fail-on <severity>', description: 'severity that sets a non-zero exit code (bounded: errors and holds only up to k)', defaultValue: 'error', choices: ['warning', 'error', 'bounded'] })
 export class AuthzVerifyCommand extends CliCommand {
   public async execute(options: AuthzVerifyOptions): Promise<void> {
     // Loaded lazily: @spinajs/authz-verify (and its optional z3-solver) is a development tool and an optional peer.
@@ -62,7 +68,8 @@ export class AuthzVerifyCommand extends CliCommand {
       const results = await verify.verifyAssertions(ir, loaded.default, { k: options.bound, requireSolver: options.requireSolver === true });
       for (const line of verify.formatResults(results, options.format)) this.Print(line);
       const s = verify.summarize(results);
-      if (options.failOn === 'warning' ? s.error + s.warning > 0 : s.error > 0) process.exitCode = 1;
+      const bounded = results.some((r) => r.diagnostics.some((d) => d.code === BOUNDED_HOLDS));
+      if (s.error > 0 || (options.failOn === 'warning' && s.warning > 0) || (options.failOn === 'bounded' && bounded)) process.exitCode = 1;
     } finally {
       await verify.releaseSolver();
     }

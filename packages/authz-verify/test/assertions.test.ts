@@ -109,16 +109,16 @@ describe('verifyAssertions with the bounded engine', function () {
     );
     expect(codes(results)).to.deep.equal([
       'AZV001 error implies(invoice:read, invoice:approve): violated (bounded k=2)',
-      'AZV002 info implies(invoice:approve, invoice:read): verified up to k=2',
+      'AZV007 warning implies(invoice:approve, invoice:read): holds only up to k=2 (not proven)',
       `AZV004 info implies(invoice:approve, invoice:read): ${NOTE}`,
-      'AZV002 info never(role:clerk@$global, invoice:read): verified up to k=2',
+      'AZV007 warning never(role:clerk@$global, invoice:read): holds only up to k=2 (not proven)',
       'AZV001 error separated(invoice:update, invoice:read): violated (bounded k=2)',
     ]);
   });
 
   it('proves isolation up to the bound and finds a path across the boundary', async () => {
     const set = defineAssertions(({ isolated }) => [isolated('org')]);
-    expect(codes(await run(invoicesIR(), set))).to.deep.equal(['AZV002 info isolated(org): verified up to k=2']);
+    expect(codes(await run(invoicesIR(), set))).to.deep.equal(['AZV007 warning isolated(org): holds only up to k=2 (not proven)']);
     const [crossing] = await run(partnerInvoices(), set);
     expect(crossing.verdict.result).to.equal('violated');
     expect(crossing.verdict.counterexample!.tuples.some((t) => t.relation === 'partner')).to.equal(true);

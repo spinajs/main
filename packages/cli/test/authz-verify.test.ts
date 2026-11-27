@@ -25,7 +25,7 @@ describe('spinajs authz:verify', function () {
 
   let lines: string[];
   let cmd: AuthzVerifyCommand;
-  const run = (assertions: string, extra: { format?: 'text' | 'json' | 'github'; failOn?: 'warning' | 'error'; ir?: string; bound?: number } = {}) =>
+  const run = (assertions: string, extra: { format?: 'text' | 'json' | 'github'; failOn?: 'warning' | 'error' | 'bounded'; ir?: string; bound?: number } = {}) =>
     cmd.execute({ ir: fixture(extra.ir ?? 'authz.ir.json'), assertions: fixture(assertions), format: extra.format ?? 'text', bound: extra.bound ?? 2, failOn: extra.failOn ?? 'error' });
 
   beforeEach(async () => {
@@ -107,6 +107,74 @@ describe('spinajs authz:verify', function () {
     }
   });
 
+  describe('a holds that only the bounded engine found', () => {
+    const fixtures = [
+      { ir: 'bounded-closed.ir.json', assertions: 'bounded-holds.assertions.js', control: [], summary: '0 error(s), 2 warning(s), 0 info' },
+      { ir: 'bounded-intersect.ir.json', assertions: 'bounded-holds-control.assertions.js', control: ['ok   AZV002 never(public, tenant:enter)             holds (exact)'], summary: '0 error(s), 2 warning(s), 1 info' },
+    ];
+
+    it('prints a warning with AZV007 and leaves the default exit code unset', async () => {
+      for (const f of fixtures) {
+        for (const bound of [2, 3]) {
+          lines = [];
+          process.exitCode = undefined;
+          await run(f.assertions, { ir: f.ir, bound });
+          expect(lines, `${f.ir} -k ${bound}`).to.deep.equal([
+            `warn AZV007 never(role:other, tenant:enter)         holds only up to k=${bound} (not proven)`,
+            `warn AZV007 never(role:other@tenant, tenant:enter)  holds only up to k=${bound} (not proven)`,
+            ...f.control,
+            f.summary,
+          ]);
+          expect(process.exitCode, `${f.ir} -k ${bound}`).to.equal(undefined);
+        }
+      }
+    });
+
+    it('fails under --fail-on bounded and --fail-on warning', async () => {
+      for (const f of fixtures) {
+        for (const bound of [2, 3]) {
+          for (const failOn of ['bounded', 'warning'] as const) {
+            process.exitCode = undefined;
+            await run(f.assertions, { ir: f.ir, bound, failOn });
+            expect(process.exitCode, `${f.ir} -k ${bound} --fail-on ${failOn}`).to.equal(1);
+          }
+        }
+      }
+    });
+
+    it('carries AZV007 in the json and github output in the shape of every diagnostic', async () => {
+      await run('bounded-holds.assertions.js', { ir: 'bounded-closed.ir.json', format: 'json' });
+      const json = JSON.parse(lines[0]) as { results: { diagnostics: unknown[] }[]; summary: unknown };
+      expect(json.results.map((r) => r.diagnostics)).to.deep.equal([
+        [{ code: 'AZV007', severity: 'warning', assertion: 'never(role:other, tenant:enter)', message: 'holds only up to k=2 (not proven)' }],
+        [{ code: 'AZV007', severity: 'warning', assertion: 'never(role:other@tenant, tenant:enter)', message: 'holds only up to k=2 (not proven)' }],
+      ]);
+      expect(json.summary).to.deep.equal({ error: 0, warning: 2, info: 0 });
+      lines = [];
+      await run('bounded-holds.assertions.js', { ir: 'bounded-closed.ir.json', format: 'github' });
+      expect(lines[0]).to.equal('::warning title=AZV007 never(role%3Aother%2C tenant%3Aenter)::holds only up to k=2 (not proven)');
+    });
+  });
+
+  it('--fail-on bounded fails on an error and on no warning other than AZV007', async () => {
+    const cases = [
+      { assertions: 'opaque.assertions.js', ir: 'opaque.ir.json', exit: undefined },
+      { assertions: 'holds.assertions.js', ir: 'authz.ir.json', exit: undefined },
+      { assertions: 'violated.assertions.js', ir: 'authz.ir.json', exit: 1 },
+    ];
+    for (const c of cases) {
+      lines = [];
+      process.exitCode = undefined;
+      await run(c.assertions, { ir: c.ir, failOn: 'bounded' });
+      expect(process.exitCode, c.assertions).to.equal(c.exit);
+    }
+    lines = [];
+    process.exitCode = undefined;
+    await run('opaque.assertions.js', { ir: 'opaque.ir.json', failOn: 'warning' });
+    expect(lines).to.deep.equal(['ok   AZV002 never(public, tenant:enter)  holds (exact)', "warn AZV003 never(public, tenant:enter)  depends on opaque: model 'legacy'", '0 error(s), 1 warning(s), 1 info']);
+    expect(process.exitCode).to.equal(1);
+  });
+
   it('refuses a module whose default export is not an assertion set', async () => {
     let error: unknown;
     try {
@@ -185,7 +253,7 @@ describe('spinajs authz:verify -k', function () {
 
   it('searches two objects per type with -k 2', async () => {
     await spinajs('-k', '2');
-    expect(lines).to.deep.equal(['ok   AZV002 isolated(folder, except public)  verified up to k=2', '0 error(s), 0 warning(s), 1 info']);
+    expect(lines).to.deep.equal(['warn AZV007 isolated(folder, except public)  holds only up to k=2 (not proven)', '0 error(s), 1 warning(s), 0 info']);
   });
 
   it('accepts -k 64, the largest bound', async () => {
@@ -196,7 +264,7 @@ describe('spinajs authz:verify -k', function () {
 
   it('searches three objects per type without -k', async () => {
     await spinajs();
-    expect(lines).to.deep.equal(['ok   AZV002 isolated(folder, except public)  verified up to k=3', '0 error(s), 0 warning(s), 1 info']);
+    expect(lines).to.deep.equal(['warn AZV007 isolated(folder, except public)  holds only up to k=3 (not proven)', '0 error(s), 1 warning(s), 0 info']);
     expect(process.exitCode).to.equal(undefined);
   });
 });

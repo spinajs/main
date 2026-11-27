@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "types": {
+    "user": { "relations": {}, "permissions": {} },
+    "tenant": {
+      "relations": { "member": { "allowed": ["user"], "source": { "kind": "tuples", "store": "authz_rebac_tuple" } } },
+      "permissions": { "enter": { "exclusion": { "base": { "computed": "member" }, "subtract": { "computed": "closed" } } }, "closed": { "intersection": [] } }
+    }
+  },
+  "permissions": { "tenant:enter": { "type": "tenant", "relation": "enter", "list": false, "source": { "origin": "config:authz" } } },
+  "caveats": {},
+  "combine": { "default": { "algorithm": "deny-overrides" } },
+  "principal": { "ceiling": false, "delegation": false, "ancestry": "parent", "roles": { "member": [{ "type": "tenant", "relation": "member" }], "other": [{ "type": "tenant", "relation": "member" }] } },
+  "opaque": []
+}

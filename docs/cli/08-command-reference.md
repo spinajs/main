@@ -199,9 +199,9 @@ spinajs authz:verify [--ir <path>] [-a, --assertions <path>] [-f, --format <form
 | `-f, --format <format>` | `text` | `text`, `json` or `github` |
 | `-k, --bound <k>` | `3` | Objects per type for the bounded engine, a whole number from 1 to 64 |
 | `--require-solver` | off | Report a missing `z3-solver` (`AZV090`) as an error |
-| `--fail-on <severity>` | `error` | `warning` or `error`: the lowest severity that gives exit code 1 |
+| `--fail-on <severity>` | `error` | `warning`, `error` or `bounded`: the lowest severity that gives exit code 1; `bounded` gives it on an error or an `AZV007` line only |
 
-`-k` sets how many objects of each type the bounded engine builds while it looks for a counterexample (`isolated` needs at least 2). `verified up to k=N` means no counterexample has at most N objects per type, not that none exists at any size. Any other value (`0`, `1.5`, `2abc`, `65`) is a usage error, reported while the command line is parsed, before the IR or the assertions are read: `error: option '-k, --bound <k>' argument '0' is invalid. The bound must be a whole number from 1 to 64.` The cap exists because time and memory grow between k² and k³: on a two-type test policy `-k 64` took about 19 s and 674 MB, and `-k 128` 78 s and 1.7 GB.
+`-k` sets how many objects of each type the bounded engine builds while it looks for a counterexample (`isolated` needs at least 2). `holds only up to k=N (not proven)` (`AZV007`, a warning) means no counterexample has at most N objects per type, not that none exists at any size. Any other value (`0`, `1.5`, `2abc`, `65`) is a usage error, reported while the command line is parsed, before the IR or the assertions are read: `error: option '-k, --bound <k>' argument '0' is invalid. The bound must be a whole number from 1 to 64.` The cap exists because time and memory grow between k² and k³: on a two-type test policy `-k 64` took about 19 s and 674 MB, and `-k 128` 78 s and 1.7 GB.
 
 ## Commands of other packages
 
@@ -224,6 +224,6 @@ The `@spinajs/orm-cli` commands are described in [`@spinajs/orm-cli`](../orm-cli
 | `doctor` | A diagnostic reaches `--fail-on` (default `error`) |
 | `upgrade` | A transform failed on a file |
 | `manifest:diff` | `--fail-on breaking` and the diff holds a breaking change |
-| `authz:verify` | A diagnostic reaches `--fail-on` (default `error`) |
+| `authz:verify` | A diagnostic reaches `--fail-on` (default `error`); under `--fail-on bounded` an error or an `AZV007` line |
 
 A command that throws (a missing optional package, an unreadable manifest in `manifest:diff` or a generator) makes the bin log the message and exit with code `-1` ([Running the CLI](01-running-the-cli.md#exit-codes)). The generators set no exit code of their own.
