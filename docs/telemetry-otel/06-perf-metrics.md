@@ -24,7 +24,7 @@ Importing the package registers the sink; it does nothing until:
 | Key | Type | Default | Values | Used for |
 | --- | --- | --- | --- | --- |
 | `otel.metrics.enabled` | `boolean` | `false` | `true`, `false` | Whether the sink exports. `false`: no provider, no exporter, no timer |
-| `otel.metrics.endpoint` | `string` | `'https://otel.highlight.io:4318/v1/metrics'` | Full OTLP/HTTP metrics URL, path included: an `http:` or `https:` URL | `url` of the `OTLPMetricExporter`. Credentials go in `OTEL_EXPORTER_OTLP_METRICS_HEADERS` (for example `authorization=Bearer …`); userinfo and a query string in the URL are not sent, and the logs show the endpoint without them. Set it explicitly: the default is a third-party service, and the OTLP endpoint environment variables are not read (the headers variables are) |
+| `otel.metrics.endpoint` | `string` | `'https://otel.highlight.io:4318/v1/metrics'` | Full OTLP/HTTP metrics URL, path included: an `http:` or `https:` URL | `url` of the `OTLPMetricExporter`. Credentials go in `OTEL_EXPORTER_OTLP_METRICS_HEADERS` (for example `authorization=Bearer …`); userinfo and a query string in the URL are not sent, and the logs show the endpoint without them, with a path segment that may be a token printed as `***`. Set it explicitly: the default is a third-party service, and the OTLP endpoint environment variables are not read (the headers variables are) |
 | `otel.metrics.exportIntervalMs` | `integer` | `60000` | Milliseconds, at least `1000` | Interval of the `PeriodicExportingMetricReader`; one export, its retries included, ends after 5 s |
 
 The schema `otel.metrics` checks the three keys at boot. The switch is `otel.metrics.enabled` alone: metrics are
@@ -64,8 +64,9 @@ Recording a measurement only updates the sink's in-memory aggregation; the expor
 that interval's export and never reaches the code that measured. The first failed export of an outage logs one
 `warn` on the `otel` logger (`otel metrics export to <endpoint> failed`); the next failures are not logged until an
 export succeeds. The OpenTelemetry diagnostic logger also gets one error per failed interval, but it is silent unless
-the application installs one (`diag.setLogger`). An `otel.metrics.endpoint` that is not a URL logs `otel metrics export not started` once at `error` and
-leaves the sink inactive.
+the application installs one (`diag.setLogger`). An `otel.metrics.endpoint` that is not a URL, or a `%` sequence that does not decode in the headers variables, logs
+`otel metrics export not started: no OTLP exporter for <endpoint> (<reason>)` once at `error`, with the endpoint
+redacted in both places, and leaves the sink inactive.
 
 `@spinajs/tracing` owns the tracer provider and has no meter provider, so the sink keeps a private `MeterProvider`
 and never registers a global one. Disposing the container disposes the sink: it exports what is left, waits for that

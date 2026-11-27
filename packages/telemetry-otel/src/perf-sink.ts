@@ -12,6 +12,7 @@ import type { MetricReader, PushMetricExporter, ResourceMetrics } from '@opentel
 import { OTLPMetricExporter } from '@opentelemetry/exporter-metrics-otlp-http';
 import { resourceFromAttributes } from '@opentelemetry/resources';
 import { ATTR_SERVICE_NAME } from '@opentelemetry/semantic-conventions';
+import { loggableEndpoint, loggableReason } from './loggable-endpoint.js';
 
 export const PERF_METER_NAME = '@spinajs/perf';
 
@@ -169,10 +170,10 @@ export class OtelPerfSink extends PerfSink {
         exportIntervalMillis,
         exportTimeoutMillis: Math.min(EXPORT_TIMEOUT_MS, exportIntervalMillis),
       });
-    } catch {
+    } catch (err) {
       this.exporterFailed = true;
-      // Not the error: its message repeats the endpoint as configured.
-      this.log.error({ endpoint: loggableEndpoint(this.endpoint) }, 'otel metrics export not started: no OTLP exporter for ${endpoint}');
+      // Not the error object: its message can repeat the endpoint as configured.
+      this.log.error({ endpoint: loggableEndpoint(this.endpoint), reason: loggableReason(err, this.endpoint) }, 'otel metrics export not started: no OTLP exporter for ${endpoint} (${reason})');
       return undefined;
     }
   }
@@ -234,16 +235,6 @@ class FailureLoggingExporter implements PushMetricExporter {
 
   public shutdown(): Promise<void> {
     return this.inner.shutdown();
-  }
-}
-
-/** The endpoint without userinfo and query, for logs. */
-function loggableEndpoint(endpoint: string): string {
-  try {
-    const url = new URL(endpoint);
-    return `${url.protocol}//${url.host}${url.pathname}`;
-  } catch {
-    return '<not a URL>';
   }
 }
 

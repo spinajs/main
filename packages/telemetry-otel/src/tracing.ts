@@ -6,6 +6,7 @@ import { BatchSpanProcessor, SpanProcessor } from '@opentelemetry/sdk-trace-base
 import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-http';
 import { markSpanErrorType } from '@spinajs/tracing';
 import { ensureTracing, readTracingOptions, tracingState } from '@spinajs/tracing';
+import { loggableEndpoint, loggableReason } from './loggable-endpoint.js';
 
 const REMOVED_KEYS = ['otel.serviceName', 'otel.resourceAttributes'];
 
@@ -73,7 +74,7 @@ export class OtelTracing extends AsyncService {
     }
     this.processor = processor;
     this.detach = state.hub.add(processor);
-    this.log.info({ endpoint: this.endpoint }, 'otel export started (endpoint=${endpoint})');
+    this.log.info({ endpoint: loggableEndpoint(this.endpoint) }, 'otel export started (endpoint=${endpoint})');
   }
 
   // The exporter validates otel.endpoint (and the OTEL_EXPORTER_OTLP_* variables) when it is built; a bad value
@@ -82,7 +83,8 @@ export class OtelTracing extends AsyncService {
     try {
       return new BatchSpanProcessor(new OTLPTraceExporter({ url: this.endpoint }));
     } catch (err) {
-      this.log.error({ error: err, endpoint: this.endpoint }, 'otel export not started: no OTLP exporter for ${endpoint}');
+      // Not the error object: its message can repeat the endpoint as configured.
+      this.log.error({ endpoint: loggableEndpoint(this.endpoint), reason: loggableReason(err, this.endpoint) }, 'otel export not started: no OTLP exporter for ${endpoint} (${reason})');
       return undefined;
     }
   }

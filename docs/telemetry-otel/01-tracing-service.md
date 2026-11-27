@@ -12,8 +12,10 @@ Starting:
 4. The first `start()` with `otel.enabled: true` logs one warning when the configuration still sets `otel.serviceName` or `otel.resourceAttributes` (see [Configuration](#configuration)).
 5. `start()` takes the tracing state of `@spinajs/tracing`. When nothing has started tracing yet, it calls `ensureTracing(readTracingOptions(config))`, which registers the provider globally with the resource built from `tracing.serviceName` and `tracing.resourceAttributes`.
 6. Under an external OpenTelemetry SDK, or with `tracing.enabled: false`, there is no hub. `start()` logs `otel export not started: <reason>` at `warn` on the `otel` logger and stays inactive.
-7. `start()` picks the span processor: `processorOverride` when given, else `new BatchSpanProcessor(new OTLPTraceExporter({ url: otel.endpoint }))`. When the exporter cannot be built (an `otel.endpoint` that is not a URL), it logs `otel export not started: no OTLP exporter for <endpoint>` at `error` and stays inactive; the resolve does not fail.
+7. `start()` picks the span processor: `processorOverride` when given, else `new BatchSpanProcessor(new OTLPTraceExporter({ url: otel.endpoint }))`. When the exporter cannot be built (an `otel.endpoint` that is not a URL, or a `%` sequence that does not decode in `OTEL_EXPORTER_OTLP_HEADERS` / `OTEL_EXPORTER_OTLP_TRACES_HEADERS`), it logs `otel export not started: no OTLP exporter for <endpoint> (<reason>)` at `error`, where `<reason>` is the exporter's error class and message with the endpoint printed as in the line, and stays inactive; the resolve does not fail.
 8. `start()` adds the processor to the hub, keeps the detach function, and logs `otel export started` at `info`. `active` is now `true`.
+
+The log lines of steps 7 and 8 print the endpoint without its userinfo, query and fragment, so a credential in `otel.endpoint` stays out of the log: a path segment longer than 16 characters, or with characters other than letters, digits, `_`, `.`, `~` and `-`, is printed as `***`, everything after the scheme of a URL without a host (`apikey:…`) as `***`, and a value that is not a URL as `<not a URL>`. The exporter still gets `otel.endpoint` as configured.
 
 Recording a span with `withSpan(name, attrs, fn)`:
 
@@ -67,7 +69,7 @@ sequenceDiagram
 | Key | Type | Default | Allowed values | Meaning |
 | --- | --- | --- | --- | --- |
 | `otel.enabled` | `boolean` | `false` | `true`, `false` | Whether the OTLP processor is attached to the hub. `false`: nothing is exported and tracers are no-ops |
-| `otel.endpoint` | `string` | `'https://otel.highlight.io:4318/v1/traces'` | Full OTLP/HTTP traces URL, path included | `url` of the `OTLPTraceExporter` |
+| `otel.endpoint` | `string` | `'https://otel.highlight.io:4318/v1/traces'` | Full OTLP/HTTP traces URL, path included | `url` of the `OTLPTraceExporter`. Credentials go in `OTEL_EXPORTER_OTLP_TRACES_HEADERS` (for example `authorization=Bearer …`) or in headers set from config (see [Customizing the tracing service](04-customizing-the-tracing-service.md#send-traces-with-an-auth-header-from-config)); userinfo and a query string in the URL are not sent, and the logs show the endpoint without them |
 | `otel.longSpan.maxAgeMs` | `number` | `1800000` (30 min) | Milliseconds | Used by [`LongSpanRegistry`](02-long-lived-spans.md) |
 | `otel.longSpan.sweepIntervalMs` | `number` | `60000` | Milliseconds | Used by [`LongSpanRegistry`](02-long-lived-spans.md) |
 
