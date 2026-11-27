@@ -28,7 +28,8 @@ function loggableServer(url: string | undefined, host: unknown, port: unknown, s
   if (url !== undefined) return loggableEndpoint(url);
   const name = typeof host === 'string' && host !== '' ? host : 'localhost';
   const scheme = secure === true ? 'smtps' : 'smtp';
-  return loggableEndpoint(`${scheme}://${isIP(name) === 6 ? `[${name}]` : name}${typeof port === 'number' ? `:${port}` : ''}`);
+  // resolve() refused every host with userinfo, a path or a query before this runs
+  return `${scheme}://${isIP(name) === 6 ? `[${name}]` : name}${typeof port === 'number' ? `:${port}` : ''}`;
 }
 
 @Injectable(EmailSender)
