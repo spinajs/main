@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { PostgresSqlExpressions } from './expressions.js';
 import { Injectable, NewInstance } from '@spinajs/di';
-import { SessionSettingsQueryCompiler, QueryContext, OrmDriver, IColumnDescriptor, TableExistsCompiler, ServerResponseMapper, ISupportedFeature, IsolationLevel, ITransactionContext, ITransactionOptions, ConnectionState, IPoolMetrics, IdentifierQuoter, InStatement, OnDuplicateQueryCompiler, ColumnQueryCompiler, AlterColumnQueryCompiler, AlterTableQueryCompiler, RawQuery, LimitQueryCompiler, TruncateTableQueryCompiler, RecursiveQueryCompiler, DefaultValueBuilder, InsertQueryCompiler, CreateDatabaseCompiler, DropDatabaseCompiler, TableAliasCompiler, CreateViewCompiler, LiteralQuoter, EventQueryCompiler, DropEventQueryCompiler, DatetimeValueConverter, JsonValueConverter, NowExpression, JoinStatement, DateTimeWrapper, SqlExpressions, IndexQueryCompiler, LiveForeignKey, LiveIndex, groupIndexColumns, SqlDialect, MigrationLock } from '@spinajs/orm';
+import { SessionSettingsQueryCompiler, QueryContext, OrmDriver, IColumnDescriptor, TableExistsCompiler, ServerResponseMapper, ISupportedFeature, IsolationLevel, ITransactionContext, ITransactionOptions, ConnectionState, IPoolMetrics, IdentifierQuoter, InStatement, OnDuplicateQueryCompiler, ColumnQueryCompiler, AlterColumnQueryCompiler, AlterTableQueryCompiler, RawQuery, LimitQueryCompiler, TruncateTableQueryCompiler, RecursiveQueryCompiler, DefaultValueBuilder, InsertQueryCompiler, CreateDatabaseCompiler, DropDatabaseCompiler, TableAliasCompiler, CreateViewCompiler, LiteralQuoter, EventQueryCompiler, DropEventQueryCompiler, DatetimeValueConverter, JsonValueConverter, NowExpression, JoinStatement, DateTimeWrapper, SqlExpressions, IndexQueryCompiler, LiveForeignKey, LiveIndex, groupIndexColumns, SqlDialect, MigrationLock, OrmException } from '@spinajs/orm';
 import { POSTGRES_SQL_DIALECT } from './sql-dialect.js';
 export { POSTGRES_SQL_DIALECT } from './sql-dialect.js';
 import { SqlDriver, SqlTruncateTableQueryCompiler, SqlWithRecursiveCompiler, SqlAlterTableQueryCompiler, SqlDropDatabaseQueryCompiler, UnsupportedEventQueryCompiler, UnsupportedDropEventQueryCompiler } from '@spinajs/orm-sql';
@@ -28,6 +28,8 @@ export interface IPostgresTransactionContext extends ITransactionContext {
   connection: pg.PoolClient;
   /** ROLLBACK failed: the session may still be inside the transaction, with its transaction-local settings. */
   rollbackFailed?: boolean;
+  /** The first statement failure since `BEGIN` or the last `ROLLBACK TO SAVEPOINT`. */
+  failure?: Error;
 }
 
 /**
@@ -288,7 +290,7 @@ export class PostgresOrmDriver extends SqlDriver {
           return result.rows;
       }
     } catch (err) {
-      throw mapPostgresError(
+      const mapped = mapPostgresError(
         err,
         {
           Host: this.Options.Host,
@@ -298,6 +300,8 @@ export class PostgresOrmDriver extends SqlDriver {
         stmt,
         params,
       );
+      if (txContext) txContext.failure ??= mapped;
+      throw mapped;
     }
   }
 
@@ -699,7 +703,12 @@ export class PostgresOrmDriver extends SqlDriver {
   }
 
   protected async _commit(ctx: ITransactionContext): Promise<void> {
-    await this.txConnection(ctx).query('COMMIT');
+    const result = await this.txConnection(ctx).query('COMMIT');
+    // A COMMIT of an aborted transaction raises no error: PostgreSQL rolls it back and answers with this tag.
+    if (result.command === 'ROLLBACK') {
+      const failure = (ctx as IPostgresTransactionContext).failure;
+      throw new OrmException(`transaction on connection ${this.Options.Name} was aborted by an earlier failed statement whose error was caught; PostgreSQL rolled it back when it was asked to commit, and nothing of it was written; the first failure: ${failure?.message ?? 'unknown'}`, undefined, undefined, undefined, failure);
+    }
   }
 
   protected async _rollback(ctx: ITransactionContext): Promise<void> {
@@ -724,6 +733,8 @@ export class PostgresOrmDriver extends SqlDriver {
 
   protected async _rollbackToSavepoint(ctx: ITransactionContext, name: string): Promise<void> {
     await this.txConnection(ctx).query(`ROLLBACK TO SAVEPOINT ${pgEscapeIdentifier(name)}`);
+    // A savepoint can only be taken in a healthy transaction, so rolling back to it heals the transaction.
+    (ctx as IPostgresTransactionContext).failure = undefined;
   }
 
   protected _dispose(ctx: ITransactionContext): Promise<void> {

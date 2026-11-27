@@ -46,6 +46,14 @@ export class MsSqlOnDuplicateQueryCompiler extends SqlOnDuplicateQueryCompiler {
 
     const parent = this._builder.getParent() as InsertQueryBuilder;
 
+    // The source and the update read row 0, and WHEN NOT MATCHED THEN INSERT takes one VALUES row. A split insert
+    // compiles each statement against this same parent, so its rows are the whole payload.
+    if (parent.Values.length !== 1) {
+      throw new NotSupported(
+        `mssql upsert takes one row per statement, table ${parent.Table} got ${parent.Values.length} rows: MERGE matches and inserts a single source row. Upsert one row per call, inside one transaction() when the rows belong together`,
+      );
+    }
+
     const valueMap = (parent.getColumns() as ColumnStatement[]).map((c) => c.Column);
     const bindings = this._builder.getColumnsToUpdate().map((c: string | RawQuery): any => {
       if (_.isString(c)) {
