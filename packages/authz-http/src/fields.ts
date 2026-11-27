@@ -107,6 +107,9 @@ function readable(authz: unknown, domains: AuthzDomains, data: unknown, decision
 /** `x-data-transform: authz-fields`: the response data limited to what the route's decision lets the caller read. */
 @Injectable(DataTransformer)
 export class AuthzFieldTransformer extends DataTransformer {
+  /** Read by `@spinajs/cache-http`: a reply this transformer filtered belongs to the caller it was filtered for. */
+  public static readonly PerPrincipalReply = true;
+
   @Config('authz')
   protected Authz: unknown;
 
@@ -126,6 +129,9 @@ export class AuthzFieldTransformer extends DataTransformer {
 /** Added by `@Access(…, { fields: 'filter' })`: the response data limited to `decision.fields.read` (B17). */
 @NewInstance()
 export class AuthzFieldsMiddleware extends RouteMiddleware {
+  /** Read by `@spinajs/cache-http`: a reply this middleware filtered belongs to the caller it was filtered for. */
+  public static readonly PerPrincipalReply = true;
+
   @Config('authz')
   protected Authz: unknown;
 

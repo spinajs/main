@@ -93,9 +93,15 @@ describe('generateRls', () => {
       'DROP POLICY IF EXISTS "spina_invoice_update" ON "invoices"',
       'DROP POLICY IF EXISTS "spina_invoice_delete" ON "invoices"',
       'DROP POLICY IF EXISTS "spina_invoice_insert" ON "invoices"',
-      'ALTER TABLE "invoices" NO FORCE ROW LEVEL SECURITY',
-      'ALTER TABLE "invoices" DISABLE ROW LEVEL SECURITY',
+      `DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_policy WHERE polrelid = '"invoices"'::regclass) THEN ALTER TABLE "invoices" NO FORCE ROW LEVEL SECURITY; ALTER TABLE "invoices" DISABLE ROW LEVEL SECURITY; END IF; END $$`,
     ]);
+  });
+
+  it('quotes the down of a table whose name holds a quote and dollar signs', async () => {
+    const out = await generateRls(input({ resources: [{ ...INVOICE, table: `o'd"in$$v` }] }));
+    expect(out.down.at(-1)).to.equal(
+      `DO $spina0$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_policy WHERE polrelid = '"o''d""in$$v"'::regclass) THEN ALTER TABLE "o'd""in$$v" NO FORCE ROW LEVEL SECURITY; ALTER TABLE "o'd""in$$v" DISABLE ROW LEVEL SECURITY; END IF; END $spina0$`,
+    );
   });
 
   it('adds the SYSTEM bypass policy for the configured role only', async () => {

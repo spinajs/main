@@ -1,0 +1,1 @@
+{ "name": "config-imported-dep", "type": "module", "spinajs": { "manifest": "lib/manifest.fragment.json" } }
