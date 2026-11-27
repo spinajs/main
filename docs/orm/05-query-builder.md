@@ -224,7 +224,7 @@ Joined columns are not selected unless a `queryCallback` or a `select(RawQuery)`
 
 | Builder | Member | Effect |
 | --- | --- | --- |
-| `InsertQueryBuilder` | `into(table, alias?)` | Sets the table. The second argument is passed to `setTable()` as the alias. |
+| `InsertQueryBuilder` | `into(table, schema?)` | Sets the table. `schema` qualifies it as `database(schema)` does: `into('users', 'archive')` compiles to ``INSERT INTO `archive`.`users` `` on MySQL and to `INSERT INTO [archive].[users]` on MSSQL. |
 | | `values(row \| rows[])` | Sets the column list from the keys (the union of keys for an array) and appends one value row per object. |
 | | `splitByDriverLimits()` | The payload as one builder per statement within the driver's `MaxBindings` and `MaxInsertRows`; `[this]` when it fits one statement. Throws `OrmException` when a single row needs more parameters than the limit. |
 | | `orIgnore()` / `orReplace()` | Sets `Ignore` / `Replace`; the dialect emits its insert-or-ignore / replace form. |
@@ -342,7 +342,7 @@ function relationSyncOf(query: object): { readonly relation: string; readonly ow
 - `Model.destroy()` with no keys returns a builder under `requireWhere()`: awaiting it before a `where()` rejects with `OrmException`. `destroy(null)` and `destroy([])` throw `OrmException` synchronously. On a `@SoftDelete` model it builds an `UPDATE` that sets `DeletedAt`; for a hard delete by condition use `createQuery(Model, DeleteQueryBuilder).query`.
 - `requireWhere()` counts statements, not conditions. An empty `where(function () {})` group counts and compiles to no condition, so the statement hits every row; `where(true)` counts too. `driver.del()` does not call `requireWhere()`.
 - The soft-delete and archive filters are added to selects only. Updates and deletes built by `createQuery()` see deleted and archived rows.
-- `insert().into(table, x)` treats `x` as the table alias. Use `database()` for a schema.
+- `insert().into(table, schema)` reaches only the dialects that qualify a table with `database()`. PostgreSQL leaves every table unqualified, and the SQLite insert compiler writes the bare table name, so on both the row goes to the connection's default schema.
 - `values()` resets the column list on each call and appends rows. Pass all rows to one `values([...])` call.
 - A multi-row insert larger than the driver's `MaxBindings` or `MaxInsertRows` runs as several statements, in order, inside one transaction: the caller's when one is open, otherwise its own. A failing statement rolls all of them back. The result sums `RowsAffected`, concatenates `Returning` in insert order and reports the last statement's `LastInsertId`. Query middlewares run once for the whole insert.
 - `returning()` must run before `onDuplicate()`: the duplicate builder copies the returning columns when it is created, and `onDuplicate()` sets `QueryContext.Upsert` either way.
