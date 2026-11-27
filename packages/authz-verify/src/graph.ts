@@ -43,6 +43,13 @@ export interface HolderRef {
   readonly role?: string;
 }
 
+/** A stored relation a path reads a tuple on; `wildcard` when that tuple is `X#R@U:*`. */
+export interface StoredRead {
+  readonly type: TypeName;
+  readonly relation: RelationName;
+  readonly wildcard: boolean;
+}
+
 export function holderKey(h: HolderRef): string {
   if (h.kind === 'role') return `role:${h.role!}@${h.type}`;
   if (h.kind === 'anyone') return `anyone:${h.type}#${h.relation}`;
@@ -96,6 +103,36 @@ export class RewriteAutomaton {
     const role = this.roles.get(stateKey(read.type, read.relation));
     if (wildcard) return { kind: 'public', type: read.type, relation: read.relation, ...(role === undefined ? {} : { role }) };
     return role === undefined ? { kind: 'relation', type: read.type, relation: read.relation } : { kind: 'role', type: read.type, relation: read.relation, role };
+  }
+
+  /**
+   * The stored relations a check entering `state` reads a tuple on, each with whether the tuple may be a wildcard (an
+   * anyone term counts as one): the members behind a subject set, at any depth.
+   */
+  readsFrom(state: string): StoredRead[] {
+    const out = new Map<string, StoredRead>();
+    this.collectReads(state, new Set(), out);
+    return [...out.values()];
+  }
+
+  /** What `readsFrom` gives for the subject sets the stored relation `type#relation` allows. */
+  behind(type: TypeName, relation: RelationName): StoredRead[] {
+    const out = new Map<string, StoredRead>();
+    const seen = new Set<string>();
+    for (const e of this.edges(stateKey(type, relation))) if (e.via === 'direct' && e.type === type && e.relation === relation && !isAccepting(e.to)) this.collectReads(e.to, seen, out);
+    return [...out.values()];
+  }
+
+  private collectReads(state: string, seen: Set<string>, out: Map<string, StoredRead>): void {
+    if (seen.has(state)) return;
+    seen.add(state);
+    for (const e of this.edges(state)) {
+      if (e.via === 'direct' || e.to === ANYONE) {
+        const wildcard = e.to === ANYONE || e.letter?.wildcard === true;
+        out.set(`${stateKey(e.type, e.relation)}${wildcard ? '*' : ''}`, { type: e.type, relation: e.relation, wildcard });
+      }
+      if (!isAccepting(e.to)) this.collectReads(e.to, seen, out);
+    }
   }
 
   private info(state: string): StateInfo {

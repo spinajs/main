@@ -26,6 +26,8 @@ export interface Accepted {
   readonly holder: HolderRef;
   readonly conditional: boolean;
   readonly edges: readonly Edge[];
+  /** The path reads, behind a subject set, a relation the exploration's `behind` selects. */
+  readonly behind?: true;
 }
 
 export interface Exploration {
@@ -42,6 +44,7 @@ interface Node {
   /** The first stored relation the path read, which names its holder. */
   readonly read?: { readonly type: TypeName; readonly relation: RelationName };
   readonly conditional: boolean;
+  readonly behind?: true;
   readonly prev?: Node;
   readonly edge?: Edge;
 }
@@ -52,18 +55,21 @@ function pathOf(n: Node): Edge[] {
   return out.reverse();
 }
 
-function follow(n: Node, e: Edge): Node {
+function follow(n: Node, e: Edge, behind?: (e: Edge) => boolean): Node {
   const read = n.read ?? (e.stored ? { type: e.type, relation: e.relation } : undefined);
-  return { state: e.to, ...(read === undefined ? {} : { read }), conditional: n.conditional || e.conditional, prev: n, edge: e };
+  // A stored read after the one that names the holder sits behind a subject set.
+  const after = n.behind === true || (n.read !== undefined && e.via === 'direct' && behind?.(e) === true);
+  return { state: e.to, ...(read === undefined ? {} : { read }), conditional: n.conditional || e.conditional, ...(after ? { behind: true } : {}), prev: n, edge: e };
 }
 
-const nodeKey = (n: Node): string => `${n.state}|${n.read === undefined ? '' : `${n.read.type}#${n.read.relation}`}|${n.conditional}`;
+const nodeKey = (n: Node): string => `${n.state}|${n.read === undefined ? '' : `${n.read.type}#${n.read.relation}`}|${n.conditional}|${n.behind === true}`;
 
 /**
  * Breadth-first search of the automaton from `start` over (state, holder, conditional) nodes, so every holder gets
- * its shortest path and cycles end. `keep` drops accepted paths whose holder it rejects (`onlyVia`).
+ * its shortest path and cycles end. `keep` drops accepted paths whose holder it rejects (`onlyVia`). `behind` marks
+ * the paths that read a stored relation it selects after the one that names their holder, kept apart from the others.
  */
-export function explore(a: RewriteAutomaton, start: string, keep: (h: HolderRef) => boolean = () => true): Exploration {
+export function explore(a: RewriteAutomaton, start: string, keep: (h: HolderRef) => boolean = () => true, behind?: (e: Edge) => boolean): Exploration {
   const seen = new Set<string>();
   const accepted = new Map<string, Accepted>();
   const opaque = new Set<string>();
@@ -74,11 +80,11 @@ export function explore(a: RewriteAutomaton, start: string, keep: (h: HolderRef)
     for (const o of a.opaqueAt(n.state)) opaque.add(o);
     for (const e of a.edges(n.state)) {
       monotone &&= !e.conditional;
-      const next = follow(n, e);
+      const next = follow(n, e, behind);
       if (isAccepting(e.to)) {
         const holder: HolderRef = e.to === ANYONE ? { kind: 'anyone', type: e.type, relation: e.relation } : a.holder(next.read!, e.letter?.wildcard === true);
-        const key = `${holderKey(holder)}|${next.conditional}`;
-        if (keep(holder) && !accepted.has(key)) accepted.set(key, { holder, conditional: next.conditional, edges: pathOf(next) });
+        const key = `${holderKey(holder)}|${next.conditional}|${next.behind === true}`;
+        if (keep(holder) && !accepted.has(key)) accepted.set(key, { holder, conditional: next.conditional, edges: pathOf(next), ...(next.behind === true ? { behind: true } : {}) });
       } else if (!seen.has(nodeKey(next))) {
         seen.add(nodeKey(next));
         queue.push(next);

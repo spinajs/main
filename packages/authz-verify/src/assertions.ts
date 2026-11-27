@@ -2,9 +2,10 @@ import { compilePermissionGlob, isPermissionGlob } from '@spinajs/authz';
 import type { Permission } from '@spinajs/authz';
 import type { ObjectRef, OpaqueRef, PolicyIR, RelationName, TupleSubjectRef, TypeName } from '@spinajs/authz-ir';
 
-import { ANYONE, RewriteAutomaton } from './graph.js';
+import { ANYONE, RewriteAutomaton, stateKey } from './graph.js';
 import type { Edge } from './graph.js';
-import { explore, implies as exactImplies, onlyVia as exactOnlyVia, reachers } from './monotone.js';
+import { explore, implies as exactImplies, onlyVia as exactOnlyVia, reachers, reachersOf } from './monotone.js';
+import type { Reacher } from './monotone.js';
 import type { Encoder } from './smt/encode.js';
 import { Unsupported, and, not, or } from './smt/formula.js';
 import type { Formula } from './smt/formula.js';
@@ -123,6 +124,7 @@ async function never(ir: PolicyIR, holder: string, glob: string, options: Bounde
     // An anyone term needs no holder, so whoever the selector names reaches the permission through it; a public
     // member of the relation the selector names is one of its holders, as the bounded search reads it.
     const hits = reachers(ir, permission).filter((r) => r.holder.kind === 'anyone' || matchesHolder(holder, r.holder) || (r.holder.kind === 'public' && namesRelation(ir, holder, r.holder.type, r.holder.relation)));
+    hits.push(...reachedBehind(ir, permission, holder));
     const sure = hits.find((r) => !r.conditional);
     if (sure !== undefined) {
       const counterexample = await confirm(ir, sure.witness, { [permission]: 'allow' }, sure.paths[0]);
@@ -197,6 +199,29 @@ function namesRelation(ir: PolicyIR, selector: string, type: TypeName, relation:
   return selector === `${type}#${relation}`;
 }
 
+/**
+ * Reachers whose path reads the relation the selector names behind a subject set: whoever the set holds is its member
+ * too. For `public:<t>#<rel>` only the paths that end on a wildcard, as its holder reads them.
+ */
+function reachedBehind(ir: PolicyIR, permission: Permission, selector: string): Reacher[] {
+  const a = new RewriteAutomaton(ir);
+  const start = a.start(permission);
+  if (start === undefined) return [];
+  const wildcard = selector.startsWith('public:');
+  const held = wildcard ? selector.slice('public:'.length) : selector;
+  const ex = explore(a, start, undefined, (e) => namesRelation(ir, held, e.type, e.relation));
+  return reachersOf(ir, permission, { ...ex, accepted: ex.accepted.filter((x) => x.behind === true && (!wildcard || x.holder.kind === 'public')) });
+}
+
+/** The relations whose members are members, through subject sets at any depth, of a relation the selector names. */
+function behindSelector(ir: PolicyIR, m: RewriteAutomaton, selector: string): Set<string> {
+  const out = new Set<string>();
+  for (const [type, def] of Object.entries(ir.types)) {
+    for (const relation of Object.keys(def.relations)) if (namesRelation(ir, selector, type, relation)) for (const r of m.behind(type, relation)) out.add(stateKey(r.type, r.relation));
+  }
+  return out;
+}
+
 /** Does the tuple, whatever its subject, sit on the relation the selector names? */
 const onRelation = (ir: PolicyIR, selector: string, t: WitnessTuple): boolean => namesRelation(ir, selector, t.object.type, t.relation);
 
@@ -210,14 +235,41 @@ function onHolder(ir: PolicyIR, selector: string, t: WitnessTuple): boolean {
 
 /**
  * `without`: no tuple on the listed holders (onlyVia, isolated's exceptions). `only`: every tuple naming the
- * principal, and every wildcard tuple, sits on the listed holders (never).
+ * principal, and every wildcard tuple, sits on the listed holders or behind a subject set on them (never).
  */
 function holderAdmits(ir: PolicyIR, selectors: readonly string[], mode: 'without' | 'only'): (t: WitnessTuple, u: Universe) => boolean {
-  if (mode === 'without') return (t) => !selectors.some((s) => onHolder(ir, s, t));
+  const m = new RewriteAutomaton(ir);
+  if (mode === 'without') {
+    // Errs towards a counterexample: a subject set that may hold a wildcard is excused only with a public selector
+    // for its relation, since excusing it would also excuse the public grant behind it.
+    const wildcards = new Map<string, boolean>();
+    const holdsWildcard = (set: string): boolean => {
+      const known = wildcards.get(set);
+      if (known !== undefined) return known;
+      const found = m.readsFrom(set).some((r) => r.wildcard);
+      wildcards.set(set, found);
+      return found;
+    };
+    const publicBehind = (t: WitnessTuple): boolean =>
+      t.subject.relation !== undefined && holdsWildcard(stateKey(t.subject.type, t.subject.relation)) && !selectors.some((s) => s === 'public' || s === `public:${t.object.type}#${t.relation}`);
+    return (t) => publicBehind(t) || !selectors.some((s) => onHolder(ir, s, t));
+  }
+  const reach = selectors.map((selector) => {
+    const held = selector.startsWith('public:') ? selector.slice('public:'.length) : selector;
+    return { selector, held, behind: behindSelector(ir, m, held) };
+  });
   return (t, u) => {
-    const names = t.subject.relation === undefined && (t.subject.id === '*' || (t.subject.type === u.principal.type && t.subject.id === u.principal.id));
-    // Both modes err towards a counterexample: here a public tuple on a named relation still serves that holder.
-    return !names || selectors.some((s) => onHolder(ir, s, t) || onRelation(ir, s, t));
+    const wildcard = t.subject.id === '*';
+    const at = stateKey(t.object.type, t.relation);
+    const set = t.subject.relation;
+    if (set !== undefined) {
+      // A set behind a holder makes its members the holder's only through the holder's relation, not through another.
+      const outside = reach.every((r) => !r.behind.has(stateKey(t.subject.type, set)) || namesRelation(ir, r.held, t.subject.type, set));
+      return outside || reach.some((r) => namesRelation(ir, r.held, t.object.type, t.relation) || r.behind.has(at));
+    }
+    const names = wildcard || (t.subject.type === u.principal.type && t.subject.id === u.principal.id);
+    // Here a public tuple on a named relation, or a member behind a subject set on it, still serves that holder.
+    return !names || reach.some((r) => onHolder(ir, r.selector, t) || onRelation(ir, r.selector, t) || (r.behind.has(at) && (wildcard || r.selector === r.held)));
   };
 }
 
