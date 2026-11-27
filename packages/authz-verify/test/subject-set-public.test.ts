@@ -54,6 +54,20 @@ const twin: Rewrite = { intersection: [{ computed: 'member' }, { intersection: [
 const depth2 = { group: ['team#member'], team: ['user:*'] };
 const depth3 = { group: ['team#member'], team: ['org#member'], org: ['user:*'] };
 const cycle = { group: ['team#member'], team: ['group#member', 'user:*'] };
+const cycle3 = { group: ['team#member'], team: ['org#member'], org: ['group#member', 'user:*'] };
+const namedCycle3 = { group: ['team#member'], team: ['org#member'], org: ['group#member', 'user'] };
+const cycle4 = { group: ['team#member'], team: ['org#member'], org: ['club#member'], club: ['group#member', 'user:*'] };
+const shapes: Record<string, Shape> = {
+  public: {},
+  named: { sets: { group: ['user'] } },
+  both: { member: ['user', 'group#member'] },
+  depth2: { sets: depth2 },
+  depth3: { sets: depth3 },
+  cycle: { sets: cycle },
+  cycle3: { sets: cycle3 },
+  namedCycle3: { sets: namedCycle3 },
+  cycle4: { sets: cycle4 },
+};
 
 const tupleNames = (v: Verdict): string[] => (v.counterexample?.tuples ?? []).map((t) => `${t.object.type}:${t.object.id}#${t.relation}@${t.subject.type}:${t.subject.id}${t.subject.relation === undefined ? '' : `#${t.subject.relation}`}`);
 /** The counterexample enters through a subject set on `tenant#member` and a wildcard behind it. */
@@ -153,24 +167,43 @@ describe('a public member behind a subject set', function () {
         for (const a of [never('tenant#member'), never('group#member'), isolated('tenant#member'), onlyVia('tenant#member')]) expect(await verdictOf(closed, a, k), JSON.stringify(a)).to.include({ result: 'holds', engine: 'bounded', bound: k });
       });
 
+      it('counts every relation of a cycle of sets for never() in both engines', async () => {
+        for (const [name, sets] of Object.entries({ cycle, cycle3, namedCycle3, cycle4 })) {
+          for (const type of Object.keys(sets)) {
+            const label = `${name} never(${type}#member)`;
+            expect(await verdictOf(policy({ sets }), never(`${type}#member`), k), label).to.include({ result: 'violated', engine: 'exact' });
+            expect(await verdictOf(policy({ sets, enter: twin }), never(`${type}#member`), k), label).to.include({ result: 'violated', engine: 'bounded' });
+          }
+        }
+      });
+
       it('gets the same verdict from the exact and the bounded engine', async () => {
-        const assertions = [never('tenant#member'), never('role:member'), never('public:tenant#member'), never('group#member'), never('public:group#member'), never('tenant#guest'), onlyVia('tenant#member'), onlyVia('tenant#member', 'public:tenant#member')];
-        for (const [name, shape] of Object.entries({ public: {}, named: { sets: { group: ['user'] } }, both: { member: ['user', 'group#member'] }, depth2: { sets: depth2 }, depth3: { sets: depth3 }, cycle: { sets: cycle } })) {
-          for (const a of assertions) {
+        let pairs = 0;
+        for (const [name, shape] of Object.entries(shapes)) {
+          const inner = Object.keys(shape.sets ?? { group: [] }).flatMap((t) => [never(`${t}#member`), never(`public:${t}#member`)]);
+          for (const a of [never('tenant#member'), never('role:member'), never('public:tenant#member'), never('tenant#guest'), ...inner, onlyVia('tenant#member'), onlyVia('tenant#member', 'public:tenant#member')]) {
             const label = `${name} ${JSON.stringify(a)}`;
             const exact = await verdictOf(policy(shape), a, k);
             const search = await verdictOf(policy({ ...shape, enter: twin }), a, k);
             expect(search.result, label).to.eq(exact.result);
             if (exact.result === 'violated') expect([exact.engine, search.engine], label).to.deep.equal(['exact', 'bounded']);
+            pairs++;
           }
         }
+        expect(pairs).to.eq(94);
       });
     });
   }
 
+  it('keeps a path through the set apart from a shorter one to the same state', async () => {
+    // `team#member` is reached first from `tenant#member` directly; the path through `group#member` comes later.
+    const ir = policy({ member: ['group#member', 'team#member'], sets: { group: ['team#member'], team: ['user'] } });
+    expect(await verdictOf(ir, never('group#member'), 2)).to.include({ result: 'violated', engine: 'exact' });
+  });
+
   it('the matrix and never() agree on members behind a subject set', async () => {
-    const shapes: Array<Record<string, SubjectTypeRef[]>> = [{ group: ['user:*'] }, { group: ['user'] }, depth2, cycle];
-    for (const sets of shapes) {
+    const matrixSets: Array<Record<string, SubjectTypeRef[]>> = [{ group: ['user:*'] }, { group: ['user'] }, depth2, cycle];
+    for (const sets of matrixSets) {
       const ir = policy({ sets, see: true });
       const m = permissionMatrix(ir);
       for (const holder of [...Object.keys(m.cells), 'tenant#member', 'group#member', 'public:group#member', 'tenant#guest', 'public']) {
