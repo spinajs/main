@@ -26,7 +26,8 @@ export function secondSessionError(): Error {
  * defaults), `server-restart` (restarts the server), `pglite-gap` (PostgreSQL behaviour PGlite does not have).
  */
 export const PGLITE_SKIPS: Readonly<Record<string, string>> = {
-  'postgres lockTableShared (integration)': 'second-session: checks the SHARE lock from another pg.Client session',
+  'postgres write capture beside a concurrent writer (integration)': 'second-session: commits from another session between the capture key read and the statement',
+  'postgres lockTableShared (integration)':'second-session: checks the SHARE lock from another pg.Client session',
   'postgres migration lock (integration)': 'second-session: holds the advisory lock on a client of its own beside the pool, and PGlite takes the lock-table row',
   'postgres OrmMigrator table info re-read (integration)': 'server-admin: creates and drops a database per test through an admin session',
   'postgres strict table check (integration)': 'server-admin: creates and drops a database per test through an admin session',
