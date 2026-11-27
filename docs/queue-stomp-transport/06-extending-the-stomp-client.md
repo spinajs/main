@@ -176,7 +176,7 @@ DI.register(async (container: IContainer, options: IQueueConnectionOptions) => {
 - A subclass selected by its own name does not go through the shipped factory: its client id is `clientId ?? name`. See [Factory for a subclass](05-client-factory-and-client-id.md#factory-for-a-subclass).
 - `buildEmitPipeline()` runs before the subclass's own field initializers. Use only `this.Options` in it.
 - `createClient()` runs in `resolve()` before the handlers are installed; anything you set on the client's `onConnect`, `onStompError`, `onWebSocketError`, `onWebSocketClose`, `onDisconnect`, `onUnhandledMessage` or `debug` there is overwritten. Wrap them after `super.resolve()` instead, keeping the original handler.
-- `createWebSocket()` is called inside the `stompjs` connect loop. An exception there is not reported to `resolve()`: it surfaces as an unhandled promise rejection and the first connect never settles. Validate options in `resolve()` before `super.resolve()` when that matters.
+- `createWebSocket()` is called inside the `stompjs` connect loop. An exception there before the first connect rejects `resolve()` with `InvalidArgument` naming the connection and the broker, with the exception's name and message as the reason and the broker's userinfo, query and secret path parts masked in it. On a reconnect it is logged at `error`, and the client tries again after `reconnectDelay`. Your own error class does not reach the caller: validate options in `resolve()` before `super.resolve()` when it must.
 - Overriding `subscribe()`, `emit()` or `dispose()` without calling `super` drops reconnect replay, buffering or the rejection of buffered emits.
 
 ## Best practices
