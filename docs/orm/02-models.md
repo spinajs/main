@@ -304,7 +304,9 @@ updateModelDescriptor(Invoice, (d) => {
   when the conditions may have a top-level `OR`. The check is conservative: raw text
   (`where(RawQuery.create('…'))`) is grouped whenever an `OR` cannot be ruled out, so a comment, a
   backslash or an unbalanced quote or parenthesis in it adds the group too. A query whose conditions
-  have no `OR` compiles as before. Call `withDeleted()` / `withArchived()` to read deleted or archived rows.- `withDeleted()` and `withArchived()` remove only the filter the model added. A
+  have no `OR` compiles as before. Call `withDeleted()` / `withArchived()` to read deleted or archived rows.
+- Update and delete builders carry neither filter: a bulk `update(...).where(...).orWhere(...)` or
+  `destroy()` also changes soft-deleted and archived rows.- `withDeleted()` and `withArchived()` remove only the filter the model added. A
   `whereNull('DeletedAt')` the query writes itself is a condition of its own and stays.
 - A relation's populate query does not add the filters: `populate()` returns soft-deleted and
   archived related rows.
