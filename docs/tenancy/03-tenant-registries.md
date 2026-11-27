@@ -83,7 +83,7 @@ sequenceDiagram
 | Key | Type | Default | Allowed values | Meaning |
 | --- | --- | --- | --- | --- |
 | `tenancy.registry` | string | `'ConfigTenantRegistry'` | a class registered under `TenantRegistry` | The registry `tenantRegistry()` wraps |
-| `tenancy.registryCacheMs` | integer | `5000` | `0` or more | TTL of the registry cache; `0` turns it off |
+| `tenancy.registryCacheMs` | integer | `5000` | `0` to `60000` | TTL of the registry cache; `0` turns it off; larger values are refused |
 | `tenancy.tenants` | object[] | `[]` | see [Configuration](06-configuration.md#tenant-entries) | The tenants of `ConfigTenantRegistry` |
 
 ```ts
