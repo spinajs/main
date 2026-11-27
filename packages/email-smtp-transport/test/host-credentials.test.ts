@@ -14,7 +14,8 @@ import { EmailSenderSmtp } from '../src/index.js';
 const USER = 'planted-user';
 const PASSWORD = 'planted-secret';
 const PLANTED = [PASSWORD, 'planted-token', Buffer.from(`\u0000${USER}\u0000${PASSWORD}`).toString('base64'), Buffer.from(PASSWORD).toString('base64')];
-const REFUSAL = 'Email smtp connection orders-mail has a host that is not a host name: set host to the server name or IP address alone, and the user name and password in user / password';
+const REFUSAL =
+  'Email smtp connection orders-mail has a host that is not a host name: set host to the server name or IP address alone (no scheme, port or brackets; the port goes in port), and the user name and password in user / password';
 
 const URL_REFUSAL =
   "Email smtp connection orders-mail has an options.url that is not a URL: percent-encode a '/', '?', '#' or '@' in its user name, password or query (%2F, %3F, %23, %40), or set user / password";
@@ -183,6 +184,7 @@ describe('smtp transport - a host that is not a host name is refused before any 
     ['a host with a backslash', () => ({ host: 'mail.example.invalid\\planted-token', port: 587 })],
     ['a host with whitespace', () => ({ host: 'mail.example.invalid planted-token', port: 587 })],
     ['a host with a port', () => ({ host: 'mail.example.invalid:587', port: 587 })],
+    ['a bracketed IPv6 literal', () => ({ host: '[::1]', port: 587 })],
     ['user:password@ an IPv4 literal of a live server', () => ({ host: `${USER}:${PASSWORD}@127.0.0.1`, port: server.Port })],
     ['user:password@host in options.host', () => ({ host: 'mail.example.invalid', port: 587, options: { host: `${USER}:${PASSWORD}@mail.example.invalid` } })],
   ];
