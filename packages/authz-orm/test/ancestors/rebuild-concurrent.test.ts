@@ -29,22 +29,30 @@ const settled = (p: Promise<unknown>): Promise<unknown> => p.then(
 
 const TASK_LINKS = (links: readonly string[]) => links.filter((l) => l.startsWith('task:'));
 
-// PostgreSQL scenarios hold the rebuild with a row lock on one of its rows: its DELETE waits there, after it locked and read.
+/** Sessions of the test's own database that wait on a lock. */
+const LOCK_WAITERS = new Map<Dialect, string>([
+  ['postgres', `SELECT COUNT(*) AS n FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock'`],
+  ['mysql', `SELECT COUNT(*) AS n FROM information_schema.innodb_trx t JOIN information_schema.processlist p ON p.id = t.trx_mysql_thread_id WHERE t.trx_state = 'LOCK WAIT' AND p.db = DATABASE()`],
+]);
+
+// With a second connection, a scenario holds the rebuild with a row lock on one of its ancestor rows: on PostgreSQL its
+// DELETE waits there, after it locked and read; on MySQL its lock of the ancestor table waits there.
 describe('authz:ancestors-rebuild while the application writes', function () {
   this.timeout(120000);
   let db: TestDb;
-  let pg = false;
+  const reachable = new Set<Dialect>(['sqlite']);
 
   before(async () => {
-    pg = await TestDb.postgresReachable();
-    db = await TestDb.open({ postgres: pg });
+    if (await TestDb.postgresReachable()) reachable.add('postgres');
+    if (await TestDb.mysqlReachable()) reachable.add('mysql');
+    db = await TestDb.open({ postgres: reachable.has('postgres'), mysql: reachable.has('mysql') });
   });
 
   after(async () => {
     await db?.close();
   });
 
-  for (const dialect of ['sqlite', 'postgres'] as const satisfies readonly Dialect[]) {
+  for (const dialect of ['sqlite', 'postgres', 'mysql'] as const satisfies readonly Dialect[]) {
     describe(dialect, () => {
       let out: string[];
       let err: string[];
@@ -54,7 +62,7 @@ describe('authz:ancestors-rebuild while the application writes', function () {
       let driver: OrmDriver;
 
       before(function () {
-        if (dialect === 'postgres' && !pg) this.skip();
+        if (!reachable.has(dialect)) this.skip();
       });
 
       beforeEach(async () => {
@@ -63,8 +71,9 @@ describe('authz:ancestors-rebuild while the application writes', function () {
         err = [];
         stubs = [sinon.stub(console, 'log').callsFake((...a: unknown[]) => void out.push(a.join(' '))), sinon.stub(console, 'error').callsFake((...a: unknown[]) => void err.push(a.join(' ')))];
         driver = db.driver(dialect);
-        Project = (await db.define({ name: 'Project', columns: { org_id: 'TEXT' }, decorate: (c, p) => { AccessResource('project')(c); Parent('org')(p, 'org_id'); } }, dialect)) as M;
-        Task = (await db.define({ name: 'Task', columns: { project_id: 'TEXT', title: 'TEXT' }, decorate: (c, p) => { AccessResource('task')(c); Parent('project')(p, 'project_id'); } }, dialect)) as M;
+        const text = dialect === 'mysql' ? 'VARCHAR(64)' : 'TEXT';
+        Project = (await db.define({ name: 'Project', columns: { org_id: text }, decorate: (c, p) => { AccessResource('project')(c); Parent('org')(p, 'org_id'); } }, dialect)) as M;
+        Task = (await db.define({ name: 'Task', columns: { project_id: text, title: text }, decorate: (c, p) => { AccessResource('task')(c); Parent('project')(p, 'project_id'); } }, dialect)) as M;
         await Project.insert([{ id: 'p1', org_id: 'o1' }, { id: 'p2', org_id: 'o2' }]);
         await Task.insert([{ id: 't1', project_id: 'p1' }, { id: 't2', project_id: 'p1' }]);
       });
@@ -126,7 +135,7 @@ describe('authz:ancestors-rebuild while the application writes', function () {
         const rebuilt = 'org:o3=2500 project:p2=2500';
         expect(await view()).to.equal(old);
 
-        const hold = dialect === 'postgres' ? holdRow(driver, 'task:n0') : undefined;
+        const hold = dialect === 'sqlite' ? undefined : holdRow(driver, 'task:n0');
         await hold?.ready;
         const started = Date.now();
         const run = settled(rebuild('task'));
@@ -153,15 +162,15 @@ describe('authz:ancestors-rebuild while the application writes', function () {
         expect(err).to.deep.equal([]);
         expect([...seen].filter((v) => v !== old && v !== rebuilt), 'a reader saw a partial table').to.deep.equal([]);
         expect(await view()).to.equal(rebuilt);
-        // SQLite runs a statement outside the transaction only after it ends; PostgreSQL never blocks the reader.
-        const bound = dialect === 'postgres' ? 1000 : took;
+        // SQLite runs a statement outside the transaction only after it ends; PostgreSQL and MySQL never block the reader.
+        const bound = dialect === 'sqlite' ? took : 1000;
         process.stdout.write(`      [${dialect}] rebuild of 5,004 links ${took} ms, ${reads} reads, slowest read ${slowest} ms (bound ${bound} ms)\n`);
         expect(slowest).to.be.at.most(bound);
       });
 
-      describe('on PostgreSQL, with a second connection', () => {
+      describe('with a second connection', () => {
         before(function () {
-          if (dialect !== 'postgres') this.skip();
+          if (dialect === 'sqlite') this.skip();
         });
 
         it('a move of a parent waits for the rebuild and then rewrites the rows the rebuild repaired below it', async () => {
@@ -237,6 +246,13 @@ describe('authz:ancestors-rebuild while the application writes', function () {
           expect(out).to.include.members(['task: 4 rows', 'project: 2 rows']);
           await expectQuietRebuildAgrees();
         });
+
+        it('six rebuilds at once, five times: none fails', async () => {
+          // Without a self-exclusive lock, rebuilds that both hold the ancestor table's lock deadlock on their DELETEs.
+          for (let round = 0; round < 5; round++) await Promise.all(Array.from({ length: 6 }, (_, i) => rebuild(i % 2 === 0 ? 'task' : undefined)));
+          expect(err).to.deep.equal([]);
+          await expectQuietRebuildAgrees();
+        });
       });
 
       /** A transaction on a connection of its own that holds the row lock of `ref`'s first ancestor row until `release()`. */
@@ -260,7 +276,7 @@ describe('authz:ancestors-rebuild while the application writes', function () {
         void Promise.race(ends).then(() => (ended = true));
         const deadline = Date.now() + 30000;
         for (;;) {
-          const rows = (await db.raw(`SELECT COUNT(*) AS n FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock'`, [], 'postgres')) as { n: unknown }[];
+          const rows = (await db.raw(LOCK_WAITERS.get(dialect) ?? 'SELECT 0 AS n', [], dialect)) as { n: unknown }[];
           if (ended || Number(rows[0].n) >= n) return;
           if (Date.now() > deadline) throw new Error(`fewer than ${n} sessions wait on a lock after 30 s`);
           await new Promise((resolve) => setTimeout(resolve, 20));
