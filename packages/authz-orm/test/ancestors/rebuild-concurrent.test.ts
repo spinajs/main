@@ -36,6 +36,12 @@ const LOCK_WAITERS = new Map<Dialect, string>([
   ['mysql', `SELECT COUNT(*) AS n FROM information_schema.innodb_trx t JOIN information_schema.processlist p ON p.id = t.trx_mysql_thread_id WHERE t.trx_state = 'LOCK WAIT' AND p.db = DATABASE()`],
 ]);
 
+/** What the test database's sessions do, for the error of a wait that timed out. */
+const LOCK_STATE = new Map<Dialect, string>([
+  ['postgres', `SELECT pid, state, wait_event_type, wait_event, LEFT(query, 120) AS query FROM pg_stat_activity WHERE datname = current_database()`],
+  ['mysql', `SELECT p.id, p.command, p.time, p.state, t.trx_state, LEFT(COALESCE(t.trx_query, p.info), 120) AS query FROM information_schema.processlist p LEFT JOIN information_schema.innodb_trx t ON t.trx_mysql_thread_id = p.id WHERE p.db = DATABASE()`],
+]);
+
 // With a second connection, a scenario holds the rebuild with a row lock on one of its ancestor rows: on PostgreSQL its
 // DELETE waits there, after it locked and read; on MySQL its lock of the ancestor table waits there.
 describe('authz:ancestors-rebuild while the application writes', function () {
@@ -136,23 +142,7 @@ describe('authz:ancestors-rebuild while the application writes', function () {
         const rebuilt = 'org:o3=2500 project:p2=2500';
         expect(await view()).to.equal(old);
 
-        // Holds the rebuild after its DELETE ran and before its INSERT, every lock taken. The DELETE builder runs when awaited, so
-        // its `then` is the seam (`insert` returns a running Promise, whose `then` an await skips). The reads start from the
-        // test's own flow: started inside the stub, they would join the rebuild's transaction.
-        const deleted = gate();
-        const resume = gate();
-        const destroy = AncestorRecord.destroy.bind(AncestorRecord);
-        const stub = sinon.stub(AncestorRecord, 'destroy').callsFake((...args) => {
-          stub.restore();
-          const query = destroy(...args);
-          const then = query.then.bind(query);
-          query.then = (onDone, onFail) =>
-            then((result) => {
-              deleted.open();
-              return resume.wait.then(() => result);
-            }).then(onDone, onFail);
-          return query;
-        });
+        const { deleted, resume } = holdAfterDelete();
         const started = Date.now();
         const run = settled(rebuild('task'));
         let done = false;
@@ -165,7 +155,7 @@ describe('authz:ancestors-rebuild while the application writes', function () {
         resume.open();
         // SQLite in one process runs a statement outside the transaction only after it ends; PostgreSQL and MySQL answer at once.
         expect(answer, 'a reader while the rebuild has deleted and not yet inserted').to.equal(dialect === 'sqlite' ? 'no answer' : old);
-        expect(await held, 'the reader the rebuild held back').to.be.oneOf([old, rebuilt]);
+        expect(await held, 'the reader the rebuild held back').to.equal(dialect === 'sqlite' ? rebuilt : old);
         const seen = new Set<string>();
         let reads = 0;
         while (!done) {
@@ -189,59 +179,81 @@ describe('authz:ancestors-rebuild while the application writes', function () {
           if (dialect === 'sqlite') this.skip();
         });
 
+        // A hold that outlasts 5 s on a loaded machine would otherwise fail a scenario with the rebuild's lock timeout.
+        beforeEach(() => {
+          REBUILD_LOCK_WAIT.seconds = 60;
+        });
+
+        afterEach(() => {
+          REBUILD_LOCK_WAIT.seconds = 5;
+        });
+
         it('a move of a parent waits for the rebuild and then rewrites the rows the rebuild repaired below it', async () => {
           await db.raw(`DELETE FROM ${AUTHZ_RESOURCE_ANCESTOR_TABLE} WHERE resource_type = 'task' AND resource_id = 't2'`, [], dialect);
           const hold = holdRow(driver, 'task:t1');
-          await hold.ready;
-          const run = settled(rebuild('task'));
-          await untilWaiting(1, run);
-          const move = settled(Project.update({ org_id: 'o2' }).where('id', 'p1'));
-          await untilWaiting(2, move, run);
-          hold.release();
-          expect(await move, 'the move fails').to.equal(undefined);
-          expect(await run).to.equal(undefined);
-          await hold.done;
+          try {
+            await hold.ready;
+            const run = settled(rebuild('task'));
+            await untilWaiting(1, run);
+            const move = settled(Project.update({ org_id: 'o2' }).where('id', 'p1'));
+            await untilWaiting(2, move, run);
+            hold.release();
+            expect(await move, 'the move fails').to.equal(undefined);
+            expect(await run).to.equal(undefined);
+          } finally {
+            hold.release();
+            await hold.done;
+          }
           expect(err).to.deep.equal([]);
           expect(await expectQuietRebuildAgrees()).to.deep.equal(['project:p1>org:o2@1', 'project:p2>org:o2@1', 'task:t1>org:o2@2', 'task:t1>project:p1@1', 'task:t2>org:o2@2', 'task:t2>project:p1@1']);
         });
 
         it('a move in flight when the rebuild starts commits first, without a deadlock, and the rebuild reads it', async () => {
           const hold = holdRow(driver, 'task:t1');
-          await hold.ready;
           const between = gate();
           const resume = gate();
-          const move = settled(
-            driver.transaction(async () => {
-              await Task.update({ title: 'renamed' }).where('id', 't1');
-              between.open();
-              await resume.wait;
-              await Task.update({ project_id: 'p2' }).where('id', 't1');
-            }),
-          );
-          await between.wait;
-          const run = settled(rebuild('task'));
-          await untilWaiting(1, run);
-          resume.open();
-          await untilWaiting(2, move, run);
-          hold.release();
-          expect(await move, 'the move fails').to.equal(undefined);
-          expect(await run).to.equal(undefined);
-          await hold.done;
+          try {
+            await hold.ready;
+            const move = settled(
+              driver.transaction(async () => {
+                await Task.update({ title: 'renamed' }).where('id', 't1');
+                between.open();
+                await resume.wait;
+                await Task.update({ project_id: 'p2' }).where('id', 't1');
+              }),
+            );
+            await between.wait;
+            const run = settled(rebuild('task'));
+            await untilWaiting(1, run);
+            resume.open();
+            await untilWaiting(2, move, run);
+            hold.release();
+            expect(await move, 'the move fails').to.equal(undefined);
+            expect(await run).to.equal(undefined);
+          } finally {
+            resume.open();
+            hold.release();
+            await hold.done;
+          }
           expect(err).to.deep.equal([]);
           expect(TASK_LINKS(await expectQuietRebuildAgrees())).to.deep.equal(['task:t1>org:o2@2', 'task:t1>project:p2@1', 'task:t2>org:o1@2', 'task:t2>project:p1@1']);
         });
 
         it('a delete of a parent waits for the rebuild; the rows below it lose that parent', async () => {
           const hold = holdRow(driver, 'task:t1');
-          await hold.ready;
-          const run = settled(rebuild('task'));
-          await untilWaiting(1, run);
-          const remove = settled((async () => void (await Project.destroy('p1')))());
-          await untilWaiting(2, remove, run);
-          hold.release();
-          expect(await remove, 'the delete fails').to.equal(undefined);
-          expect(await run).to.equal(undefined);
-          await hold.done;
+          try {
+            await hold.ready;
+            const run = settled(rebuild('task'));
+            await untilWaiting(1, run);
+            const remove = settled((async () => void (await Project.destroy('p1')))());
+            await untilWaiting(2, remove, run);
+            hold.release();
+            expect(await remove, 'the delete fails').to.equal(undefined);
+            expect(await run).to.equal(undefined);
+          } finally {
+            hold.release();
+            await hold.done;
+          }
           expect(err).to.deep.equal([]);
           // What the writes alone leave. A rebuild of the quiet database links t1 and t2 to the deleted id p1 again (see "A rebuild links children to a deleted parent").
           expect(await ancestorLinks(driver)).to.deep.equal(['project:p2>org:o2@1']);
@@ -249,18 +261,58 @@ describe('authz:ancestors-rebuild while the application writes', function () {
 
         it('two rebuilds at once: the second waits for the first, both succeed', async () => {
           const hold = holdRow(driver, 'task:t1');
-          await hold.ready;
-          const first = settled(rebuild('task'));
-          await untilWaiting(1, first);
-          const second = settled(rebuild());
-          await untilWaiting(2, first, second);
-          hold.release();
-          expect(await first).to.equal(undefined);
-          expect(await second).to.equal(undefined);
-          await hold.done;
+          try {
+            await hold.ready;
+            const first = settled(rebuild('task'));
+            await untilWaiting(1, first);
+            const second = settled(rebuild());
+            await untilWaiting(2, first, second);
+            hold.release();
+            expect(await first).to.equal(undefined);
+            expect(await second).to.equal(undefined);
+          } finally {
+            hold.release();
+            await hold.done;
+          }
           expect(err).to.deep.equal([]);
           expect(out).to.include.members(['task: 4 rows', 'project: 2 rows']);
           await expectQuietRebuildAgrees();
+        });
+
+        it('on PostgreSQL a second rebuild waits for the first at most the lock timeout, then fails and changes nothing', async function () {
+          if (dialect !== 'postgres') this.skip();
+          REBUILD_LOCK_WAIT.seconds = 1;
+          const { deleted, resume } = holdAfterDelete();
+          try {
+            const first = settled(rebuild('task'));
+            await deleted.wait;
+            const second = settled(rebuild('task'));
+            await untilWaiting(1, second);
+            await second;
+            expect(err.join('\n')).to.contain('task: could not lock the tables of the rebuild within 1 s: a transaction is writing them, or another rebuild is running; nothing of task was changed');
+            resume.open();
+            expect(await first).to.equal(undefined);
+          } finally {
+            resume.open();
+          }
+          err.length = 0;
+          await expectQuietRebuildAgrees();
+        });
+
+        it('on PostgreSQL a rebuild whose DELETE waits past the lock timeout on a row an application holds fails with its own message', async function () {
+          if (dialect !== 'postgres') this.skip();
+          REBUILD_LOCK_WAIT.seconds = 1;
+          const before = await ancestorLinks(driver);
+          const hold = holdRow(driver, 'task:t1');
+          try {
+            await hold.ready;
+            await rebuild('task');
+          } finally {
+            hold.release();
+            await hold.done;
+          }
+          expect(err.join('\n')).to.contain('task: could not lock the tables of the rebuild within 1 s');
+          expect(await ancestorLinks(driver)).to.deep.equal(before);
         });
 
         it('two rebuilds of types that declare the same parents in opposite orders do not deadlock', async () => {
@@ -275,15 +327,19 @@ describe('authz:ancestors-rebuild while the application writes', function () {
           await Y.insert({ id: 'y1', a_id: 'a1', b_id: 'b1' });
           // In creation order, x would lock [x, a, b] and y [y, b, a]: on MySQL, where these locks are exclusive, a cycle.
           const hold = holdRow(driver, 'a1', db.table(A));
-          await hold.ready;
-          const first = settled(rebuild('x'));
-          await untilWaiting(1, first);
-          const second = settled(rebuild('y'));
-          await untilWaiting(2, first, second);
-          hold.release();
-          expect(await first).to.equal(undefined);
-          expect(await second).to.equal(undefined);
-          await hold.done;
+          try {
+            await hold.ready;
+            const first = settled(rebuild('x'));
+            await untilWaiting(1, first);
+            const second = settled(rebuild('y'));
+            await untilWaiting(2, first, second);
+            hold.release();
+            expect(await first).to.equal(undefined);
+            expect(await second).to.equal(undefined);
+          } finally {
+            hold.release();
+            await hold.done;
+          }
           expect(err).to.deep.equal([]);
           await expectQuietRebuildAgrees();
         });
@@ -291,17 +347,17 @@ describe('authz:ancestors-rebuild while the application writes', function () {
         it('on PostgreSQL a rebuild that cannot lock its tables in time gives up, changes nothing, and the writers queued behind it go on', async function () {
           if (dialect !== 'postgres') this.skip();
           REBUILD_LOCK_WAIT.seconds = 1;
+          const before = await ancestorLinks(driver);
+          const opened = gate();
+          const close = gate();
+          const open = settled(
+            driver.transaction(async () => {
+              await Task.update({ title: 'open' }).where('id', 't1');
+              opened.open();
+              await close.wait;
+            }),
+          );
           try {
-            const before = await ancestorLinks(driver);
-            const opened = gate();
-            const close = gate();
-            const open = settled(
-              driver.transaction(async () => {
-                await Task.update({ title: 'open' }).where('id', 't1');
-                opened.open();
-                await close.wait;
-              }),
-            );
             await opened.wait;
             const started = Date.now();
             let gaveUpAfter = Infinity;
@@ -320,7 +376,8 @@ describe('authz:ancestors-rebuild while the application writes', function () {
             expect(gaveUpAfter).to.be.below(10000);
             expect(await ancestorLinks(driver)).to.deep.equal(before);
           } finally {
-            REBUILD_LOCK_WAIT.seconds = 5;
+            close.open();
+            await open;
           }
         });
 
@@ -331,6 +388,28 @@ describe('authz:ancestors-rebuild while the application writes', function () {
           await expectQuietRebuildAgrees();
         });
       });
+
+      /**
+       * Holds the rebuild after its DELETE ran and before its INSERT, every lock taken. The reads start from the test's own
+       * flow: started inside the stub, they would join the rebuild's transaction.
+       */
+      function holdAfterDelete(): { deleted: { wait: Promise<void> }; resume: { open: () => void } } {
+        const deleted = gate();
+        const resume = gate();
+        const destroy = AncestorRecord.destroy.bind(AncestorRecord);
+        const stub = sinon.stub(AncestorRecord, 'destroy').callsFake((...args) => {
+          stub.restore();
+          const query = destroy(...args);
+          const then = query.then.bind(query);
+          query.then = (onDone, onFail) =>
+            then((result) => {
+              deleted.open();
+              return resume.wait.then(() => result);
+            }).then(onDone, onFail);
+          return query;
+        });
+        return { deleted, resume };
+      }
 
       /** A transaction on a connection of its own that holds a row lock until `release()`: `ref`'s ancestor rows, or the row `ref` of `table`. */
       function holdRow(d: OrmDriver, ref: string, table?: string): { ready: Promise<void>; release: () => void; done: Promise<unknown> } {
@@ -356,7 +435,7 @@ describe('authz:ancestors-rebuild while the application writes', function () {
         for (;;) {
           const rows = (await db.raw(LOCK_WAITERS.get(dialect) ?? 'SELECT 0 AS n', [], dialect)) as { n: unknown }[];
           if (ended || Number(rows[0].n) >= n) return;
-          if (Date.now() > deadline) throw new Error(`fewer than ${n} sessions wait on a lock after 30 s`);
+          if (Date.now() > deadline) throw new Error(`fewer than ${n} sessions wait on a lock after 30 s; sessions: ${JSON.stringify(await db.raw(LOCK_STATE.get(dialect) ?? 'SELECT 0 AS n', [], dialect))}`);
           await new Promise((resolve) => setTimeout(resolve, 20));
         }
       }

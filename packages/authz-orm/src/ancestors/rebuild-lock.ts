@@ -14,6 +14,12 @@ const isPostgres = (driver: OrmDriver): boolean => driver.Options.Driver === 'or
 
 const lockNotAvailable = (e: unknown): boolean => e instanceof OrmException && typeof e.inner === 'object' && e.inner !== null && 'code' in e.inner && e.inner.code === '55P03';
 
+/** `e` as the rebuild's own error when PostgreSQL's lock timeout ended the type's transaction: at a table lock, or at a row lock of its DELETE. */
+export function rebuildLockError(type: ResourceType, e: unknown): unknown {
+  if (!lockNotAvailable(e)) return e;
+  return new AuthzConfigError(`${type}: could not lock the tables of the rebuild within ${REBUILD_LOCK_WAIT.seconds} s: a transaction is writing them, or another rebuild is running; nothing of ${type} was changed; run the rebuild again when it has ended`);
+}
+
 /**
  * The first statements of a rebuild's transaction, before it reads: until it commits, no write of the tables the rebuild of
  * `type` reads and no write of authz_resource_ancestor runs; readers go on. The resource tables come first, because an
@@ -26,13 +32,8 @@ export async function lockForRebuild(driver: OrmDriver, type: ResourceType): Pro
   const postgres = isPostgres(driver);
   // A rebuild waiting in PostgreSQL's lock queue holds back every writer queued behind it, for as long as the transaction it waits for stays open.
   if (postgres) await driver.schema().raw(`SET LOCAL lock_timeout = '${Number(REBUILD_LOCK_WAIT.seconds)}s'`);
-  try {
-    for (const table of [...tables].sort()) await driver.lockTableShared(table);
-    await lockAncestorTable(driver, postgres);
-  } catch (e) {
-    if (!postgres || !lockNotAvailable(e)) throw e;
-    throw new AuthzConfigError(`${type}: could not lock the tables of the rebuild within ${REBUILD_LOCK_WAIT.seconds} s: a transaction is writing them; nothing of ${type} was changed; run the rebuild again when it has ended`);
-  }
+  for (const table of [...tables].sort()) await driver.lockTableShared(table);
+  await lockAncestorTable(driver, postgres);
 }
 
 async function lockAncestorTable(driver: OrmDriver, postgres: boolean): Promise<void> {
