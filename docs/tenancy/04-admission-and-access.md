@@ -13,7 +13,7 @@
    - `{ domain }`: `registry.find({ domain })`.
 3. No record: throws `TenantUnavailable` with `reason: 'unknown'` ("no such tenant").
 4. A state other than `'active'`: throws `TenantUnavailable` with `reason: 'inactive'` (`tenant "acme" is suspended`).
-5. An authenticated principal (`principal.authenticated === true`) for whom `TenantAccess.canEnter(principal, record)` is `false`: throws `TenantUnavailable` with `reason: 'forbidden'` (`user:bob may not enter tenant "acme"`).
+5. A principal is given, and `TenantAccess` refuses it: throws `TenantUnavailable` with `reason: 'forbidden'` (`user:bob may not enter tenant "acme"`). For an authenticated principal (`principal.authenticated === true`) it asks `canEnter(principal, record)`; for one that is not authenticated (anonymous, `UNATTENDED`) it asks `admitsVisitor(principal, record)`, which admits unless your rule overrides it. With no principal (the queue worker, the scheduler and the CLI `--tenant` hook, and an HTTP request without a principal) neither is asked. A rule that throws makes `admitTenant` reject with that error; it is not turned into an admission or a refusal.
 6. Returns the record. `admitTenant` does **not** enter the tenant: pass `record.id` to `runInTenant` or `tenantScopeOf`.
 
 ```mermaid
@@ -31,6 +31,10 @@ sequenceDiagram
     admit-->>Entry: TenantUnavailable('inactive')
   else authenticated principal
     admit->>Access: canEnter(principal, record)
+    Access-->>admit: false
+    admit-->>Entry: TenantUnavailable('forbidden')
+  else principal that is not authenticated
+    admit->>Access: admitsVisitor(principal, record)
     Access-->>admit: false
     admit-->>Entry: TenantUnavailable('forbidden')
   end
@@ -62,7 +66,7 @@ This package ships no resolver and does not call one. [`@spinajs/tenancy-http`](
 | --- | --- |
 | `'unknown'` | The registry does not know the proposal, or the string is not a tenant id |
 | `'inactive'` | The tenant is `provisioning`, `suspended`, `deleting` or `deleted` |
-| `'forbidden'` | `TenantAccess.canEnter` refused an authenticated principal |
+| `'forbidden'` | `TenantAccess.canEnter` refused an authenticated principal, or `TenantAccess.admitsVisitor` one that is not authenticated |
 
 ## Configuration
 
@@ -88,7 +92,13 @@ tenancy: {
 
 ### `TenantAccess`: custom implementation
 
-Replace the access check when membership is not on the principal: support staff who enter every tenant, a membership table. `canEnter` is asked for authenticated principals only.
+Replace the access check when membership is not on the principal: support staff who enter every tenant, a membership table. `canEnter` is asked for authenticated principals only; it answers "is this principal a member", and a rule that only implements it leaves visitors admitted. To close a tenant to visitors who are not signed in, override `admitsVisitor` as well:
+
+```ts
+public override admitsVisitor(principal: Principal, tenant: TenantRecord): Promise<boolean> {
+  return Promise.resolve(tenant.id !== 'acme');
+}
+```
 
 ```ts sample
 import { DI, Injectable } from '@spinajs/di';
@@ -161,7 +171,9 @@ export async function handleInvoiceJob(job: InvoiceJob, sender: Principal): Prom
 
 ## Important behaviour
 
-- `TenantAccess` is asked for an authenticated principal only. With no principal, an anonymous or an unattended one, `admitTenant` admits every active tenant. Decide at the entry point whether that is allowed.
+- `canEnter` is asked for an authenticated principal, `admitsVisitor` for one that is given and not authenticated (anonymous, `UNATTENDED`, a copy of `SYSTEM` with `authenticated: false`). The default `admitsVisitor` admits, so a tenant's public pages work. Your override decides per tenant and per principal. It sees the principal and the tenant, not the route: an API that is closed while its login page stays open is the job of the routes' policies.
+- With no principal, `admitTenant` asks neither member and admits every active tenant. The queue worker (`TenantQueueHook`), the scheduler's run hook and the CLI `--tenant` hook call it that way. So does an HTTP request that carries no principal: no `@spinajs/authz-http`, or `authz.principals.anonymous.enabled: false`.
+- A rule that throws, from either member, makes `admitTenant` reject with that error: over HTTP a 500, not the tenant refusal.
 - `SYSTEM` from `@spinajs/principal` is authenticated and has no `attributes.tenants`, so the attribute check refuses it (authz allows it, so `AuthzTenantAccess` admits it). Code running as `SYSTEM` calls `admitTenant` without a principal, or the access check must allow it.
 - `admitTenant` reads through the registry cache: behind a cacheable registry, a tenant suspended in the store is admitted until the TTL passes or `invalidate(id)` runs.
 - `admitTenant` checks `state === 'active'` only; `forEachTenant` with other states does not go through it.

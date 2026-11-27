@@ -42,7 +42,10 @@ Importing the entry registers `AuthzTenantAccess`, and `@spinajs/tenancy` uses i
 - A principal that holds `tenant:enter` at another tenant only, or no tenant role at all, is refused
   (`TenantUnavailable` with `reason: 'forbidden'` from `admitTenant`).
 - `canEnter` refuses a forged `system` principal (a copy of `SYSTEM`) and `UNATTENDED`. `admitTenant` asks it only for
-  an authenticated principal, so anonymous and `UNATTENDED` callers are admitted to an active tenant as before.
+  an authenticated principal. For anonymous and `UNATTENDED` callers it asks `admitsVisitor`, which `AuthzTenantAccess`
+  does not override: they are admitted to an active tenant without an authz call. Extend `AuthzTenantAccess` and
+  override `admitsVisitor` to close a tenant to them
+  ([Tenant admission and access](../tenancy/04-admission-and-access.md#tenantaccess-custom-implementation)).
 - `SYSTEM` enters every tenant: authz allows it everything, by identity. The attribute rule refused it.
 - A role whose grants match `tenant:enter` by glob (`*`, `tenant:*`, `*:enter`) gives entry wherever it is held. Held at
   `$global`, that is every tenant, and `tenantsOf` lists all of them. Narrow such roles, or deny `tenant:enter`.

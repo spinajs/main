@@ -9,7 +9,7 @@ A tenant resolver reads one place of a request (the host, a route parameter, a h
 3. `resolveTenant(resolvers, source, container)` walks the chain:
    - a resolver whose `trusted` is `false` is skipped unless the source's principal is authenticated;
    - `resolver.resolve(source)` returns a `TenantProposal` (a tenant id, `{ slug }` or `{ domain }`) or `undefined`;
-   - the first proposal goes to `admitTenant(proposal, principal, container)` of `@spinajs/tenancy`, which looks it up in the registry, checks the state is `active` and, for an authenticated principal, asks `TenantAccess.canEnter()`.
+   - the first proposal goes to `admitTenant(proposal, principal, container)` of `@spinajs/tenancy`, which looks it up in the registry, checks the state is `active` and asks `TenantAccess.canEnter()` for an authenticated principal, `TenantAccess.admitsVisitor()` for one that is not.
 4. The result is the `TenantRecord`, or `undefined` when no resolver proposed anything. A refused proposal throws `TenantUnavailable` with the reason `'unknown'`, `'inactive'` or `'forbidden'`. A registry failure throws as itself.
 
 ### The request source
@@ -114,7 +114,7 @@ export default {
 - **Base domains turn on the host resolvers.** While `tenancy.http.baseDomains` is empty, `domain` and `subdomain` propose nothing. Once it is set, `domain` proposes every host that is neither a base domain nor one label below one, so every other host the app answers on (an internal name, an IP a load balancer probes) is looked up as a tenant domain and refused.
 - **One label only.** `subdomain` proposes `acme` for `acme.app.example.com`, nothing for `a.b.app.example.com`. A label below a base is always proposed: `www.app.example.com` is the slug `www` unless that host is listed as a base domain too.
 - **Untrusted sources need a principal.** The `header` resolver is skipped for an anonymous request, so the header never names a tenant for it; the next resolver is asked.
-- **Anonymous requests are admitted on trusted sources.** `admitTenant` checks `TenantAccess` only for an authenticated principal: an anonymous request on `acme.app.example.com` runs in tenant `acme`. What it may do there is up to the policies.
+- **Anonymous requests are admitted on trusted sources.** The default `TenantAccess.admitsVisitor` admits a principal that is not authenticated: an anonymous request on `acme.app.example.com` runs in tenant `acme`. What it may do there is up to the policies. A rule that overrides `admitsVisitor` may refuse it. The rule is asked only when the request carries a principal. With `@spinajs/authz-http` that is the anonymous principal (`authz.principals.anonymous.enabled`, on by default). Without authz-http, or with that key `false`, an unauthenticated request carries no principal: `admitTenant` asks no rule and admits it to every active tenant a trusted resolver names. A socket handshake without credentials is asked as `UNATTENDED`.
 - **A tenant id is checked before the lookup.** A proposed id that does not match `TENANT_ID_PATTERN` (`^[a-z0-9_-]{1,64}$`) is `'unknown'` without a registry call.
 - **Resolver names are checked early.** `tenantResolvers()` throws `InvalidOption` for an unknown name or a registration that is no `TenantResolver`: at startup for HTTP routes that require a tenant, at the first handshake for sockets.
 
