@@ -4,11 +4,12 @@ import chaiAsPromised from 'chai-as-promised';
 import sinon from 'sinon';
 
 import { AuthzAdminFailure, SYSTEM, UNATTENDED } from '@spinajs/authz';
+import { DbAssignmentStore } from '@spinajs/authz-rbac';
 import { Configuration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
 import { TenantUnavailable, admitTenant, tenantAccess, tenantRecord, tenantRegistry } from '@spinajs/tenancy';
 
-import { AuthzTenantAccess, TENANT_ADMIN_ROLE, TENANT_MEMBER_ROLE, TENANT_OWNER_ROLE, tenantResource, tenantsOf } from '../../src/authz/index.js';
+import { AuthzTenantAccess, TENANT_ADMIN_ROLE, TENANT_MEMBER_ROLE, TENANT_OWNER_ROLE, tenancyAuthz, tenantResource, tenantsOf } from '../../src/authz/index.js';
 import { authzStack, grant, person } from './support/stack.js';
 
 chai.use(chaiAsPromised);
@@ -46,6 +47,7 @@ describe('AuthzTenantAccess and tenantsOf', function () {
 
     expect(await access.canEnter(person('nobody', { tenants: ['acme'] }), acme)).to.eq(false);
     expect(await access.canEnter(forged, acme)).to.eq(false);
+    expect(await tenantsOf(forged)).to.deep.eq([]);
     expect(await access.canEnter(UNATTENDED, acme)).to.eq(false);
     // SYSTEM is the platform principal: authz allows it everything, by identity only.
     expect(await access.canEnter(SYSTEM, acme)).to.eq(true);
@@ -89,6 +91,43 @@ describe('AuthzTenantAccess and tenantsOf', function () {
       cfg.set(['authz', 'orm', 'domain'], 'root');
     }
     expect(await new AuthzTenantAccess().canEnter(alice, tenantRecord({ id: 'acme' }))).to.eq(true);
+  });
+
+  it('rejects, and never allows, when the authz check itself fails', async () => {
+    const alice = person('alice');
+    await grant(alice, TENANT_MEMBER_ROLE, tenantResource('acme'));
+    const authz = await tenancyAuthz();
+    const can = sinon.stub(authz, 'can').rejects(new Error('authz down'));
+    const checkAll = sinon.stub(authz, 'checkAll').rejects(new Error('authz down'));
+
+    try {
+      await expect(new AuthzTenantAccess().canEnter(alice, tenantRecord({ id: 'acme' }))).to.be.rejectedWith('authz down');
+      await expect(admitTenant('acme', alice)).to.be.rejectedWith('authz down');
+      await expect(tenantsOf(alice)).to.be.rejectedWith('authz down');
+    } finally {
+      can.restore();
+      checkAll.restore();
+    }
+  });
+
+  it('refuses while the assignment store fails, and does not keep the refusal once it recovers', async () => {
+    const alice = person('alice');
+    await grant(alice, TENANT_MEMBER_ROLE, tenantResource('acme'));
+    const acme = tenantRecord({ id: 'acme' });
+    const forSubjects = sinon.stub(DbAssignmentStore.prototype, 'forSubjects').rejects(new Error('store down'));
+    const forSubjectKeys = sinon.stub(DbAssignmentStore.prototype, 'forSubjectKeys').rejects(new Error('store down'));
+
+    try {
+      expect(await new AuthzTenantAccess().canEnter(alice, acme)).to.eq(false);
+      await expect(admitTenant('acme', alice)).to.be.rejectedWith(TenantUnavailable).and.eventually.have.property('reason', 'forbidden');
+      expect(await tenantsOf(alice)).to.deep.eq([]);
+    } finally {
+      forSubjects.restore();
+      forSubjectKeys.restore();
+    }
+    expect(await new AuthzTenantAccess().canEnter(alice, acme)).to.eq(true);
+    expect((await admitTenant('acme', alice)).id).to.eq('acme');
+    expect((await tenantsOf(alice)).map((t) => t.id)).to.deep.eq(['acme']);
   });
 
   it('lets a tenant.admin add members of its own tenant and of no other', async () => {
