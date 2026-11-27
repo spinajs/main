@@ -17,6 +17,17 @@ every tenant. Use it for one statement; use `runAcrossTenants(reason, fn)` of `@
 const overdue = await Invoice.where('status', 'overdue').acrossTenants('nightly dunning report');
 ```
 
+The mark widens the builder it is called on and nothing else. A [sub-query](02-tenant-models.md#sub-queries) of a
+widened statement is still confined to the current tenant, or throws `TenantRequired` with no tenant scope; mark the
+sub-query to widen it too:
+
+```ts
+// every tenant's invoices whose code is a code of the current tenant
+await Invoice.query().acrossTenants('duplicate codes').whereIn('code', Invoice.query().select('code'));
+// every tenant's invoices whose code is a code of any tenant
+await Invoice.query().acrossTenants('duplicate codes').whereIn('code', Invoice.query().select('code').acrossTenants('duplicate codes'));
+```
+
 In the callback of a relation list's `sync()`, `this.acrossTenants(reason)` widens the statement that removes the
 orphans to every tenant; without it that statement stays in the current tenant:
 
@@ -63,7 +74,10 @@ execution copy made from the marked builder, such as a page of `stream()`, and i
 ## Important behaviour
 
 - The reason is required and must not be blank.
-- On a select, update or delete builder it works inside a tenant and with no scope, and widens that one statement only.
+- On a select, update or delete builder it works inside a tenant and with no scope, and widens that one statement only,
+  not its sub-queries. A sub-query in the `sync()` callback (`this.acrossTenants(reason).whereIn(column, query)`) stays
+  in the current tenant unless it is marked too; on a connection with tenant settings the two scopes in one transaction
+  throw `TenantSwitchDenied`.
 - In the `sync()` of a many-to-many list only the junction delete is widened. The read of existing links before it
   runs in the current scope: with no scope it throws `TenantRequired`, and on a connection with tenant settings it pins
   the tenant, so the widened delete throws `TenantSwitchDenied`. There, run the whole `sync()` inside
