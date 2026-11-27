@@ -2,6 +2,7 @@ import { AuthzCliBase } from '@spinajs/authz/cli';
 import { Orm } from '@spinajs/orm';
 import type { OrmDriver } from '@spinajs/orm';
 
+import { checkOneTypePerTable } from '../ancestors/one-type-per-table.js';
 import { AncestorRecord } from '../ancestors/record.js';
 import { driverOf } from '../ids.js';
 import { recordDriver, requireConnection } from '../records.js';
@@ -30,5 +31,6 @@ export abstract class AuthzOrmCliCommand extends AuthzCliBase {
 
   protected async prepare(): Promise<void> {
     await this.orm();
+    checkOneTypePerTable();
   }
 }

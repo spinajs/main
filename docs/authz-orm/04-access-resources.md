@@ -74,6 +74,7 @@ Declaring resources has no config keys. The permissions it adds still need `list
 - **Register before the domain boots.** Decorate at import, or call `registerAccessResource()` in a `Bootstrapper`. The authz contract refuses a type an adapter starts listing after boot: using it throws `AuthzConfigError`.
 - **Permission names keep the type's case.** `@AccessResource('task')` adds `task:read`, never `Task:read`. Permissions compare exactly.
 - **Several models, one type.** The adapter loads a ref by trying the classes of its type in registration order; the first class with a row of that id wins. The four permissions are added once per type.
+- **One type per table.** The domain boot refuses two types whose classes map to one table ([The ancestor table](06-ancestor-table.md#important-behaviour)).
 - **The owner is read from the row, never copied.** A check reads the `@Owner` column of the row it loads, so the answer follows the current value. Without `typeColumn` only a `user` principal can be the owner; with it, the principal's type must equal the row's type column too.
 - **`self` holds for `user` principals only.**
 - **`nullable` is recorded, not enforced.** `ParentEntry.nullable` is `true` for `@Parent(type, { nullable: true })`. Every reader treats a `NULL` parent column as "no parent" (a root), with or without the flag. <!-- TODO(docs-hook): verify whether authz:ancestors-verify is meant to report NULL parent columns without nullable; the api.ts doc comment says so, the code does not read the flag -->

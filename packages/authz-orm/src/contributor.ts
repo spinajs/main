@@ -3,6 +3,7 @@ import type { AuthzContribution } from '@spinajs/authz';
 import { DI, Injectable, Singleton } from '@spinajs/di';
 import { Orm, extractModelDescriptor } from '@spinajs/orm';
 
+import { checkOneTypePerTable } from './ancestors/one-type-per-table.js';
 import { DbChangeLog } from './changelog/db-changelog.js';
 import { entryOf, nameOf, registeredClasses, registeredTypes } from './registry.js';
 
@@ -44,8 +45,9 @@ export function checkResourceKeys(): void {
 @Injectable(AuthzContributor)
 export class AuthzOrmContributor extends AuthzContributor {
   async contribute(_domain: string): Promise<AuthzContribution> {
-    // listTypes and the key check come from the decorators and need no ORM; only the connection check and the coverage do.
+    // listTypes and the key and table checks come from the decorators and need no ORM; only the connection check and the coverage do.
     checkResourceKeys();
+    checkOneTypePerTable();
     if (DI.RootContainer.isResolved(Orm)) {
       checkResourceConnections(DI.get(Orm) as Orm);
       const log = changeLog();
