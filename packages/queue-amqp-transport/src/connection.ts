@@ -4,6 +4,8 @@ import amqp, { Channel, ChannelModel, ConfirmChannel, ConsumeMessage, Options } 
 import _ from 'lodash';
 import { Constructor, Injectable, PerInstanceCheck } from '@spinajs/di';
 import { BackoffType, ResiliencePipeline, ResiliencePipelineBuilder } from '@spinajs/util';
+import { isIPv6 } from 'net';
+import { loggableEndpoint, loggableReason } from './loggable-endpoint.js';
 
 /**
  * Default prefix that marks a channel as a topic ( pub-sub / fanout exchange ).
@@ -18,6 +20,16 @@ const RETRY_COUNT_HEADER = QueueHeaders.RetryCount;
 
 /** Connection tuning keys that amqplib reads only from the connect target, never from socket options. */
 const CONNECT_TUNING_OPTIONS = ['heartbeat', 'frameMax', 'locale'];
+
+/** A connect failure with only its class, code and a message that cannot repeat the credentials of a url host. */
+function loggableConnectError(err: unknown, host: string | undefined): Error {
+  // a bare host name given as the endpoint would have every mention of it replaced by '<not a URL>'
+  const endpoint = host?.includes('://') ? host : '';
+  const error = new Error(loggableReason(err instanceof Error ? err.message : err, endpoint));
+  error.name = err instanceof Error ? err.name : 'Error';
+  const code = err instanceof Error && 'code' in err ? err.code : undefined;
+  return typeof code === 'string' || typeof code === 'number' ? Object.assign(error, { code }) : error;
+}
 
 interface ISubscriptionHandler {
   /** Message class the handler was subscribed for; undefined for a raw channel subscription. */
@@ -91,6 +103,16 @@ export class AmqpQueueClient extends QueueClient {
 
   protected get Prefetch() {
     return (this.Options.options?.prefetch as number) ?? 1;
+  }
+
+  /** The broker as logs and errors print it: scheme, host, port and vhost, never the userinfo or the query of a url host. */
+  protected get LoggableBroker(): string {
+    const host = this.Options.host ?? 'localhost';
+    if (host.includes('://')) return loggableEndpoint(host);
+    // read from the options, not from connectOptionsFromFields(): a subclass may look a secret up there
+    const vhost: unknown = _.get(this.Options.options, 'vhost');
+    const path = typeof vhost === 'string' && vhost !== '/' ? `/${encodeURIComponent(vhost)}` : '';
+    return loggableEndpoint(`amqp://${isIPv6(host) ? `[${host}]` : host}:${this.Options.port ?? 5672}${path}`);
   }
 
   public get IsConnected() {
@@ -223,7 +245,7 @@ export class AmqpQueueClient extends QueueClient {
    * Called on initial resolve and on every reconnect.
    */
   protected async connect() {
-    this.Log.info({ host: this.Options.host ?? 'localhost', clientId: this.ClientId }, 'Connecting to AMQP queue at ${host} with client-id: ${clientId} ...');
+    this.Log.info({ host: this.LoggableBroker, clientId: this.ClientId }, 'Connecting to AMQP queue at ${host} with client-id: ${clientId} ...');
 
     // channels are recreated - forget what the previous ( dead ) channels had asserted
     this.AssertedQueues.clear();
@@ -241,7 +263,7 @@ export class AmqpQueueClient extends QueueClient {
         ...this.Options.options,
       });
     } catch (err) {
-      throw new UnexpectedServerError(`Cannot connect to AMQP queue server at ${this.Options.host ?? 'localhost'}`, err);
+      throw new UnexpectedServerError(`Cannot connect to AMQP queue server at ${this.LoggableBroker}`, loggableConnectError(err, this.Options.host));
     }
 
     this.Connection.on('error', (err) => {
