@@ -94,7 +94,9 @@ export class OrmFileAclStore extends FileAclStore {
   }
 
   async ownerOf(fs: string, path: string): Promise<PrincipalRef | null> {
-    const rows = (await exactRows(await this.driver(), aclFs(fs), aclPath(path))).filter((r) => r.relation === FS_ACL_OWNER && !isWildcardKey(r.subject_key));
+    const f = aclFs(fs);
+    const p = aclPath(path);
+    const rows = (await exactRows(await this.driver(), f, p)).filter((r) => r.relation === FS_ACL_OWNER && !isWildcardKey(r.subject_key));
     for (const row of oldestFirst(rows)) {
       const subject = subjectOfKey(row.subject_key, `${FS_ACL_TABLE} row ${row.id}`);
       if (!('set' in subject)) return { type: subject.type, id: subject.id };

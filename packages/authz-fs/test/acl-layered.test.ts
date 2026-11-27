@@ -76,7 +76,10 @@ describe('authz-fs file ACL of a provider a layer hands out as another', functio
   const store = new OrmFileAclStore();
   const alice = userPrincipal('alice');
   const acl = (principal: Principal, authz = new FakeAuthz()) => new FsAcl({ service: async () => authz, principal: () => principal, log: { warn: () => undefined }, store: async () => store });
-  const rowsOf = async (fsName: string): Promise<number> => ((await db.select().from('fs_acl').where({ fs: fsName })) as unknown[]).length;
+  const rowsOf = async (fsName: string): Promise<number> => {
+    const rows: unknown = await db.select().from('fs_acl').where({ fs: fsName });
+    return Array.isArray(rows) ? rows.length : 0;
+  };
   const layer = (on: boolean): void => {
     if (on === layered) return;
     useLayer(StandInLayer, on);
@@ -139,6 +142,24 @@ describe('authz-fs file ACL of a provider a layer hands out as another', functio
     }
     expect(await rowsOf(TENANT_FILES)).to.equal(1);
     expect(await rowsOf(SHARED)).to.equal(0);
+  });
+
+  it('refuses a layered provider before any connection is resolved', async () => {
+    const unconnected = new OrmFileAclStore({ connection: 'no-such-connection' });
+    layer(true);
+    const calls: Record<string, () => Promise<unknown>> = {
+      holds: () => unconnected.holds(TENANT_FILES, ['a.pdf'], ['user:alice'], 'viewer', new Date()),
+      list: () => unconnected.list(TENANT_FILES, 'a.pdf'),
+      grant: () => unconnected.grant({ fs: TENANT_FILES, path: 'a.pdf', subject: ALICE, relation: 'viewer' }),
+      revoke: () => unconnected.revoke(TENANT_FILES, 'a.pdf', 'user:alice', 'viewer'),
+      ownerOf: () => unconnected.ownerOf(TENANT_FILES, 'a.pdf'),
+      setOwnerIfAbsent: () => unconnected.setOwnerIfAbsent(TENANT_FILES, 'a.pdf', ALICE),
+      deleteTree: () => unconnected.deleteTree(TENANT_FILES, ''),
+      deletePath: () => unconnected.deletePath(TENANT_FILES, 'a.pdf'),
+      moveTree: () => unconnected.moveTree(SHARED, 'in', TENANT_FILES, 'in'),
+      movePath: () => unconnected.movePath(TENANT_FILES, 'a.pdf', SHARED, 'a.pdf'),
+    };
+    for (const [method, call] of Object.entries(calls)) await expect(call(), method).to.be.rejectedWith(AuthzConfigError, REFUSED);
   });
 
   it('a fromFsPath route on a layered provider does not read the row that would grant it', async () => {
@@ -243,11 +264,14 @@ describe('authz-fs checks on file actions of a provider a layer hands out as ano
     }
   });
 
-  it('AuthzUploadMiddleware refuses an upload to a checked layered provider before the decision', async () => {
+  it('AuthzUploadMiddleware refuses an upload to a checked layered provider before the decision, and leaves mode off alone', async () => {
     provider('mw-lay', {}, true);
-    const upload: IUploadedFile = { Size: 1, Name: 'a.png', BaseName: 'a.png', Type: 'image/png', Provider: null, OriginalFile: {} as IUploadedFile['OriginalFile'] };
+    provider('mw-lay-off', {}, true);
+    const original = { size: 1, filepath: '', originalFilename: 'a.png', newFilename: 'a.png', mimetype: 'image/png', hashAlgorithm: false as const };
+    const upload: IUploadedFile = { Size: 1, Name: 'a.png', BaseName: 'a.png', Type: 'image/png', Provider: null, OriginalFile: { ...original, toJSON: () => ({ ...original, mtime: null, length: 1 }), toString: () => 'a.png' } };
     const middleware = new AuthzUploadMiddleware({ container: s.child, service: async () => s.authz, principal: () => s.principal, log: { warn: () => undefined } });
     await expect(middleware.beforeUpload(upload, { fs: 'mw-lay' })).to.be.rejectedWith(AuthzConfigError, MW_REFUSED);
+    expect(await middleware.beforeUpload(upload, { fs: 'mw-lay-off' })).to.equal(upload);
     expect(s.authz.calls).to.deep.equal([]);
   });
 
