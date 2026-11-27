@@ -3,7 +3,7 @@ import 'mocha';
 
 import { Authorizer } from '../../src/engine/authorizer.js';
 import { SYSTEM, TRUE } from '../../src/index.js';
-import type { AccessPlan, AccessPlanCache, EvaluationContext, ListPlanRequest, PermissionDef, ResourceRef, ResourceType } from '../../src/index.js';
+import type { AccessPlan, AccessPlanCache, EvaluationContext, ListPlanRequest, PermissionDef, ResourceRef, ResourceType, Vote } from '../../src/index.js';
 import { FakeAdapter, ListModel, RecordingLog, fakeClock, principal, registryOf } from './fakes.js';
 import type { ListModelOptions } from './fakes.js';
 
@@ -55,9 +55,9 @@ function cacheOf(plan: AccessPlan): AccessPlanCache {
 }
 
 /** A plan resting on a nested check of doc:write on d1, whose vote is cacheable or not. */
-const nestedChecker = (cacheable: boolean): KeptModel =>
+const nestedChecker = (cacheable: boolean, vote: Partial<Vote> = {}): KeptModel =>
   new KeptModel('n', {
-    vote: { permitWhen: TRUE, cacheable },
+    vote: { permitWhen: TRUE, cacheable, ...vote },
     listPlan: async (_req: unknown, ctx: EvaluationContext) => ((await ctx.check({ principal: alice, permission: 'doc:write', resource: { type: 'doc', id: 'd1' } })).allowed ? { kind: 'all' } : { kind: 'abstain' }),
   });
 
@@ -123,6 +123,13 @@ describe('Authorizer.accessPlan: a plan kept beyond its request', () => {
     expect((await make([nestedChecker(false)]).accessPlan(alice, 'doc:read', 'doc')).cache).to.equal(undefined);
   });
 
+  it('lives no longer than the grant behind a nested check it rested on', async () => {
+    const plan = await make([nestedChecker(true, { validUntil: new Date(clock.now.getTime() + 5_000) })]).accessPlan(alice, 'doc:read', 'doc');
+
+    expect(cacheOf(plan).ttlMs).to.equal(5_000);
+    expect(cacheOf(await make([nestedChecker(true)]).accessPlan(alice, 'doc:read', 'doc')).ttlMs).to.equal(60_000);
+  });
+
   it('keeps nothing once the request saw a fault a model caught', async () => {
     const m = kept('a', async (req: ListPlanRequest, ctx: EvaluationContext) => {
       if (req.permission.name === 'doc:other') await ctx.ancestors({ type: 'folder', id: 'x' }).catch(() => null);
@@ -133,4 +140,5 @@ describe('Authorizer.accessPlan: a plan kept beyond its request', () => {
 
     await a.accessPlan(alice, 'doc:other', 'doc', undefined, scope);
     expect((await a.accessPlan(alice, 'doc:read', 'doc', undefined, scope)).cache).to.equal(undefined);
-  });});
+  });
+});

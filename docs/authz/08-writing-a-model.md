@@ -209,7 +209,8 @@ class MyModel extends AuthorizationModel {
 `plan.cache` holds a key (the domain, the principal's whole state, the permission, the type), the tags of a type-level
 decision of the principal (`*`, `model:<name>` of the planning models, `subject:` of the principal, its companions and
 its delegation chain, `scope:*`, plus the tags of nested checks and loaded scope nodes) and a TTL:
-`authz.cache.ttlSeconds`, capped by `validUntil`. A model without the method keeps nothing, and a method that throws
+`authz.cache.ttlSeconds`, capped by `validUntil` and by the `validUntil` of every nested check the plans rested on. A
+model without the method keeps nothing, and a method that throws
 counts as no. `@spinajs/authz-abac` does not implement it, because its plans are decided with the request's env. A
 cache outside authz turns these tags into its own through the `AuthzCacheTags` port (`render(domain, tags)`, undefined
 when the domain's changes do not reach that cache); `@spinajs/authz` registers no implementation, so without one

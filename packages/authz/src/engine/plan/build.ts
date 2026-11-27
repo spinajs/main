@@ -15,7 +15,7 @@ import { deepFreeze, describeError } from '../vote.js';
 import { hostFor } from '../context/host.js';
 import { relation } from '../context/request.js';
 import { ceilingOf } from '../pipeline/delegate.js';
-import { admits, contextCacheKey, principalCacheId } from '../support/misc.js';
+import { admits, contextCacheKey, earliest, principalCacheId } from '../support/misc.js';
 import { logAt } from '../support/plumbing.js';
 import { generationVersions } from '../pipeline/index.js';
 import { scopeFaulted, tagsOf } from '../cache/store.js';
@@ -78,7 +78,7 @@ function keptPlan(engine: Engine, plan: AccessPlan, parts: { readonly principal:
   const state = principalState(principal);
   const principals = [principal, ...delegation.chain, ...(delegation.actor === undefined ? [] : [delegation.actor])];
   const tags = tagsOf(engine, models, principals, { type }, undefined, run);
-  const until = plan.kind === 'filter' ? plan.validUntil : undefined;
+  const until = earliest([plan.kind === 'filter' ? plan.validUntil : undefined, run.nested.until]);
   const ttlMs = Math.min(engine.config.cacheTtlSeconds * 1000, until === undefined ? Infinity : until.getTime() - run.instant.getTime());
   if (state === undefined || tags === undefined || !Number.isFinite(ttlMs) || ttlMs <= 0) return plan;
   const cache: AccessPlanCache = { key: JSON.stringify([engine.domain, state, def.name, type]), tags, ttlMs };

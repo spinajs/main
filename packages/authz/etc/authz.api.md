@@ -952,7 +952,7 @@ export interface AccessPlanCache {
     readonly key: string;
     /** Decision tags (`*`, `model:`, `subject:`, `link:`, `scope:`) of a type-level decision of the principal. */
     readonly tags: readonly string[];
-    /** The domain's decision TTL, capped by `validUntil`; above 0. */
+    /** The domain's decision TTL, capped by `validUntil` and the nested checks' `validUntil`; above 0. */
     readonly ttlMs: number;
 }
 /**
