@@ -47,3 +47,9 @@ Limits of this version:
 - The key holds no build or version of the application: a reply cached before a deployment is served after it until
   its ttl, and two versions behind one shared store exchange their replies. Invalidate the route's tags on deploy, or
   register a `ResponseCacheKeyPart` that returns the build id.
+
+## Configuration
+
+| Key | Default | What it does |
+| --- | --- | --- |
+| `cache.http.timeout` | `250` | Milliseconds the response cache waits for its cache to answer a lookup or a store. Past it the request runs uncached, nothing is stored for it, and the route logs a warning. A key part or a cache call that throws is read the same way. |

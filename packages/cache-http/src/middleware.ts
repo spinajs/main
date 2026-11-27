@@ -1,5 +1,6 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { isDeepStrictEqual } from 'node:util';
+import { Config } from '@spinajs/configuration';
 import { Autoinject, Container, Injectable, NewInstance } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 import { InvalidArgument } from '@spinajs/exceptions';
@@ -13,6 +14,7 @@ import { ResponseCacheKeyPart, principalIn, responseCacheKey, responseCacheNames
 import { resolveResponseCacheOptions } from './options.js';
 import type { ResolvedResponseCacheOptions } from './options.js';
 import { CachedResponse, replayableReply, replyToStore } from './response.js';
+import { RESPONSE_CACHE_DEFAULT_TIMEOUT_MS } from './schema.js';
 
 type HttpRequest = IRouteInvocation['req'];
 type HttpResponse = IRouteInvocation['res'];
@@ -85,6 +87,9 @@ export class ResponseCacheMiddleware extends RouteMiddleware {
 
   @Logger('cache')
   protected Log!: Log;
+
+  @Config('cache.http.timeout', { defaultValue: RESPONSE_CACHE_DEFAULT_TIMEOUT_MS })
+  protected Timeout!: number;
 
   /** `http:<ROUTE TYPE> <mounted path>` */
   protected namespace = '';
@@ -206,13 +211,23 @@ export class ResponseCacheMiddleware extends RouteMiddleware {
     return res.req.method === this.routeMethod ? replyToStore(outcome, res, this.options.scope) : undefined;
   }
 
-  /** onAround runs outside the action's AsyncLocalStorage context, and a CacheScope provider (the tenant) reads that context. */
+  /**
+   * onAround runs outside the action's AsyncLocalStorage context, and a CacheScope provider (the tenant) reads that
+   * context. Bounded by cache.http.timeout: a store that does not answer (a Redis client queueing while it reconnects)
+   * must not hold the request.
+   */
   protected async inStore<T>(storage: IActionLocalStoregeContext, what: string, op: () => Promise<T>): Promise<T | undefined> {
+    let timer: NodeJS.Timeout | undefined;
+    const late = new Promise<never>((_resolve, reject) => {
+      timer = setTimeout(() => reject(new Error(`the cache did not answer within ${this.Timeout} ms`)), this.Timeout);
+    });
     try {
-      return await this.Storage.run(storage, op);
+      return await Promise.race([this.Storage.run(storage, op), late]);
     } catch (error) {
       this.Log.warn({ error, route: this.namespace, what }, 'Response cache of ${route}: ${what} failed and is read as a miss');
       return undefined;
+    } finally {
+      clearTimeout(timer);
     }
   }
 
