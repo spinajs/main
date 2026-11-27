@@ -1401,9 +1401,6 @@
   },
   "packages/authz-orm/src/guard/middleware.ts": {
     "@typescript-eslint/no-unnecessary-type-assertion": {
-      "count": 2
-    },
-    "complexity": {
       "count": 1
     }
   },
@@ -4792,9 +4789,6 @@
     "@typescript-eslint/no-base-to-string": {
       "count": 2
     },
-    "@typescript-eslint/no-unnecessary-type-assertion": {
-      "count": 1
-    },
     "@typescript-eslint/no-unsafe-member-access": {
       "count": 2
     },
@@ -4825,9 +4819,6 @@
     }
   },
   "packages/log-source-graphana-loki/src/index.ts": {
-    "@typescript-eslint/no-unnecessary-type-assertion": {
-      "count": 1
-    },
     "@typescript-eslint/no-unsafe-call": {
       "count": 1
     },
@@ -6681,7 +6672,7 @@
       "count": 14
     },
     "@typescript-eslint/no-unsafe-return": {
-      "count": 4
+      "count": 3
     },
     "prettier/prettier": {
       "count": 1

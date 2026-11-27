@@ -2,9 +2,9 @@ import 'mocha';
 import { expect } from 'chai';
 import { InvalidArgument, InvalidOperation } from '@spinajs/exceptions';
 import { DateTime } from 'luxon';
-import type { ColumnFamily } from '@spinajs/manifest';
+import type { ColumnFamily, SqlDialectProfile } from '@spinajs/manifest';
 import { IModelDescriptor, InvalidCursor } from '../src/index.js';
-import { decodeCursor, encodeCursor, keysetColumns, keysetPage } from '../src/keyset.js';
+import { decodeCursor, encodeCursor, keysetColumns, keysetFamilies, keysetPage } from '../src/keyset.js';
 
 const descriptor = { Name: 'Doc', PrimaryKey: ['Id'] } as unknown as IModelDescriptor;
 
@@ -179,6 +179,37 @@ describe('cursor values against the column families', () => {
 
   it('leaves a column of an unknown type unchecked', () => {
     expect(decodeCursor(columns, cursorWith('abc'), [undefined, undefined])[0]).to.eq('abc');
+  });
+
+  it('takes a time of day only, so SQL Server never converts a forged time on a row', () => {
+    for (const value of ['00:00', '9:05', '23:59:59', '08:15:00.25', '23:59:59.1234567']) {
+      expect(() => decodeCursor(columns, cursorWith(value), [['time'], ['integer']]), value).to.not.throw();
+    }
+    for (const value of ['99:99', '24:00', '12:60', '12:30:60', '12:30:15.12345678', '-01:00', '100:00:00']) {
+      expect(() => decodeCursor(columns, cursorWith(value), [['time'], ['integer']]), value).to.throw(InvalidCursor, /Score/);
+    }
+  });
+
+  it('takes only a number for a decimal column where the driver reads decimals back as numbers', () => {
+    const priced = { Name: 'Doc', PrimaryKey: ['Id'], Columns: [{ Name: 'Score', NativeType: 'decimal' }, { Name: 'Id', NativeType: 'int' }] } as unknown as IModelDescriptor;
+    const dialect = (decimal: string): SqlDialectProfile => ({
+      name: 'test',
+      grammar: 'TransactSQL',
+      placeholders: 'at-p0',
+      families: { decimal },
+      count: 'number',
+      sum: {},
+      avg: {},
+      predicates: 'unknown',
+      nativeTypes: { decimal: ['decimal'], int: ['integer'] },
+    });
+    const asNumber = keysetFamilies(columns, priced, dialect('number'));
+    const asText = keysetFamilies(columns, priced, dialect('string'));
+
+    expect(decodeCursor(columns, cursorWith(12.5), asNumber)[0]).to.eq(12.5);
+    expect(() => decodeCursor(columns, cursorWith('99999999999999999999999999999999999999.5'), asNumber)).to.throw(InvalidCursor, /Score/);
+    expect(() => decodeCursor(columns, cursorWith('12.50'), asNumber)).to.throw(InvalidCursor, /Score/);
+    expect(decodeCursor(columns, cursorWith('12.50'), asText)[0]).to.eq('12.50');
   });
 
   it('refuses a cursor longer than 4096 characters before decoding it', () => {

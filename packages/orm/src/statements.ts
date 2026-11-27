@@ -41,6 +41,12 @@ export interface IQueryStatement {
   // ( SelectQueryBuilder.clone() and WhereBuilder.clone() copy it )
   Scope?: boolean;
 
+  /** The statements this one holds: a group's conditions, a join's ON conditions and the joins nested in it. */
+  nested?(): readonly IQueryStatement[];
+
+  /** The select this statement compiles into its own SQL as a sub-query. */
+  readonly SubQuery?: SelectQueryBuilder;
+
   build(): IQueryStatementResult;
 
   clone(parent?: QueryBuilder | SelectQueryBuilder | WhereBuilder<any>): IQueryStatement;
@@ -167,6 +173,10 @@ export abstract class WhereQueryStatement extends QueryStatement {
 
   public get Builder(): WhereBuilder<any> {
     return this._builder;
+  }
+
+  public nested(): readonly IQueryStatement[] {
+    return this._builder.Statements;
   }
 
   public abstract build(): IQueryStatementResult;
@@ -374,6 +384,11 @@ export abstract class JoinStatement extends QueryStatement {
     return { table: descriptor ? descriptor.TableName : joinTable, alias, model: joinModel };
   }
 
+  public nested(): readonly IQueryStatement[] {
+    const own = this._whereBuilder === undefined ? [] : this._whereBuilder.Statements;
+    return [...own, ...(this._options.onStatements ?? []), ...(this._options.nestedJoins ?? [])];
+  }
+
   /**
    * For `SelectQueryBuilder.clone()`: the columns this join's builder gave the query it was merged into, each paired
    * with the same column of `copy`, the clone of this statement.
@@ -451,6 +466,10 @@ export abstract class SelectQueryStatement extends QueryStatement {
   constructor(builder: SelectQueryBuilder, tableAlias?: string) {
     super(tableAlias);
     this._builder = builder;
+  }
+
+  public get SubQuery(): SelectQueryBuilder {
+    return this._builder;
   }
 
   public abstract build(): IQueryStatementResult;
@@ -591,6 +610,33 @@ export abstract class StartsWithStatement extends QueryStatement {
     }
 
     return this._prefix;
+  }
+}
+
+/**
+ * `column = value` byte for byte. MySQL's and SQL Server's `=` ignore trailing spaces even on a binary collation, so
+ * each dialect adds its `SqlExpressions.equalsExactly()` beside the plain equality, which stays for the index seek.
+ */
+@NewInstance()
+export abstract class ExactlyStatement extends QueryStatement {
+  protected _column: string;
+  protected _value: string;
+
+  constructor(column: string, value: string, tableAlias: string) {
+    super(tableAlias);
+
+    this._column = column || '';
+    this._value = value;
+  }
+
+  public abstract build(): IQueryStatementResult;
+
+  protected value(): string {
+    if (typeof this._value !== 'string') {
+      throw new InvalidArgument(`whereExactly(${this._column}) takes a string value, got ${this._value === null ? 'null' : typeof this._value}`);
+    }
+
+    return this._value;
   }
 }
 
@@ -736,6 +782,10 @@ export abstract class ColumnConditionStatement extends QueryStatement {
 
   public get Alias(): string {
     return this._alias;
+  }
+
+  public nested(): readonly IQueryStatement[] {
+    return this._builder.Statements;
   }
 
   public abstract build(): IQueryStatementResult;
