@@ -44,6 +44,13 @@ describe('postgres statement outside a transaction (unit)', function () {
     expect(release.args).to.deep.equal([[true]]);
   });
 
+  it('destroys the client after any error that is not a server answer, whatever its message', async () => {
+    const lost = new Error('Connection terminated unexpectedly');
+    const release = usePool(() => Promise.reject(lost));
+    await expect(driver.executeOnDb('SELECT 1', [], QueryContext.Select)).to.be.rejected;
+    expect(release.args).to.deep.equal([[true]]);
+  });
+
   it('pools the client after an error the server answered, statement_timeout included', async () => {
     for (const refused of [serverError('relation "nope" does not exist', '42P01'), serverError('canceling statement due to statement timeout', '57014')]) {
       const release = usePool(() => Promise.reject(refused));
