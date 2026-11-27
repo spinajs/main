@@ -25,6 +25,25 @@ registerConfigurationSchemaAtImport(LIMITS_SCHEMA);
 
 const CACHE_MS = 300;
 
+const PARALLEL_PATHS = Array.from({ length: 10 }, (_, i) => `p${i}.v`);
+
+// Holds the first read of one tenant's row until `release()`: a write of that tenant is then in flight.
+class HeldSettingsService extends TenantSettingsService {
+  public held?: string;
+
+  private gate = Promise.withResolvers<void>();
+
+  public release(): void {
+    this.held = undefined;
+    this.gate.resolve();
+  }
+
+  protected override async current(id: string): Promise<TenantModel> {
+    if (id === this.held) await this.gate.promise;
+    return super.current(id);
+  }
+}
+
 describe('TenantSettingsService', function () {
   this.timeout(30_000);
 
@@ -33,7 +52,7 @@ describe('TenantSettingsService', function () {
 
   before(async () => {
     // `notes.text` is listed and no schema declares it.
-    app = await bootApp({ registry: 'DbTenantRegistry', registryCacheMs: CACHE_MS, config: { overridable: ['mail.from', 'limits.export', 'notes.text'] } });
+    app = await bootApp({ registry: 'DbTenantRegistry', registryCacheMs: CACHE_MS, config: { overridable: ['mail.from', 'limits.export', 'notes.text', ...PARALLEL_PATHS] } });
     service = await app.container.resolve(TenantSettingsService);
   });
 
@@ -153,14 +172,31 @@ describe('TenantSettingsService', function () {
     expect(await stored('globex')).to.deep.equal({ mail: { from: 'globex@globex.test' } });
   });
 
-  it('two writes of one tenant at the same time: the last one wins for the whole object, never a mix of both', async () => {
-    const first = { plan: 'pro', mail: { from: 'first@acme.test' } };
-    const secondAlone = { plan: 'pro', 'mail.from': 'old@acme.test', limits: { export: { limit: 5 } } };
+  it('concurrent writes of one tenant in this process take turns: every change is kept', async () => {
+    await Promise.all(PARALLEL_PATHS.map((path, i) => service.set('acme', path, i)));
 
-    await Promise.all([service.set('acme', 'mail.from', 'first@acme.test'), service.set('acme', 'limits.export', { limit: 5 })]);
+    expect(await stored()).to.deep.equal({ plan: 'pro', 'mail.from': 'old@acme.test', ...Object.fromEntries(PARALLEL_PATHS.map((path, i) => [path.split('.')[0], { v: i }])) });
+  });
 
-    const settings = await stored();
-    expect([first, secondAlone, { plan: 'pro', mail: { from: 'first@acme.test' }, limits: { export: { limit: 5 } } }]).to.deep.include(settings);
+  it('a refused write neither fails nor blocks the writes of the tenant queued behind it, and the queue is emptied', async () => {
+    const results = await Promise.allSettled([service.set('acme', 'p0.v', 0), service.set('acme', 'mail.from', 'not an address'), service.set('acme', 'p1.v', 1)]);
+
+    expect(results.map((result) => result.status)).to.deep.equal(['fulfilled', 'rejected', 'fulfilled']);
+    expect(await stored()).to.deep.equal({ plan: 'pro', 'mail.from': 'old@acme.test', p0: { v: 0 }, p1: { v: 1 } });
+    expect(service['writing'].size).to.equal(0);
+  });
+
+  it('a write of one tenant does not wait for a write of another tenant', async () => {
+    const held = await app.container.resolve(HeldSettingsService);
+    held.held = 'acme';
+
+    const acme = held.set('acme', 'p0.v', 0);
+    await held.set('globex', 'p0.v', 0);
+    expect(await stored()).to.deep.equal({ plan: 'pro', 'mail.from': 'old@acme.test' });
+
+    held.release();
+    await acme;
+    expect(await stored()).to.deep.include({ p0: { v: 0 } });
   });
 
   it('the next configuration read in this process sees the new value', async () => {

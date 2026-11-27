@@ -56,12 +56,16 @@ function jsonForm(value: unknown): unknown {
 
 /**
  * Writes the overrides of a tenant at the paths `tenancy.config.overridable` lists, in the configuration's shape, after
- * `checkTenantSettings` accepted the whole resulting settings object. The last write wins for the whole object.
+ * `checkTenantSettings` accepted the whole resulting settings object. In one process the writes of one tenant take
+ * turns; two processes that write the same tenant's settings at the same moment can lose one of the two changes.
  */
 @Injectable()
 export class TenantSettingsService {
   @Config('tenancy.config.overridable', { defaultValue: [] })
   protected Overridable!: unknown;
+
+  /** The last write queued for each tenant; it never rejects. */
+  private readonly writing = new Map<string, Promise<void>>();
 
   /** @throws InvalidArgument for a path that is not listed, TenantMismatch inside another tenant's scope, InvalidOperation for a deleting or deleted tenant, InvalidConfiguration for a refused value */
   public async set(id: string, path: string, value: unknown): Promise<TenantRecord> {
@@ -85,9 +89,25 @@ export class TenantSettingsService {
     return segments;
   }
 
-  protected async write(id: string, change: (settings: Settings) => Record<string, unknown>): Promise<TenantRecord> {
+  // Each write reads the whole object and writes it back: two writes of one tenant at once would keep only one change.
+  protected write(id: string, change: (settings: Settings) => Record<string, unknown>): Promise<TenantRecord> {
     const scoped = currentTenant();
-    if (scoped !== undefined && scoped.id !== id) throw new TenantMismatch(`tenancy-orm: code in tenant "${scoped.id}" cannot write the settings of tenant "${id}"`);
+    if (scoped !== undefined && scoped.id !== id) {
+      return Promise.reject(new TenantMismatch(`tenancy-orm: code in tenant "${scoped.id}" cannot write the settings of tenant "${id}"`));
+    }
+    const written = (this.writing.get(id) ?? Promise.resolve()).then(() => this.writeNow(id, change));
+    const settled = written.then(
+      () => undefined,
+      () => undefined,
+    );
+    this.writing.set(id, settled);
+    void settled.finally(() => {
+      if (this.writing.get(id) === settled) this.writing.delete(id);
+    });
+    return written;
+  }
+
+  protected async writeNow(id: string, change: (settings: Settings) => Record<string, unknown>): Promise<TenantRecord> {
     const row = await this.current(id);
     if (row.state === 'deleting' || row.state === 'deleted') throw new InvalidOperation(`tenancy-orm: tenant "${id}" is ${row.state}; its settings are not changed any more`);
     const next = change(isRecord(row.settings) ? row.settings : {});

@@ -135,8 +135,12 @@ admitting gets the old value at the first read past that interval, which starts 
 at most about twice the interval after the write. A failed refresh keeps the last settings and is tried again one
 `tenancy.registryCacheMs` later. With `tenancy.registryCacheMs: 0` only an admission or `loadTenantSettings` reads them again.
 
-Two writes of one tenant at the same time: the last one wins for the whole settings object. Each stored object is
-the complete result of one call and passed the check, but the change of the other call can be lost.
+Each write reads the tenant's whole settings object, changes one path and writes the whole object back. In one process
+the writes of one tenant take turns, so parallel calls (a settings form that saves each field with its own request to
+one replica) all keep their change; writes of different tenants do not wait for each other, and a refused write
+neither fails nor delays the ones queued behind it. **Two processes that write the same tenant's settings at the same
+moment can lose one of the two changes**: each stored object is the complete, checked result of one call, but the
+other call's change is gone although that call succeeded.
 
 ## Related
 
