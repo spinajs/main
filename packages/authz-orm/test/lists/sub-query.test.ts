@@ -83,6 +83,7 @@ describe('authz-orm: a marked sub-query is refused', function () {
       let TaskClass: typeof ModelBase;
       let PlainClass: typeof ModelBase;
       let executed: sinon.SinonSpy;
+      let accessPlan: sinon.SinonStub;
 
       before(function () {
         if (dialect === 'postgres' && !pg) this.skip();
@@ -91,7 +92,7 @@ describe('authz-orm: a marked sub-query is refused', function () {
       beforeEach(async () => {
         undo.push(testHost.registerInRoot(PlanTermCompiler, FlagTerm), testHost.registerInRoot(DecisionAudit, testHost.instance(new RecordingAudit())));
         const service = await (await testHost.domains()).service('root');
-        sinon.stub(service, 'accessPlan').callsFake((principal: Principal) => Promise.resolve(plans[principal.id]));
+        accessPlan = sinon.stub(service, 'accessPlan').callsFake((principal: Principal) => Promise.resolve(plans[principal.id]));
 
         const TaskModel = await db.define(
           {
@@ -219,7 +220,7 @@ describe('authz-orm: a marked sub-query is refused', function () {
           for (const principal of [alice, bob]) {
             const result = await outcome(principal, run);
             expect(result, `${principal.id} got ${JSON.stringify(result)}`).to.be.instanceOf(AuthzConfigError);
-            expect((result as Error).message).to.match(/on a sub-query of Task_\d+_\d+ is not applied/);
+            expect((result as Error).message).to.match(/on a sub-query of Task_\d+_\d+ (is not applied|has no effect)/);
             expect(executed.callCount, `${principal.id}: statements sent`).to.equal(0);
           }
         });
@@ -241,6 +242,11 @@ describe('authz-orm: a marked sub-query is refused', function () {
         const result = await outcome(alice, forms['whereIn(column, query)']);
         expect((result as Error).message).to.match(/^authz-orm: \.accessible\("task:read"\) on a sub-query of Task_\d+_\d+ is not applied on this version/);
         expect((result as Error).message).to.contain('pass them to whereIn() as values');
+        for (const [extra, run] of Object.entries(forms).filter(([form]) => form === '.withAccess()' || form === '.withFields()')) {
+          const columns = (await outcome(alice, run)) as Error;
+          expect(columns.message, extra).to.match(/on a sub-query of Task_\d+_\d+ has no effect: it adds columns/);
+          expect(columns.message, extra).to.contain('Remove it from the sub-query; to filter by access, execute');
+        }
       });
 
       it('an unmarked sub-query runs as before, with the same SQL', async () => {
@@ -260,6 +266,12 @@ describe('authz-orm: a marked sub-query is refused', function () {
         const outer = () => Task.query().accessible('task:read').whereIn('id', Plain.query().select('task_id'));
         expect(await outcome(alice, outer)).to.deep.equal(['t1']);
         expect(await outcome(bob, outer)).to.deep.equal(['t2']);
+      });
+
+      it('a marked outer query with a marked sub-query is refused before any plan is fetched', async () => {
+        accessPlan.resetHistory();
+        expect(await outcome(alice, () => Task.query().accessible('task:read').whereIn('id', readable()))).to.be.instanceOf(AuthzConfigError);
+        expect(accessPlan.callCount).to.equal(0);
       });
 
       it('the alternative: the ids of an executed .accessible() select, passed as values', async () => {

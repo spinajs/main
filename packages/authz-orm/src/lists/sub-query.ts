@@ -10,14 +10,27 @@ import { isUpdateOrDelete } from '../sync-statement.js';
 
 type SelectParts = Pick<ISelectQueryBuilder, 'Statements' | 'JoinStatements' | 'getColumns' | 'Relations'>;
 
+interface AppliedMark {
+  readonly name: string;
+  /** The mark narrows the rows; `.withAccess()` / `.withFields()` only add columns. */
+  readonly filters: boolean;
+}
+
 /** The mark that would change what the sub-query returns; `.unscoped()` only asks for less filtering, so it may be dropped. */
-function appliedMark(marks: AccessMarks | undefined): string | undefined {
+function appliedMark(marks: AccessMarks | undefined): AppliedMark | undefined {
   if (marks === undefined) return undefined;
-  if (marks.accessible !== undefined) return `.accessible(${JSON.stringify(marks.accessible)})`;
-  if (marks.within !== undefined) return '.within()';
-  if (marks.withAccess !== undefined) return '.withAccess()';
-  if (marks.withFields !== undefined) return `.withFields(${JSON.stringify(marks.withFields)})`;
+  if (marks.accessible !== undefined) return { name: `.accessible(${JSON.stringify(marks.accessible)})`, filters: true };
+  if (marks.within !== undefined) return { name: '.within()', filters: true };
+  if (marks.withAccess !== undefined) return { name: '.withAccess()', filters: false };
+  if (marks.withFields !== undefined) return { name: `.withFields(${JSON.stringify(marks.withFields)})`, filters: false };
   return undefined;
+}
+
+function refusal(mark: AppliedMark, model: string): string {
+  if (!mark.filters) {
+    return `authz-orm: ${mark.name} on a sub-query of ${model} has no effect: it adds columns to the rows a query returns, and a sub-query returns none to the caller. Remove it from the sub-query; to filter by access, execute ${model}.query().select(<key>).accessible(<permission>) and pass the ids to whereIn() as values`;
+  }
+  return `authz-orm: ${mark.name} on a sub-query of ${model} is not applied on this version: only a query that executes is filtered, and a sub-query is compiled into the statement around it. Execute the marked query on its own instead, for example load the ids of the ${model} rows the caller may read with an executed ${model}.query().select(<key>)${mark.name}, and pass them to whereIn() as values`;
 }
 
 /** Where a select holds sub-queries: conditions, joins, columns, and the to-one populates not folded into it yet. */
@@ -34,12 +47,7 @@ function refuseMarked(statements: readonly IQueryStatement[]): void {
     const sub = statement.SubQuery;
     if (sub !== undefined) {
       const mark = appliedMark(marksOf(sub));
-      if (mark !== undefined) {
-        const model = nameOf(sub.Model);
-        throw new AuthzConfigError(
-          `authz-orm: ${mark} on a sub-query of ${model} is not applied on this version: only a query that executes is filtered, and a sub-query is compiled into the statement around it. Execute the marked query on its own instead, for example load the ids of the ${model} rows the caller may read with an executed ${model}.query().select(<key>)${mark}, and pass them to whereIn() as values`,
-        );
-      }
+      if (mark !== undefined) throw new AuthzConfigError(refusal(mark, nameOf(sub.Model)));
       refuseMarked(partsOf(sub));
     }
     const nested = statement.nested?.();
@@ -49,8 +57,9 @@ function refuseMarked(statements: readonly IQueryStatement[]): void {
 
 /**
  * Until a sub-query runs its own query middlewares, its access marks would be dropped silently and the statement
- * would read rows the caller may not see; the statement is refused instead. Order 90: before the write capture's key
- * read (91) copies the conditions into SQL of its own, and before the access list (100) plans the statement.
+ * would read rows the caller may not see; the statement is refused instead. Order 90: before the guard (95) and the
+ * access list (100) plan the statement, and before the write capture's key read (91), which would carry a copy of the
+ * sub-query.
  */
 @Injectable(QueryMiddleware)
 export class SubQueryMarksMiddleware extends QueryMiddleware {
