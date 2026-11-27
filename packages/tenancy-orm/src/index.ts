@@ -20,5 +20,6 @@ export { Tenants_2026_11_16_00_00_00 } from './migrations/Tenants_2026_11_16_00_
 export { canTransition, isTenantState, nextStates } from './state-machine.js';
 export { toTenantRecord } from './records.js';
 export { TenantStateService } from './states.js';
+export { TenantSettingsService } from './settings.js';
 // Registers DbTenantRegistry as a TenantRegistry.
 export { DbTenantRegistry } from './db-registry.js';
