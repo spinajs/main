@@ -12,6 +12,10 @@ export { acrossTenantsReason } from './marker.js';
 export { TenantDeleteExtension, TenantSelectExtension, TenantUpdateExtension } from './across.js';
 export type { SameQuery, TenantQueryMethods } from './across.js';
 export { carriesTenantSettings } from './transaction.js';
+export { TENANT_ISOLATION_POLICY, TENANT_OPEN_POLICY, TENANT_RLS_SETTINGS, generateTenantRls, tenantRlsStatements, tenantRlsTables } from './rls.js';
+export type { TenantRlsOptions, TenantRlsOutput, TenantRlsTable } from './rls.js';
+// Registers TenantSessionSettings as a ConnectionSessionSettings.
+export { TenantSessionSettings, sendsTenantSettings } from './session.js';
 // Registers the scope-change guard of T4 with @spinajs/tenancy.
 export { stopTransactionScopeGuard } from './scope-guard.js';
 export { TENANCY_CONNECTION, TENANTS_TABLE } from './connection.js';
