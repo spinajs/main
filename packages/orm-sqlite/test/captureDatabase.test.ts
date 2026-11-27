@@ -13,11 +13,21 @@ import sinon from 'sinon';
 import '@spinajs/log';
 import { SqliteOrmDriver } from '../src/index.js';
 import { ConnectionConf, db } from './common.js';
+import { bootUow, UowOrder, UowOrderItem } from './uowFixture.js';
 
 class AttachedConf extends ConnectionConf {
   public async resolve(): Promise<void> {
     await super.resolve();
     _.set(this.Config, 'db.Connections[0].Database', 's');
+  }
+}
+
+// `sqlite-shared` names `s`; its models' writes run on `sqlite`, which has `s` attached.
+class SharedServerConf extends ConnectionConf {
+  public async resolve(): Promise<void> {
+    await super.resolve();
+    _.set(this.Config, 'db.Connections[0].SharedServer', 'memory');
+    _.set(this.Config, 'db.Connections[1]', { Driver: 'orm-driver-sqlite', Filename: ':memory:', Name: 'sqlite-shared', SharedServer: 'memory', Database: 's' });
   }
 }
 
@@ -48,7 +58,7 @@ const writes: CapturedWrite[] = [];
 
 class CdbObserver extends WriteObserver {
   interest({ model }: WriteStatement): CaptureInterest | undefined {
-    return model === CdbRow || model === CdbSoft ? { columns: '*', transactional: true } : undefined;
+    return model === CdbRow || model === CdbSoft || model === UowOrderItem ? { columns: '*', transactional: true } : undefined;
   }
 
   async observe(write: CapturedWrite): Promise<void> {
@@ -255,6 +265,35 @@ describe('write capture on a connection that names an attached database', functi
 
     it('qualifies every read of an update like the key select', async () => {
       expect(await selectsDuring(() => CdbRow.update({ Name: 'z' }).where('Code', 'a'))).to.deep.equal(['SELECT `Id` FROM `s`.`cdb_row` WHERE `Code` = ?', 'SELECT * FROM `s`.`cdb_row` WHERE `Id` IN (?)', 'SELECT * FROM `s`.`cdb_row` WHERE `Id` IN (?)']);
+    });
+  });
+
+  describe('a write run through another connection on the same server', () => {
+    beforeEach(async () => {
+      DI.register(SharedServerConf).as(Configuration);
+      await bootUow();
+      files += 1;
+      await run('ATTACH DATABASE ? AS s', [join(sandbox, `s-${files}.sqlite`)]);
+      await run('CREATE TABLE s.uow_order_item (Id INTEGER PRIMARY KEY, Sku TEXT, Qty INTEGER, order_id INTEGER)');
+      await run("INSERT INTO main.uow_order_item VALUES (1, 'main-1', 0, 0), (2, 'main-2', 0, 0)");
+      writes.length = 0;
+    });
+    afterEach(() => shutdown(SharedServerConf, true));
+
+    it("reads the rows from the database of the model's own connection", async () => {
+      const order = new UowOrder({ Total: 1 });
+      order.attach(new UowOrderItem({ Sku: 'A', Qty: 1 }));
+      order.attach(new UowOrderItem({ Sku: 'B', Qty: 2 }));
+      const descriptor = UowOrderItem.getModelDescriptor();
+      descriptor.Connection = 'sqlite-shared';
+      try {
+        await order.save();
+      } finally {
+        descriptor.Connection = 'sqlite';
+      }
+
+      expect(await rowsOf('SELECT Sku FROM s.uow_order_item ORDER BY Id')).to.deep.equal([{ Sku: 'A' }, { Sku: 'B' }]);
+      expect(writes.flatMap((w) => w.rows.map((r) => r.after?.Sku))).to.deep.equal(['A', 'B']);
     });
   });
 });
