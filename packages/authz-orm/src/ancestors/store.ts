@@ -59,6 +59,31 @@ export async function readParents(driver: OrmDriver, refs: readonly ResourceRef[
   return out;
 }
 
+/** The keys of `refs` that have a row in a class table of their type, read through `driver`, soft-deleted and archived rows included. */
+export async function readExisting(driver: OrmDriver, refs: readonly ResourceRef[]): Promise<Set<string>> {
+  const out = new Set<string>();
+  for (const [type, ids] of groupIds(refs)) {
+    const tables = new Set<string>();
+    // spinajs-orm-ignore ORM102: one whereIn query per distinct class table of the type
+    for (const cls of classesOf(type)) {
+      const entry = entryOf(cls);
+      const table = tableOf(cls);
+      if (entry === undefined || tables.has(table)) continue;
+      tables.add(table);
+      const values = ids
+        .filter((id) => !out.has(resourceKey({ type, id })))
+        .map((id) => idLookup(cls, entry.idColumn, id))
+        .filter((v) => v !== undefined);
+      if (values.length === 0) continue;
+      for (const row of (await driver.select().from(table).columns([entry.idColumn]).whereIn(entry.idColumn, values)) as Record<string, unknown>[]) {
+        const id = idText(row[entry.idColumn]);
+        if (id !== undefined) out.add(resourceKey({ type, id }));
+      }
+    }
+  }
+  return out;
+}
+
 /** Deletes the rows whose resource is one of `refs`. */
 export async function deleteRowsOf(refs: readonly ResourceRef[]): Promise<void> {
   for (const [type, ids] of groupIds(refs)) await AncestorRecord.destroy().where('resource_type', type).whereIn('resource_id', ids);
