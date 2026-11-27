@@ -244,7 +244,7 @@ describe('OtelPerfSink', () => {
     sink.collect({ name: 'cache.hit', kind: 'counter', value: 1 });
     sink.collect({ name: 'cache.hit', kind: 'counter', value: 1 });
     expect(sink.active).to.eq(false);
-    expect(logged.errors).to.have.length(1);
+    expect(logged.errors).to.deep.eq([{ endpoint: '<not a URL>', reason: 'TypeError: Invalid URL' }]);
   });
 
   it('refuses an endpoint that is not http: or https:, which the exporter would send as HTTPS', () => {
@@ -253,7 +253,24 @@ describe('OtelPerfSink', () => {
       const logged = configure(sink, true, { 'otel.metrics.endpoint': endpoint }, null);
       sink.collect({ name: 'cache.hit', kind: 'counter', value: 1 });
       expect(sink.active).to.eq(false);
-      expect(logged.errors).to.have.length(1);
+      expect(logged.errors).to.deep.eq([{ endpoint, reason: 'TypeError: not an http: or https: URL' }]);
+    }
+  });
+
+  it('names the reason, without the endpoint, when the headers variable does not decode', () => {
+    const saved = process.env.OTEL_EXPORTER_OTLP_METRICS_HEADERS;
+    process.env.OTEL_EXPORTER_OTLP_METRICS_HEADERS = 'authorization=Bearer q-secret%ZZ';
+    try {
+      const sink = new OtelPerfSink();
+      const logged = configure(sink, true, { 'otel.metrics.endpoint': 'http://user:pw-secret@127.0.0.1:9/v1/metrics?token=q-secret' }, null);
+      sink.start();
+      expect(sink.active).to.eq(false);
+      expect(logged.errors).to.deep.eq([{ endpoint: 'http://127.0.0.1:9/v1/metrics', reason: 'URIError: URI malformed' }]);
+      expect(logged.text()).to.not.contain('pw-secret');
+      expect(logged.text()).to.not.contain('q-secret');
+    } finally {
+      if (saved === undefined) delete process.env.OTEL_EXPORTER_OTLP_METRICS_HEADERS;
+      else process.env.OTEL_EXPORTER_OTLP_METRICS_HEADERS = saved;
     }
   });
 

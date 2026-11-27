@@ -36,5 +36,7 @@ describe('loggableEndpoint', () => {
 
   it('masks the opaque part of a URL that has no host', () => {
     expect(loggableEndpoint('mailto:planted-secret@collector')).to.eq('mailto://***');
+    expect(loggableEndpoint('apikey:PLSHORT')).to.eq('apikey://***');
+    expect(loggableEndpoint('data:PLDATASHORT')).to.eq('data://***');
   });
 });

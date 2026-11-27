@@ -146,7 +146,22 @@ describe('OtelTracing endpoint in logs', () => {
     const { tracing, calls, text } = startTracing(plantedEndpoint(99999));
     expect(tracing.active).to.eq(false);
     expectNoCredential(text());
-    expect(calls).to.deep.eq([['error', { endpoint: '<not a URL>' }, 'otel export not started: no OTLP exporter for ${endpoint}']]);
+    expect(calls).to.deep.eq([['error', { endpoint: '<not a URL>', reason: "Error: Configuration: Could not parse user-provided export URL: '<not a URL>'" }, 'otel export not started: no OTLP exporter for ${endpoint} (${reason})']]);
     await tracing.dispose();
+  });
+
+  it('names the reason, without the endpoint, when the headers variable does not decode', async () => {
+    const saved = process.env.OTEL_EXPORTER_OTLP_TRACES_HEADERS;
+    process.env.OTEL_EXPORTER_OTLP_TRACES_HEADERS = `authorization=Bearer ${TOKEN}%ZZ`;
+    try {
+      const { tracing, calls, text } = startTracing(plantedEndpoint(4318));
+      expect(tracing.active).to.eq(false);
+      expectNoCredential(text());
+      expect(calls).to.deep.eq([['error', { endpoint: 'http://127.0.0.1:4318/v1/traces', reason: 'URIError: URI malformed' }, 'otel export not started: no OTLP exporter for ${endpoint} (${reason})']]);
+      await tracing.dispose();
+    } finally {
+      if (saved === undefined) delete process.env.OTEL_EXPORTER_OTLP_TRACES_HEADERS;
+      else process.env.OTEL_EXPORTER_OTLP_TRACES_HEADERS = saved;
+    }
   });
 });
