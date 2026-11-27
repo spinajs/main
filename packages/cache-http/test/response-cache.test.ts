@@ -1,7 +1,7 @@
 import 'mocha';
 import { expect } from 'chai';
 import { AsyncLocalStorage } from 'node:async_hooks';
-import { CacheScope, cache } from '@spinajs/cache';
+import { CacheScope, CacheStore, cache } from '@spinajs/cache';
 import { DI } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 import { Forbidden } from '@spinajs/exceptions';
@@ -90,8 +90,37 @@ class FlagScope extends CacheScope {
   }
 }
 
+/** Never answers a read, as a store with an offline queue does while it reconnects; the cache `hung` uses it. */
+class HangingStore extends CacheStore {
+  public get(): Promise<undefined> {
+    return new Promise(() => undefined);
+  }
+
+  public set(): Promise<void> {
+    return Promise.resolve();
+  }
+
+  public delete(): Promise<void> {
+    return Promise.resolve();
+  }
+
+  public versions(tags: readonly string[]): Promise<readonly string[]> {
+    return Promise.resolve(tags.map(() => 'v1'));
+  }
+
+  public bump(): Promise<void> {
+    return Promise.resolve();
+  }
+}
+
 @BasePath('items')
 class Items extends BaseController {
+  @Get('hung')
+  @ResponseCache({ ttl: '1m', cache: 'hung' })
+  public hung() {
+    return new Ok({ run: run('hung') });
+  }
+
   @Get('list')
   @ResponseCache({ ttl: '1m', tags: ['any:item'] })
   @Middleware(CacheControl, 60)
@@ -169,6 +198,7 @@ describe('@ResponseCache', function () {
       c.register(FlagScope).as(CacheScope);
       c.register(PerCallerView).as(DataTransformer);
       c.register(GlobalShaper).as(RouteMiddleware);
+      c.register(HangingStore).as(CacheStore);
     },
     ['GlobalShaper'],
   );
@@ -265,6 +295,12 @@ describe('@ResponseCache', function () {
       expect((await get('/items/list', as)).status).to.eq(200);
     }
     expect(runs.get('list')).to.eq(4);
+  });
+
+  it('answers uncached when the store does not answer within cache.http.timeout, with one warning per route and minute', async function () {
+    this.timeout(10000);
+    for (const n of [1, 2, 3]) expect((await get('/items/hung', { 'x-user': 'uma' })).body).to.deep.eq({ run: n });
+    expect(cacheWarnings().filter((text) => text.includes('/items/hung') && text.includes('lookup failed'))).to.have.length(1);
   });
 
   it('drops a stored reply when one of its tags is invalidated', async () => {

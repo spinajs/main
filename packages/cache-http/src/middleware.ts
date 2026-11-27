@@ -1,5 +1,6 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { isDeepStrictEqual } from 'node:util';
+import { Config } from '@spinajs/configuration';
 import { Autoinject, Container, Injectable, NewInstance } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 import { InvalidArgument } from '@spinajs/exceptions';
@@ -13,6 +14,7 @@ import { ResponseCacheKeyPart, principalIn, responseCacheKey, responseCacheNames
 import { resolveResponseCacheOptions } from './options.js';
 import type { ResolvedResponseCacheOptions } from './options.js';
 import { CachedResponse, replayableReply, replyToStore } from './response.js';
+import { RESPONSE_CACHE_DEFAULT_TIMEOUT_MS } from './schema.js';
 
 type HttpRequest = IRouteInvocation['req'];
 type HttpResponse = IRouteInvocation['res'];
@@ -29,15 +31,36 @@ const HEADER_ARGUMENTS: ReadonlyMap<string, readonly string[]> = new Map([
   [ParameterType.Referer, ['referer', 'referrer']],
 ]);
 const REQUEST_OBJECTS: ReadonlySet<string> = new Set([ParameterType.Req, ParameterType.Res]);
+const REQ: string = ParameterType.Req;
+const FAILURE_LOG_INTERVAL_MS = 60_000;
+const BODY_ARGUMENTS: ReadonlySet<string> = new Set([
+  ParameterType.FromBody,
+  ParameterType.BodyField,
+  ParameterType.FromForm,
+  ParameterType.FormField,
+  ParameterType.FromFile,
+  ParameterType.FromCSV,
+  ParameterType.FromJSONFile,
+  ParameterType.FromXml,
+  ParameterType.RawBody,
+  ParameterType.FromModel,
+  'ContentDigestArg',
+  'RequestStreamArg',
+]);
+const DECLARE = 'or take what it reads as @Query, @Param or @Header arguments';
 const FROM_HEADER: string = ParameterType.FromHeader;
 
-/** The request headers an argument reads, undefined for an argument that reads no header. */
-function headersOf({ Type, Name, Options }: IRouteParameter): readonly string[] | undefined {
+/**
+ * The request headers an argument reads, undefined for one that reads no header; [] for `@Header()` without a key, whose
+ * header is its argument's name, which http fills in only after the routes are registered.
+ */
+function headersOf({ Type, Options }: IRouteParameter): readonly string[] | undefined {
   if (Type !== FROM_HEADER) return HEADER_ARGUMENTS.get(Type);
   const options: unknown = Options;
-  const key = typeof options === 'object' && options !== null && 'key' in options && typeof options.key === 'string' && options.key !== '' ? options.key : Name;
-  return [key.toLowerCase()];
+  return typeof options === 'object' && options !== null && 'key' in options && typeof options.key === 'string' && options.key !== '' ? [options.key.toLowerCase()] : [];
 }
+
+const nameOf = ({ Name, Index }: IRouteParameter): string => (Name === '' ? `#${Index + 1}` : Name);
 
 /** `static PerPrincipalReply = true`: the convention of a middleware whose reply depends on who asks (AuthzFieldsMiddleware). */
 const repliesPerPrincipal = (type: object): boolean => 'PerPrincipalReply' in type && type.PerPrincipalReply === true;
@@ -86,6 +109,9 @@ export class ResponseCacheMiddleware extends RouteMiddleware {
   @Logger('cache')
   protected Log!: Log;
 
+  @Config('cache.http.timeout', { defaultValue: RESPONSE_CACHE_DEFAULT_TIMEOUT_MS })
+  protected Timeout!: number;
+
   /** `http:<ROUTE TYPE> <mounted path>` */
   protected namespace = '';
 
@@ -96,6 +122,9 @@ export class ResponseCacheMiddleware extends RouteMiddleware {
 
   // one warning per reason and route
   private readonly warned = new Set<string>();
+
+  // when a cache call of this route (lookup, store) last logged a failure
+  private readonly failedAt = new Map<string, number>();
 
   // settled by the first request: the route's middleware instances exist only after every onRegister ran
   private servable?: boolean;
@@ -123,11 +152,7 @@ export class ResponseCacheMiddleware extends RouteMiddleware {
     if (this.options.scope === 'tenant' && this.ScopeParts.length === 0 && !this.Container.hasRegistered(CacheScope)) {
       throw new InvalidArgument(`${String(route.Type).toUpperCase()} ${path}: @ResponseCache scope 'tenant' needs a tenant in the key: install @spinajs/tenancy-http, or register an IdempotencyScopePart or a CacheScope`);
     }
-    const unkeyed = this.options.scope === 'principal' ? undefined : this.unkeyedArgument(route, path);
-    if (unkeyed !== undefined) {
-      const hint = unkeyed.startsWith('the header') ? 'or name the header in vary' : 'or read the value from the URL';
-      throw new InvalidArgument(`${String(route.Type).toUpperCase()} ${path}: @ResponseCache scope '${this.options.scope}' would give one caller's reply to others, but the route reads ${unkeyed}, which is not in the key: cache it with scope 'principal', ${hint}`);
-    }
+    this.refuseUnkeyedArguments(route, `${String(route.Type).toUpperCase()} ${path}`, controller);
     const service = await this.Container.resolve(CacheService);
     cacheSettings(service.config, this.options.cache);
     this.routeMethod = String(route.Type).toUpperCase();
@@ -206,13 +231,29 @@ export class ResponseCacheMiddleware extends RouteMiddleware {
     return res.req.method === this.routeMethod ? replyToStore(outcome, res, this.options.scope) : undefined;
   }
 
-  /** onAround runs outside the action's AsyncLocalStorage context, and a CacheScope provider (the tenant) reads that context. */
+  /**
+   * onAround runs outside the action's AsyncLocalStorage context, and a CacheScope provider (the tenant) reads that
+   * context. Bounded by cache.http.timeout: a store that does not answer (a Redis client queueing while it reconnects)
+   * must not hold the request.
+   */
   protected async inStore<T>(storage: IActionLocalStoregeContext, what: string, op: () => Promise<T>): Promise<T | undefined> {
+    let timer: NodeJS.Timeout | undefined;
+    const late = new Promise<never>((_resolve, reject) => {
+      timer = setTimeout(() => reject(new Error(`the cache did not answer within ${this.Timeout} ms`)), this.Timeout);
+    });
     try {
-      return await this.Storage.run(storage, op);
+      return await Promise.race([this.Storage.run(storage, op), late]);
     } catch (error) {
-      this.Log.warn({ error, route: this.namespace, what }, 'Response cache of ${route}: ${what} failed and is read as a miss');
+      const now = Date.now();
+      const last = this.failedAt.get(what);
+      // a store that is down fails every request: one warning per call and minute, not one per request
+      if (last === undefined || now - last >= FAILURE_LOG_INTERVAL_MS) {
+        this.failedAt.set(what, now);
+        this.Log.warn({ error, route: this.namespace, what }, 'Response cache of ${route}: ${what} failed and is read as a miss; further failures of it in the next minute are not logged');
+      }
       return undefined;
+    } finally {
+      clearTimeout(timer);
     }
   }
 
@@ -229,19 +270,33 @@ export class ResponseCacheMiddleware extends RouteMiddleware {
     return shaper === undefined ? undefined : `${shaper.constructor.name} shapes the reply per principal, which scope '${this.options.scope}' would share`;
   }
 
-  /** What a route argument reads of the request that the key of a wider scope does not hold. */
-  private unkeyedArgument(route: IRoute, path: string): string | undefined {
+  /** A request body on every scope (a GET body is in no key); on a wider scope any input of one caller the key does not hold. */
+  private refuseUnkeyedArguments(route: IRoute, at: string, controller: IController): void {
+    const body = [...route.Parameters.values()].find((param) => BODY_ARGUMENTS.has(param.Type));
+    if (body !== undefined) {
+      throw new InvalidArgument(`${at}: @ResponseCache keys no request body, but the route reads the argument ${nameOf(body)} of type '${body.Type}': a route that reads a body is not cached`);
+    }
+    const unkeyed = this.options.scope === 'principal' ? undefined : this.unkeyedArgument(route, controller);
+    if (unkeyed !== undefined) {
+      throw new InvalidArgument(`${at}: @ResponseCache scope '${this.options.scope}' would give one caller's reply to others, but the route reads ${unkeyed[0]}: cache it with scope 'principal', ${unkeyed[1]}`);
+    }
+  }
+
+  /** What a route argument reads of the request that the key of a wider scope does not hold, and what to do about it. */
+  private unkeyedArgument(route: IRoute, controller: IController): readonly [string, string] | undefined {
     const keyed = new Set(['accept', 'x-data-transform', ...this.options.vary.map((name) => name.toLowerCase())]);
     for (const param of route.Parameters.values()) {
-      if (REQUEST_OBJECTS.has(param.Type)) {
-        this.Log.warn({ route: `${String(route.Type).toUpperCase()} ${path}` }, "Response cache of ${route}: the action takes the request or the response, so the key cannot see what it reads; a header or a cookie it reads must be named in vary, or the route cached with scope 'principal'");
-        continue;
-      }
+      if (REQUEST_OBJECTS.has(param.Type)) return [`the ${param.Type === REQ ? 'request' : 'response'} object of the argument ${nameOf(param)}, whose reads the key cannot see`, DECLARE];
       const headers = headersOf(param);
-      if (headers === undefined && !KEYED_ARGUMENTS.has(param.Type)) return `the argument ${param.Name} of type '${param.Type}'`;
+      if (headers?.length === 0) return [`the header of the argument ${nameOf(param)}, which @Header() does not name`, "or write @Header('<name>') and name the header in vary"];
+      if (headers === undefined && !KEYED_ARGUMENTS.has(param.Type)) return [`the argument ${nameOf(param)} of type '${param.Type}', which is not in the key`, 'or read the value from the URL'];
       const unkeyed = headers?.find((header) => !keyed.has(header));
-      if (unkeyed !== undefined) return `the header ${unkeyed}`;
+      if (unkeyed !== undefined) return [`the header ${unkeyed}, which is not in the key`, 'or name the header in vary'];
     }
+    // http calls the action with req, res and next after the declared arguments; a default or rest parameter does not count in length
+    const action: unknown = Reflect.get(controller, route.Method);
+    const declared = route.Parameters.size;
+    if (typeof action === 'function' && action.length > declared) return [`the request http passes after the ${declared} declared argument${declared === 1 ? '' : 's'} (the action takes ${action.length}), whose reads the key cannot see`, DECLARE];
     return undefined;
   }
 
