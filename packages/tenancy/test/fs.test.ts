@@ -348,6 +348,7 @@ describe('files per tenant', function () {
       for (const write of writes) await expect(write()).to.be.rejectedWith(InvalidOperation, /without the tenant's view/);
       for (const read of [() => readHelper('logo.png', 'utf-8', 'bucket'), () => _read('logo.png', 'utf-8', 'bucket'), () => new URI('fs://bucket/logo.png').Fs.read('logo.png'), () => publishedFs('bucket')!.list(''), () => copyHelper('a.txt', 'c.txt', up, 'bucket')]) await expect(read()).to.be.rejectedWith(InvalidOperation);
       expect(await getFs('uploads').exists('logo.png')).to.equal(false);
+      await expect(up.upload(join(bucket, 'logo.png'), 'stolen.png')).to.be.rejectedWith(InvalidArgument, /outside this tenant's own/);
     });
     expect(failures).to.deep.equal([]);
     expect(tree(bucket, '')).to.equal(before);
