@@ -24,4 +24,13 @@ describe('cacheTags of the relation terms', () => {
   it('refuses args it would refuse to apply', () => {
     expect(() => new RelationOwnerTerm().cacheTags({ principals: 'alice' })).to.throw(AuthzConfigError, /relation\.owner args must be/);
   });
+
+  it('relation.column refuses a missing relation, and owner or self, as apply() does', () => {
+    const column = new RelationColumnTerm();
+
+    expect(() => column.cacheTags({ principals }), 'no relation').to.throw(AuthzConfigError, /relation\.column args must be/);
+    expect(() => column.cacheTags({ relation: '', principals }), 'empty').to.throw(AuthzConfigError, /relation\.column args must be/);
+    expect(() => column.cacheTags({ relation: 'owner', principals })).to.throw(AuthzConfigError, /no column relation 'owner'/);
+    expect(() => column.cacheTags({ relation: 'self', principals })).to.throw(AuthzConfigError, /no column relation 'self'/);
+  });
 });

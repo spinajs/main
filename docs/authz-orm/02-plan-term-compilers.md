@@ -160,7 +160,9 @@ class MyTerm extends PlanTermCompiler {
   A term whose SQL reads a table that no authz change names (the `invoice_share` table of the example above) has no
   tag to give and must not implement `cacheTags`.
 - `relation.owner`, `relation.self` and `relation.column` name the `subject:` tag of each principal in `args.principals`,
-  and throw `AuthzConfigError` for args `apply()` refuses. No other shipped compiler implements it yet.
+  and throw `AuthzConfigError` for args `apply()` refuses whatever the row: malformed principals, and for
+  `relation.column` a missing or empty `relation`, `owner` or `self`. A relation the row's model does not declare is
+  refused by `apply()` only, which has the row. No other shipped compiler implements it yet.
 
 ## Important behaviour
 

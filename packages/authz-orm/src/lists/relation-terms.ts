@@ -110,6 +110,14 @@ export class RelationSelfTerm extends PlanTermCompiler {
   }
 }
 
+/** `owner` and `self` have terms of their own, so no column relation answers to them. */
+function columnRelationOf(args: unknown, op: string): string {
+  const relation = args !== null && typeof args === 'object' && 'relation' in args ? args.relation : undefined;
+  if (typeof relation !== 'string' || relation === '') throw new AuthzConfigError(`authz-orm: ${op} args must be { relation, principals: { type, id }[] }, got ${JSON.stringify(args)}`);
+  if (relation === 'owner' || relation === 'self') throw new AuthzConfigError(`authz-orm: ${op}: there is no column relation '${relation}'; use relation.${relation}`);
+  return relation;
+}
+
 /** The row's column relation `relation` (`@Relation`) holds one of the principals. */
 @Singleton()
 @Injectable(PlanTermCompiler)
@@ -117,9 +125,8 @@ export class RelationColumnTerm extends PlanTermCompiler {
   readonly op = RELATION_COLUMN_OP;
 
   apply(args: unknown, where: IWhereBuilder<unknown>, row: PlanRow): void {
-    const relation = (args as { relation?: unknown } | null)?.relation;
-    if (typeof relation !== 'string' || relation === '') throw new AuthzConfigError(`authz-orm: ${this.op} args must be { relation, principals: { type, id }[] }, got ${JSON.stringify(args)}`);
-    const columns = relation === 'owner' || relation === 'self' ? undefined : row.relation(relation);
+    const relation = columnRelationOf(args, this.op);
+    const columns = row.relation(relation);
     if (columns === undefined) throw new AuthzConfigError(`authz-orm: ${this.op}: resource type '${row.type}' has no column relation '${relation}' (@Relation('${relation}'))`);
     principalsMatch(where, columns, principalsOf(args, this.op));
   }
@@ -131,6 +138,7 @@ export class RelationColumnTerm extends PlanTermCompiler {
   }
 
   cacheTags(args: unknown): readonly string[] {
+    columnRelationOf(args, this.op);
     return subjectTags(args, this.op);
   }
 }
