@@ -197,7 +197,7 @@ export class SqliteInsertQueryCompiler extends SqlInsertQueryCompiler {
   }
 
   protected into() {
-    return `INSERT${this._builder.Ignore ? ' OR IGNORE' : ''}${this._builder.Replace ? ' OR REPLACE' : ''} INTO \`${this._builder.Table}\``;
+    return `INSERT${this._builder.Ignore ? ' OR IGNORE' : ''}${this._builder.Replace ? ' OR REPLACE' : ''} INTO ${this._container.resolve(TableAliasCompiler).compile(this._builder)}`;
   }
 
   /**
