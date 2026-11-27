@@ -5,6 +5,7 @@ import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
 import '@spinajs/log';
 import { AuthzVerifyCommand } from '../src/cli/AuthzVerify.js';
+import { Cli, CommanderError } from '../src/index.js';
 
 const fixture = (name: string) => resolve(process.cwd(), 'test/fixtures/authz-verify', name);
 
@@ -68,5 +69,64 @@ describe('spinajs authz:verify', function () {
       error = e;
     }
     expect((error as Error).message).to.match(/must export defineAssertions/);
+  });
+});
+
+class VerifyCliConf extends VerifyConf {
+  public async resolve(): Promise<void> {
+    await super.resolve();
+    // Only this source folder: the merged dirs also list the built copy of this command.
+    this.set(['system', 'dirs', 'cli'], [resolve(process.cwd(), 'src/cli')]);
+  }
+}
+
+describe('spinajs authz:verify -k', function () {
+  this.timeout(60000);
+
+  let lines: string[];
+  const spinajs = async (...args: string[]) => {
+    DI.register(() => ['node', 'spinajs', 'authz:verify', '--ir', fixture('authz.ir.json'), '-a', fixture('bounded.assertions.js'), ...args]).as('__cli_argv_provider__');
+    await DI.resolve(Cli);
+  };
+
+  beforeEach(async () => {
+    DI.clearCache();
+    DI.register(VerifyCliConf).as(Configuration);
+    await DI.resolve(Configuration);
+    lines = [];
+    const cmd = await DI.resolve(AuthzVerifyCommand);
+    (cmd as unknown as { Print: (l: string) => void }).Print = (l) => lines.push(l);
+    process.exitCode = undefined;
+  });
+
+  afterEach(() => {
+    process.exitCode = undefined;
+  });
+
+  for (const k of ['0', '-1', '1.5', 'abc', '']) {
+    it(`refuses -k '${k}' as a usage error before verifying anything`, async () => {
+      let error: unknown;
+      try {
+        await spinajs('-k', k);
+      } catch (e) {
+        error = e;
+      }
+      expect(String(error)).to.equal(`CommanderError: error: option '-k, --bound <k>' argument '${k}' is invalid. the bound must be a whole number of at least 1`);
+      expect(error).to.be.instanceOf(CommanderError).and.include({ code: 'commander.invalidArgument', exitCode: 1 });
+      expect(lines).to.deep.equal([]);
+      expect(process.exitCode).to.equal(undefined);
+    });
+  }
+
+  it('searches one object per type with -k 1', async () => {
+    await spinajs('-k', '1');
+    expect(lines).to.deep.equal(['warn AZV003 isolated(folder)  not decided: isolated(folder) needs k >= 2', '0 error(s), 1 warning(s), 0 info']);
+    expect(process.exitCode).to.equal(undefined);
+  });
+
+  it('searches three objects per type without -k', async () => {
+    await spinajs();
+    expect(lines).to.deep.equal(['ok   AZV002 isolated(folder)  verified up to k=3', '0 error(s), 0 warning(s), 1 info']);
+    expect(process.exitCode).to.equal(undefined);
   });
 });
