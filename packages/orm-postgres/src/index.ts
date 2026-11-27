@@ -735,6 +735,7 @@ export class PostgresOrmDriver extends SqlDriver {
     try {
       await tx.connection.query(`ROLLBACK TO SAVEPOINT ${pgEscapeIdentifier(name)}`);
     } catch (err) {
+      // Never cleared, not even by a later successful ROLLBACK TO: this savepoint's work may still be in the transaction.
       tx.rollbackFailed = true;
       tx.savepointRollbackFailure ??= err instanceof Error ? err : new Error(String(err));
       throw err;

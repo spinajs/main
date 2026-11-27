@@ -165,6 +165,20 @@ describe('postgres transaction client (unit)', function () {
       expect(fake.statements.slice(-3)).to.deep.equal(['SAVEPOINT "sp_2"', 'RELEASE SAVEPOINT "sp_2"', 'ROLLBACK']);
     });
 
+    it('still refuses after a later nested transaction rolled back to its own savepoint', async () => {
+      const fake = fakeClient({ 'ROLLBACK TO SAVEPOINT "sp_1"': lost });
+      usePool(fake.client);
+
+      const outer = driver.transaction(async () => {
+        await failNested().catch(() => undefined);
+        await failNested().catch(() => undefined);
+      });
+
+      await expect(outer).to.be.rejectedWith(OrmException, 'nothing of it was written');
+      expect(fake.statements.slice(-3)).to.deep.equal(['SAVEPOINT "sp_2"', 'ROLLBACK TO SAVEPOINT "sp_2"', 'ROLLBACK']);
+      expect(fake.release.args).to.deep.equal([[true]]);
+    });
+
     it('does not carry into the next transaction on the same async path and the same client', async () => {
       const fake = fakeClient({ 'ROLLBACK TO SAVEPOINT "sp_1"': lost });
       usePool(fake.client);
