@@ -33,7 +33,7 @@ What a reader of the trail, and an operator of it, must not assume.
 ## Erasure
 
 - A shipping trail without a reader cannot be erased from the shipping application.
-- On MySQL and MSSQL a subject id with trailing spaces is the same subject as the id without them, and `forget` erases both; it records the erasure for the spelling it was given only, so `verify` reports the other spelling's blanked events as unexplained redactions (SUSPECT).
+- A subject id is matched byte for byte, trailing spaces included, on every dialect. Before 4.0, on MySQL and MSSQL, an id with trailing spaces was the same subject as the id without them: `of` listed both and `forget` blanked both, irreversibly. A trail erased that way keeps those blanked payloads, and `verify` reports them as unexplained redactions (SUSPECT).
 - `forget(subject)` on a table trail erases on every connection that holds the trail table, so it fails, with nothing erased, when one connection cannot be looked at, and a failure while erasing leaves the connections after it unerased (those before it stay erased and recorded). A failed `erasure` record leaves its connection erased but unrecorded, SUSPECT until `forget` runs again; `forget(subject, source)` erases on that one connection only.
 - One delivery's window: a payload erased while its delivery was under way may sit at the destination until the next shipping run handles those rows.
 - Across a queue the erasure boundary is only as exact as the recording applications' clocks; `forget(subject, source)` in a receiving service, with one of its own connections other than the trail's as `source`, leaves a window until its next shipping run.
