@@ -4,8 +4,9 @@ import { DbSession } from '../src/models/DbSession.js';
 import { UserSession as Session, SessionExpirationProvider, encodeSessionData, decodeSessionData } from '@spinajs/authn-session';
 import { Injectable } from '@spinajs/di';
 import type { ISession } from '@spinajs/authn-session';
-import { DateTime } from 'luxon';
+import { DateTime, Settings } from 'luxon';
 import { runSessionProviderConformance, IConformanceExpiration, SessionProviderFactory } from '../../authn-session/test/conformance/session-provider-conformance.js';
+import type { DbSessionStore } from '../src/index.js';
 import { bootStore, disposeStore, sessionConnection } from './support.js';
 
 chai.use(chaiAsPromised);
@@ -240,7 +241,7 @@ describe('db session provider', function () {
   });
 
   // Application code may hand save or a pending touch anything; NULL is "never expires" in this table.
-  describe('an Expiration that is not a valid DateTime is written as the epoch, never as NULL', () => {
+  describe('an Expiration that is not a valid DateTime is never written as NULL: save writes the epoch, a pending touch keeps the stored one', () => {
     const unreadable: Array<[string, () => unknown]> = [
       ['an invalid DateTime', () => DateTime.invalid('test')],
       ['DateTime.fromMillis(NaN)', () => DateTime.fromMillis(NaN)],
@@ -260,6 +261,24 @@ describe('db session provider', function () {
       expect(DateTime.fromISO(String(stored)).toMillis()).to.equal(0);
     }
 
+    async function restoreAt(store: DbSessionStore, sessionId: string, at: DateTime) {
+      const realNow = Settings.now;
+      Settings.now = () => at.toMillis();
+      try {
+        return await store.restore(sessionId);
+      } finally {
+        Settings.now = realNow;
+      }
+    }
+
+    async function expectStoredExpiration(store: DbSessionStore, sessionId: string, stored: DateTime) {
+      const written = await column(sessionId);
+      expect(written, 'NULL would mean the pending session never expires').to.not.be.null;
+      expect(DateTime.fromISO(String(written)).toMillis()).to.equal(stored.toMillis());
+      expect((await store.restore(sessionId))!.Expiration!.toMillis()).to.equal(stored.toMillis());
+      expect(await restoreAt(store, sessionId, stored.plus({ seconds: 1 })), 'the pending session ends at its issued expiration').to.be.null;
+    }
+
     for (const [name, value] of unreadable) {
       it(`save of ${name}`, async () => {
         const store = await makeProvider({ service: 'SlidingExpiration', ttl: 60 });
@@ -275,12 +294,12 @@ describe('db session provider', function () {
       it(`touch of a pending session with ${name}`, async () => {
         const store = await makeProvider({ service: 'SlidingExpiration', ttl: 60 });
         await store.truncate();
-        await store.save(new Session({ SessionId: 'x-touch', Subject: user('u-x'), State: 'pending', Expiration: DateTime.now().plus({ minutes: 5 }), Data: new Map() }));
+        const stored = DateTime.now().plus({ minutes: 5 }).startOf('second');
+        await store.save(new Session({ SessionId: 'x-touch', Subject: user('u-x'), State: 'pending', Expiration: stored, Data: new Map() }));
 
         expect(await store.touch(Object.assign(new Session({ SessionId: 'x-touch', Subject: user('u-x'), State: 'pending', Data: new Map() }), { Expiration: value() }))).to.equal(false);
 
-        expectEpoch(await column('x-touch'));
-        expect(await store.restore('x-touch')).to.be.null;
+        await expectStoredExpiration(store, 'x-touch', stored);
       });
     }
 
@@ -295,16 +314,40 @@ describe('db session provider', function () {
       expect((await store.restore('x-valid'))!.Expiration!.toMillis()).to.equal(fixed.toMillis());
     });
 
-    it('touch of a pending session with a valid DateTime writes it verbatim', async () => {
+    it('touch of a pending session with a later DateTime keeps the stored expiration', async () => {
       const store = await makeProvider({ service: 'SlidingExpiration', ttl: 60 });
       await store.truncate();
-      const fixed = DateTime.now().plus({ minutes: 7 }).startOf('second');
-      await store.save(new Session({ SessionId: 'x-valid', Subject: user('u-x'), State: 'pending', Expiration: DateTime.now().plus({ minutes: 5 }), Data: new Map() }));
+      const stored = DateTime.now().plus({ minutes: 5 }).startOf('second');
+      await store.save(new Session({ SessionId: 'x-valid', Subject: user('u-x'), State: 'pending', Expiration: stored, Data: new Map() }));
 
-      await store.touch(new Session({ SessionId: 'x-valid', Subject: user('u-x'), State: 'pending', Expiration: fixed, Data: new Map() }));
+      const later = new Session({ SessionId: 'x-valid', Subject: user('u-x'), State: 'pending', Expiration: stored.plus({ minutes: 2 }), Data: new Map([['Ip', '203.0.113.7']]) });
+      expect(await store.touch(later)).to.equal(false);
 
-      expect(DateTime.fromISO(String(await column('x-valid'))).toMillis()).to.equal(fixed.toMillis());
-      expect((await store.restore('x-valid'))!.Expiration!.toMillis()).to.equal(fixed.toMillis());
+      await expectStoredExpiration(store, 'x-valid', stored);
+      expect((await store.restore('x-valid'))!.Data.get('Ip')).to.equal('203.0.113.7');
+    });
+
+    it('touch of a pending session with an earlier DateTime keeps the stored expiration', async () => {
+      const store = await makeProvider({ service: 'SlidingExpiration', ttl: 60 });
+      await store.truncate();
+      const stored = DateTime.now().plus({ minutes: 5 }).startOf('second');
+      await store.save(new Session({ SessionId: 'x-valid', Subject: user('u-x'), State: 'pending', Expiration: stored, Data: new Map() }));
+
+      expect(await store.touch(new Session({ SessionId: 'x-valid', Subject: user('u-x'), State: 'pending', Expiration: stored.minus({ minutes: 2 }), Data: new Map() }))).to.equal(false);
+
+      await expectStoredExpiration(store, 'x-valid', stored);
+    });
+
+    it('touch of an active session with a later DateTime still renews its expiration', async () => {
+      const store = await makeProvider({ service: 'SlidingExpiration', ttl: 60 });
+      await store.truncate();
+      const stored = DateTime.now().plus({ minutes: 5 }).startOf('second');
+      await store.save(new Session({ SessionId: 'x-valid', Subject: user('u-x'), State: 'active', Expiration: stored, Data: new Map() }));
+
+      expect(await store.touch(new Session({ SessionId: 'x-valid', Subject: user('u-x'), State: 'active', Expiration: stored.plus({ minutes: 2 }), Data: new Map() }))).to.equal(true);
+
+      expect(DateTime.fromISO(String(await column('x-valid'))).toMillis()).to.be.greaterThan(stored.toMillis());
+      expect(await restoreAt(store, 'x-valid', stored.plus({ seconds: 1 }))).to.not.be.null;
     });
 
     it('save of a session a never-expiring strategy leaves without Expiration writes NULL and the session stays live', async () => {
