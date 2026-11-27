@@ -14,7 +14,8 @@ import { ResponseCacheKeyPart, principalIn, responseCacheKey, responseCacheNames
 import { resolveResponseCacheOptions } from './options.js';
 import type { ResolvedResponseCacheOptions } from './options.js';
 import { CachedResponse, replayableReply, replyToStore } from './response.js';
-import { RESPONSE_CACHE_DEFAULT_TIMEOUT_MS } from './schema.js';
+import { RESPONSE_CACHE_DEFAULT_TIMEOUT_MS, RESPONSE_CACHE_DEFAULT_WAIT_TIMEOUT_MS } from './schema.js';
+import { ResponseCacheWaits } from './waits.js';
 
 type HttpRequest = IRouteInvocation['req'];
 type HttpResponse = IRouteInvocation['res'];
@@ -112,6 +113,13 @@ export class ResponseCacheMiddleware extends RouteMiddleware {
   @Config('cache.http.timeout', { defaultValue: RESPONSE_CACHE_DEFAULT_TIMEOUT_MS })
   protected Timeout!: number;
 
+  // apart from Timeout: a store answers in milliseconds, a route in seconds
+  @Config('cache.http.waitTimeout', { defaultValue: RESPONSE_CACHE_DEFAULT_WAIT_TIMEOUT_MS })
+  protected WaitTimeout!: number;
+
+  @Autoinject(ResponseCacheWaits)
+  protected Waits!: ResponseCacheWaits;
+
   /** `http:<ROUTE TYPE> <mounted path>` */
   protected namespace = '';
 
@@ -128,6 +136,11 @@ export class ResponseCacheMiddleware extends RouteMiddleware {
 
   // settled by the first request: the route's middleware instances exist only after every onRegister ran
   private servable?: boolean;
+
+  // keys of this route that one request of this process is refreshing; never a reply, which comes from each request's lookup
+  private readonly refreshing = new Set<string>();
+
+  private readonly inFlight = new Map<string, Promise<void>>();
 
   constructor(protected readonly options: ResolvedResponseCacheOptions) {
     super();
@@ -167,14 +180,32 @@ export class ResponseCacheMiddleware extends RouteMiddleware {
       await runRoute(proceed);
       return;
     }
-    const found = await this.lookup(key, storage);
+    const found = await this.find(key, storage);
     // a corrupt entry, or one another version or application wrote, is a miss, never a 500
     const stored = found?.hit === true ? replayableReply(found.value) : undefined;
-    if (stored !== undefined) {
+    // a stale hit is served while another request of this process refreshes the key: the store still holds it valid here
+    if (found?.hit === true && stored !== undefined && (!found.stale || this.refreshing.has(key))) {
       await sendReply(req, res, new CachedResponse(stored));
       return;
     }
-    await this.runAndStore(found, res, storage, proceed);
+    // only the first stale hit refreshes; a hit whose value cannot be sent runs as a miss (a fresh one has no fill)
+    await (found?.hit === true && found.stale && !this.refreshing.has(key) ? this.refresh(key, found, res, storage, proceed) : this.runOnce(key, found, res, storage, proceed));
+  }
+
+  /**
+   * A lookup; a miss waits for a run of the key going on in this process, at most cache.http.waitTimeout, then looks
+   * again in its own scope.
+   */
+  protected async find(key: string, storage: IActionLocalStoregeContext): Promise<CacheLookup<CapturedJsonReply> | undefined> {
+    const found = await this.lookup(key, storage);
+    // a lookup the store did not answer is read as a miss: waiting and looking again would cost a second timeout
+    const running = found?.hit === false ? this.inFlight.get(key) : undefined;
+    if (running === undefined) return found;
+    // ended by the container's dispose too: the waiter then looks again and runs the route like one that gave up
+    if ((await this.Waits.until(running, this.WaitTimeout)) === 'late') {
+      this.failed('the run of the key by another request', `took longer than ${this.WaitTimeout} ms (cache.http.waitTimeout), so the request runs the route itself; further ones in the next minute are not logged`);
+    }
+    return this.lookup(key, storage);
   }
 
   /** False, once and for good, when a stored reply of this route would skip a middleware that shapes it (R12). */
@@ -207,7 +238,7 @@ export class ResponseCacheMiddleware extends RouteMiddleware {
   }
 
   protected cacheOptions(): CacheOptions {
-    return { ttl: this.options.ttl, tags: this.options.tags, layer: 'http' };
+    return { ttl: this.options.ttl, swr: this.options.swr, tags: this.options.tags, layer: 'http' };
   }
 
   protected lookup(key: string, storage: IActionLocalStoregeContext): Promise<CacheLookup<CapturedJsonReply> | undefined> {
@@ -223,6 +254,32 @@ export class ResponseCacheMiddleware extends RouteMiddleware {
     if (found !== undefined && reply !== undefined) {
       // a miss; a fresh hit runs only when its value could not be sent, and has no fill
       await this.inStore(storage, 'store', async () => found.fill?.(reply));
+    }
+  }
+
+  /** The first stale hit of a key in this process runs the route again and fills through the hit (plan A, K20). */
+  private async refresh(key: string, found: CacheLookup<CapturedJsonReply>, res: HttpResponse, storage: IActionLocalStoregeContext, proceed: () => Promise<IRouteOutcome>): Promise<void> {
+    this.refreshing.add(key);
+    try {
+      await this.runAndStore(found, res, storage, proceed);
+    } finally {
+      this.refreshing.delete(key);
+    }
+  }
+
+  /** A miss runs the route; a miss of the same key meanwhile waits for it in find(). */
+  private async runOnce(key: string, found: CacheLookup<CapturedJsonReply> | undefined, res: HttpResponse, storage: IActionLocalStoregeContext, proceed: () => Promise<IRouteOutcome>): Promise<void> {
+    const flight = this.runAndStore(found, res, storage, proceed);
+    const settled = flight.then(
+      () => undefined,
+      () => undefined,
+    );
+    this.inFlight.set(key, settled);
+    try {
+      await flight;
+    } finally {
+      // a waiter that gave up runs its own flight, which the first one must not drop
+      if (this.inFlight.get(key) === settled) this.inFlight.delete(key);
     }
   }
 
@@ -244,16 +301,21 @@ export class ResponseCacheMiddleware extends RouteMiddleware {
     try {
       return await Promise.race([this.Storage.run(storage, op), late]);
     } catch (error) {
-      const now = Date.now();
-      const last = this.failedAt.get(what);
-      // a store that is down fails every request: one warning per call and minute, not one per request
-      if (last === undefined || now - last >= FAILURE_LOG_INTERVAL_MS) {
-        this.failedAt.set(what, now);
-        this.Log.warn({ error, route: this.namespace, what }, 'Response cache of ${route}: ${what} failed and is read as a miss; further failures of it in the next minute are not logged');
-      }
+      this.failed(what, 'failed and is read as a miss; further failures of it in the next minute are not logged', error);
       return undefined;
     } finally {
       clearTimeout(timer);
+    }
+  }
+
+  /** A store that is down fails every request: one warning per call and minute, not one per request. */
+  private failed(what: string, outcome: string, error?: unknown): void {
+    const now = Date.now();
+    const last = this.failedAt.get(what);
+    if (last === undefined || now - last >= FAILURE_LOG_INTERVAL_MS) {
+      this.failedAt.set(what, now);
+      // what and outcome are this class's own texts, written into the template so the logger does not quote them
+      this.Log.warn({ error, route: this.namespace, what }, `Response cache of \${route}: ${what} ${outcome}`);
     }
   }
 

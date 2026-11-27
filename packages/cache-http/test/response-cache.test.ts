@@ -92,7 +92,10 @@ class FlagScope extends CacheScope {
 
 /** Never answers a read, as a store with an offline queue does while it reconnects; the cache `hung` uses it. */
 class HangingStore extends CacheStore {
+  public static reads = 0;
+
   public get(): Promise<undefined> {
+    HangingStore.reads += 1;
     return new Promise(() => undefined);
   }
 
@@ -119,6 +122,15 @@ class Items extends BaseController {
   @ResponseCache({ ttl: '1m', cache: 'hung' })
   public hung() {
     return new Ok({ run: run('hung') });
+  }
+
+  // runs while the lookups of the requests after it time out
+  @Get('stalled')
+  @ResponseCache({ ttl: '1m', cache: 'hung' })
+  public async stalled() {
+    const n = run('stalled');
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    return new Ok({ run: n });
   }
 
   @Get('list')
@@ -301,6 +313,13 @@ describe('@ResponseCache', function () {
     this.timeout(10000);
     for (const n of [1, 2, 3]) expect((await get('/items/hung', { 'x-user': 'uma' })).body).to.deep.eq({ run: n });
     expect(cacheWarnings().filter((text) => text.includes('/items/hung') && text.includes('lookup failed'))).to.have.length(1);
+  });
+
+  it('reads a store that does not answer once per request, also while another request of the key runs', async function () {
+    this.timeout(10000);
+    HangingStore.reads = 0;
+    await Promise.all([1, 2, 3].map(() => get('/items/stalled', { 'x-user': 'una' })));
+    expect(HangingStore.reads).to.eq(3);
   });
 
   it('drops a stored reply when one of its tags is invalidated', async () => {

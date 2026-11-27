@@ -37,6 +37,14 @@ describe('@ResponseCache options', () => {
     }
   });
 
+  it('takes swr as a duration of 0 or more', () => {
+    expect(resolveResponseCacheOptions({ ttl: '1m', swr: '10m' })).to.include({ ttl: '1m', swr: '10m' });
+    expect(resolveResponseCacheOptions({ ttl: '1m', swr: 0 })).to.include({ swr: 0 });
+    expect(refused({ ttl: '1m', swr: -1 })).to.be.instanceOf(InvalidArgument);
+    expect(refused({ ttl: '1m', swr: 'later' })).to.be.instanceOf(InvalidArgument);
+    expect(refused({ ttl: '1m', swr: null })).to.be.instanceOf(InvalidArgument);
+  });
+
   it('refuses an unknown option, scope, vary, tag or cache name', () => {
     expect(refused({ ttl: '1m', store: 'validator' }).message).to.eq('@ResponseCache has no option store');
     expect(refused({ ttl: '1m', scope: 'user' }).message).to.contain("scope must be 'principal', 'tenant' or 'shared'");
