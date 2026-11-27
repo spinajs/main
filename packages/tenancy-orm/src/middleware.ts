@@ -6,6 +6,7 @@ import { TenantRequired, tenantScope } from '@spinajs/tenancy';
 import type { TenantScope } from '@spinajs/tenancy';
 
 import { confine } from './confine.js';
+import { embeddedSelects } from './embedded.js';
 import { stamp } from './insert.js';
 import { hasTenantModels, nameOf } from './registry.js';
 import { acrossTenantsReason } from './marker.js';
@@ -30,6 +31,23 @@ export class TenantScopeMiddleware extends QueryMiddleware {
 
   beforeQueryExecution(query: QueryBuilder): void {
     if (!hasTenantModels() || !isStatement(query)) return;
+    this.scopeStatement(query);
+    this.scopeEmbedded(query);
+  }
+
+  /**
+   * A select compiled into the statement never runs the query middlewares itself, so each one is scoped here as if it
+   * were a statement: by its own `.acrossTenants()` mark, not the statement's. Outer before inner, so the walk also
+   * reaches a sub-query that confine() moved into a group.
+   */
+  private scopeEmbedded(query: QueryBuilder): void {
+    for (const sub of embeddedSelects(query)) {
+      this.scopeStatement(sub);
+      this.scopeEmbedded(sub);
+    }
+  }
+
+  private scopeStatement(query: QueryBuilder): void {
     const scope = statementScope(query);
     const target = targetOf(query);
     if (target === undefined) {

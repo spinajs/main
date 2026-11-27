@@ -4,7 +4,7 @@ import type { Condition, DecisionRecord, PrincipalFactsRecord, ReplayMissing } f
 import type { CaveatContext } from '../eval/caveats.js';
 import { GLOBAL_TYPE } from '../ir.js';
 import type { PolicyIR, PrincipalFacts } from '../ir.js';
-import type { ReplayWindow } from './history.js';
+import type { ReplayWindow } from './ports.js';
 
 /** Reason codes the engine gives before or outside the policy: the IR does not model them. */
 const OUTSIDE_POLICY: ReadonlySet<string> = new Set(['model_error', 'needs_subject', 'unattended', 'anonymous', 'unknown_resource', 'invalid_request']);

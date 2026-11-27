@@ -10,7 +10,7 @@ import { DI } from '@spinajs/di';
 import type { OrmDriver } from '@spinajs/orm';
 
 import { AUDIT_CONNECTION, AuthzDecisionLogFacts_2026_11_06_00_00_00, AuthzDecisionLog_2026_11_04_00_00_00, DbDecisionLog } from '../../src/audit/index.js';
-import { AuthzScopeAttribute_2026_10_02_00_00_00, DbScopeAttributeStore, SCOPE_ATTRIBUTE_TABLE, SCOPE_ATTRIBUTE_VERSION_TABLE, recordCoverage, recordPolicyVersion } from '../../src/index.js';
+import { AuthzScopeAttributeKey_2026_11_25_00_00_00, AuthzScopeAttribute_2026_10_02_00_00_00, DbScopeAttributeStore, SCOPE_ATTRIBUTE_TABLE, SCOPE_ATTRIBUTE_VERSION_TABLE, recordCoverage, recordPolicyVersion, scopeAttributeId } from '../../src/index.js';
 import { DbDecisionReplay, ScopeAttributeHistoryContributor } from '../../src/replay/index.js';
 import { TestDb } from '../support/db.js';
 import type { Dialect } from '../support/db.js';
@@ -99,6 +99,7 @@ describe('DbDecisionReplay: captured scope attributes', function () {
         await (await testHost.domains()).service('root');
         await dropAttributeTables();
         await new AuthzScopeAttribute_2026_10_02_00_00_00().up(driver);
+        await new AuthzScopeAttributeKey_2026_11_25_00_00_00().up(driver);
         await createChangeLogTables(db, dialect);
         await new AuthzDecisionLog_2026_11_04_00_00_00().up(driver);
         await new AuthzDecisionLogFacts_2026_11_06_00_00_00().up(driver);
@@ -160,7 +161,7 @@ describe('DbDecisionReplay: captured scope attributes', function () {
       it('b: an attribute without logged history changed by raw SQL after the decision is divergent captured-state', async () => {
         const ir = irOf(ORG, 'level', 2);
         await world(ir);
-        await driver.insert().into(SCOPE_ATTRIBUTE_TABLE).values({ scope_type: 'org', scope_id: 'o1', path: 'level', value_json: '2', value_text: '2', value_num: 2, updated_by: 'sql', updated_at: new Date() });
+        await driver.insert().into(SCOPE_ATTRIBUTE_TABLE).values({ id: scopeAttributeId('org', 'o1', 'level'), scope_type: 'org', scope_id: 'o1', path: 'level', value_json: '2', value_text: '2', value_num: 2, updated_by: 'sql', updated_at: new Date() });
         const id = await decide(ir, ORG);
         await db.raw(`UPDATE ${table()} SET value_json = '1', value_text = '1', value_num = 1 WHERE path = 'level'`, [], dialect);
         const report = await replay(id);
