@@ -111,6 +111,45 @@ describe('redis session provider', function () {
       expect(await client.get('session:r-ghost'), 'mock still holds the key').to.not.be.null;
       expect(await store.restore('r-ghost'), 'expired session reads as absent').to.be.null;
     });
+
+    it('an Expiration that is present but not an ISO instant counts as passed; only an absent one means never', async () => {
+      const store = await makeProvider(SLIDING);
+      await store.truncate();
+      const unreadable: [string, unknown][] = [
+        ['empty text', ''],
+        ['null', null],
+        ['zero', 0],
+        ['false', false],
+        ['a number that reads as an ISO year', 2099],
+        ['blank text', '   '],
+        ['text that is no date', 'Invalid DateTime'],
+        ['an object', {}],
+      ];
+
+      for (const [label, value] of [['absent', undefined], ...unreadable] as [string, unknown][]) {
+        const id = `r-unreadable-${label.replace(/\W+/g, '-')}`;
+        await store.save(session({ SessionId: id, Subject: user('u-42') }));
+        const raw = await stored(`session:${id}`);
+        raw.Expiration = value;
+        await rawClient().set(`session:${id}`, JSON.stringify(raw));
+
+        const restored = await store.restore(id);
+        if (value === undefined) {
+          expect(restored, label).to.not.be.null;
+          expect(restored!.Expiration, label).to.equal(undefined);
+        } else {
+          expect(restored, label).to.equal(null);
+          expect(await rawClient().exists(`session:${id}`), `${label}: deleted as an expired row is`).to.equal(0);
+        }
+      }
+
+      const id = 'r-unreadable-listed';
+      await store.save(session({ SessionId: id, Subject: user('u-42') }));
+      const raw = await stored(`session:${id}`);
+      raw.Expiration = '';
+      await rawClient().set(`session:${id}`, JSON.stringify(raw));
+      expect(ids(await store.listBySubject(user('u-42')))).to.deep.equal(['r-unreadable-absent']);
+    });
   });
 
   describe('3.0 key layout', () => {
