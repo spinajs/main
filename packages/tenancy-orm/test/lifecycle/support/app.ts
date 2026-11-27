@@ -7,6 +7,7 @@ import { createTestApp } from '@spinajs/testing';
 import type { TestApp } from '@spinajs/testing';
 // registers the configuration schema, the query middleware and the lifecycle before the Orm resolves
 import { TENANTS_TABLE } from '../../../src/index.js';
+import type { TenantLifecycleState } from '../../../src/index.js';
 import { tenancyDriver } from '../../../src/lifecycle/record.js';
 import './models.js';
 
@@ -38,3 +39,7 @@ export async function leaseColumns(id: string): Promise<Record<string, unknown>>
   return { ...first };
 }
 
+/** Writes a lifecycle record past the lease, as a process that died or an older version left it. */
+export async function seedLifecycle(id: string, state: TenantLifecycleState): Promise<void> {
+  await (await tenancyDriver()).update().in(TENANTS_TABLE).update({ lifecycle: JSON.stringify(state) }).where('id', id);
+}
