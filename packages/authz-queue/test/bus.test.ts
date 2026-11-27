@@ -326,10 +326,8 @@ class UnreachableBus extends QueueChangeBus {
   }
 }
 
-/**
- * TestLog as the Log, also when @spinajs/log registered one first (installTestLog does nothing then). By the key the
- * container files Log under: the package does not depend on @spinajs/log-common.
- */
+// TestLog as the Log, also when `@spinajs/log` registered one first (installTestLog does nothing then). By the key the
+// container files Log under: the package does not depend on `@spinajs/log-common`.
 function captureLog(): () => void {
   DI.register(TestLog).as('Log');
   TestLog.clear();
