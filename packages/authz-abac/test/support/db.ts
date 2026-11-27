@@ -14,6 +14,9 @@ export type DbKind = 'sqlite' | 'postgres';
 
 export const DB_KINDS: readonly DbKind[] = ['sqlite', 'postgres'];
 
+/** An SQL literal the driver's expires_at column stores and no datetime converter reads. */
+export const unreadableExpiry = (kind: DbKind): string => (kind === 'sqlite' ? `'not a date'` : `'-infinity'`);
+
 const PG_SERVER = { Host: '127.0.0.1', Port: Number(process.env.ORM_TEST_POSTGRES_PORT ?? 15432), User: 'postgres', Password: 'postgres', Database: 'test' };
 
 /** The shared server can be slow to answer while other lanes load it. */

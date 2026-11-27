@@ -6,9 +6,7 @@ import { parseSubjectTypeRef } from '../ir.js';
 import type { PolicyIR, RelationName, Rewrite, TypeDef, TypeName } from '../ir.js';
 import type { StoredPolicySplicer } from './contributor.js';
 import { StoreUnreadable } from './gap.js';
-import { coverageGap, stateAt } from './history.js';
-import type { KeyState } from './history.js';
-import type { ReplayHistory } from './history-scan.js';
+import type { KeyState, KeyStateFunctions, ReplayHistoryView } from './ports.js';
 
 type Items = ReadonlyArray<{ key: string; state: KeyState }>;
 
@@ -18,7 +16,7 @@ type Items = ReadonlyArray<{ key: string; state: KeyState }>;
  * `at` stays opaque: an empty store there proves nothing. With `from`, only the permissions a check of it can reach are
  * spliced, so stores the decision never reads cost no history and name no gaps.
  */
-export async function spliceStoredPolicy(ir: PolicyIR, at: Date, splicers: readonly StoredPolicySplicer[], history: ReplayHistory, from?: { type: TypeName; relation: RelationName }): Promise<{ ir: PolicyIR; reads: ReplayRead[] }> {
+export async function spliceStoredPolicy(ir: PolicyIR, at: Date, splicers: readonly StoredPolicySplicer[], history: ReplayHistoryView, keyState: KeyStateFunctions, from?: { type: TypeName; relation: RelationName }): Promise<{ ir: PolicyIR; reads: ReplayRead[] }> {
   const reads: ReplayRead[] = [];
   if (splicers.length === 0) return { ir, reads };
   const out = structuredClone(ir);
@@ -32,7 +30,7 @@ export async function spliceStoredPolicy(ir: PolicyIR, at: Date, splicers: reado
     if (located.length === 0) return undefined;
     const { s, place } = located[0];
     const slot = `${splicers.indexOf(s)}\u0000${place.store}`;
-    if (!stores.has(slot)) stores.set(slot, itemsAt(s, place.store, at, history, reads));
+    if (!stores.has(slot)) stores.set(slot, itemsAt(s, place.store, at, history, keyState, reads));
     const items = await stores.get(slot)!;
     if (typeof items === 'string') return undefined;
     const spliced = s.splice(place, items, out);
@@ -112,7 +110,7 @@ function merge(ir: PolicyIR, caveats: PolicyIR['caveats'], opaque: PolicyIR['opa
 }
 
 /** The store's items at `at`, read with the coverage last; the coverage gap as a string when the kind is not covered. */
-async function itemsAt(s: StoredPolicySplicer, store: string, at: Date, history: ReplayHistory, reads: ReplayRead[]): Promise<Items | string> {
+async function itemsAt(s: StoredPolicySplicer, store: string, at: Date, history: ReplayHistoryView, keyState: KeyStateFunctions, reads: ReplayRead[]): Promise<Items | string> {
   let current: Array<{ key: string; image: unknown }>;
   try {
     current = await s.current(store);
@@ -134,7 +132,7 @@ async function itemsAt(s: StoredPolicySplicer, store: string, at: Date, history:
   const befores = await history.beforeOf(s.kind, keys);
   const since = await history.since(s.kind);
   // An item of this store may be the one that change touched: without it the set would be silently shorter.
-  const uncovered = anonymous === undefined ? coverageGap(at, s.kind, since, history.window) : `${s.kind} change seq ${anonymous} names no store`;
+  const uncovered = anonymous === undefined ? keyState.coverageGap(at, s.kind, since, history.window) : `${s.kind} change seq ${anonymous} names no store`;
   if (uncovered !== undefined) {
     reads.push({ kind: s.kind, key: `${s.kind}:${store}`, origin: 'gap', reason: uncovered });
     return uncovered;
@@ -145,7 +143,7 @@ async function itemsAt(s: StoredPolicySplicer, store: string, at: Date, history:
     const before = befores.get(key);
     const head = heads.get(key);
     const moved = head !== undefined && head.seq > Math.max(after.at(-1)?.seq ?? -Infinity, before?.seq ?? -Infinity);
-    const state: KeyState = moved ? { known: false, reason: `${s.kind} ${key} changed during the replay` } : stateAt(at, { kind: s.kind, current: images.get(key), after, before, since, window: history.window, precisionMs: history.precisionMs });
+    const state: KeyState = moved ? { known: false, reason: `${s.kind} ${key} changed during the replay` } : keyState.stateAt(at, { kind: s.kind, current: images.get(key), after, before, since, window: history.window, precisionMs: history.precisionMs });
     reads.push(state.known ? { kind: s.kind, key, origin: state.origin, ...(state.seq === undefined ? {} : { seq: state.seq }) } : { kind: s.kind, key, origin: 'gap', reason: state.reason });
     return { key, state };
   });
