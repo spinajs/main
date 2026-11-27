@@ -220,6 +220,8 @@ nothing is cached.
 - **Answer `true` only for state you announce.** A plan kept for a principal is dropped only by a change that bumps one
   of its tags, or by its TTL. A plan that rests on anything else (the env, the time of day, a table no change names)
   would keep showing rows after access was revoked.
+- **Any scope change drops every kept plan of the domain.** A plan's tags always hold `scope:*`, and a change that names
+  a `scope:<type:id>` drops `scope:*` too, as it drops every type-level decision: correct, but coarse.
 - **A `none` plan is kept without the expiry of the deny that made it**: the principal sees no rows until the TTL ends,
   even when the deny expired earlier.
 
