@@ -79,7 +79,26 @@ function options(host: string, extra: Partial<IQueueConnectionOptions> = {}): IQ
   };
 }
 
+// a planted value cut short or split by masking still leaks when 8 of its characters survive in a row
+const PLANTED_RUNS = [...new Set(PLANTED.flatMap((value) => Array.from({ length: value.length - 7 }, (_, at) => value.slice(at, at + 8))))];
+
 const deepText = (value: unknown): string => inspect(value, { depth: 6, showHidden: true });
+const fullText = (value: unknown): string => inspect(value, { depth: null, showHidden: true });
+
+function captureStderr(): { text: () => string; stop: () => void } {
+  const write = process.stderr.write;
+  const chunks: string[] = [];
+  process.stderr.write = (chunk: string | Uint8Array): boolean => {
+    chunks.push(typeof chunk === 'string' ? chunk : Buffer.from(chunk).toString());
+    return true;
+  };
+  return {
+    text: () => chunks.join(''),
+    stop: () => {
+      process.stderr.write = write;
+    },
+  };
+}
 const messageOf = (error: unknown): string => (error instanceof Error ? error.message : String(error));
 const pause = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -237,6 +256,58 @@ describe('stomp transport - a websocket factory that throws rejects resolve()', 
       expect(leftAfterTimeout).to.deep.equal([]);
     });
   }
+
+  const notSockets: Array<[what: string, webSocketFactory: () => unknown, reason: string]> = [
+    ['returns nothing', () => undefined, 'returned no socket'],
+    ['returns an object that is not a socket', () => ({}), 'is not a websocket'],
+    ['is async and resolves to an object that is not a socket', () => Promise.resolve({}), 'returned a promise'],
+    ['is async and throws', () => Promise.reject(new Error(`the factory cannot dial ${brokerUrl(1)}`)), 'returned a promise'],
+  ];
+
+  for (const [what, webSocketFactory, reason] of notSockets) {
+    it(`rejects at once when an options.webSocketFactory ${what}, without quoting the broker and raising no unhandled rejection`, async () => {
+      const port = await closedPort();
+      const stderr = captureStderr();
+      const client = new ProbeClient(options(brokerUrl(port), { options: { webSocketFactory } }));
+
+      const outcome = await settledWithin(client.resolve(), 1000);
+      await pause(6 * RECONNECT_DELAY);
+      const disposed = await settledWithin(client.dispose(), 1000);
+      stderr.stop();
+
+      expect(outcome.state).to.equal('rejected');
+      const error = outcome.state === 'rejected' ? outcome.error : undefined;
+      const everything = [fullText(error), error instanceof Error ? (error.stack ?? '') : '', fullText(error instanceof Error ? error.cause : undefined), fullText(client.calls), fullText(unhandled), stderr.text()].join('\n');
+      expect(PLANTED_RUNS.filter((run) => everything.includes(run))).to.deep.equal([]);
+      expect(error).to.be.instanceOf(InvalidArgument);
+      expect(messageOf(error)).to.contain(`cannot open a websocket to ws://127.0.0.1:${port}/stomp`).and.to.contain(reason);
+      expect(unhandled.map(deepText)).to.deep.equal([]);
+      expect(disposed.state).to.equal('resolved');
+    });
+  }
+
+  it('closes a socket that an async options.webSocketFactory hands back late', async () => {
+    const listener = await stompListener();
+    const late: WebSocket[] = [];
+    const webSocketFactory = (): Promise<WebSocket> => {
+      const socket = new WebSocket(`ws://127.0.0.1:${listener.port}/stomp`, Stomp.Versions.default.protocolVersions());
+      late.push(socket);
+      return Promise.resolve(socket);
+    };
+    const client = new ProbeClient(options(brokerUrl(listener.port), { options: { webSocketFactory } }));
+    try {
+      const outcome = await settledWithin(client.resolve(), 1000);
+      for (let waited = 0; waited < 1000 && late.some((socket) => socket.readyState !== WebSocket.CLOSED); waited += 25) await pause(25);
+
+      expect(outcome.state).to.equal('rejected');
+      expect(late).to.have.length(1);
+      expect(late.map((socket) => socket.readyState)).to.deep.equal([WebSocket.CLOSED]);
+      expect(unhandled.map(deepText)).to.deep.equal([]);
+    } finally {
+      await settledWithin(client.dispose(), 1000);
+      await listener.close();
+    }
+  });
 
   it('calls an options.webSocketFactory with the stompjs client as this, as stompjs does', async () => {
     const port = await closedPort();
