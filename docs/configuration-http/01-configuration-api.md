@@ -83,6 +83,19 @@ Every column of `DbConfig`, `Value` and `Default` in their canonical stored stri
 | `Type` | `"number"` | One of the entry types of `@spinajs/configuration-db-source`. |
 | `Required`, `Watch`, `Exposed` | `true` | Flags as stored. |
 | `Environment` | `null` | As stored. |
+| `Scope` | `"shared"` | `shared` outside any tenant, `tenant:<id>` inside one, see [Rows of one tenant](#rows-of-one-tenant). |
+
+## Rows of one tenant
+
+The routes read and write the rows of the request's scope, the tenant scope `TenantMiddleware` of `@spinajs/tenancy-http` set, never one named in the body or the query (`Scope` in a `PATCH` body is ignored):
+
+| Request runs | `GET /configuration`, `GET /configuration/:slug` | `PATCH /configuration/:slug` |
+| --- | --- | --- |
+| outside any tenant | the shared rows (`Scope` `'shared'`) | a shared row |
+| in tenant `acme` | the rows of `tenant:acme` only; a slug with no row of that tenant answers `404` | a row of `tenant:acme`, and only at a path of `tenancy.config.overridable` (`403` otherwise, also for an admin); no row is created, so a slug with no row of that tenant answers `404` |
+| across all tenants (`@AllTenants`) | `403` | `403` |
+
+The permissions apply in every row of the table: a principal needs `configuration:read` and `configuration:update` in a tenant as outside one. With `TenantMiddleware` mounted on every route (`http.routes.middlewares`), every request of these routes names a tenant, so the shared rows are reached only where the application serves the routes without a tenant. A tenant's row reaches the configuration through `ScopedDbConfiguration` of `@spinajs/configuration-db-source` within `configuration_db_source.scopedTtlMs` ([Rows of one scope](../configuration-db-source/01-database-source.md#rows-of-one-scope)).
 
 ## Errors
 
@@ -91,7 +104,7 @@ Every column of `DbConfig`, `Value` and `Default` in their canonical stored stri
 | `400` | `Value` / `Default` breaks the type, `Meta` or slug schema | `{ error: { message: "Value is invalid" } }` ([message format](02-value-validation.md#error-messages)) |
 | `400` | Body field outside `fields.write` (reject mode), or DTO schema failure | authz-http / http error body |
 | `401` | No principal | authz-http error body |
-| `403` | No route permission; list refused by the list plan; `ConfigWriteRefused` | authz-http error body |
+| `403` | No route permission; list refused by the list plan; `ConfigWriteRefused`; `ConfigScopeRefused` (a request across all tenants, or a tenant writing a path outside `tenancy.config.overridable`) | authz-http error body |
 | `404` | Unknown slug, or the row check refused it | `configuration entry <slug> not found` |
 | `500` | The slug schema cannot be compiled | `{ error: { message: "configuration schema '<slug>' is invalid" } }` |
 

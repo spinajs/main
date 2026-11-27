@@ -1,6 +1,6 @@
 import { Autoinject, Container, Injectable } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
-import { ConfigurationOverlay, FrameworkConfiguration } from '@spinajs/configuration';
+import { ConfigurationOverlay, FrameworkConfiguration, ScopedConfigurationSource } from '@spinajs/configuration';
 import type { Configuration } from '@spinajs/configuration';
 import { InvalidOperation } from '@spinajs/exceptions';
 import { Log, Logger } from '@spinajs/log-common';
@@ -80,6 +80,8 @@ export class TenantConfigurationOverlay extends ConfigurationOverlay {
 
   private configuration: FrameworkConfiguration | undefined;
 
+  private sources: ScopedConfigurationSource[] = [];
+
   private checked = new Map<string, Checked>();
 
   // By tenant: a registry refresh hands out a new settings object with the same paths, which must not warn again.
@@ -94,6 +96,7 @@ export class TenantConfigurationOverlay extends ConfigurationOverlay {
     this.configuration = configuration;
     this.checked = new Map();
     this.reported = new Map();
+    this.sources = this.Container.hasRegistered(ScopedConfigurationSource) ? this.Container.resolve(Array.ofType(ScopedConfigurationSource)) : [];
   }
 
   public covers(path: readonly string[]): boolean {
@@ -109,7 +112,8 @@ export class TenantConfigurationOverlay extends ConfigurationOverlay {
     if (settings === undefined) {
       throw new TenantSettingsUnavailable(`the settings of tenant "${tenant}" are not loaded in this process: enter it through an entry point that admits it, or await loadTenantSettings('${tenant}') first`);
     }
-    const values = this.checkedValues(tenant, [overridesOf(settings, this.paths)], [settings]);
+    const scoped = this.scopedValues(tenant);
+    const values = this.checkedValues(tenant, [...scoped, overridesOf(settings, this.paths)], [...scoped, settings]);
     this.reportUnserved(tenant, settings);
     return values;
   }
@@ -135,11 +139,26 @@ export class TenantConfigurationOverlay extends ConfigurationOverlay {
     return values;
   }
 
+  // A scoped source holds any slug: only one at or below an overridable path may answer.
+  private overridable(path: string): boolean {
+    const segments = path.split('.');
+    return this.paths.some((p) => startsWith(segments, p));
+  }
+
+  private scopedValues(tenant: string): ReadonlyMap<string, unknown>[] {
+    const found: ReadonlyMap<string, unknown>[] = [];
+    for (const source of this.sources) {
+      const values = source.valuesOf(`tenant:${tenant}`);
+      if (values !== undefined && values.size > 0) found.push(values);
+    }
+    return found;
+  }
+
   private checkLayers(tenant: string, layers: readonly ReadonlyMap<string, unknown>[]): Map<string, unknown> {
     const values = new Map<string, unknown>();
     for (const layer of layers) {
       for (const [path, value] of layer) {
-        const accepted = this.checkedValue(tenant, path, value);
+        const accepted = this.overridable(path) ? this.checkedValue(tenant, path, value) : undefined;
         if (accepted !== undefined) values.set(path, accepted.value);
       }
     }

@@ -70,12 +70,12 @@ export default {
 
 ### `configuration`
 
-Created by the migration `configuration_db_source_2022_02_08_01_13_00` on the `default` connection, with a unique index `configuration_unique_slug` on `Slug`.
+Created by the migration `configuration_db_source_2022_02_08_01_13_00` on the `default` connection, with a unique index `configuration_unique_slug` on `Slug`; the migration `configuration_db_source_2026_11_26_00_00_00` adds `Scope` and replaces that index with `configuration_unique_slug_scope` on (`Slug`, `Scope`).
 
 | Column | Type | Meaning |
 | --- | --- | --- |
 | `Id` | `int`, primary key, auto increment | Row id. |
-| `Slug` | `string(64)`, not null, unique | Config path, the same string passed to `@Config()` and `Configuration.get()`. |
+| `Slug` | `string(64)`, not null, unique per `Scope` | Config path, the same string passed to `@Config()` and `Configuration.get()`. |
 | `Value` | `text` | Current value in canonical text form, converted by `Type`. |
 | `Default` | `text` | The `defaultValue` declared in code, in canonical text form. |
 | `Required` | `boolean`, default `0` | Copied from `@Config({ required })`. Informational. |
@@ -87,6 +87,7 @@ Created by the migration `configuration_db_source_2022_02_08_01_13_00` on the `d
 | `Environment` | `string(32)` | Not read by any shipped code. Free for your own source, see [Custom configuration source](07-custom-configuration-source.md). |
 | `Meta` | `text` (JSON) | `exposeOptions.meta`: `min`, `max`, `minDate`, `maxDate`, `oneOf`, `manyOf`, `file`. |
 | `Type` | `enum`, not null | One of the 15 entry types, see [Entry types](04-entry-types-and-converter.md). |
+| `Scope` | `string(80)`, not null, default `'shared'` | `'shared'` for the shared configuration, `tenant:<id>` for a row of one tenant, see [Rows of one scope](#rows-of-one-scope). |
 
 The migration's `down()` drops the `configuration` table.
 
@@ -210,6 +211,22 @@ export async function seedSupportEmail(): Promise<void> {
 ```
 
 After the next `Configuration.load()`, `Configuration.get('support.email')` returns `'support@example.com'`.
+
+## Rows of one scope
+
+A row whose `Scope` is not `'shared'` (`SHARED_SCOPE`) belongs to one scope, such as `tenant:acme`. The source never merges it into the shared configuration: it hands it to `ScopedDbConfiguration` (a `ScopedConfigurationSource`), which `@spinajs/tenancy` reads for a tenant's overrides ([Configuration overrides per tenant](../tenancy/07-configuration-overrides.md)): a tenant's row is served only inside that tenant and only at a path of `tenancy.config.overridable`. A slug is unique per scope; the exposed-option sync and the watch poll read shared rows only.
+
+```sql
+INSERT INTO configuration (Slug, Value, Type, Exposed, Scope) VALUES ('mail.from', 'billing@acme.example', 'string', 1, 'tenant:acme');
+```
+
+`ScopedDbConfiguration` answers what it read when the configuration loaded; a read of rows older than `configuration_db_source.scopedTtlMs` (default 60000 ms, `0` = only when the configuration loads) reads them again in the background, one query for the rows of every scope. A failed read keeps the rows held and is tried again one `scopedTtlMs` later. `await (await DI.resolve(ScopedDbConfiguration)).refresh()` reads them at once, for example after an administration screen saved a row. Disposing the container stops the background read. No timer runs for it: the watch poll stays one per process and reads the watched shared rows only, however many tenants there are.
+
+The migration `configuration_db_source_2026_11_26_00_00_00` adds the column (`'shared'` for every existing row and for a row inserted without it) and replaces the unique index on `Slug` with one on (`Slug`, `Scope`). Run it with the deploy: until it ran, the exposed-option sync and the scoped read fail on the missing column and log it. A tenant's scope is always `tenant:<id>`, so no tenant id, `shared` included, reaches the shared rows. Insert rows as plain objects (`DbConfig.insert({ ... })`) or name `Scope`: a `DbConfig` instance saved without `Scope` is refused by the ORM, as for any required column.
+
+Write rows of a scope only once every replica runs this release. An older release does not know `Scope` and loads every row into the shared configuration, so a tenant's row would become the shared value there. Before rolling back to it, run the migration's `down`, which deletes the scoped rows.
+
+[`@spinajs/configuration-http`](../configuration-http/01-configuration-api.md#rows-of-one-tenant) reaches the rows of the request's scope: a tenant's rows inside a tenant, the shared rows outside any.
 
 ## Related
 

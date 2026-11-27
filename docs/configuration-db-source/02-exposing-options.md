@@ -122,7 +122,7 @@ export async function senderOf(channel: string): Promise<string> {
 - **The table gates everything.** Nothing is written until the `Orm` resolved on a database whose `configuration` table exists.
 - **One sweep per `bootstrap()`.** The first `di.resolved.Orm` that finds the table sweeps; later ones do nothing, unless the sweep failed on a table that does not exist.
 - **Code never overwrites an admin's value.** `InsertOrIgnore` keeps an existing row; the metadata sync touches every column except `Value` and `Exposed`.
-- **The unique index makes it idempotent.** `InsertOrIgnore` relies on `configuration_unique_slug`. A custom table without it gets a duplicate row per restart.
+- **The unique index makes it idempotent.** `InsertOrIgnore` relies on `configuration_unique_slug_scope` (`Slug`, `Scope`); an exposed option is written with the default scope `'shared'`. A custom table without it gets a duplicate row per restart.
 - **`Default` is overwritten.** A changed `defaultValue` in code updates `Default` on the next start, never `Value`.
 - **Column limits apply.** A `Slug` longer than 64 characters or a `Group` longer than 32 fails the insert on strict databases; the error is logged, not thrown.
 - **Missing `type` fails the insert.** `Type` is `NOT NULL`; the insert error is logged and the option keeps its `defaultValue`.

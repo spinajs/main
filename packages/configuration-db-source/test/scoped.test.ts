@@ -1,6 +1,7 @@
 import { expect } from 'chai';
 import 'mocha';
 import { DI } from '@spinajs/di';
+import { ScopedConfigurationSource } from '@spinajs/configuration-common';
 import { Orm } from '@spinajs/orm';
 import type { OrmDriver } from '@spinajs/orm';
 import { testHost } from '@spinajs/authz-testing';
@@ -91,6 +92,8 @@ describe('configuration rows of one scope', function () {
 
     expect(loaded).to.deep.equal({ scoped: { from: 'shared@app.test' } });
     const scoped = await DI.resolve(ScopedDbConfiguration);
+    // the instance an overlay reads through the port is the one the source filled
+    expect(DI.resolve(Array.ofType(ScopedConfigurationSource))).to.include(scoped);
     expect([...(scoped.valuesOf('tenant:acme') ?? [])]).to.deep.equal([['scoped.from', 'billing@acme.test']]);
     expect([...(scoped.valuesOf('tenant:globex') ?? [])]).to.deep.equal([['scoped.only', 'globex']]);
     expect(scoped.valuesOf('tenant:initech')).to.equal(undefined);
