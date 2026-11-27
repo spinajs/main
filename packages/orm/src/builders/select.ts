@@ -2,7 +2,7 @@ import { Injectable, isConstructor } from '@spinajs/di';
 import type { Constructor, IContainer } from '@spinajs/di';
 import { InvalidArgument, InvalidOperation } from '@spinajs/exceptions';
 import { use } from 'typescript-mix';
-import { ColumnMethods, QueryMethod, WhereBoolean, SqlOperator, SortOrder } from '../enums.js';
+import { ColumnMethods, QueryMethod, WhereBoolean, SortOrder } from '../enums.js';
 import { SelectQueryCompiler, QueryContext, RelationType, BooleanValueConverter } from '../interfaces.js';
 import type { IKeysetPageOptions, IModelDescriptor, IStreamOptions, KeysetPage, RowLockMode, ICompilerOutput, ILimitBuilder, IQueryLimit, ISort, IWhereBuilder, IJoinBuilder, IBuilderMiddleware, IWithRecursiveBuilder, ITypedColumnsBuilder } from '../interfaces.js';
 import { ColumnMethodStatement, WhereStatement, WhereQueryStatement, ColumnRawStatement, ColumnConditionStatement, ColumnStatement, JoinStatement } from '../statements.js';
@@ -351,6 +351,7 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
       const c = merged ? s.clone() : s.clone(builder);
       c.Boolean = s.Boolean;
       c.OnJoin = s.OnJoin;
+      c.Scope = s.Scope;
       if (merged) {
         builder._merged.add(c);
       }
@@ -625,20 +626,10 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
   /**
    * Includes soft-deleted rows in the result set by removing the default
    * `DeletedAt IS NULL` filter added by createQuery for @SoftDelete models.
+   * A `whereNull(DeletedAt)` the query added itself is a condition of its own and stays.
    */
   public withDeleted(): this {
-    const descriptor = extractModelDescriptor(this._model);
-    const deletedAt = descriptor?.SoftDelete?.DeletedAt;
-
-    if (!deletedAt) {
-      return this;
-    }
-
-    this._statements = this._statements.filter((s) => {
-      return !(s instanceof WhereStatement && s.Column === deletedAt && s.Operator === SqlOperator.NULL);
-    });
-
-    return this;
+    return this._withoutScope(extractModelDescriptor(this._model)?.SoftDelete?.DeletedAt);
   }
 
   /**
@@ -646,16 +637,13 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
    * filter added by createQuery for @Archived models. Mirror of {@link withDeleted}.
    */
   public withArchived(): this {
-    const descriptor = extractModelDescriptor(this._model);
-    const archivedAt = descriptor?.Archived?.ArchivedAt;
+    return this._withoutScope(extractModelDescriptor(this._model)?.Archived?.ArchivedAt);
+  }
 
-    if (!archivedAt) {
-      return this;
+  private _withoutScope(column: string | undefined): this {
+    if (column) {
+      this._statements = this._statements.filter((s) => !(s.Scope === true && s instanceof WhereStatement && s.Column === column));
     }
-
-    this._statements = this._statements.filter((s) => {
-      return !(s instanceof WhereStatement && s.Column === archivedAt && s.Operator === SqlOperator.NULL);
-    });
 
     return this;
   }

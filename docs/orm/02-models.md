@@ -298,6 +298,18 @@ updateModelDescriptor(Invoice, (d) => {
   `first()` and `all()` therefore skip deleted rows. `withDeleted()` removes the filter.
 - `@Archived()` adds `WHERE ArchivedAt IS NULL` to every select the same way. `withArchived()` removes
   it. Deletes and updates are not filtered.
+- The two filters are ANDed with the query's own conditions as one group, so an `OR` the query writes
+  cannot bring deleted or archived rows back: `Invoice.where('Status', 'open').orWhere('Status', 'paid')`
+  reads `DeletedAt IS NULL AND ArchivedAt IS NULL AND ( Status = ? OR Status = ? )`. The group is added
+  when the conditions may have a top-level `OR`. The check is conservative: raw text
+  (`where(RawQuery.create('…'))`) is grouped whenever an `OR` cannot be ruled out, so a comment, a
+  backslash or an unbalanced quote or parenthesis in it adds the group too. A query whose conditions
+  have no `OR` compiles as before. Call `withDeleted()` / `withArchived()` to read deleted or archived rows.
+- Update and delete builders carry neither filter: a bulk `update(...).where(...).orWhere(...)` or
+  `destroy()` also changes soft-deleted and archived rows.- `withDeleted()` and `withArchived()` remove only the filter the model added. A
+  `whereNull('DeletedAt')` the query writes itself is a condition of its own and stays.
+- A relation's populate query does not add the filters: `populate()` returns soft-deleted and
+  archived related rows.
 - Both filters apply only when the column is in `descriptor.Columns`. A model whose table info did
   not load is not filtered.
 - `@UpdatedAt()` is stamped only when at least one other column changed. A no-op `update()` writes

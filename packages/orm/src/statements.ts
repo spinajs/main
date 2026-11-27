@@ -34,6 +34,10 @@ export interface IQueryStatement {
   // instead of parent query WHERE ( a statement's own clone() drops it, SelectQueryBuilder.clone() copies it )
   OnJoin?: boolean;
 
+  // a default filter createQuery added (soft delete, archive): compiled ANDed with the other statements as one group,
+  // removed only by withDeleted() / withArchived() ( SelectQueryBuilder.clone() and WhereBuilder.clone() copy it )
+  Scope?: boolean;
+
   /** The statements this one holds: a group's conditions, a join's ON conditions and the joins nested in it. */
   nested?(): readonly IQueryStatement[];
 
@@ -51,6 +55,8 @@ export abstract class QueryStatement implements IQueryStatement {
   protected _boolean: WhereBoolean = WhereBoolean.AND;
 
   protected _onJoin: boolean = false;
+
+  public Scope = false;
 
   public get TableAlias(): string {
     return this._tableAlias ?? '';
