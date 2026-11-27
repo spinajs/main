@@ -1,7 +1,7 @@
 import { AUDIT_KINDS, AUDIT_OUTCOMES, AuditConfigError, ERASURE, canonicalJson, payloadHash } from '@spinajs/audit';
-import type { AuditEvent, StoredAuditEvent } from '@spinajs/audit';
+import type { AuditEvent, AuditSubject, StoredAuditEvent } from '@spinajs/audit';
 import { DI } from '@spinajs/di';
-import { Orm, instantFromDb } from '@spinajs/orm';
+import { IdentifierQuoter, Orm, RawQuery, SqlExpressions, instantFromDb } from '@spinajs/orm';
 import type { IWhereBuilder, OrmDriver } from '@spinajs/orm';
 
 // Keeps one INSERT of 18 columns (and the one or two a buffer or an archive adds) within the bind-parameter limit of every driver.
@@ -20,6 +20,15 @@ export function erasureRecords(this: IWhereBuilder<unknown>): void {
 export function exceptErasureRecords(this: IWhereBuilder<unknown>): void {
   this.where('kind', '<>', ERASURE.kind);
   this.orWhere('action', '<>', ERASURE.action);
+}
+
+/** A where clause for the rows of `subject`, its id compared byte for byte. */
+export function ofSubject(driver: OrmDriver, subject: AuditSubject): (this: IWhereBuilder<unknown>) => void {
+  const exact = driver.Container.resolve(SqlExpressions).equalsExactly(driver.Container.resolve(IdentifierQuoter).quote('subject_id'), { sql: '?', bindings: [subject.id] });
+  return function (this: IWhereBuilder<unknown>) {
+    // MySQL's and SQL Server's `=` ignore trailing spaces; the plain equality stays for the index seek, the exact one decides.
+    this.where('subject_type', subject.type).where('subject_id', subject.id).where(RawQuery.create(exact.sql, [...exact.bindings]));
+  };
 }
 
 /** A row of a trail table as a select without a model returns it: column names to driver values. */

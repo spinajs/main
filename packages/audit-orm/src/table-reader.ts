@@ -3,7 +3,7 @@ import type { AuditFilter, AuditPinnedHead, AuditRedaction, AuditSubject, AuditV
 import { Injectable } from '@spinajs/di';
 import type { OrmDriver, SelectQueryBuilder } from '@spinajs/orm';
 
-import { REDACTED_DATA, exceptErasureRecords, auditConnection, findConnection, rowsOf, toStored } from './rows.js';
+import { REDACTED_DATA, exceptErasureRecords, auditConnection, findConnection, ofSubject, rowsOf, toStored } from './rows.js';
 import { pruneSealed } from './seal/prune.js';
 import { ARCHIVE_CLOCK_SKEW_MS, verifyTable } from './seal/verify.js';
 import { distinctConnections } from './ship/services.js';
@@ -13,10 +13,10 @@ const DELETE_CHUNK = 500;
 
 type Select = SelectQueryBuilder<unknown>;
 
-function scope(select: Select, filter: AuditFilter): void {
+function scope(driver: OrmDriver, select: Select, filter: AuditFilter): void {
   if (filter.kinds !== undefined) select.whereIn('kind', [...filter.kinds]);
   if (filter.actions !== undefined) select.whereIn('action', [...filter.actions]);
-  if (filter.subject !== undefined) select.where('subject_type', filter.subject.type).where('subject_id', filter.subject.id);
+  if (filter.subject !== undefined) select.where(ofSubject(driver, filter.subject));
   if (filter.subjectType !== undefined) select.where('subject_type', filter.subjectType);
   if (filter.actor !== undefined) select.where('actor', filter.actor);
   if (filter.traceId !== undefined) select.where('trace_id', filter.traceId);
@@ -48,9 +48,10 @@ export class TableAuditReader extends AuditReader {
   /** `by` 'at' orders by time, then `seq`: what a merge of several connections by time needs. */
   async list(trail: TrailConfig, filter: AuditFilter, by: 'seq' | 'at' = 'seq'): Promise<readonly StoredAuditEvent[]> {
     if (filter.kinds?.length === 0 || filter.actions?.length === 0) return [];
-    const select: Select = this.driver(trail, filter.source).select().from(this.table(trail));
+    const driver = this.driver(trail, filter.source);
+    const select: Select = driver.select().from(this.table(trail));
     if (this.hasSourceColumn()) select.where('source', filter.source ?? trail.connection);
-    scope(select, filter);
+    scope(driver, select, filter);
     span(select, filter);
     for (const column of by === 'at' ? ['at', 'seq'] : ['seq']) {
       if (filter.order === 'desc') select.orderByDescending(column);
@@ -102,14 +103,14 @@ export class TableAuditReader extends AuditReader {
   }
 
   private async holds(driver: OrmDriver, trail: TrailConfig, subject: AuditSubject): Promise<boolean> {
-    const select: Select = driver.select().from(this.table(trail)).columns(['seq']).where('subject_type', subject.type).where('subject_id', subject.id);
+    const select: Select = driver.select().from(this.table(trail)).columns(['seq']).where(ofSubject(driver, subject));
     return rowsOf(await select.take(1)).length > 0;
   }
 
   private async redactOn(driver: OrmDriver, trail: TrailConfig, subject: AuditSubject, source?: string): Promise<number> {
     const update = driver.update().in(this.table(trail)).update({ data: REDACTED_DATA });
     if (source !== undefined && this.hasSourceColumn()) update.where('source', source);
-    const { RowsAffected } = await update.where('subject_type', subject.type).where('subject_id', subject.id).where(exceptErasureRecords).where('data', '<>', REDACTED_DATA);
+    const { RowsAffected } = await update.where(ofSubject(driver, subject)).where(exceptErasureRecords).where('data', '<>', REDACTED_DATA);
     return RowsAffected;
   }
 

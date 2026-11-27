@@ -7,7 +7,7 @@ import type { OrmDriver, SelectQueryBuilder } from '@spinajs/orm';
 import { QueueService } from '@spinajs/queue';
 
 import { isTableTrail } from '../own-tables.js';
-import { REDACTED_DATA, auditConnection, erasureRecords, exceptErasureRecords, rowsOf } from '../rows.js';
+import { REDACTED_DATA, auditConnection, erasureRecords, exceptErasureRecords, ofSubject, rowsOf } from '../rows.js';
 import { archiveDriver } from '../ship/archive.js';
 import { ArchiveAuditSink } from '../ship/archive-sink.js';
 import { OutboxAuditStore } from '../ship/outbox-store.js';
@@ -164,7 +164,7 @@ async function blankErased(trailName: string, events: readonly AuditEvent[]): Pr
   const erasures = events.flatMap((e) => (isErasureRecord(e) && e.subject !== undefined ? [{ subject: e.subject, at: e.at }] : []));
   // spinajs-orm-ignore ORM102: one UPDATE per erasure in the batch, which are rare
   for (const { subject, at } of erasures) {
-    await driver.update().in(trail.table).update({ data: REDACTED_DATA }).where('subject_type', subject.type).where('subject_id', subject.id).where('at', '<=', at).where(exceptErasureRecords).where('data', '<>', REDACTED_DATA);
+    await driver.update().in(trail.table).update({ data: REDACTED_DATA }).where(ofSubject(driver, subject)).where('at', '<=', at).where(exceptErasureRecords).where('data', '<>', REDACTED_DATA);
   }
 }
 
