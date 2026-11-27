@@ -53,10 +53,10 @@ describe('amqp transport - a host that is not a url is refused before any dial',
     Object.defineProperty(dns, 'lookup', {
       configurable: true,
       writable: true,
-      value: (hostname: string, ...rest: unknown[]) => {
+      // net always calls lookup(host, options, callback)
+      value: (hostname: string, _options: unknown, callback: (err: Error) => void) => {
         resolverCalls.push(hostname);
-        const callback = rest[rest.length - 1];
-        if (typeof callback === 'function') callback(Object.assign(new Error('the system resolver is not used in this test'), { code: 'ENOTFOUND' }));
+        callback(Object.assign(new Error('the system resolver is not used in this test'), { code: 'ENOTFOUND' }));
       },
     });
   });
