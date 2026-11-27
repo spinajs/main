@@ -33,6 +33,7 @@ const settle = async (fn: () => PromiseLike<unknown>): Promise<unknown> => {
 const listOf = <T>(rows: unknown): T[] => (Array.isArray(rows) ? rows : [rows]) as T[];
 const lineKeys = (rows: unknown): string[] => listOf<{ order_id: string; id: string }>(rows).map((r) => `${r.order_id}/${r.id}`).sort();
 const cellKeys = (rows: unknown): string[] => listOf<{ sheet: string; col: string; id: string }>(rows).map((r) => `${r.sheet}/${r.col}/${r.id}`).sort();
+const docKeys = (rows: unknown): string[] => listOf<{ id: string; tenant: string }>(rows).map((r) => `${r.id}/${r.tenant}`).sort();
 
 describe('authz-orm guard: a composite key is a single-object load only when every key column is bound', function () {
   this.timeout(60000);
@@ -110,6 +111,26 @@ describe('authz-orm guard: a composite key is a single-object load only when eve
         expect(lineKeys(await inRoute(() => Line.where('order_id', 'o1').where('id', 'l2')))).to.deep.equal(['o1/l2']);
         expect(lineKeys(await inRoute(() => Line.where('id', 'l1').where('order_id', 'o2')))).to.deep.equal(['o2/l1']);
         expect(lineKeys(await inRoute(() => Line.query().whereIn('order_id', ['o1']).where('id', 'l1')))).to.deep.equal(['o1/l1']);
+        expect(lineKeys(await inRoute(() => Line.where({ order_id: 'o1', id: 'l2' })))).to.deep.equal(['o1/l2']);
+      });
+
+      it("flags a subclass of a single-key resource that adds a key column: the boot checks only the registered class, so it would read bob's tenant", async () => {
+        const Doc = await db.define({ name: 'Doc', columns: { owner: 'TEXT' }, decorate: (c) => AccessResource('doc')(c) }, dialect);
+        const TenantDoc: M = await db.define(
+          {
+            name: 'TenantDoc',
+            base: Doc,
+            columns: { tenant: 'TEXT', owner: 'TEXT' },
+            primary: ['id', 'tenant'],
+            rows: [
+              { id: 'd1', tenant: 't1', owner: 'alice' },
+              { id: 'd1', tenant: 't2', owner: 'bob' },
+            ],
+          },
+          dialect,
+        );
+        expect(await settle(() => TenantDoc.where('id', 'd1'))).to.be.instanceOf(AuthzConfigError);
+        expect(docKeys(await inRoute(() => TenantDoc.where('id', 'd1').where('tenant', 't2')))).to.deep.equal(['d1/t2']);
       });
 
       it('flags a whole key widened by an orWhere', async () => {
