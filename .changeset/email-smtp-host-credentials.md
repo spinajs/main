@@ -1,0 +1,7 @@
+---
+"@spinajs/email-smtp-transport": major
+---
+
+Breaking: an `options.url` with an unencoded `@` in its query (`smtp://smtp.example.com/?name=client@example.com`), which dialled before, is now refused at boot: write the `@` as `%40`. It cannot be told apart from a password with an unencoded `/`, `?` or `#`, which made nodemailer dial the user name as the host.
+
+Security fix: `host` is sent by nodemailer, as written, to the DNS servers as the name to look up. A `host` holding a user name and password (`user:password@smtp.example.com`, `smtp://user:password@smtp.example.com:587`), a path, a query, a fragment, a port, a backslash or whitespace was therefore sent to the network, and printed raw in the `info` and `error` log lines and in the `UnexpectedServerError` message. Now `resolve()` rejects such a `host` with `InvalidArgument('Email smtp connection <name> has a host that is not a host name: ...')` before any lookup or connection. Set `host` to the server name or IP address alone and the credentials in `user` / `password`. A host name, `localhost`, a trailing dot, an internationalised name and an IPv4 or IPv6 literal are dialled as before. An `options.url` that `new URL()` rejects, or with an `@` after the host, is refused the same way, before nodemailer parses it. The log lines and the verify error now print the server as `smtp://<host>:<port>` (`smtps://` with `ssl`), or `options.url` without its user name, password and query. The `info` line keeps the SMTP user name.
