@@ -23,6 +23,18 @@ describe('the status of a reply class that handles an exception', () => {
     expect(ctx.diagnostics.filter((d) => d.code === 'CMP004').map((d) => d.message)).to.include('cannot determine the HTTP status of Computed, which handles exceptions');
   });
 
+  it('is unknown for a CodedHttpExceptionResponse, which answers with the status of its exception', () => {
+    expect(valuesOf('response-status.ts')).to.deep.include(['G', { response: 'Coded' }]);
+  });
+
+  it('is read from a base that is a class expression', () => {
+    expect(valuesOf('response-status.ts')).to.deep.include(['H', { response: 'FromExpression', status: 202 }]);
+  });
+
+  it('is unknown when the built JavaScript of a dependency holds two classes of its name', () => {
+    expect(valuesOf('response-status.ts')).to.deep.include(['I', { response: 'FromDecoy' }]);
+  });
+
   it('is unknown for a class that only shares the name of an http reply', () => {
     expect(valuesOf('response-status-lookalike.ts')).to.deep.equal([['E', { response: 'Fine' }]]);
     expect(ctx.diagnostics.filter((d) => d.code === 'CMP004').map((d) => d.message)).to.include('cannot determine the HTTP status of Fine, which handles exceptions');

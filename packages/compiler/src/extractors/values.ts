@@ -30,14 +30,13 @@ function builtFileOf(declarationFile: string): ts.SourceFile | undefined {
 
 /** A decorated class is emitted as a class expression, so both forms count. */
 function classNamed(file: ts.SourceFile, name: string): ts.ClassLikeDeclaration | undefined {
-  let found: ts.ClassLikeDeclaration | undefined;
+  const found: ts.ClassLikeDeclaration[] = [];
   const visit = (node: ts.Node): void => {
-    if (found) return;
-    if (ts.isClassLike(node) && node.name?.text === name) found = node;
-    else ts.forEachChild(node, visit);
+    if (ts.isClassLike(node) && node.name?.text === name) found.push(node);
+    ts.forEachChild(node, visit);
   };
   visit(file);
-  return found;
+  return found.length === 1 ? found[0] : undefined;
 }
 
 function assignedStatus(statement: ts.Statement): ts.Expression | undefined {
@@ -66,14 +65,14 @@ function builtStatus(expr: ts.Expression, declared: ts.PropertyDeclaration, chec
   return typeof value === 'number' ? value : undefined;
 }
 
-function declaredStatus(cls: ts.ClassDeclaration, name: string, member: ts.PropertyDeclaration, ctx: ExtractorContext): number | undefined {
+function declaredStatus(cls: ts.ClassLikeDeclaration, member: ts.PropertyDeclaration, ctx: ExtractorContext): number | undefined {
   if (member.initializer) {
     const value = literalValue(member.initializer, { checker: ctx.checker, info: () => undefined });
     return typeof value === 'number' ? value : undefined;
   }
   const file = cls.getSourceFile();
-  const built = file.isDeclarationFile ? builtFileOf(file.fileName) : undefined;
-  const emitted = built && classNamed(built, name);
+  const built = file.isDeclarationFile && cls.name ? builtFileOf(file.fileName) : undefined;
+  const emitted = built && cls.name && classNamed(built, cls.name.text);
   const expr = emitted && builtInitializer(emitted);
   return expr ? builtStatus(expr, member, ctx.checker) : undefined;
 }
@@ -84,10 +83,12 @@ function declaredStatus(cls: ts.ClassDeclaration, name: string, member: ts.Prope
  */
 function responseStatusOf(type: ts.Type, ctx: ExtractorContext): number | undefined {
   if (!extendsFrameworkClass(ctx.checker, type, 'Response', HTTP)) return undefined;
+  // It answers with the status of the CodedHttpException it is given (codedHttpException.ts:41); 500 is its fallback only.
+  if (extendsFrameworkClass(ctx.checker, type, 'CodedHttpExceptionResponse', HTTP)) return undefined;
   for (let current: ts.Type | undefined = type, hops = 0; current && hops < 32; current = baseClassOf(ctx.checker, current), hops++) {
-    const cls = current.getSymbol()?.declarations?.find(ts.isClassDeclaration);
+    const cls = current.getSymbol()?.declarations?.find(ts.isClassLike);
     const member = cls?.members.find(isStatusMember);
-    if (cls?.name && member) return declaredStatus(cls, cls.name.text, member, ctx);
+    if (cls && member) return declaredStatus(cls, member, ctx);
   }
   return undefined;
 }
