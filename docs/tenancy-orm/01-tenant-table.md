@@ -64,6 +64,7 @@ rows itself.
 | --- | --- | --- | --- | --- |
 | `DbTenantRegistry` | `TenantRegistry`, `@Injectable` at import; chosen by `tenancy.registry` | `ConfigTenantRegistry` of `@spinajs/tenancy` | `DbTenantRegistry` | Set `tenancy.registry: 'DbTenantRegistry'`; subclass it to override `byDomain(domain)` or `pageSize` (200) |
 | `TenantStateService` | `TenantStateService`, `@Injectable()` | itself | none | Subclass and register with `DI.register(MyStates).as(TenantStateService)`; `current(id)` reads the row |
+| `TenantSettingsService` | `TenantSettingsService`, `@Injectable()` | itself | none | Subclass and register with `DI.register(MySettings).as(TenantSettingsService)`; `current(id)` reads the row |
 
 ## States
 
@@ -93,6 +94,64 @@ back, after it dropped the tenant from the cache.
 `transition` drops the tenant from that cache, so the replica that made the change sees it at once; other replicas see
 it when their entry expires. A row changed past the service is seen after the same delay, or at once after
 `(await tenantRegistry()).invalidate(id)`.
+
+## Writing a tenant's settings
+
+```ts
+import { DI } from '@spinajs/di';
+import { TenantSettingsService } from '@spinajs/tenancy-orm';
+
+const settings = await DI.resolve(TenantSettingsService);
+await settings.set('acme', 'mail.from', 'billing@acme.example');   // stored as { mail: { from: ... } }
+await settings.unset('acme', 'mail.from');
+```
+
+`set(id, path, value)` and `unset(id, path)` write a tenant's [configuration overrides](../tenancy/07-configuration-overrides.md)
+and return the tenant record as the registry reads it.
+
+**The service does no authorization.** Whoever may call it can change, for the tenant it names, every path the
+application lists. The caller guards: authorize the caller for that tenant, and take the id from the route the caller
+was authorized for (`PUT /tenants/:tenant/settings` passes `:tenant`) or from `currentTenant()`, never from a request
+body. `TenantMismatch` (below) catches a mistake, not an attacker: code that leaves its scope with `runAcrossTenants`
+passes it.
+
+- `path` must be one of the paths `tenancy.config.overridable` lists, exactly. Any other path, a free-form key such as
+  `plan`, a parent or a child of a listed path and every path under a closed root (`db`, `authn`, `tenancy`, ...) are
+  refused with `InvalidArgument` before the row is read. To change one key of a listed object, `set` the whole object.
+  Free-form settings are written at provisioning or through `TenantModel`.
+- The value is checked in its JSON form, the form the `settings` column stores (a `Date` becomes its ISO text, an
+  `undefined` key is left out); a value without one (`undefined`, a function, a cycle) is refused with `InvalidArgument`,
+  and so is `NaN`, `Infinity` or `-Infinity` at any depth (JSON would store `null`).
+- A tenant's whole settings object, after the change, holds at most 65,535 bytes of JSON (UTF-8 bytes, what a MySQL
+  `TEXT` column holds). A `set` that takes it over the limit throws `InvalidArgument` naming the limit and the size it
+  measured, and writes nothing. An `unset` is never refused for its size.
+- `checkTenantSettings` checks the whole resulting settings object: every value at a listed path must pass the
+  configuration schema and hold no `__proto__`, `constructor` or `prototype` key at any depth. A refusal throws
+  `InvalidConfiguration` and writes nothing: the row is written in one statement or not at all. A value stored before at
+  another listed path that the schema now refuses makes every `set` fail until it is `unset`.
+- **A listed path that no configuration schema declares is stored as written**, unchecked apart from the reserved keys,
+  and the overlay serves it as stored. List only paths a schema declares.
+- Inside a tenant scope only that tenant's settings are written; another id throws `TenantMismatch`. With no scope and
+  across all tenants (`runAcrossTenants`) the call writes the tenant it names: that is the platform's form.
+- An unknown tenant throws `TenantUnavailable`. A tenant that is `deleting` or `deleted` throws `InvalidOperation`:
+  its settings are not changed any more. A `provisioning`, `active` or `suspended` tenant is written, so an operator
+  can fix the configuration of a suspended tenant before resuming it.
+
+After the write the service drops the tenant from the registry cache and loads its settings again, so the next read in
+this process answers the new value, also when a background refresh that read the old row was still running. One gap
+stays: a request admitted at the same moment, whose registry read began before the write, can put the old settings
+back in this process until the next admission or refresh of the tenant. Other processes see the new value once their
+copy is older than `tenancy.registryCacheMs` (5000 by default): a request, which admits the tenant, after at most `tenancy.registryCacheMs`; code that reads without
+admitting gets the old value at the first read past that interval, which starts the refresh, and the new one after it,
+at most about twice the interval after the write. A failed refresh keeps the last settings and is tried again one
+`tenancy.registryCacheMs` later. With `tenancy.registryCacheMs: 0` only an admission or `loadTenantSettings` reads them again.
+
+Each write reads the tenant's whole settings object, changes one path and writes the whole object back. In one process
+the writes of one tenant through the container's `TenantSettingsService` take turns, so parallel calls (a settings form that saves each field with its own request to
+one replica) all keep their change; writes of different tenants do not wait for each other, and a refused write does
+not fail or stop the ones queued behind it. **Two processes that write the same tenant's settings at the same
+moment can lose one of the two changes**: each stored object is the complete, checked result of one call, but the
+other call's change is gone although that call succeeded.
 
 ## Related
 
