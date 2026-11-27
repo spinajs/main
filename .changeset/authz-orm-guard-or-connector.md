@@ -1,0 +1,5 @@
+---
+"@spinajs/authz-orm": patch
+---
+
+Security fix: the runtime guard no longer takes a select with an `OR` connector for a single-object load. Before, on a `@SoftDelete` or `@Archived` model, `Task.query().orWhere('id', 7)` compiles to `deleted_at IS NULL OR id = 7`; the guard skipped the `IS NULL` statements, counted one primary-key equality and let the query through without `.accessible()`. In the `test` and `development` envs such a query, its `first()`, `selectCount()`, `resultExists()` and `paginate()` forms, and `where('id', 7).orWhere('deleted_at', null)`, read or counted every live row, rows of other principals included, and neither threw `AuthzConfigError` nor warned. Now any statement after the first that is joined by `OR` makes the select a list, which the guard flags like any other unauthorized select. In production the guard is off, as before. Single-object loads (`where(pk, v)`, `get(v)`, `findOrFail([v])`) pass as before. `.accessible()` was not affected: it already groups the application's conditions before it adds the filter.

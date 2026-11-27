@@ -9,11 +9,13 @@ import { ListFromFiles, SCAN_GLOB } from '@spinajs/reflection';
 import { createRequire } from 'module';
 import { stripFrameworkOptions } from './argv.js';
 import { resolveCliLog } from './cliLog.js';
+import { CliCommandHook, optionsOf, runCliHooks } from './hooks.js';
 
 export * from './interfaces.js';
 export * from './decorators.js';
 export * from './commander.js';
 export * from './tokens.js';
+export * from './hooks.js';
 export { SystemTask, systemTaskOf } from '@spinajs/util';
 
 /**
@@ -91,6 +93,7 @@ export class Cli extends AsyncService {
     await super.resolve();
 
     const commands = await this.Commands;
+    const hooks = await this.commandHooks();
     if (!commands || commands.length === 0) {
       // still build the program so --version / --help keep working.
       this.Log.warn('No registered commands found !');
@@ -115,6 +118,8 @@ export class Cli extends AsyncService {
     program.name('spinajs').description('SpinaJS command line interface').version(resolveCliVersion());
     program.configureOutput({ writeErr });
     program.showSuggestionAfterError(true);
+    const globals = hooks.flatMap((hook) => hook.options().map((o) => this.option(o)));
+    globals.forEach((o) => program.addOption(o));
 
     // first pass: build each command in isolation, remembering its parent (if any)
     // so the command tree can be assembled afterwards regardless of iteration order.
@@ -169,36 +174,7 @@ export class Cli extends AsyncService {
       if (cMeta.configureHelp) c.configureHelp(cMeta.configureHelp);
       cMeta.helpText?.forEach((h) => c.addHelpText(h.position, this.translate(h.text)));
 
-      oMeta?.forEach((o) => {
-        const opt = new Option(o.flags, this.translate(o.description));
-
-        if (o.choices) opt.choices(o.choices);
-        if (o.parser) {
-          const parser = o.choices ? parseWithChoices(o.choices, o.parser) : o.parser;
-          opt.argParser(parser as (value: string, previous: unknown) => unknown);
-        }
-        if (o.env) opt.env(o.env);
-        if (o.conflicts) opt.conflicts(o.conflicts);
-        if (o.implies) opt.implies(o.implies);
-        if (o.preset !== undefined) opt.preset(o.preset);
-
-        // an explicit default wins; otherwise fall back to a configuration value.
-        const cfgDefault = o.configKey !== undefined ? this.Configuration.get<unknown>(o.configKey) : undefined;
-        const defaultValue = o.defaultValue !== undefined ? o.defaultValue : cfgDefault;
-
-        if (o.required) {
-          opt.makeOptionMandatory(true);
-          // a required option can't meaningfully carry a default — the default
-          // would satisfy the requirement and make it optional. drop it.
-          if (defaultValue !== undefined) {
-            this.Log.warn({ flags: o.flags }, 'Option ${flags} is required; ignoring its default value');
-          }
-        } else if (defaultValue !== undefined) {
-          opt.default(defaultValue);
-        }
-
-        c.addOption(opt);
-      });
+      oMeta?.forEach((o) => c.addOption(this.option(o)));
 
       aMeta?.forEach((a) => {
         // commander syntax: <name> = required, [name] = optional, trailing ... = variadic.
@@ -244,8 +220,10 @@ export class Cli extends AsyncService {
       c.hook('postAction', async (thisCommand, actionCommand) => (await getInstance()).onPostAction(thisCommand, actionCommand));
 
       c.action(async (...args) => {
-        // eslint-disable-next-line @typescript-eslint/no-unsafe-argument
-        await (await getInstance()).execute(...args);
+        const command = await getInstance();
+        // A command's own option of a hook option's name never takes the program's place, not even by its default.
+        const options = { ...optionsOf(c), ...Object.fromEntries(globals.map((o) => [o.attributeName(), program.getOptionValue(o.attributeName())])) };
+        await runCliHooks(hooks, { name, options }, () => command.execute(...args));
       });
 
       built.push({ name, command: c, parent: cMeta.parent, opts: cMeta.opts });
@@ -315,5 +293,42 @@ export class Cli extends AsyncService {
       }
       throw err;
     }
+  }
+
+  /** Resolved once per run, before the program is built, because hooks add options to it. */
+  protected async commandHooks(): Promise<CliCommandHook[]> {
+    const registered: CliCommandHook[] = (await DI.resolve(Array.ofType(CliCommandHook))) ?? [];
+    return [...registered].sort((a, b) => a.order - b.order);
+  }
+
+  protected option(o: IOption): Option {
+    const opt = new Option(o.flags, this.translate(o.description));
+
+    if (o.choices) opt.choices(o.choices);
+    if (o.parser) {
+      const parser = o.choices ? parseWithChoices(o.choices, o.parser) : o.parser;
+      opt.argParser(parser as (value: string, previous: unknown) => unknown);
+    }
+    if (o.env) opt.env(o.env);
+    if (o.conflicts) opt.conflicts(o.conflicts);
+    if (o.implies) opt.implies(o.implies);
+    if (o.preset !== undefined) opt.preset(o.preset);
+
+    // an explicit default wins; otherwise fall back to a configuration value.
+    const cfgDefault = o.configKey !== undefined ? this.Configuration.get<unknown>(o.configKey) : undefined;
+    const defaultValue = o.defaultValue !== undefined ? o.defaultValue : cfgDefault;
+
+    if (o.required) {
+      opt.makeOptionMandatory(true);
+      // a required option can't meaningfully carry a default — the default
+      // would satisfy the requirement and make it optional. drop it.
+      if (defaultValue !== undefined) {
+        this.Log.warn({ flags: o.flags }, 'Option ${flags} is required; ignoring its default value');
+      }
+    } else if (defaultValue !== undefined) {
+      opt.default(defaultValue);
+    }
+
+    return opt;
   }
 }

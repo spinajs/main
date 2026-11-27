@@ -7,7 +7,8 @@ import type { ModelBase } from '@spinajs/orm';
 import { AccessResource, Owner } from '../../src/index.js';
 import { RelationOwnerTerm } from '../../src/lists/relation-terms.js';
 import { RlsPlanSource } from '../../src/plan/index.js';
-import { generateRls, rlsResources } from '../../src/rls/index.js';
+import { generateRls, pgIdent, pgLiteral, rlsResources } from '../../src/rls/index.js';
+import type { RlsResource } from '../../src/rls/index.js';
 import { TestDb } from '../support/db.js';
 
 const expect = chai.expect;
@@ -99,5 +100,55 @@ describe('generated RLS on Postgres', function () {
     // The bypass policy names one role only: any other role gets nothing from spina.bypass.
     const policy = (await db!.raw(`SELECT polname FROM pg_policy WHERE polname = 'spina_doc_bypass' AND polroles = ARRAY[(SELECT oid FROM pg_roles WHERE rolname = $1)]`, [role], 'postgres')) as unknown[];
     expect(policy).to.have.length(1);
+  });
+
+  const generate = (resources: RlsResource[]) => generateRls({ models, permissions, resources, sources: new Map([['rbac', new Source()]]), compilers: new Map([['relation.owner', new RelationOwnerTerm()]]), bypassRole: role });
+  const runAll = async (sql: readonly string[]) => {
+    for (const s of sql) await db!.raw(s, [], 'postgres');
+  };
+  const flags = async (name: string) =>
+    (await db!.raw(`SELECT relrowsecurity AS rls, relforcerowsecurity AS forced FROM pg_catalog.pg_class WHERE oid = ${pgLiteral(pgIdent(name))}::regclass`, [], 'postgres')) as { rls: boolean; forced: boolean }[];
+
+  it('migrating down keeps the tenant policies of the table enforced', async () => {
+    const { down } = await generate(rlsResources([Doc]).map((r) => r.resource));
+    // the policies tenant:rls writes on a row-mode tenant table, by name and shape
+    const own = `"${table}".author_id = NULLIF(current_setting('spina.tenant', true), '')`;
+    const alone = `NOT EXISTS (SELECT 1 FROM pg_catalog.pg_policy p WHERE p.polrelid = '"${table}"'::regclass AND p.polpermissive AND p.polname <> 'spina_tenant_open')`;
+    await runAll([`CREATE POLICY spina_tenant_isolation ON "${table}" AS RESTRICTIVE FOR ALL USING (${own})`, `CREATE POLICY spina_tenant_open ON "${table}" AS PERMISSIVE FOR ALL USING (${alone})`]);
+    try {
+      await runAll(down);
+      expect(await flags(table)).to.deep.equal([{ rls: true, forced: true }]);
+      expect(await ids({ 'spina.tenant': 'alice' })).to.deep.equal(['d1']);
+      expect(await ids({})).to.deep.equal([]);
+    } finally {
+      await runAll([`DROP POLICY IF EXISTS spina_tenant_open ON "${table}"`, `DROP POLICY IF EXISTS spina_tenant_isolation ON "${table}"`]);
+    }
+  });
+
+  it('migrating down a table left with no policy turns row level security off, whatever another schema holds', async () => {
+    const { up, down } = await generate(rlsResources([Doc]).map((r) => r.resource));
+    // the down must find no policy only after dropping its own, so they are in place again first
+    await runAll([...down, ...up, `CREATE TABLE public."${table}" (id TEXT)`, `CREATE POLICY spina_elsewhere ON public."${table}" USING (true)`]);
+    try {
+      await runAll(down);
+      expect(await flags(table)).to.deep.equal([{ rls: false, forced: false }]);
+      expect(await ids({})).to.include.members(['d1', 'd2']);
+    } finally {
+      await db!.raw(`DROP TABLE IF EXISTS public."${table}"`, [], 'postgres');
+    }
+  });
+
+  it('runs the down of a table whose name holds a quote, a dot and dollar signs', async () => {
+    const name = `sx04 o'd"q.$$t`;
+    const { up, down } = await generate([{ type: 'note', table: name, idColumn: 'id', ancestorTable: 'authz_resource_ancestor', relations: () => undefined, mode: true }]);
+    await runAll([`CREATE TABLE ${pgIdent(name)} (id TEXT PRIMARY KEY, author_id TEXT)`, ...up, `CREATE POLICY other ON ${pgIdent(name)} USING (true)`]);
+    try {
+      await runAll(down);
+      expect(await flags(name)).to.deep.equal([{ rls: true, forced: true }]);
+      await runAll([`DROP POLICY other ON ${pgIdent(name)}`, ...up, ...down]);
+      expect(await flags(name)).to.deep.equal([{ rls: false, forced: false }]);
+    } finally {
+      await db!.raw(`DROP TABLE IF EXISTS ${pgIdent(name)}`, [], 'postgres');
+    }
   });
 });

@@ -4,7 +4,7 @@ import { createHash, randomUUID } from 'node:crypto';
 
 import { changeLog } from '@spinajs/authz';
 import type { ChangeRecord } from '@spinajs/authz';
-import { HistoricalTupleSource, HistoryContributors, ReplayHistory, StoreUnreadable } from '@spinajs/authz-ir';
+import { HistoricalTupleSource, HistoryContributors, ReplayHistory, StoreUnreadable, changeLogKeyState } from '@spinajs/authz-ir';
 import type { ObjectRef, PolicyIR, TupleSubjectRef } from '@spinajs/authz-ir';
 import { recordCoverage } from '@spinajs/authz-orm/changelog';
 import { DI } from '@spinajs/di';
@@ -47,7 +47,7 @@ async function collect<T extends TupleSubjectRef | ObjectRef>(it: AsyncIterable<
 
 async function sourceAt(at: Date): Promise<HistoricalTupleSource> {
   const history = await ReplayHistory.load(changeLog(), at, ['tuple'], { maxChanges: 1000, maxKeys: 1000, window: { beforeMs: WINDOW, afterMs: WINDOW } });
-  return new HistoricalTupleSource(IR, at, [new TupleHistoryContributor()], history);
+  return new HistoricalTupleSource(IR, at, [new TupleHistoryContributor()], history, changeLogKeyState);
 }
 
 describe('TupleHistoryContributor', function () {
