@@ -205,15 +205,19 @@ describe('db session provider', function () {
     });
   });
 
+  async function sqlite(): Promise<SqliteOrmDriver> {
+    const conn = await sessionConnection();
+    if (!(conn instanceof SqliteOrmDriver)) throw new Error('the session connection is not SQLite');
+    return conn;
+  }
+
+  function warnings(): sinon.SinonSpy {
+    return sinon.spy(DI.resolve(Log, ['db-session-store']), 'warn');
+  }
+
   describe('an Expiration no datetime converter reads', () => {
     // The SQLite column is TEXT and keeps what an operator writes; the converter reads each of these as null.
     const UNREADABLE = ["'not a date'", "''", "'0000-00-00 00:00:00'", "'1e300'"];
-
-    async function sqlite(): Promise<SqliteOrmDriver> {
-      const conn = await sessionConnection();
-      if (!(conn instanceof SqliteOrmDriver)) throw new Error('the session connection is not SQLite');
-      return conn;
-    }
 
     async function writeExpiration(sessionId: string, sql: string): Promise<void> {
       const db = await sqlite();
@@ -224,10 +228,6 @@ describe('db session provider', function () {
 
     const save = (store: DbSessionStore, sessionId: string, subject: string, extra: Partial<ISession> = {}) =>
       store.save(new Session({ SessionId: sessionId, Subject: user(subject), State: 'active', Expiration: DateTime.now().plus({ hours: 1 }), Data: new Map(), ...extra }));
-
-    function warnings(): sinon.SinonSpy {
-      return sinon.spy(DI.resolve(Log, ['db-session-store']), 'warn');
-    }
 
     afterEach(() => sinon.restore());
 
@@ -284,6 +284,73 @@ describe('db session provider', function () {
       expect((await store.restore('zoneless'))?.Expiration?.toISO()).to.equal('2099-06-01T12:00:00.000Z');
       expect((await store.listBySubject(user('u-23'))).map((s) => s.SessionId).sort()).to.deep.equal(['future', 'zoneless']);
       expect(warn.callCount, 'a readable Expiration logs nothing').to.equal(0);
+    });
+  });
+
+  describe('a column a revocation selects by, present but unreadable', () => {
+    /** A session of u-42 impersonated by admin from IdP session ek-1, one column then rewritten; returns the view read before the rewrite. */
+    async function rewritten(store: DbSessionStore, sessionId: string, column: string, sql: string): Promise<ISession> {
+      const view = new Session({ SessionId: sessionId, Subject: user('u-42'), Impersonator: user('admin'), ExternalKey: 'ek-1', State: 'active', Expiration: DateTime.now().plus({ minutes: 5 }), Data: new Map() });
+      await store.save(view);
+      const db = await sqlite();
+      await db.executeOnDb(`UPDATE user_sessions SET ${column} = ${sql} WHERE SessionId = ?`, [sessionId], QueryContext.Update);
+      const [stored] = (await db.executeOnDb(`SELECT quote(${column}) AS v FROM user_sessions WHERE SessionId = ?`, [sessionId], QueryContext.Select)) as { v: string }[];
+      expect(stored.v, 'the value the test meant to store').to.equal(sql);
+      return view;
+    }
+
+    const REVOCATIONS: [column: string, readable: string, revoke: (store: DbSessionStore) => Promise<number>, unreadable: string[]][] = [
+      // No type, no id, no separator, digits, and a blob the TEXT column keeps as it is.
+      ['ImpersonatorId', "'user:admin'", (store) => store.deleteBySubject(user('admin'), { includeImpersonations: true }), ["''", "'user:'", "':admin'", "'user'", "'user/admin'", "'42'", "X'00'"]],
+      // Any text is a key; only a blob ('ek-1' as bytes) is not.
+      ['ExternalKey', "'ek-1'", (store) => store.deleteByExternalKey('ek-1'), ["X'01'", "X'656B2D31'"]],
+    ];
+
+    afterEach(() => sinon.restore());
+
+    for (const [column, readable, revoke, unreadable] of REVOCATIONS) {
+      it(`an unreadable ${column} ends the session, so the revocation that looks for it cannot leave it live`, async () => {
+        const store = await makeProvider({ service: 'SlidingExpiration', ttl: 60 });
+        for (const sql of [readable, 'NULL', ...unreadable]) {
+          await store.truncate();
+          const view = await rewritten(store, 'sx53', column, sql);
+          const expiry = view.Expiration!.toMillis();
+
+          expect(await revoke(store), `${sql}: revoked and counted`).to.equal(sql === readable ? 1 : 0);
+          if (sql === 'NULL') {
+            expect(await store.restore('sx53'), 'NULL: untouched by the revocation').to.not.equal(null);
+          } else {
+            expect(await store.restore('sx53'), sql).to.equal(null);
+          }
+          expect((await store.listBySubject(user('u-42'))).length, `${sql}: listed`).to.equal(sql === 'NULL' ? 1 : 0);
+          if (column === 'ImpersonatorId' && sql !== readable && sql !== 'NULL') {
+            expect(await store.touch(view), `${sql}: touch`).to.equal(false);
+            expect(await store.touch(new Session({ ...view, Impersonator: undefined })), `${sql}: touch as not impersonated`).to.equal(false);
+            expect((await DbSession.where({ SessionId: 'sx53' }).first())?.Expiration.toMillis(), `${sql}: not extended`).to.equal(expiry);
+          }
+        }
+      });
+    }
+
+    it('a Subject with an empty id is no owner: the session is not restored or listed', async () => {
+      const store = await makeProvider({ service: 'SlidingExpiration', ttl: 60 });
+      await store.truncate();
+      await rewritten(store, 'sx53', 'Subject', "'user:'");
+
+      expect(await store.restore('sx53')).to.equal(null);
+      expect(await store.listBySubject(user('admin'), { includeImpersonations: true })).to.deep.equal([]);
+    });
+
+    it('logs one warning per read, naming the subject and the column, never the session id', async () => {
+      const store = await makeProvider({ service: 'SlidingExpiration', ttl: 60 });
+      await store.truncate();
+      await rewritten(store, 'sx53-bearer-key', 'ImpersonatorId', "'user:'");
+      const warn = warnings();
+
+      expect(await store.restore('sx53-bearer-key')).to.equal(null);
+      const lines = warn.getCalls().map((c) => String(c.lastArg));
+      expect(lines).to.have.length(1);
+      expect(lines[0]).to.contain('user:u-42').and.to.contain('Impersonator').and.to.not.contain('sx53-bearer-key');
     });
   });
 
