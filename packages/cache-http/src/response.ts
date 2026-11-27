@@ -30,6 +30,9 @@ const NEVER_REPLAYED: ReadonlySet<string> = new Set([
 // a reply that varies on these was made for one caller; other names (CORS's Origin) change headers set again on a hit
 const PER_CALLER_VARY: ReadonlySet<string> = new Set(['cookie', 'authorization']);
 
+// what a reply of a wider scope keeps: a route's own header may be meant for its caller (a CSRF token)
+const SHARED_HEADERS: ReadonlySet<string> = new Set(['content-type', 'content-language', 'content-disposition', 'etag', 'last-modified', 'location', 'link', 'cache-control', 'expires', 'vary']);
+
 const JSON_TYPE = /^application\/(?:[\w.+-]+\+)?json\s*(?:;|$)/i;
 
 // what node's setHeader refuses in a value
@@ -85,7 +88,8 @@ export interface StoredResponseHeaders {
 /**
  * What the response cache stores of a finished route: the JSON reply when the route answered no error, the response set
  * no cookie, did not vary on `*` (nor, on a tenant or shared route, on `Cookie` or `Authorization`) and said neither
- * `no-store` nor, on a tenant or shared route, `private`; undefined when nothing is stored.
+ * `no-store` nor, on a tenant or shared route, `private`; undefined when nothing is stored. A reply of a tenant or
+ * shared route keeps only the headers that describe its body.
  */
 export function replyToStore(outcome: IRouteOutcome, res: StoredResponseHeaders, scope: ResponseCacheScope): CapturedJsonReply | undefined {
   if (outcome.error !== undefined || res.getHeader('set-cookie') !== undefined) return undefined;
@@ -93,7 +97,8 @@ export function replyToStore(outcome: IRouteOutcome, res: StoredResponseHeaders,
   if (vary.includes('*') || (scope !== 'principal' && vary.some((name) => PER_CALLER_VARY.has(name)))) return undefined;
   const directives = tokensOf(res.getHeader('cache-control')).map((directive) => directive.split('=')[0]);
   if (directives.includes('no-store') || (directives.includes('private') && scope !== 'principal')) return undefined;
-  return replayableReply(outcome.reply);
+  const reply = replayableReply(outcome.reply);
+  return reply === undefined || scope === 'principal' ? reply : { ...reply, headers: Object.fromEntries(Object.entries(reply.headers).filter(([name]) => SHARED_HEADERS.has(name))) };
 }
 
 /**

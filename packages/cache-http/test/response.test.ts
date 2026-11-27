@@ -143,7 +143,7 @@ describe('the stored reply', () => {
 
   it('is not taken from a response that failed, sets a cookie or says no-store, nor from a private one on a wider scope', () => {
     const plain = headersOf({ 'cache-control': 'max-age=60' });
-    expect(replyToStore({ reply: STORED }, plain, 'shared')).to.deep.eq(STORED);
+    expect(replyToStore({ reply: STORED }, plain, 'shared')).to.deep.eq({ ...STORED, headers: { 'content-type': JSON_TYPE, etag: 'W/"b-stored"' } });
     expect(replyToStore({ reply: null }, plain, 'principal')).to.eq(undefined);
     expect(replyToStore({ reply: STORED, error: new Error('boom') }, plain, 'principal')).to.eq(undefined);
     expect(replyToStore({ reply: jsonReply({ status: 500 }) }, plain, 'principal')).to.eq(undefined);
@@ -166,5 +166,13 @@ describe('the stored reply', () => {
     }
     // CORS varies every reply on Origin: it changes headers a middleware sets again on a hit, not the body
     expect(replyToStore({ reply: STORED }, headersOf({ vary: 'Origin' }), 'shared')).to.not.eq(undefined);
+  });
+
+  it('keeps on a wider scope only the headers that describe the body, and every header of a per-principal reply', () => {
+    const described = { 'content-type': JSON_TYPE, etag: 'W/"b"', 'content-language': 'pl', link: '</items?page=2>; rel="next"', 'last-modified': 'Mon, 01 Jan 2001 00:00:00 GMT' };
+    const reply = jsonReply({ headers: { ...described, 'x-csrf-token': 'token-of-ann', 'x-route': 'items' } });
+    expect(replyToStore({ reply }, headersOf({}), 'shared')).to.deep.eq({ ...reply, headers: described });
+    expect(replyToStore({ reply }, headersOf({}), 'tenant')).to.deep.eq({ ...reply, headers: described });
+    expect(replyToStore({ reply }, headersOf({}), 'principal')).to.deep.eq(reply);
   });
 });
