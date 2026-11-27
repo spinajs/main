@@ -3,13 +3,13 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { AuthzSection, ModelEntry } from '@spinajs/manifest';
 import type { ExtractorContext } from '../context.js';
-import { findDecorator, literalValue } from '../decorators.js';
-import { modelMembers } from '../model-members.js';
+import { findDecorator, literalValue, type DecoratorInfo } from '../decorators.js';
+import { modelMembers, type ModelMember } from '../model-members.js';
 import { owningPackage } from '../owning-package.js';
 import { baseClassOf, declaringPackage } from '../schema/framework-members.js';
 import { compareCodeUnits } from '../sort.js';
 import { modelDeclarationOf } from './models.js';
-import { isPlainJson, objectLiteralOf, readsConstantsOnly } from './object-literals.js';
+import { constantValueOf, isPlainJson, memberOf, objectLiteralOf, readsConstantsOnly, type MemberRead } from './object-literals.js';
 
 type Resource = AuthzSection['resources'][number];
 type ResourceRelation = Resource['relations'][number];
@@ -34,12 +34,13 @@ export interface ResourceColumns {
   typeColumn?: string;
 }
 
+const isOptions = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value);
+
 /** An owner or a named relation as the options state it: a column name, or `{ column, typeColumn? }`. */
 export function columnsOf(value: unknown): ResourceColumns | undefined {
   if (typeof value === 'string') return { column: value };
-  const { column, typeColumn } = (value ?? {}) as { column?: unknown; typeColumn?: unknown };
-  if (typeof column !== 'string') return undefined;
-  return typeof typeColumn === 'string' ? { column, typeColumn } : { column };
+  if (!isOptions(value) || typeof value.column !== 'string') return undefined;
+  return typeof value.typeColumn === 'string' ? { column: value.column, typeColumn: value.typeColumn } : { column: value.column };
 }
 
 const columnsKey = (value: unknown): [string, string | null] | null => {
@@ -59,8 +60,6 @@ function registrationKey(type: string, o: Readonly<Record<string, unknown>>): st
   const rls = o.rls === true || o.rls === 'partial' ? o.rls : null;
   return JSON.stringify([type, parents, columnsKey(o.owner), typeof o.self === 'string' ? o.self : null, relations, rls, o.changelog !== false]);
 }
-
-const isOptions = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value);
 
 /**
  * The literal options of a registration, and whether the build read every part of them. Only those are compared: a
@@ -154,40 +153,80 @@ function registrationOf(symbol: ts.Symbol, registrations: Map<ts.Symbol, Registr
   return undefined;
 }
 
-const columnOf = (value: unknown): string | undefined => (typeof value === 'string' ? value : typeof (value as { column?: unknown } | undefined)?.column === 'string' ? (value as { column: string }).column : undefined);
+type RelationFacts = Pick<ResourceRelation, 'typeColumn' | 'nullable' | 'unread'>;
+type Unread = NonNullable<ResourceRelation['unread']>[number];
 
-function decoratedRelations(symbol: ts.Symbol, ctx: ExtractorContext): ResourceRelation[] {
-  return modelMembers(ctx.checker, ctx.checker.getDeclaredTypeOfSymbol(symbol)).flatMap((member) =>
-    member.decorators.flatMap((d): ResourceRelation[] => {
-      const kind = RELATION_DECORATORS[d.name];
-      if (!kind) return [];
-      const arg = literalValue(d.args[0], ctx);
-      if (kind === 'parent') return typeof arg === 'string' ? [{ name: 'parent', kind, column: member.name, target: arg }] : [];
-      if (kind === 'relation') return typeof arg === 'string' ? [{ name: arg, kind, column: member.name }] : [];
-      return [{ name: kind, kind, column: member.name }];
-    }),
-  );
+/** The context of reading relations, with a `CMP001` note that is written once per node however many resources share it. */
+interface RelationScope {
+  ctx: ExtractorContext;
+  note: (node: ts.Node, message: string) => void;
 }
 
-function optionRelations(options: Record<string, unknown> | undefined): ResourceRelation[] {
-  if (!options) return [];
-  const out: ResourceRelation[] = [];
-  for (const p of Array.isArray(options.parents) ? (options.parents as { column?: unknown; type?: unknown }[]) : []) {
-    if (typeof p?.column === 'string' && typeof p.type === 'string') out.push({ name: 'parent', kind: 'parent', column: p.column, target: p.type });
-  }
-  const owner = columnOf(options.owner);
-  if (owner) out.push({ name: 'owner', kind: 'owner', column: owner });
+const UNREAD_NOTE = 'is recorded as unread in authz.resources';
+
+const typeColumnFacts = (value: unknown): RelationFacts | undefined => (value === undefined ? {} : typeof value === 'string' ? { typeColumn: value } : undefined);
+const nullableFacts = (value: unknown): RelationFacts => (value === true ? { nullable: true } : {});
+
+/** A relation decorator's option as authz-orm reads it; one the build cannot read, or one authz-orm refuses, is `unread`. */
+function decoratorFacts(d: DecoratorInfo, options: ts.Expression | undefined, key: Unread, facts: (value: unknown) => RelationFacts | undefined, scope: RelationScope): RelationFacts {
+  const quiet = { checker: scope.ctx.checker, info: () => undefined };
+  const read: MemberRead = options ? memberOf(options, key, quiet) : { set: false };
+  const value = !read.set ? { value: undefined } : read.value ? constantValueOf(read.value, quiet) : undefined;
+  const known = value && facts(value.value);
+  if (known) return known;
+  const at = options ?? d.node;
+  scope.note(at, `the ${key} option of @${d.name} cannot be read at build time (${at.getText()}): it ${UNREAD_NOTE}`);
+  return { unread: [key] };
+}
+
+function decoratedRelation(member: ModelMember, d: DecoratorInfo, scope: RelationScope): ResourceRelation[] {
+  const kind = RELATION_DECORATORS[d.name];
+  if (!kind) return [];
+  const first = literalValue(d.args[0], scope.ctx);
+  // `@Parent(type, options)` and `@Relation(name, options)` take their options second, `@Owner(options)` first.
+  if (kind === 'parent') return typeof first === 'string' ? [{ name: 'parent', kind, column: member.name, target: first, ...decoratorFacts(d, d.args[1], 'nullable', nullableFacts, scope) }] : [];
+  if (kind === 'relation') return typeof first === 'string' ? [{ name: first, kind, column: member.name, ...decoratorFacts(d, d.args[1], 'typeColumn', typeColumnFacts, scope) }] : [];
+  return [{ name: kind, kind, column: member.name, ...(kind === 'owner' ? decoratorFacts(d, d.args[0], 'typeColumn', typeColumnFacts, scope) : {}) }];
+}
+
+function decoratedRelations(symbol: ts.Symbol, scope: RelationScope): ResourceRelation[] {
+  return modelMembers(scope.ctx.checker, scope.ctx.checker.getDeclaredTypeOfSymbol(symbol)).flatMap((member) => member.decorators.flatMap((d) => decoratedRelation(member, d, scope)));
+}
+
+const listOf = (value: unknown): readonly unknown[] => (Array.isArray(value) ? value : []);
+
+const optionParents = (parents: unknown): ResourceRelation[] =>
+  listOf(parents).flatMap((p): ResourceRelation[] => (isOptions(p) && typeof p.column === 'string' && typeof p.type === 'string' ? [{ name: 'parent', kind: 'parent', column: p.column, target: p.type }] : []));
+
+/**
+ * The relations of registration options. Options the build read in full give exact columns; from a partial read a type
+ * column may hide behind the part it could not read, so owners and relations get it `unread`. Parents of options are
+ * never nullable (authz-orm registry.ts).
+ */
+function optionRelations(registration: Registration | undefined, scope: RelationScope): ResourceRelation[] {
+  const options = registration?.options;
+  if (!registration || !options) return [];
+  const exact = registration.key !== undefined;
+  const columns = (value: unknown): Pick<ResourceRelation, 'column' | 'typeColumn' | 'unread'> | undefined => {
+    const read = columnsOf(value);
+    return read && !exact ? { column: read.column, unread: ['typeColumn'] } : read;
+  };
+  const out = optionParents(options.parents);
+  const owner = columns(options.owner);
+  if (owner) out.push({ name: 'owner', kind: 'owner', ...owner });
   if (typeof options.self === 'string') out.push({ name: 'self', kind: 'self', column: options.self });
-  for (const [name, columns] of Object.entries((options.relations ?? {}) as Record<string, unknown>)) {
-    const column = columnOf(columns);
-    if (column) out.push({ name, kind: 'relation', column });
+  for (const [name, declared] of Object.entries(isOptions(options.relations) ? options.relations : {})) {
+    const relation = columns(declared);
+    if (relation) out.push({ name, kind: 'relation', ...relation });
   }
+  const at = ts.isCallExpression(registration.node) ? registration.node.arguments[2] : undefined;
+  if (at && out.some((r) => r.unread)) scope.note(at, `the options of this access resource registration cannot be read in full (${at.getText()}): the typeColumn of its owner and relations ${UNREAD_NOTE}`);
   return out;
 }
 
-function relationsOf(symbol: ts.Symbol, registration: Registration | undefined, ctx: ExtractorContext): ResourceRelation[] {
+function relationsOf(symbol: ts.Symbol, registration: Registration | undefined, scope: RelationScope): ResourceRelation[] {
   const seen = new Set<string>();
-  return [...decoratedRelations(symbol, ctx), ...optionRelations(registration?.options)].filter((r) => {
+  return [...decoratedRelations(symbol, scope), ...optionRelations(registration, scope)].filter((r) => {
     const key = `${r.name}\0${r.column}`;
     return !seen.has(key) && !!seen.add(key);
   });
@@ -210,6 +249,14 @@ export function accessResources(ctx: ExtractorContext, files: readonly ts.Source
   const registrations = registrationsIn(files, ctx);
   const resources: Resource[] = [];
   const covered = new Set<ts.Symbol>();
+  const noted = new Set<ts.Node>();
+  const scope: RelationScope = {
+    ctx,
+    note: (node, message) => {
+      if (!noted.has(node)) ctx.info('CMP001', message, node);
+      noted.add(node);
+    },
+  };
 
   const withTypes = models.map((model) => {
     const declaration = modelDeclarationOf(model);
@@ -219,13 +266,13 @@ export function accessResources(ctx: ExtractorContext, files: readonly ts.Source
     covered.add(symbol);
     const node = found.registration?.node;
     const local = node && !node.getSourceFile().isDeclarationFile;
-    resources.push({ type: found.type, model: model.id, relations: relationsOf(symbol, found.registration, ctx), source: local ? ctx.sourceRef(node) : model.source });
+    resources.push({ type: found.type, model: model.id, relations: relationsOf(symbol, found.registration, scope), source: local ? ctx.sourceRef(node) : model.source });
     return { ...model, accessResource: found.type };
   });
 
   for (const [symbol, registration] of registrations) {
     if (covered.has(symbol) || ts.isClassDeclaration(registration.node)) continue;
-    resources.push({ type: registration.type, model: modelIdOf(symbol, ctx), relations: relationsOf(symbol, registration, ctx), source: ctx.sourceRef(registration.node) });
+    resources.push({ type: registration.type, model: modelIdOf(symbol, ctx), relations: relationsOf(symbol, registration, scope), source: ctx.sourceRef(registration.node) });
   }
   return { models: withTypes, resources };
 }

@@ -23,8 +23,8 @@ describe('access resource registrations of one class', () => {
     expect(errors.filter((d) => d.message.startsWith('Same '))).to.deep.equal([]);
   });
 
-  it('does not compare options behind a spread it cannot read or that read a let, which may be reassigned', () => {
-    expect(errors.filter((d) => [33, 34, 48, 49].includes(d.source?.line ?? 0))).to.deep.equal([]);
+  it('does not compare options behind a spread it cannot read, or that read a let, which may be reassigned, or a class', () => {
+    expect(errors.filter((d) => [33, 34, 48, 49, 51].includes(d.source?.line ?? 0))).to.deep.equal([]);
   });
 
   it('notes each registration it does not compare', () => {
@@ -36,6 +36,7 @@ describe('access resource registrations of one class', () => {
       ['info', 34],
       ['info', 48],
       ['info', 49],
+      ['info', 51],
     ]);
   });
 });

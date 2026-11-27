@@ -36,7 +36,7 @@ describe('authz section', () => {
       ]],
       ['plain', 'authz-pkg:Plain', [
         { name: 'parent', kind: 'parent', column: 'FolderId', target: 'folder' },
-        { name: 'owner', kind: 'owner', column: 'OwnerColumn' },
+        { name: 'owner', kind: 'owner', column: 'OwnerColumn', typeColumn: 'OwnerType' },
         { name: 'reviewer', kind: 'relation', column: 'ReviewerId' },
       ]],
       ['job', '@spinajs/queue:JobModel', []],

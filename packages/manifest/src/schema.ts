@@ -1966,6 +1966,23 @@ export const manifestSchema: Record<string, any> = {
                     },
                     "target": {
                       "type": "string"
+                    },
+                    "typeColumn": {
+                      "type": "string"
+                    },
+                    "nullable": {
+                      "type": "boolean",
+                      "const": true
+                    },
+                    "unread": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "enum": [
+                          "typeColumn",
+                          "nullable"
+                        ]
+                      }
                     }
                   },
                   "required": [
