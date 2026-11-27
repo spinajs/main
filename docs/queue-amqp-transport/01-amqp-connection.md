@@ -61,7 +61,7 @@ When neither `username` nor `password` reaches amqplib, amqplib logs in as `gues
 
 ### Logged broker address
 
-The `Connecting to AMQP queue at ...` line (`info`, on every connect and reconnect) and the connect error print the broker without credentials and query: a URL `host` as scheme, host, port and vhost (`amqps://user:pass@broker:5671/prod?heartbeat=30` prints `amqps://broker:5671/prod`), a value that `new URL()` rejects as `<not a URL>`, and any other `host` as `amqp://<host>:<port>/<options.vhost>`. The vhost is printed as the URL carries it (`/%2F` for the default vhost written encoded); a URL with an `@` after the host (an unencoded `/`, `?` or `#` in the password) prints as `<not a URL>`. Prefer `login` / `password` over credentials in the URL.
+The `Connecting to AMQP queue at ...` line (`info`, on every connect and reconnect) and the connect error print the broker without credentials and query: a URL `host` as scheme, host, port and vhost (`amqps://user:pass@broker:5671/prod?heartbeat=30` prints `amqps://broker:5671/prod`), a value that `new URL()` rejects as `<not a URL>`, and any other `host` as `amqp://<host>:<port>/<options.vhost>`. The vhost is printed as the URL carries it (`/%2F` for the default vhost written encoded); a URL with an `@` after the host (an unencoded `/`, `?` or `#` in the password, or an `@` in the vhost or query: write it `%40`) prints as `<not a URL>`, and the connect error's cause then says so instead of quoting the client's message. Prefer `login` / `password` over credentials in the URL.
 
 ## Configuration
 
