@@ -129,6 +129,11 @@ export class ResponseCacheMiddleware extends RouteMiddleware {
   // settled by the first request: the route's middleware instances exist only after every onRegister ran
   private servable?: boolean;
 
+  // keys of this route that one request of this process is refreshing; never a reply, which comes from each request's lookup
+  private readonly refreshing = new Set<string>();
+
+  private readonly inFlight = new Map<string, Promise<void>>();
+
   constructor(protected readonly options: ResolvedResponseCacheOptions) {
     super();
   }
@@ -167,14 +172,28 @@ export class ResponseCacheMiddleware extends RouteMiddleware {
       await runRoute(proceed);
       return;
     }
-    const found = await this.lookup(key, storage);
+    const found = await this.find(key, storage);
     // a corrupt entry, or one another version or application wrote, is a miss, never a 500
     const stored = found?.hit === true ? replayableReply(found.value) : undefined;
-    if (stored !== undefined) {
+    // a stale hit is served while another request of this process refreshes the key: the store still holds it valid here
+    if (found?.hit === true && stored !== undefined && (!found.stale || this.refreshing.has(key))) {
       await sendReply(req, res, new CachedResponse(stored));
       return;
     }
-    await this.runAndStore(found, res, storage, proceed);
+    // only the first stale hit refreshes; a hit whose value cannot be sent runs as a miss (a fresh one has no fill)
+    await (found?.hit === true && found.stale && !this.refreshing.has(key) ? this.refresh(key, found, res, storage, proceed) : this.runOnce(key, found, res, storage, proceed));
+  }
+
+  /**
+   * A lookup; a miss waits for a run of the key going on in this process, at most cache.http.timeout, then looks again
+   * in its own scope.
+   */
+  protected async find(key: string, storage: IActionLocalStoregeContext): Promise<CacheLookup<CapturedJsonReply> | undefined> {
+    const found = await this.lookup(key, storage);
+    const running = found?.hit === true ? undefined : this.inFlight.get(key);
+    if (running === undefined) return found;
+    await this.inStore(storage, 'wait for a run of the key', () => running);
+    return this.lookup(key, storage);
   }
 
   /** False, once and for good, when a stored reply of this route would skip a middleware that shapes it (R12). */
@@ -207,7 +226,7 @@ export class ResponseCacheMiddleware extends RouteMiddleware {
   }
 
   protected cacheOptions(): CacheOptions {
-    return { ttl: this.options.ttl, tags: this.options.tags, layer: 'http' };
+    return { ttl: this.options.ttl, swr: this.options.swr, tags: this.options.tags, layer: 'http' };
   }
 
   protected lookup(key: string, storage: IActionLocalStoregeContext): Promise<CacheLookup<CapturedJsonReply> | undefined> {
@@ -223,6 +242,32 @@ export class ResponseCacheMiddleware extends RouteMiddleware {
     if (found !== undefined && reply !== undefined) {
       // a miss; a fresh hit runs only when its value could not be sent, and has no fill
       await this.inStore(storage, 'store', async () => found.fill?.(reply));
+    }
+  }
+
+  /** The first stale hit of a key in this process runs the route again and fills through the hit (plan A, K20). */
+  private async refresh(key: string, found: CacheLookup<CapturedJsonReply>, res: HttpResponse, storage: IActionLocalStoregeContext, proceed: () => Promise<IRouteOutcome>): Promise<void> {
+    this.refreshing.add(key);
+    try {
+      await this.runAndStore(found, res, storage, proceed);
+    } finally {
+      this.refreshing.delete(key);
+    }
+  }
+
+  /** A miss runs the route; a miss of the same key meanwhile waits for it in find(). */
+  private async runOnce(key: string, found: CacheLookup<CapturedJsonReply> | undefined, res: HttpResponse, storage: IActionLocalStoregeContext, proceed: () => Promise<IRouteOutcome>): Promise<void> {
+    const flight = this.runAndStore(found, res, storage, proceed);
+    const settled = flight.then(
+      () => undefined,
+      () => undefined,
+    );
+    this.inFlight.set(key, settled);
+    try {
+      await flight;
+    } finally {
+      // a waiter that gave up runs its own flight, which the first one must not drop
+      if (this.inFlight.get(key) === settled) this.inFlight.delete(key);
     }
   }
 

@@ -69,6 +69,7 @@ export const cacheWarnings = (): string[] =>
 
 // http.routes.middlewares of the next useServer boot: the configuration class is instantiated by the boot itself
 let globalRouteMiddlewares: readonly string[] = [];
+let storeTimeout = 200;
 
 class CacheHttpConfiguration extends FrameworkConfiguration {
   public async resolve(): Promise<void> {
@@ -85,7 +86,7 @@ class CacheHttpConfiguration extends FrameworkConfiguration {
         rules: [...SILENT_LOGGER.rules, { name: 'cache', level: 'warn', target: 'Capture' }],
       },
       http: { port: 0, middlewares: [], AcceptHeaders: 1 | 2, routes: { middlewares: [...globalRouteMiddlewares] } },
-      cache: { caches: { hung: { store: 'HangingStore' } }, http: { timeout: 200 } },
+      cache: { caches: { hung: { store: 'HangingStore' } }, http: { timeout: storeTimeout } },
       intl: { queryParameter: 'lang', defaultLocale: 'en' },
     };
   }
@@ -99,13 +100,15 @@ export interface Answer {
 
 /**
  * Boots the server in `before` and stops it in `after` of the enclosing describe; `runs` is cleared before each test.
- * `routeMiddlewares` are names of RouteMiddleware registrations for `http.routes.middlewares`.
+ * `routeMiddlewares` are names of RouteMiddleware registrations for `http.routes.middlewares`; `timeout` is
+ * `cache.http.timeout`.
  */
-export function useServer(controllers: readonly (typeof BaseController)[], register: (c: IContainer) => void = () => undefined, routeMiddlewares: readonly string[] = []) {
+export function useServer(controllers: readonly (typeof BaseController)[], register: (c: IContainer) => void = () => undefined, routeMiddlewares: readonly string[] = [], timeout = 200) {
   const server: { port: number; app?: TestApp } = { port: 0 };
 
   before(async () => {
     globalRouteMiddlewares = routeMiddlewares;
+    storeTimeout = timeout;
     server.app = await createTestApp({
       configuration: CacheHttpConfiguration,
       register: (c) => {
