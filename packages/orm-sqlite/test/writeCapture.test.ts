@@ -310,6 +310,51 @@ describe('write capture on sqlite', function () {
     expect(recorder.writes).to.have.length(0);
   });
 
+  it('sends an update and a delete no observer wants as it compiled them', async () => {
+    const { statements, restore } = captureStatements();
+    try {
+      await UowClient.update({ Name: 'y' }).where('Name', 'x').orWhere('Id', 5);
+      await UowClient.destroy().where('Name', 'x').orWhere('Id', 5);
+    } finally {
+      restore();
+    }
+
+    // Recorded on v4 17f9458488, before the capture confined its writes.
+    expect(statements.map((s) => [s.expression, s.bindings])).to.deep.eq([
+      ['UPDATE `uow_client` SET `Name` = ? WHERE `Name` = ? OR `Id` = ?', ['y', 'x', 5]],
+      ['DELETE FROM `uow_client` WHERE `Name` = ? OR `Id` = ?', ['x', 5]],
+    ]);
+  });
+
+  it('confines a captured update and delete to the keys its key select read', async () => {
+    for (const Name of ['red', 'blue', 'green']) await UowTag.insert({ Name });
+    const { statements, restore } = captureStatements();
+    try {
+      await UowTag.update({ Name: 'x' }).where('Name', 'red').orWhere('Name', 'blue');
+      await UowTag.destroy().where('Name', 'x').orWhere('Id', 3);
+    } finally {
+      restore();
+    }
+
+    expect(statements.filter((s) => s.context !== QueryContext.Select).map((s) => [s.expression, s.bindings])).to.deep.eq([
+      ['UPDATE `uow_tag` SET `Name` = ? WHERE ( `Name` = ? OR `Name` = ? ) AND `Id` IN (?,?)', ['x', 'red', 'blue', 1, 2]],
+      ['DELETE FROM `uow_tag` WHERE ( `Name` = ? OR `Id` = ? ) AND `Id` IN (?,?,?)', ['x', 3, 1, 2, 3]],
+    ]);
+    expect((await rows<{ Name: string }>('uow_tag')).map((r) => r.Name)).to.deep.eq([]);
+  });
+
+  it('sends a captured update whose key select read no row as one that matches none', async () => {
+    await UowTag.insert({ Name: 'red' });
+    const { statements, restore } = captureStatements();
+    try {
+      await UowTag.update({ Name: 'x' }).where('Name', 'blue');
+    } finally {
+      restore();
+    }
+
+    expect(statements.filter((s) => s.context !== QueryContext.Select).map((s) => [s.expression, s.bindings])).to.deep.eq([['UPDATE `uow_tag` SET `Name` = ? WHERE ( `Name` = ? ) AND 1 = 0', ['x', 'blue']]]);
+  });
+
   describe('on models of its own', () => {
     before(() => DI.register(FixtureObserver).as(WriteObserver));
 

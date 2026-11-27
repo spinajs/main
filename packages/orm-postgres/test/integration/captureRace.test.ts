@@ -77,22 +77,20 @@ interface Outcome {
 type Level = 'READ COMMITTED' | 'REPEATABLE READ' | 'SERIALIZABLE';
 
 /**
- * What a level does today with the other session's row: the key read's lock makes it wait (`blocked`), the snapshot
- * hides it from the statement (`hidden`), or the statement changes a row the capture never read (`gap`, finding OX15:
- * history, the ancestor table and change events miss that row). Pinned as it is today, so a fix changes these lines.
+ * What a level does with the other session's row: the key read's lock makes it wait (`blocked`), the snapshot hides it
+ * from the statement (`hidden`), or under READ COMMITTED the statement leaves it, as the capture confines the write to
+ * the keys it read (`left`, finding OX15). Either way the capture reports exactly the rows the statement changed.
  */
-type Today = 'blocked' | 'hidden' | 'gap';
+type Fate = 'blocked' | 'hidden' | 'left';
 
-function todayOf(level: Level, move: Move): Today {
+function fateOf(level: Level, move: Move): Fate {
   if (move === 'update-out-of') return 'blocked';
-  return level === 'READ COMMITTED' ? 'gap' : 'hidden';
+  return level === 'READ COMMITTED' ? 'left' : 'hidden';
 }
 
-function expected(move: Move, today: Today): Outcome {
+function expected(fate: Fate): Outcome {
   const read = ['1', '2'];
-  if (today === 'blocked') return { other: '55P03', statement: 'ok', changed: read, captured: read };
-  if (today === 'hidden') return { other: 'committed', statement: 'ok', changed: read, captured: read };
-  return { other: 'committed', statement: 'ok', changed: [...read, move === 'insert-into' ? '10' : '3'], captured: read };
+  return { other: fate === 'blocked' ? '55P03' : 'committed', statement: 'ok', changed: read, captured: read };
 }
 
 describe('postgres write capture beside a concurrent writer (integration)', function () {
@@ -165,10 +163,10 @@ describe('postgres write capture beside a concurrent writer (integration)', func
   for (const [isolation, level] of LEVELS) {
     for (const statement of ['update', 'delete'] as const) {
       for (const move of ['insert-into', 'update-into', 'update-out-of'] as const) {
-        const today = todayOf(level, move);
-        const what = today === 'gap' ? 'the capture misses the row (OX15, as it is today)' : 'the capture reports the rows the statement changed';
+        const fate = fateOf(level, move);
+        const what = fate === 'left' ? 'the statement leaves the row its key read did not see (OX15)' : 'the capture reports the rows the statement changed';
         it(`${isolation ?? 'no caller transaction'}: ${statement}, a row moved ${move} the where: ${what}`, async () => {
-          expect(await race(statement, move, isolation)).to.deep.eq(expected(move, today));
+          expect(await race(statement, move, isolation)).to.deep.eq(expected(fate));
         });
       }
     }

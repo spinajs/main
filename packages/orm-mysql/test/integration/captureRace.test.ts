@@ -95,18 +95,17 @@ interface Outcome {
 type Level = 'READ COMMITTED' | 'REPEATABLE READ' | 'SERIALIZABLE';
 
 /**
- * What a level does today with the other session's row: the key read's locks make it wait (`blocked`; REPEATABLE READ
- * locks the gaps of the scanned range too), or the statement changes a row the capture never read (`gap`, finding
- * OX15: history, the ancestor table and change events miss that row). Pinned as it is today, so a fix changes these lines.
+ * What a level does with the other session's row: the key read's locks make it wait (`blocked`; REPEATABLE READ locks
+ * the gaps of the scanned range too), or under READ COMMITTED the statement leaves it, as the capture confines the
+ * write to the keys it read (`left`, finding OX15). Either way the capture reports exactly the rows the statement changed.
  */
-type Today = 'blocked' | 'gap';
+type Fate = 'blocked' | 'left';
 
-const todayOf = (level: Level, move: Move): Today => (level === 'READ COMMITTED' && move !== 'update-out-of' ? 'gap' : 'blocked');
+const fateOf = (level: Level, move: Move): Fate => (level === 'READ COMMITTED' && move !== 'update-out-of' ? 'left' : 'blocked');
 
-function expected(move: Move, today: Today): Outcome {
+function expected(fate: Fate): Outcome {
   const read = ['1', '2'];
-  if (today === 'blocked') return { other: 'ER_LOCK_WAIT_TIMEOUT', statement: 'ok', changed: read, captured: read };
-  return { other: 'committed', statement: 'ok', changed: [...read, move === 'insert-into' ? '10' : '3'], captured: read };
+  return { other: fate === 'blocked' ? 'ER_LOCK_WAIT_TIMEOUT' : 'committed', statement: 'ok', changed: read, captured: read };
 }
 
 /** The MySQL error code of a driver error, looked up through OrmException's `inner` / `cause` chain. */
@@ -207,12 +206,12 @@ describe('mysql write capture beside a concurrent writer (integration)', functio
   for (const [isolation, level] of LEVELS) {
     for (const statement of ['update', 'delete'] as const) {
       for (const move of ['insert-into', 'update-into', 'update-out-of'] as const) {
-        const today = todayOf(level, move);
-        const what = today === 'gap' ? 'the capture misses the row (OX15, as it is today)' : 'the capture reports the rows the statement changed';
+        const fate = fateOf(level, move);
+        const what = fate === 'left' ? 'the statement leaves the row its key read did not see (OX15)' : 'the capture reports the rows the statement changed';
         it(`${isolation ?? 'no caller transaction'}: ${statement}, a row moved ${move} the where: ${what}`, async function () {
           if (!isolation && serverDefault !== 'REPEATABLE-READ') return this.skip();
 
-          expect(await race(statement, move, isolation)).to.deep.eq(expected(move, today));
+          expect(await race(statement, move, isolation)).to.deep.eq(expected(fate));
         });
       }
     }

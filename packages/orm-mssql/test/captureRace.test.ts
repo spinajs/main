@@ -93,27 +93,32 @@ interface Outcome {
 type Level = 'READ COMMITTED' | 'REPEATABLE READ' | 'SERIALIZABLE';
 
 /**
- * What a level does today with the other session's row. The key read takes no lock that lasts on SQL Server (its dialect
- * has no row lock clause), so a row may enter or leave the where under READ COMMITTED: the statement then changes a row
- * the capture never read, or the capture reports another session's change of a row the statement left (`gap`, finding
- * OX15). REPEATABLE READ keeps the rows read and SERIALIZABLE their range (`blocked`). Pinned as it is today, so a fix
- * changes these lines.
+ * What a level does with the other session's row. A row that enters the where after the key read is left by the
+ * statement, as the capture confines the write to the keys it read (`left`, finding OX15). The key read takes no lock
+ * that lasts on SQL Server (its dialect has no row lock clause), so under READ COMMITTED a row can also leave the where:
+ * the capture then reports another session's change of a row the statement left (`gap`, OX15, as it is today).
+ * REPEATABLE READ keeps the rows read and SERIALIZABLE their range (`blocked`).
  */
-type Today = 'blocked' | 'gap';
+type Fate = 'blocked' | 'left' | 'gap';
 
-function todayOf(level: Level, move: Move): Today {
-  if (level === 'SERIALIZABLE') return 'blocked';
-  return level === 'REPEATABLE READ' && move === 'update-out-of' ? 'blocked' : 'gap';
+function fateOf(level: Level, move: Move): Fate {
+  if (level === 'SERIALIZABLE' || (level === 'REPEATABLE READ' && move === 'update-out-of')) return 'blocked';
+  return move === 'update-out-of' ? 'gap' : 'left';
 }
 
 const LOCK_REQUEST_TIMEOUT = '1222';
 
-function expected(move: Move, today: Today): Outcome {
+function expected(fate: Fate): Outcome {
   const read = ['1', '2'];
-  if (today === 'blocked') return { other: LOCK_REQUEST_TIMEOUT, statement: 'ok', changed: read, captured: read };
-  if (move === 'update-out-of') return { other: 'committed', statement: 'ok', changed: ['1'], captured: read };
-  return { other: 'committed', statement: 'ok', changed: [...read, move === 'insert-into' ? '10' : '3'], captured: read };
+  if (fate === 'blocked') return { other: LOCK_REQUEST_TIMEOUT, statement: 'ok', changed: read, captured: read };
+  return { other: 'committed', statement: 'ok', changed: fate === 'gap' ? ['1'] : read, captured: read };
 }
+
+const TITLES = new Map<Fate, string>([
+  ['blocked', 'the capture reports the rows the statement changed'],
+  ['left', 'the statement leaves the row its key read did not see (OX15)'],
+  ['gap', 'the capture reports other rows than the statement changed (OX15, as it is today)'],
+]);
 
 /** The SQL Server error number of a driver error, looked up through OrmException's `inner` / `cause` chain. */
 function codeOf(err: unknown): string | undefined {
@@ -212,10 +217,9 @@ describe('mssql write capture beside a concurrent writer (integration)', functio
   for (const [isolation, level] of LEVELS) {
     for (const statement of ['update', 'delete'] as const) {
       for (const move of ['insert-into', 'update-into', 'update-out-of'] as const) {
-        const today = todayOf(level, move);
-        const what = today === 'gap' ? 'the capture reports other rows than the statement changed (OX15, as it is today)' : 'the capture reports the rows the statement changed';
-        it(`${isolation ?? 'no caller transaction'}: ${statement}, a row moved ${move} the where: ${what}`, async () => {
-          expect(await race(statement, move, isolation)).to.deep.eq(expected(move, today));
+        const fate = fateOf(level, move);
+        it(`${isolation ?? 'no caller transaction'}: ${statement}, a row moved ${move} the where: ${TITLES.get(fate) ?? fate}`, async () => {
+          expect(await race(statement, move, isolation)).to.deep.eq(expected(fate));
         });
       }
     }
