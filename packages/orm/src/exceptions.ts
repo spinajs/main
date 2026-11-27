@@ -20,6 +20,16 @@ export class OrmException extends Exception {
 }
 
 /**
+ * The database ended the transaction on its own (a MySQL deadlock, a PostgreSQL transaction aborted by an earlier error):
+ * the statements issued through it from then on, and its commit, are refused. Retry the whole transaction; `inner` is what ended it.
+ */
+export class TransactionAborted extends OrmException {
+  constructor(message: string, inner?: unknown) {
+    super(message, undefined, undefined, undefined, inner);
+  }
+}
+
+/**
  * Exception thrown when functionality is not supported
  */
 export class OrmNotFoundException extends OrmException {}
