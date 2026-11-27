@@ -179,7 +179,34 @@ describe('QueueChangeBus', () => {
     expect(() => a.bus.subscribe(() => undefined)).to.throw(InvalidOperation);
     expect(consumers(a.client)).to.eq(0);
   });
+
+  it('a start that fails after dispose logs no retry', async () => {
+    const uninstallLog = captureLog();
+    try {
+      const bus = new LateBus();
+      bus.subscribe(() => undefined);
+
+      const disposing = bus.dispose();
+      bus.failStart(new Error('broker down'));
+      await disposing;
+      await new Promise((resolve) => setTimeout(resolve, 10));
+
+      expect(TestLog.messages('error').filter((m) => m.includes('cannot listen'))).to.deep.equal([]);
+    } finally {
+      uninstallLog();
+    }
+  });
 });
+
+/** Its start fails when the test says so. */
+class LateBus extends QueueChangeBus {
+  failStart: (err: Error) => void = () => undefined;
+  protected queueService(): Promise<QueueService> {
+    return new Promise((_resolve, reject) => {
+      this.failStart = reject;
+    });
+  }
+}
 
 describe('AuthzBusRouteSource', () => {
   const ROUTE = ['queue', 'routing', 'AuthzChangeEvent'];

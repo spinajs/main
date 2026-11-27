@@ -99,9 +99,10 @@ export class QueueChangeBus extends ChangeBus {
         }
       },
       (err) => {
+        if (this.disposed) return;
         this.log.error({ error: thrownError(err) }, 'authz change bus: cannot listen on the queue, retrying');
         this.retried = true;
-        if (this.disposed || this.timer) return;
+        if (this.timer) return;
         this.timer = setTimeout(() => {
           this.timer = undefined;
           if (!this.disposed) this.listenWithRetry();
