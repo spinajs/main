@@ -30,16 +30,19 @@ const settled = (p: Promise<unknown>): Promise<unknown> => p.then(
 
 const TASK_LINKS = (links: readonly string[]) => links.filter((l) => l.startsWith('task:'));
 
-/** Sessions of the test's own database that wait on a lock. */
+/**
+ * Sessions of the test's own database that wait on a lock. MySQL counts from performance_schema.data_lock_waits:
+ * information_schema.innodb_trx did not list a session blocked in the first locking statement of its transaction.
+ */
 const LOCK_WAITERS = new Map<Dialect, string>([
   ['postgres', `SELECT COUNT(*) AS n FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock'`],
-  ['mysql', `SELECT COUNT(*) AS n FROM information_schema.innodb_trx t JOIN information_schema.processlist p ON p.id = t.trx_mysql_thread_id WHERE t.trx_state = 'LOCK WAIT' AND p.db = DATABASE()`],
+  ['mysql', `SELECT COUNT(DISTINCT t.PROCESSLIST_ID) AS n FROM performance_schema.data_lock_waits w JOIN performance_schema.threads t ON t.THREAD_ID = w.REQUESTING_THREAD_ID WHERE t.PROCESSLIST_DB = DATABASE()`],
 ]);
 
 /** What the test database's sessions do, for the error of a wait that timed out. */
 const LOCK_STATE = new Map<Dialect, string>([
   ['postgres', `SELECT pid, state, wait_event_type, wait_event, LEFT(query, 120) AS query FROM pg_stat_activity WHERE datname = current_database()`],
-  ['mysql', `SELECT p.id, p.command, p.time, p.state, t.trx_state, LEFT(COALESCE(t.trx_query, p.info), 120) AS query FROM information_schema.processlist p LEFT JOIN information_schema.innodb_trx t ON t.trx_mysql_thread_id = p.id WHERE p.db = DATABASE()`],
+  ['mysql', `SELECT t.PROCESSLIST_ID AS id, t.PROCESSLIST_COMMAND AS command, t.PROCESSLIST_TIME AS time, t.PROCESSLIST_STATE AS state, (SELECT COUNT(*) FROM performance_schema.data_lock_waits w WHERE w.REQUESTING_THREAD_ID = t.THREAD_ID) AS waits, (SELECT COUNT(*) FROM performance_schema.data_lock_waits w WHERE w.BLOCKING_THREAD_ID = t.THREAD_ID) AS blocks, LEFT(t.PROCESSLIST_INFO, 120) AS query FROM performance_schema.threads t WHERE t.PROCESSLIST_DB = DATABASE()`],
 ]);
 
 // With a second connection, a scenario holds the rebuild with a row lock on one of its ancestor rows: on PostgreSQL its
