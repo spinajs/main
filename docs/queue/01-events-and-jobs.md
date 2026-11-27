@@ -86,7 +86,7 @@ Scheduling and priority are honoured only by transports that support them; [`@sp
 
 | Decorator | Target | Options | Effect |
 | --- | --- | --- | --- |
-| `@Job(opts?)` | class extending `QueueJob` | `runAs?: 'initiator' \| 'system'`, `access?`, `resource?`, `tenancy?: 'carry' \| 'required' \| 'none'` (`JobOptions`) | Marks the class as a job. The options are read by [message hooks](06-message-hooks.md): `runAs`, `access` and `resource` by the one in [`@spinajs/authz-queue`](../authz-queue/README.md), `tenancy` by the one in [`@spinajs/tenancy/queue`](../tenancy/01-queue-tenant-scope.md); the queue itself ignores them |
+| `@Job(opts?)` | class extending `QueueJob` | `runAs?: 'initiator' \| 'system'`, `access?`, `resource?`, `tenancy?: 'carry' \| 'required' \| 'none'` (`JobOptions`) | Marks the class as a job. The options are read by [message hooks](06-message-hooks.md): `runAs`, `access` and `resource` by the one in [`@spinajs/authz-queue`](../authz-queue/README.md), `tenancy` by the one in `@spinajs/tenancy/queue`; the queue itself ignores them |
 | `@Event(opts?)` | class extending `QueueEvent` | `durable?: boolean` | Marks the class as an event. `durable: true` makes every `consume()` of it durable, so it needs a `subscriptionId` |
 
 Both decorators write the `queue:options` metadata only when the class has none of its own. `consume()` reads it through the prototype chain, so an undecorated subclass of a decorated class is consumable. `jobOptions()` reads only the class's own metadata, so a subclass never inherits its parent's `runAs` or `tenancy`.
