@@ -62,6 +62,11 @@ describe('insert into a schema', () => {
       await DI.resolve(Orm);
     });
 
+    // A second register() of ConnectionConf by a later file does not displace this one.
+    afterEach(() => {
+      DI.unregister(Configuration, QualifiedConnectionConf);
+    });
+
     it('qualifies a model insert with the connection database', async () => {
       const compile = sinon.spy(SqlInsertQueryCompiler.prototype, 'compile');
 
