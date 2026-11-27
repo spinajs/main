@@ -186,12 +186,11 @@ export class AmqpQueueClient extends QueueClient {
       return this.connectOptionsFromFields(host ?? 'localhost');
     }
 
-    let parsed: URL;
-    try {
-      parsed = new URL(host);
-    } catch {
-      // not a parseable url - treat the whole value as a bare hostname and use the config fields
-      return this.connectOptionsFromFields(host);
+    // dialled anyway, the whole value or a piece of its userinfo would go to the resolver as a host name
+    const parsed = parsedUrl(host);
+    if (parsed === undefined || isBrokenUserinfo(parsed)) {
+      const hint = parsed === undefined ? '' : `; ${BROKEN_USERINFO}`;
+      throw new InvalidArgument(`Queue connection ${this.Options.name} has a host that is not a URL: ${this.LoggableBroker}${hint}`);
     }
 
     const protocol = parsed.protocol.replace(/:$/, '') || 'amqp';
@@ -298,6 +297,7 @@ export class AmqpQueueClient extends QueueClient {
         ...this.Options.options,
       });
     } catch (err) {
+      if (target === undefined && err instanceof InvalidArgument) throw err;
       throw new UnexpectedServerError(`Cannot connect to AMQP queue server at ${this.LoggableBroker}`, loggableConnectError(err, this.Options.host, target?.password));
     }
 

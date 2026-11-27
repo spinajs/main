@@ -1,5 +1,6 @@
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
+import { InvalidArgument } from '@spinajs/exceptions';
 import { IQueueConnectionOptions } from '@spinajs/queue';
 import { expect } from 'chai';
 import { LookupFunction } from 'net';
@@ -141,7 +142,7 @@ describe('amqp transport - the broker url in logs and errors', function () {
     expect(causeOf(thrown).message).to.eq('Expected ConnectionOpenOk; got <ConnectionClose channel:0>');
   });
 
-  it('a url that does not parse is never printed, nor its echo in the lookup error', async () => {
+  it('a url that does not parse is never printed', async () => {
     // a lookup error as getaddrinfo builds it, without asking a DNS server for the planted name
     const lookup: LookupFunction = (hostname, _options, callback) =>
       callback(Object.assign(new Error(`getaddrinfo ENOTFOUND ${hostname}`), { code: 'ENOTFOUND', errno: -3008, syscall: 'getaddrinfo', hostname }), '', 4);
@@ -149,7 +150,8 @@ describe('amqp transport - the broker url in logs and errors', function () {
 
     expectNothingPlanted(calls, thrown);
     expect(connectingHosts(calls)).to.deep.eq(['<not a URL>']);
-    expect(causeOf(thrown)).to.deep.eq({ name: 'Error', code: 'ENOTFOUND', message: 'getaddrinfo ENOTFOUND <not a URL>' });
+    expect(thrown).to.be.instanceOf(InvalidArgument);
+    expect(messageOf(thrown)).to.match(/has a host that is not a URL: <not a URL>$/);
   });
 
   it('discrete fields: the line shows scheme, host, port and vhost, never the password', async () => {
@@ -217,7 +219,8 @@ describe('amqp transport - the broker url in logs and errors', function () {
       const text = inspect([calls, thrown], { depth: 6, showHidden: true });
       for (let from = 0; from + 4 <= password.length; from++) expect(text, host).to.not.contain(password.slice(from, from + 4));
       expect(connectingHosts(calls)).to.deep.eq(['<not a URL>']);
-      expect(causeOf(thrown), host).to.deep.include({ code: 'ENOTFOUND', message: "the host url has an '@' after the host: percent-encode a '/', '?', '#' or '@' in its userinfo, vhost or query" });
+      expect(thrown, host).to.be.instanceOf(InvalidArgument);
+      expect(messageOf(thrown), host).to.match(/: <not a URL>; the host url has an '@' after the host: percent-encode a '\/', '\?', '#' or '@' in its userinfo, vhost or query$/);
     }
   });
 
