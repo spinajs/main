@@ -1,14 +1,27 @@
 import * as chai from 'chai';
 import 'mocha';
-import { existsSync } from 'node:fs';
+import { existsSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
+
+import { ConfigVar } from '@spinajs/configuration';
+
+import fsAclConnection from '../src/config/db.js';
+import { FS_ACL_CONNECTION } from '../src/index.js';
 
 const expect = chai.expect;
 
 describe('authz-fs package layout', () => {
   // Configuration loads every module under node_modules/@spinajs/*/lib/config as an app config file (D14).
-  it('ships no code modules in src/config or lib/config', () => {
-    expect(existsSync(join(process.cwd(), 'src', 'config')), 'src/config').to.eq(false);
-    expect(existsSync(join(process.cwd(), 'lib', 'config')), 'lib/config').to.eq(false);
+  it('ships config files only in src/config and lib/config', () => {
+    expect(readdirSync(join(process.cwd(), 'src', 'config'))).to.deep.equal(['db.ts']);
+    const lib = join(process.cwd(), 'lib', 'config');
+    if (existsSync(lib)) expect(readdirSync(lib).filter((f) => f.endsWith('.js'))).to.deep.equal(['db.js']);
+  });
+
+  it('maps the fs_acl alias, and only it, to a lazy value: the connection authz.fsAcl.connection names when the ORM boots', () => {
+    expect(Object.keys(fsAclConnection)).to.deep.equal(['db']);
+    expect(Object.keys(fsAclConnection.db)).to.deep.equal(['Aliases']);
+    expect(Object.keys(fsAclConnection.db.Aliases)).to.deep.equal([FS_ACL_CONNECTION]);
+    expect(fsAclConnection.db.Aliases[FS_ACL_CONNECTION]).to.be.instanceOf(ConfigVar);
   });
 });

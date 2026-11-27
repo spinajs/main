@@ -9,6 +9,8 @@ import { show } from '../checks.js';
 // Not under authz.fs: that section is keyed by filesystem name.
 export const FS_ACL_CONNECTION_KEY = 'authz.fsAcl.connection';
 export const FS_ACL_DEFAULT_CONNECTION = 'default';
+/** The ORM connection alias of FsAclRecord; the package maps it to the connection `authz.fsAcl.connection` names. */
+export const FS_ACL_CONNECTION = 'authz-fs-acl';
 /** The relation of the row owner stamping writes. */
 export const FS_ACL_OWNER = 'owner';
 export const FS_ACL_DEFAULT_RELATIONS: readonly string[] = Object.freeze([FS_ACL_OWNER, 'editor', 'viewer']);
@@ -17,7 +19,7 @@ export const FS_ACL_RELATION_MAX_LENGTH = 64;
 
 /** `authz.fsAcl` (fs middleware design §2). */
 export interface FsAclConfig {
-  /** ORM connection of OrmFileAclStore and of its migration. */
+  /** ORM connection of the fs_acl migrations. OrmFileAclStore refuses one that is not the connection of FS_ACL_CONNECTION. */
   readonly connection: string;
   /** The relations an ACL row may name; FsResourceAdapter serves a RelationResolver for each on fs, dir and file. */
   readonly relations: readonly string[];
