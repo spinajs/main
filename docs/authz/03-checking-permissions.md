@@ -65,6 +65,7 @@ A model may permit "if the row matches", such as an `owner` grant. Checked on a 
 2. One `ancestorsMany()` call per type fills the request cache, where the adapter has it.
 3. Each entry is checked. An allowed entry with a residual is checked again against its row, loaded with one `loadMany()` call per type, else `load()` per ref.
 4. No row denies `unknown_resource`; a failed load denies `model_error`; an adapter that cannot load leaves the answer conditional.
+5. An entry whose check throws, for example because its adapter's `ancestors()` rejects, is logged at error and denied with `model_error`; the other entries are still answered. `check`, `can` and `assert` throw that error to the caller instead.
 
 ## Access plans
 

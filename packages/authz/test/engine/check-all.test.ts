@@ -4,7 +4,7 @@ import 'mocha';
 import { Authorizer } from '../../src/engine/authorizer.js';
 import type { AuthorizerOptions } from '../../src/engine/authorizer.js';
 import { l1Key } from '../../src/engine/context.js';
-import { FALSE, GLOBAL, TRUE } from '../../src/index.js';
+import { FALSE, GLOBAL, TRUE, resourceKey } from '../../src/index.js';
 import type { DecisionRequest, ResourceAdapter, ResourceFilter, ResourceRef, Vote } from '../../src/index.js';
 import { BatchAdapter, FakeAdapter, FakeRow, LoadingAdapter, RecordingLog, StaticModel, fakeClock, principal, registryOf } from './fakes.js';
 
@@ -151,4 +151,95 @@ describe('Authorizer.checkAll', () => {
     expect(out[0].residual).to.deep.equal(FALSE);
     expect(docs.ancestorsManyCalls).to.deep.equal([[d1]]);
   });
+
+  it('denies with model_error an entry whose adapter throws, logs it, and checks the rest', async () => {
+    const out = await make([new FailingAncestors(['doc'], 'doc:d2', { rows: docRows() })]).checkAll(alice, [
+      { permission: 'doc:read', resource: d2 },
+      { permission: 'doc:read', resource: d1 },
+    ]);
+    expect(out.map((d) => [d.permission, d.resource.id, d.allowed, d.reason?.code])).to.deep.equal([
+      ['doc:read', 'd2', false, 'model_error'],
+      ['doc:read', 'd1', true, undefined],
+    ]);
+    expect(out[0].residual).to.deep.equal(FALSE);
+    expect(out[0].fields).to.deep.equal({ read: [], write: [] });
+    expect(out[0].principal).to.deep.equal({ type: 'user', id: 'alice' });
+    expect(Object.isFrozen(out[0])).to.equal(true);
+    const logged = log.at('error');
+    expect(logged.map((e) => e.message)).to.deep.equal(['Authz domain root: checkAll entry doc:read on doc:d2 failed: "db down"']);
+    expect(logged[0].error?.message).to.equal('db down');
+  });
+
+  it('denies each throwing entry of a batch on its own', async () => {
+    const out = await make([new FailingAncestors(['doc'], 'doc:d2', { rows: docRows() })]).checkAll(alice, [
+      { permission: 'doc:read', resource: d2 },
+      { permission: 'doc:read', resource: d1 },
+      { permission: 'task:read', resource: d2 },
+      { permission: 'doc:read', resource: d2 },
+    ]);
+    expect(out.map((d) => [d.permission, d.resource.id, d.allowed, d.reason?.code])).to.deep.equal([
+      ['doc:read', 'd2', false, 'model_error'],
+      ['doc:read', 'd1', true, undefined],
+      ['task:read', 'd2', false, 'invalid_request'],
+      ['doc:read', 'd2', false, 'model_error'],
+    ]);
+    expect(log.at('error')).to.have.length(2);
+  });
+
+  it('denies with model_error an entry whose check against its loaded row throws', async () => {
+    const tasks = new BatchAdapter(['task'], { rows: taskRows() });
+    const t1Ancestors = l1Key('ancestors', 'root', 'task:t1');
+    const scope = { cache: new ThrowingAfter(t1Ancestors, () => tasks.loadManyCalls.length > 0) };
+    const out = await make([tasks]).checkAll(alice, [{ permission: 'task:read', resource: t1 }, { permission: 'doc:read', resource: { type: 'doc' } }], scope);
+    expect(out.map((d) => [d.allowed, d.reason?.code])).to.deep.equal([
+      [false, 'model_error'],
+      [true, undefined],
+    ]);
+    expect(tasks.loadManyCalls).to.deep.equal([[t1]]);
+    expect(log.at('error').map((e) => e.message)).to.deep.equal(['Authz domain root: checkAll entry task:read on task:t1 failed: "scope store down"']);
+  });
+
+  it('keeps check() throwing for the same adapter fault', async () => {
+    const authorizer = make([new FailingAncestors(['doc'], 'doc:d2', { rows: docRows() })]);
+    let thrown: unknown;
+    try {
+      await authorizer.check({ principal: alice, permission: 'doc:read', resource: d2 });
+    } catch (e) {
+      thrown = e;
+    }
+    expect(thrown).to.be.instanceOf(Error).with.property('message', 'db down');
+  });
 });
+
+const d2: ResourceRef = { type: 'doc', id: 'd2' };
+
+/** No ancestorsMany, so the checks ask ancestors() per ref; it rejects for one ref. */
+class FailingAncestors extends FakeAdapter {
+  constructor(
+    types: readonly string[],
+    private readonly failing: string,
+    options: ConstructorParameters<typeof FakeAdapter>[1],
+  ) {
+    super(types, options);
+  }
+
+  async ancestors(ref: ResourceRef): Promise<readonly ResourceRef[] | null> {
+    if (resourceKey(ref) === this.failing) throw new Error('db down');
+    return super.ancestors(ref);
+  }
+}
+
+/** A request cache whose read of one key throws once `armed` holds. */
+class ThrowingAfter extends Map<string, unknown> {
+  constructor(
+    private readonly key: string,
+    private readonly armed: () => boolean,
+  ) {
+    super();
+  }
+
+  get(key: string): unknown {
+    if (key === this.key && this.armed()) throw new Error('scope store down');
+    return super.get(key);
+  }
+}
