@@ -222,6 +222,18 @@ describe('postgres abandoned statement cancel (unit)', function () {
     expect(server.requests.map(decode)).to.deep.equal([[16, 80877102, KEY.processID, KEY.secretKey]]);
   });
 
+  it('gives the caller its error while the cancel is still in flight', async () => {
+    const peer = await silentPeer();
+    pooledClient(timedOut, KEY, peer.port);
+    try {
+      await expect(driver.executeOnDb('SELECT 1', [], QueryContext.Select)).to.be.rejectedWith(OrmException);
+      expect(await settles(driver.cancels[0]), 'the cancel is still in flight').to.equal(false);
+    } finally {
+      await peer.close();
+    }
+    await expect(driver.cancels[0]).to.be.fulfilled;
+  });
+
   it('ends the cancel connection within a bound of its own when Pool.AcquireTimeout is 0', async () => {
     await resolveDriver({ Pool: { AcquireTimeout: 0 } });
     const peer = await silentPeer();
