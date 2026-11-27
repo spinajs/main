@@ -5,7 +5,9 @@ import type { IContainer } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
 import { SessionIssuer } from '@spinajs/authn/contracts';
 import type { AuthnFacts, IdentityRef, SessionHandle } from '@spinajs/authn/contracts';
-import { DefaultSessionIssuer } from '../src/index.js';
+import { InvalidOperation } from '@spinajs/exceptions';
+import { DateTime } from 'luxon';
+import { DefaultSessionIssuer, MemorySessionStore } from '../src/index.js';
 import type { ISession, SessionProvider } from '../src/index.js';
 import { SessionTestConfiguration, uncacheOwned, withSessionConfig } from './support.js';
 
@@ -48,5 +50,33 @@ describe('DefaultSessionIssuer lifetime', () => {
     expect(childIssuer).to.not.equal(rootIssuer);
     expect(pendingTtlOf(childIssuer, await childIssuer.issue(alice, facts(), { pending: { steps: ['totp'] } }))).to.equal(60);
     expect(pendingTtlOf(rootIssuer, await rootIssuer.issue(alice, facts(), { pending: { steps: ['totp'] } }))).to.equal(300);
+  });
+
+  describe('an unreadable Creation under the capped default strategy ends the session instead of making it immortal', () => {
+    async function issuedWithUnreadableCreation(pending: boolean) {
+      await withSessionConfig({ authn: { session: { service: 'MemorySessionStore' } } }, [DefaultSessionIssuer, SessionIssuer]);
+      const issuer = await DI.resolve(DefaultSessionIssuer);
+      const store = await DI.resolve(MemorySessionStore);
+      const h = await issuer.issue(alice, facts(), pending ? { pending: { steps: ['totp'] } } : undefined);
+      const key = createHash('sha256').update(h.id).digest('hex');
+      // MemorySessionStore hands out its live row, so this rewrites the stored Creation.
+      (await store.restore(key))!.Creation = DateTime.invalid('test');
+      return { issuer, store, h, key };
+    }
+
+    it('restore renews it to an unreadable expiry at once and refuses it', async () => {
+      const { issuer, store, h, key } = await issuedWithUnreadableCreation(false);
+      expect(await issuer.restore(h.id)).to.equal(null);
+      expect(await store.restore(key)).to.equal(null);
+    });
+
+    it('elevate refuses the copy and ends both rows', async () => {
+      const { issuer, store, h, key } = await issuedWithUnreadableCreation(true);
+      let failed: unknown;
+      await issuer.elevate(h, { assurance: 'aal2' }).catch((e: unknown) => (failed = e));
+      expect(failed).to.be.instanceOf(InvalidOperation);
+      expect(await store.restore(key)).to.equal(null);
+      expect(await store.listBySubject(alice)).to.deep.equal([]);
+    });
   });
 });

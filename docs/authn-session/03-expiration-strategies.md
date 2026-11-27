@@ -8,7 +8,7 @@ The strategy is a `SessionExpirationProvider` with two methods. `SessionProvider
 
 1. `SessionProvider.save()` of a row with no `Expiration` calls `applyInitialExpiration()`, which sets `Expiration = strategy.initial(row)`. A row that already has an `Expiration` is stored as is.
 2. `SessionProvider.touch()` calls `applyRenewedExpiration()`, which sets `Expiration = strategy.renew(row)` for an active row. A pending row keeps its expiration.
-3. `SessionProvider.restore()` answers `null` for a row whose `Expiration` is at or before now. A row with no `Expiration` never expires.
+3. `SessionProvider.restore()` answers `null` for a row whose `Expiration` is at or before now or is not a valid instant (an invalid luxon `DateTime`, such as a renewal capped at an unreadable `Creation`). Only a row with no `Expiration` never expires.
 
 When each step runs:
 

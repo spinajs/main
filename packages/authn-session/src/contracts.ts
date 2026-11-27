@@ -94,8 +94,8 @@ export abstract class SessionProvider<T extends ISession = ISession> extends Asy
     s.Expiration = this.Expiration.renew(s);
   }
 
-  /** Public so SessionIssuer judges a row the way its store does. */
+  /** Public so SessionIssuer judges a row the way its store does. An invalid instant counts as passed: only an absent Expiration means never. */
   public isExpired(s: ISession): boolean {
-    return !!s.Expiration && s.Expiration <= DateTime.now();
+    return !!s.Expiration && (!s.Expiration.isValid || s.Expiration <= DateTime.now());
   }
 }

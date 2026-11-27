@@ -46,7 +46,7 @@ authn: {
 | `Impersonator` | `IdentityRef`, optional | Set while impersonating. Stores index it, so revoking the impersonator reaches the session |
 | `State` | `'active' \| 'pending'` | A pending (pre-MFA) session yields no principal and is never extended |
 | `Creation` | luxon `DateTime` | When the session was issued; `rotate` and `elevate` keep it |
-| `Expiration` | luxon `DateTime`, optional | Absolute expiration instant; `undefined` never expires |
+| `Expiration` | luxon `DateTime`, optional | Absolute expiration instant; `undefined` never expires, an invalid `DateTime` counts as passed |
 | `Data` | `Map<string, unknown>` | Opaque to the store: values written with `set`, plus the issuer's own `authn:` entries (facts, pending steps, last seen) |
 
 `UserSession` is the class the issuer builds rows with. `new UserSession(partial)` assigns the given fields over the defaults: `State: 'active'`, `Creation: DateTime.now()`, `Expiration: undefined`, an empty `Data`. `SessionId` has no default. It is `@NewInstance()`.
@@ -69,7 +69,7 @@ The `SessionProvider` contract:
 | `deleteBySubject(subject, { includeImpersonations?, except? })` | `number` | Deletes rows of `Subject`, and with `includeImpersonations` rows of `Impersonator`; `except` is a storage key to keep. Returns the count of live rows deleted |
 | `listBySubject(subject, { includeImpersonations? })` | `ISession[]` | Live rows only, same matching as `deleteBySubject` |
 | `truncate()` | `void` | Deletes every row |
-| `isExpired(session)` | `boolean` | `true` when `Expiration` is set and at or before now. Public, so `DefaultSessionIssuer` judges a row the way its store does |
+| `isExpired(session)` | `boolean` | `true` when `Expiration` is set and is at or before now or is not a valid instant (an invalid luxon `DateTime`); only an absent `Expiration` never expires. Public, so `DefaultSessionIssuer` judges a row the way its store does |
 
 Protected helpers for stores: `applyInitialExpiration(s)`, `applyRenewedExpiration(s)` and the injected `Expiration` strategy.
 
