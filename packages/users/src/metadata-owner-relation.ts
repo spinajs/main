@@ -6,6 +6,10 @@ import { userModel } from './model-token.js';
 
 const USER_METADATA = 'user.metadata';
 
+class KnownUserId {
+  constructor(readonly id: unknown) {}
+}
+
 /** The owner id (and the id, when stored) of a metadata row: any object with an integer `user_id`. */
 function metadataRow(subject: unknown): { user_id: unknown; Id?: unknown } | undefined {
   if (subject === null || typeof subject !== 'object') {
@@ -45,22 +49,21 @@ export class UserMetadataOwnerRelation extends RelationResolver {
     return id !== undefined && id !== null && String(id) === String(row.user_id);
   }
 
-  /** users.Id of the user `uuid`, read as SYSTEM and once per request: a list decides each of its rows. */
-  protected userIdOf(uuid: string): Promise<unknown> {
+  /**
+   * users.Id of the user `uuid`, read as SYSTEM and kept for the request once read: a list decides each of its rows. A
+   * read still in flight is not shared: a caller inside a savepoint that awaited it would wait for a statement queued
+   * behind that savepoint.
+   */
+  protected async userIdOf(uuid: string): Promise<unknown> {
     const cache = requestScope().cache ?? new Map<string, unknown>();
     const key = `users:metadata-owner:${uuid}`;
-    let found = cache.get(key) as Promise<unknown> | undefined;
+    const known = cache.get(key);
+    if (known instanceof KnownUserId) return known.id;
 
-    if (!found) {
-      found = (async () => {
-        const user = await this.userOf(uuid);
-        return user && !user.DeletedAt ? user.Id : undefined;
-      })();
-      cache.set(key, found);
-      found.catch(() => cache.delete(key));
-    }
-
-    return found;
+    const user = await this.userOf(uuid);
+    const id = user && !user.DeletedAt ? user.Id : undefined;
+    cache.set(key, new KnownUserId(id));
+    return id;
   }
 
   /** The users row of `uuid`, read as SYSTEM. */
