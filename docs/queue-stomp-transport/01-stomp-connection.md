@@ -11,7 +11,7 @@ Boot, when `DefaultQueueService` from `@spinajs/queue` resolves:
    1. it reads `app.name` (default `'no-app'`) and `process.env.APP_ENV` (default `'development'`) from `Configuration`, or throws `InvalidOperation` when there is no `Configuration`;
    2. it calls `new StompQueueClient({ ...entry, clientId: entry.clientId ?? '<app.name>-<APP_ENV>-<entry.name>' })`;
    3. it awaits `client.resolve()` and returns the client.
-3. `StompQueueClient.resolve()` rejects with `InvalidArgument` when `host` is empty. Otherwise it builds the `stompjs` `Client` through `createClient(config)`:
+3. `StompQueueClient.resolve()` rejects with `InvalidArgument` when `host` is empty, or, unless `options.webSocketFactory` is set, when `ws` cannot open it: not a URL, a scheme other than `ws:`, `wss:`, `http:`, `https:` or `ws+unix:`, a `#fragment`, or a `ws+unix:` URL without a socket path. Otherwise it builds the `stompjs` `Client` through `createClient(config)`:
    - `brokerURL` is `host`; `connectHeaders` carry `login`, `passcode` (from `password`) and `client-id`;
    - `reconnectDelay`, `heartbeatIncoming`, `heartbeatOutgoing` and `connectionTimeout` come from the entry or their defaults;
    - `webSocketFactory` calls `createWebSocket()`, which opens `new WebSocket(host, <STOMP protocol versions>)` from `ws`;
@@ -183,7 +183,7 @@ export const config = {
 - `@PerInstanceCheck()` matches instances by `name`. Two entries with the same `name` share one instance when built without the factory.
 - The shipped factory creates a new client on every resolve. `DI.get(StompQueueClient)` does not return it; get a connection with `QueueService.get(name)`.
 - A broker `ERROR` frame at boot rejects `resolve()` with the broker's message. When ActiveMQ refuses a `client-id` already in use, the error says to give each replica a unique `QUEUE_INSTANCE_ID` or `options.clientIdSuffix`. A websocket failure at boot rejects with the `ws` reason and code (`ECONNREFUSED`, `ECONNRESET`, or a connection timeout); the error's cause is an `Error` with that `name`, message and `code`, not the socket event. The cause of an `ERROR`-frame rejection is an `Error` with the broker's message and the frame's text in `body`.
-- An entry without `host`, an invalid `options.prefetch`, or a credential provider that throws or is not registered at boot, rejects `resolve()`. A `createWebSocket()` override that throws still runs inside the un-awaited `stompjs` connect loop: the error is an unhandled promise rejection and `resolve()` never settles.
+- An entry without `host`, a `host` that `ws` cannot open (see step 3; the error names the broker without its userinfo, query or fragment, and nothing is dialled), an invalid `options.prefetch`, or a credential provider that throws or is not registered at boot, rejects `resolve()`. A `createWebSocket()` override that throws still runs inside the un-awaited `stompjs` connect loop: the error is an unhandled promise rejection and `resolve()` never settles.
 - `stompjs` frames log at `trace` with the `client-id` and connection name; `debug: true` lifts them to `debug` so they show under a typical logger config.
 
 ## Best practices
