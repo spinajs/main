@@ -70,7 +70,7 @@ function layersIn(container: IContainer): FsProviderLayer[] {
     // The error below is what the caller gets; the resolve left running must not end as an unhandled rejection.
     layers.catch(() => undefined);
     throw new InvalidOperation(
-      'An FsProviderLayer resolves asynchronously (it or a dependency is an AsyncService not resolved yet), and a layer must be synchronous: resolve the layers before the first lookup, eg. await DI.resolve(Array.ofType(FsProviderLayer)) at boot',
+      'An FsProviderLayer resolves asynchronously (it or a dependency is an AsyncService that is not resolved yet, or whose resolution failed), and a layer must be synchronous: register the layers before fsService resolves, which resolves them and fails with the cause, or resolve them yourself before the first lookup, eg. await DI.resolve(Array.ofType(FsProviderLayer))',
     );
   }
   // `instanceof` would let a skipped @NewInstance() class through when a singleton subclass of it is registered too.

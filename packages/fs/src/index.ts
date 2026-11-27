@@ -4,7 +4,7 @@ import { Injectable, Bootstrapper, DI, IContainer, token } from '@spinajs/di';
 import { fs, IFsConfiguration, IProviderConfiguration } from './interfaces.js';
 import { Log, Logger } from '@spinajs/log-common';
 import { FILE_PROVIDER } from './tokens.js';
-import { layeredFs } from './layers.js';
+import { FsProviderLayer, layeredFs } from './layers.js';
 
 export * from './interfaces.js';
 export * from './local-provider.js';
@@ -94,6 +94,9 @@ export class fsService extends AsyncService {
         'File provider ${provider} registered, type: ${service}',
       );
     }
+
+    // A lookup cannot wait for an async layer and only reports that it is not resolved: the boot reports why.
+    if (DI.RootContainer.hasRegistered(FsProviderLayer)) await Promise.resolve(DI.resolve(Array.ofType(FsProviderLayer)));
   }
 
   /**

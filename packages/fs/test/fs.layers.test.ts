@@ -234,3 +234,49 @@ describe('fs provider layers', function () {
     expect(() => layeredFs(publishedFs('layer-a')!, container)).to.throw(InvalidOperation, /PromiseWrap returned a promise from wrap\(\)/);
   });
 });
+
+class LayerBootFailed extends Error {}
+
+class FailingBoot extends AsyncService {
+  public async resolve() {
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    throw new LayerBootFailed('layer dependency failed');
+  }
+}
+
+class FailingLayer extends FsProviderLayer {
+  @Autoinject(FailingBoot)
+  public Boot: FailingBoot;
+
+  public wrap(found: fs): fs {
+    return found;
+  }
+}
+
+describe('fs provider layers at boot', function () {
+  this.timeout(15000);
+
+  after(() => {
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  it('fsService resolves the layers, so a layer dependency that fails fails the boot with its own error', async () => {
+    mkdirSync(join(root, 'boot'), { recursive: true });
+    let failure: unknown;
+    try {
+      const app = await createTestApp({
+        config: { fs: { defaultProvider: 'layer-boot', providers: [{ service: 'fsNative', name: 'layer-boot', basePath: join(root, 'boot') }] } },
+        register: (container) => {
+          container.register(SilentLog).as(Log);
+          container.register(FailingLayer).as(FsProviderLayer);
+        },
+        resolve: [fsService],
+      });
+      await app.dispose();
+    } catch (err) {
+      failure = err;
+    }
+
+    expect(failure).to.be.instanceOf(LayerBootFailed);
+  });
+});
