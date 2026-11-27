@@ -30,9 +30,9 @@ const settle = async (fn: () => PromiseLike<unknown>): Promise<unknown> => {
   }
 };
 
-const keysOf = (columns: readonly string[]) => (rows: unknown): string[] => (Array.isArray(rows) ? rows : [rows]).map((r: Record<string, unknown>) => columns.map((c) => String(r[c])).join('/')).sort();
-const lineKeys = keysOf(['order_id', 'id']);
-const cellKeys = keysOf(['sheet', 'col', 'id']);
+const listOf = <T>(rows: unknown): T[] => (Array.isArray(rows) ? rows : [rows]) as T[];
+const lineKeys = (rows: unknown): string[] => listOf<{ order_id: string; id: string }>(rows).map((r) => `${r.order_id}/${r.id}`).sort();
+const cellKeys = (rows: unknown): string[] => listOf<{ sheet: string; col: string; id: string }>(rows).map((r) => `${r.sheet}/${r.col}/${r.id}`).sort();
 
 describe('authz-orm guard: a composite key is a single-object load only when every key column is bound', function () {
   this.timeout(60000);
