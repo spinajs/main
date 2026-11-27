@@ -63,8 +63,9 @@ function socketFailure(event: unknown, reason: string): Error {
   return 'code' in inner && typeof inner.code === 'string' ? Object.assign(failure, { code: inner.code }) : failure;
 }
 
-// stompjs prints every frame it sends, the CONNECT frame with its passcode header too.
-const PASSCODE_HEADER = /^passcode:.*$/gm;
+// stompjs prints every frame it sends, the CONNECT frame with its passcode header too. Not `.*$`: `.` stops at a CR,
+// U+2028 or U+2029, which an unescaped CONNECT header can carry.
+const PASSCODE_HEADER = /^passcode:[^\n]*/gm;
 
 /**
  * Default time to wait for a broker RECEIPT frame when publishing a message
