@@ -10,7 +10,9 @@ import type { TestApp } from '@spinajs/testing';
 import { fsNative } from '../src/index.js';
 import type { fs, IFsLocalOptions } from '../src/index.js';
 import { fsApp } from './common.js';
-import { largeZip, S_IFLNK, zipArchive } from './support/zip.js';
+import { archiveEntryTarget } from '../src/archive.js';
+import type { ArchiveEntry } from '../src/archive.js';
+import { junction, largeZip, S_IFLNK, zipArchive } from './support/zip.js';
 import type { ZipEntry, ZipSandbox } from './support/zip.js';
 
 // Every entry below `path`: directories end in '/'. list() names links too, so a link the unzip made shows up here.
@@ -119,7 +121,7 @@ describe('fs unzip entry names', function () {
       () => (windows ? `\\\\?\\${escapeTarget()}` : `\\${escapeTarget().replace(/\//g, '\\')}`),
     ],
     // posix reads `//x` as `/x`, which a broken check would write into the sandbox
-    [windows ? 'as UNC to an unresolvable host' : 'with a doubled leading slash', () => (windows ? '\\\\escape.invalid\\share\\escaped-unc.txt' : `/${escapeTarget()}`)],
+    [windows ? 'as a \\\\.\\ device path' : 'with a doubled leading slash', () => (windows ? `\\\\.\\${escapeTarget()}` : `/${escapeTarget()}`)],
   ];
 
   for (const [label, name] of absoluteNames) {
@@ -127,6 +129,121 @@ describe('fs unzip entry names', function () {
       await expectRefused([{ name: name(), data: 'x' }], name(), /is an absolute path/);
     });
   }
+
+  // Checked on the pure function only: an archive with this name would make a broken check open a network share.
+  it('refuses a UNC name', () => {
+    const entry: ArchiveEntry = { path: '\\\\escape.invalid\\share\\x', type: 'File', externalFileAttributes: 0, flags: 0, compressionMethod: 0 };
+    expect(() => archiveEntryTarget('a.zip', guard().destination, entry)).to.throw(IOFail, /is an absolute path/);
+  });
+
+  for (const name of ['../escaped-dir/', 'sub/../../escaped-dir/', '..\\escaped-dir\\']) {
+    it(`refuses the directory entry ${name}, which resolves outside the destination`, async () => {
+      await expectRefused([{ name, data: '' }], name, /resolves outside the destination/);
+    });
+  }
+
+  it('writes an entry to its central directory name, never to its local header name', async () => {
+    await unzip([{ name: 'ok.txt', localName: '../escaped.txt', data: 'payload' }]);
+
+    expect(await tree(provider, '', ['archives'])).to.deep.equal(['outside/', 'outside/dest/', 'outside/dest/ok.txt']);
+    expect(await provider.read('outside/dest/ok.txt', 'utf8')).to.equal('payload');
+  });
+
+  it('refuses an encrypted entry before it writes any', async () => {
+    await expectRefused(
+      [
+        { name: 'good.txt', data: 'good' },
+        { name: 'secret.txt', data: 'ciphertext', flags: 0x1 },
+      ],
+      'secret.txt',
+      /is encrypted/,
+    );
+  });
+
+  it('refuses an entry with an unsupported compression method before it writes any', async () => {
+    await expectRefused(
+      [
+        { name: 'good.txt', data: 'good' },
+        { name: 'packed.txt', data: 'x', method: 12 },
+      ],
+      'packed.txt',
+      /compression method 12/,
+    );
+  });
+
+  it('removes the entry whose write fails, keeping the entries written before it', async () => {
+    await expect(
+      unzip([
+        { name: 'good.txt', data: 'good' },
+        { name: 'broken.txt', data: Buffer.alloc(64, 0xff), method: 8 },
+      ]),
+    ).to.be.rejectedWith(IOFail, 'cannot write entry "broken.txt"');
+
+    expect(await tree(provider, '', ['archives'])).to.deep.equal(['outside/', 'outside/dest/', 'outside/dest/good.txt']);
+  });
+
+  describe('archive comment and trailing bytes', () => {
+    for (const length of [0, 58, 59, 1000, 0xffff]) {
+      it(`extracts an archive with a ${length}-byte comment`, async () => {
+        await provider.write('archives/a.zip', zipArchive([{ name: 'a.txt', data: 'a' }], guard(), { comment: Buffer.alloc(length, 0x63) }));
+        await provider.unzip('archives/a.zip', DEST, provider);
+
+        expect(await provider.read('outside/dest/a.txt', 'utf8')).to.equal('a');
+      });
+    }
+
+    it('takes the last real end record when the comment holds its signature', async () => {
+      const fake = Buffer.concat([Buffer.alloc(150, 0x63), Buffer.from([0x50, 0x4b, 0x05, 0x06]), Buffer.alloc(46, 0x63)]);
+      await provider.write('archives/a.zip', zipArchive([{ name: 'a.txt', data: 'a' }], guard(), { comment: fake }));
+      await provider.unzip('archives/a.zip', DEST, provider);
+
+      expect(await provider.read('outside/dest/a.txt', 'utf8')).to.equal('a');
+    });
+
+    it('extracts an archive followed by trailing bytes', async () => {
+      await provider.write('archives/a.zip', Buffer.concat([zipArchive([{ name: 'a.txt', data: 'a' }], guard()), Buffer.alloc(100, 0x74)]));
+      await provider.unzip('archives/a.zip', DEST, provider);
+
+      expect(await provider.read('outside/dest/a.txt', 'utf8')).to.equal('a');
+    });
+  });
+
+  describe('links already inside the destination', () => {
+    it('refuses an entry whose parent is a junction pointing outside the destination', async () => {
+      await provider.mkdir(DEST);
+      await provider.mkdir('outside/junction-target');
+      await junction(guard(), join(sandbox, 'outside', 'junction-target'), join(sandbox, 'outside', 'dest', 'j'));
+
+      await expect(unzip([{ name: 'j/evil.txt', data: 'x' }])).to.be.rejectedWith(IOFail, /entry "j\/evil.txt" .*outside the destination/);
+      expect(await provider.list('outside/junction-target')).to.deep.equal([]);
+    });
+
+    it('writes below a junction that points inside the destination', async () => {
+      await provider.mkdir('outside/dest/real');
+      await junction(guard(), join(sandbox, 'outside', 'dest', 'real'), join(sandbox, 'outside', 'dest', 'j'));
+
+      await unzip([{ name: 'j/inner.txt', data: 'inner' }]);
+
+      expect(await provider.read('outside/dest/real/inner.txt', 'utf8')).to.equal('inner');
+    });
+
+    it('refuses an entry whose own target is a link', async () => {
+      await provider.mkdir('outside/dest/real');
+      await junction(guard(), join(sandbox, 'outside', 'dest', 'real'), join(sandbox, 'outside', 'dest', 'j'));
+
+      await expect(unzip([{ name: 'j/', data: '' }])).to.be.rejectedWith(IOFail, /entry "j\/" is a link on disk/);
+    });
+
+    it('extracts into a destination that is itself reached through a junction', async () => {
+      await provider.mkdir('outside/real-dest');
+      await junction(guard(), join(sandbox, 'outside', 'real-dest'), join(sandbox, 'outside', 'linked-dest'));
+      await provider.write('archives/a.zip', zipArchive([{ name: 'a.txt', data: 'a' }], { root: sandbox, destination: join(sandbox, 'outside', 'linked-dest') }));
+
+      await provider.unzip('archives/a.zip', 'outside/linked-dest', provider);
+
+      expect(await provider.read('outside/real-dest/a.txt', 'utf8')).to.equal('a');
+    });
+  });
 
   it('refuses a symbolic link pointing outside and the entry written through it', async () => {
     await expectRefused(
