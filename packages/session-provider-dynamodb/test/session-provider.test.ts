@@ -2,7 +2,11 @@ import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 import { UserSession as Session, decodeSessionData } from '@spinajs/authn-session';
 import type { ISession } from '@spinajs/authn-session';
+import type { AttributeValue } from '@aws-sdk/client-dynamodb';
+import { DI } from '@spinajs/di';
+import { Log } from '@spinajs/log';
 import { DateTime } from 'luxon';
+import type { DynamoDbSessionProvider } from '../src/index.js';
 import { runSessionProviderConformance, IConformanceExpiration, SessionProviderFactory } from '../../authn-session/test/conformance/session-provider-conformance.js';
 import { bootStore, disposeStore, fake, storedKeys } from './support.js';
 
@@ -58,6 +62,104 @@ describe('dynamodb session provider', function () {
 
       expect(await store.restore('b4-user1'), 'u1 session should be gone').to.be.null;
       expect(await store.restore('b4-user2'), 'u2 session must survive').to.not.be.null;
+    });
+
+    /** An impersonated session from IdP session ek-1, with one attribute rewritten after the caller read it (undefined removes it). */
+    async function savedWith(store: DynamoDbSessionProvider, id: string, attribute: string, value: AttributeValue | undefined): Promise<ISession> {
+      await store.save(session({ SessionId: id, Subject: user('u-42'), Impersonator: user('admin'), ExternalKey: 'ek-1' }));
+      const view = (await store.restore(id))!;
+      if (value === undefined) {
+        delete item(id)[attribute];
+      } else {
+        item(id)[attribute] = value;
+      }
+      return view;
+    }
+
+    const REVOCATIONS: [attribute: string, readable: AttributeValue, revoke: (store: DynamoDbSessionProvider) => Promise<number>, unreadable: [string, AttributeValue][]][] = [
+      [
+        'ImpersonatorId',
+        { S: 'user:admin' },
+        (store) => store.deleteBySubject(user('admin'), { includeImpersonations: true }),
+        [['empty text', { S: '' }], ['text without a type', { S: 'admin' }], ['an empty type', { S: ':admin' }], ['an empty id', { S: 'user:' }], ['a number', { N: '0' }], ['null', { NULL: true }], ['a boolean', { BOOL: false }], ['a map', { M: {} }], ['a list', { L: [] }]],
+      ],
+      ['ExternalKey', { S: 'ek-1' }, (store) => store.deleteByExternalKey('ek-1'), [['a number', { N: '1' }], ['null', { NULL: true }], ['a boolean', { BOOL: true }], ['a map', { M: {} }], ['a list', { L: [] }]]],
+    ];
+
+    for (const [attribute, readable, revoke, unreadable] of REVOCATIONS) {
+      it(`a present but unreadable ${attribute} ends the session, so the revocation that cannot find it leaves nothing usable`, async () => {
+        const store = await makeProvider(SLIDING);
+        await store.truncate();
+
+        for (const [label, value] of [['readable', readable], ['absent', undefined], ...unreadable] as [string, AttributeValue | undefined][]) {
+          const id = `r-${attribute}-${label.replace(/\W+/g, '-')}`;
+          const view = await savedWith(store, id, attribute, value);
+          const stored = item(id).Expiration;
+
+          expect(await revoke(store), `${label}: revoked and counted`).to.equal(value === readable ? 1 : 0);
+          const restored = await store.restore(id);
+          if (value === undefined) {
+            expect(restored, `${label}: untouched by the revocation`).to.not.be.null;
+          } else {
+            expect(restored, label).to.equal(null);
+            expect(await store.touch(view), `${label}: touch`).to.be.false;
+          }
+          if (value !== undefined && value !== readable) {
+            expect(item(id).Expiration, `${label}: not extended`).to.deep.equal(stored);
+          }
+
+          const listed = `${id}-listed`;
+          await savedWith(store, listed, attribute, value);
+          expect(ids(await store.listBySubject(user('u-42'))).includes(listed), `${label}: listed`).to.equal(value === readable || value === undefined);
+          await store.delete(listed);
+        }
+
+        expect(await store.deleteBySubject(user('u-42')), 'the subject revocation counts only the absent one').to.equal(1);
+        expect(await storedKeys(store), 'and deletes every unreadable one').to.deep.equal([]);
+      });
+    }
+
+    it('a Subject with an empty id is unreadable like any other, not the principal user:""', async () => {
+      const store = await makeProvider(SLIDING);
+      await store.truncate();
+      await store.save(session({ SessionId: 'r-subject-empty-id', Subject: user('u-42') }));
+      item('r-subject-empty-id').Subject = { S: 'user:' };
+
+      expect(await store.restore('r-subject-empty-id')).to.equal(null);
+      expect(await store.listBySubject(user(''))).to.deep.equal([]);
+    });
+
+    it('an ExternalKey that is the empty string is a key like any other', async () => {
+      const store = await makeProvider(SLIDING);
+      await store.truncate();
+      await store.save(session({ SessionId: 'r-ext-empty', Subject: user('u-42'), ExternalKey: '' }));
+
+      expect((await store.restore('r-ext-empty'))?.ExternalKey).to.equal('');
+      expect(await store.deleteByExternalKey('')).to.equal(1);
+    });
+
+    it('an unreadable ImpersonatorId or ExternalKey is logged once per read, naming the subject and the attribute and never the session id', async () => {
+      const store = await makeProvider(SLIDING);
+      await store.truncate();
+      const log = DI.resolve(Log, ['dynamo-session-store']);
+      expect(Object.hasOwn(log, 'warn'), 'warn comes from the prototype, so deleting the stub restores it').to.equal(false);
+
+      for (const attribute of ['ImpersonatorId', 'ExternalKey']) {
+        const id = `r-warn-${attribute}-bearer-key`;
+        await savedWith(store, id, attribute, { N: '0' });
+        const lines: string[] = [];
+        log.warn = (first: unknown) => {
+          lines.push(String(first));
+        };
+        try {
+          expect(await store.restore(id)).to.equal(null);
+        } finally {
+          Reflect.deleteProperty(log, 'warn');
+        }
+
+        expect(lines, attribute).to.have.length(1);
+        expect(lines[0]).to.contain('user:u-42').and.to.contain(attribute).and.to.not.contain(id);
+      }
     });
   });
 
