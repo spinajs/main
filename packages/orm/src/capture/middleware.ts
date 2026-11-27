@@ -175,31 +175,27 @@ async function targetRows(query: QueryBuilder, plan: Plan, conflict: readonly st
   // One key above the limit is enough to refuse, so a runaway statement never loads all of its keys.
   const target = await writeTargetKeyTexts(query, plan.pk, max === Infinity ? undefined : max + 1);
   refuseAbove(plan, target.keys.length + target.keyless.length, max);
-  confineToKeys(query, plan, target);
+  confinedKeys.set(query, { pk: plan.pk, values: keyValues(query, plan, target) });
   const rows = await readRows(query.Driver, plan.statement.model, plan.table, plan.pk, plan.columns, target.keys, plan.pk, lockedReads(query.Driver));
   return mergeReads([keylessRead(target.keyless), rows]);
 }
 
-/**
- * Limits an update or delete to the rows its key select read. Under READ COMMITTED the statement would otherwise also
- * change a row another transaction committed into its where after that select, and no observer would see it. The
- * caller's conditions become one group first, so an OR among them cannot widen the key list; an empty list compiles to
- * `1 = 0`, as a query middleware cannot keep the statement from being sent.
- */
-function confineToKeys(query: UpdateQueryBuilder<unknown> | DeleteQueryBuilder<unknown>, plan: Plan, target: KeyTexts): void {
+interface Confinement {
+  readonly pk: string;
+  readonly values: readonly unknown[];
+}
+
+// Written by the capture's key select (order 91), applied by WriteCaptureConfinement, the last before hook.
+const confinedKeys = new WeakMap<object, Confinement>();
+
+function keyValues(query: UpdateQueryBuilder<unknown> | DeleteQueryBuilder<unknown>, plan: Plan, target: KeyTexts): unknown[] {
   const column = findColumn(extractModelDescriptor(plan.statement.model)?.Columns, plan.pk);
   const values: unknown[] = [...target.keys.map((k) => (column ? (lookupValue(column, k) ?? k) : k)), ...target.keyless];
   // A list of numbers and strings travels as one parameter where it is long; a keyless value is bound on its own.
   if (target.keyless.length > 0 && values.length > query.Driver.MaxBindings) {
     throw new WriteCaptureLimitExceeded(`write capture: ${STATEMENT_PHRASES[plan.statement.kind]} of ${plan.statement.model.name} reaches ${values.length} rows, some with a key that has no key text, more than the ${query.Driver.MaxBindings} values one statement may bind on connection ${query.Driver.Options.Name}; narrow the statement`);
   }
-  const caller = query.Statements.splice(0);
-  if (caller.length > 0) {
-    query.where(function () {
-      this.Statements.push(...caller);
-    });
-  }
-  query.whereIn(plan.pk, values);
+  return values;
 }
 
 /** Undefined when the rows an insert wrote cannot be known. */
@@ -270,5 +266,32 @@ export class WriteCaptureMiddleware extends QueryMiddleware {
   private plan(query: QueryBuilder): Plan | undefined {
     if (!this.plans.has(query)) this.plans.set(query, planOf(query) ?? null);
     return this.plans.get(query) ?? undefined;
+  }
+}
+
+/**
+ * Limits a captured update or delete to the rows the capture's key select read. Under READ COMMITTED the statement
+ * would otherwise also change a row another transaction committed into its where after that select, and no observer
+ * would see it. It runs last, so a check that copies the statement's own conditions (authz-orm's sync check, order
+ * 100) still finds such a row. The conditions become one group first, so an OR among them cannot widen the key list;
+ * an empty list compiles to `1 = 0`, as a query middleware cannot keep the statement from being sent.
+ */
+@Injectable(QueryMiddleware)
+export class WriteCaptureConfinement extends QueryMiddleware {
+  public order = Number.MAX_SAFE_INTEGER;
+
+  afterQueryCreation(_query: QueryBuilder): void {}
+
+  beforeQueryExecution(query: QueryBuilder): void {
+    const confinement = confinedKeys.get(query);
+    if (!confinement || !(query instanceof UpdateQueryBuilder || query instanceof DeleteQueryBuilder)) return;
+    confinedKeys.delete(query);
+    const conditions = query.Statements.splice(0);
+    if (conditions.length > 0) {
+      query.where(function () {
+        this.Statements.push(...conditions);
+      });
+    }
+    query.whereIn(confinement.pk, [...confinement.values]);
   }
 }
