@@ -426,13 +426,14 @@ export class RedisSessionStore extends SessionProvider {
     try {
       stored = JSON.parse(raw) as IStoredSession;
       if (!stored || typeof stored !== 'object') {
-        throw new Error(`Session ${sessionId} is not a JSON object`);
+        // The session id is the storage key of a bearer credential, so neither line names it; the subject is not read yet.
+        throw new Error('A stored session value is not a JSON object');
       }
     } catch (err) {
       if (!lenient) {
         throw err;
       }
-      this.Log.warn(`Unreadable value of session ${sessionId} skipped`);
+      this.Log.warn('A stored session value is not a JSON object; it is skipped');
       return null;
     }
 
@@ -447,7 +448,7 @@ export class RedisSessionStore extends SessionProvider {
       if (!lenient) {
         throw err;
       }
-      this.Log.warn(`Session ${sessionId} has undecodable Data, read without its Data`);
+      this.Log.warn(`A session of ${stored.Subject} has Data that does not decode; it is read with an empty Data`);
       data = new Map();
     }
 
