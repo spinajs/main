@@ -86,6 +86,16 @@ describe('schedule instances', () => {
       expect(await rowOf('a', '')).to.include({ LeaseOwner: 'r2' });
     });
 
+    it('renews and releases one instance while the same replica holds the other', async () => {
+      expect(await r1.takeScheduleLease('a', T)).to.eq('free');
+      expect(await r1.takeScheduleLease(ACME, T)).to.eq('free');
+      expect(await r1.renewScheduleLease(ACME, T + 5)).to.eq(true);
+      expect(await rowOf('a', '')).to.include({ LeaseOwner: 'r1', LeaseUntil: T + MIN });
+      expect(await r1.releaseScheduleLease('a', T + 6)).to.eq(true);
+      expect(await rowOf('a', 'acme')).to.include({ LeaseOwner: 'r1', LeaseUntil: T + 5 + MIN });
+      expect(await rowOf('a', '')).to.include({ LeaseOwner: null });
+    });
+
     it('claims and heartbeats a run under the lease of its own instance', async () => {
       await r2.takeScheduleLease('a', T);
       const run = await queuedRun('a', T, { Tenant: 'acme' });
