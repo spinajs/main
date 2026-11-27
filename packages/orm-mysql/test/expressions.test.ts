@@ -37,6 +37,10 @@ describe('mysql sql expressions', function () {
     expect(calls).to.deep.eq([["SELECT TIMESTAMPDIFF(MICROSECOND, '1970-01-01 00:00:00', UTC_TIMESTAMP(3)) DIV 1000 AS ms", [], QueryContext.Select]]);
   });
 
+  it('compares exactly with both sides cast, so a plain equality on the same column cannot fold it back', () => {
+    expect(expressions.equalsExactly('`subject_id`', { sql: '?', bindings: ['ABC'] })).to.deep.eq({ sql: 'CAST(`subject_id` AS BINARY) = CAST(? AS BINARY)', bindings: ['ABC'] });
+  });
+
   it('concatenates with CONCAT', () => {
     expect(expressions.concat('?', '`Name`', '?')).to.eq('CONCAT(?, `Name`, ?)');
     expect(expressions.concat('`Name`')).to.eq('`Name`');
