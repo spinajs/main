@@ -4,7 +4,7 @@ import 'mocha';
 import { AuthzConfigError, TRUE, authzStorage } from '@spinajs/authz';
 import type { Decision, Principal } from '@spinajs/authz';
 import { testHost } from '@spinajs/authz-testing';
-import { Archived, SoftDelete } from '@spinajs/orm';
+import { Archived, BelongsTo, SoftDelete } from '@spinajs/orm';
 import type { ModelBase } from '@spinajs/orm';
 
 import { AccessResource } from '../../src/index.js';
@@ -135,6 +135,30 @@ describe('authz-orm guard: an OR connector makes a select a list', function () {
           for await (const row of Task.where('id', 't1').order('id').stream({ batchSize: 1 })) streamed.push(row);
         });
         expect(ids(streamed)).to.deep.equal(['t1']);
+      });
+
+      it('lets a lazy belongsTo load of the one related row through, and flags a callback that makes it a list', async () => {
+        const Note = await db.define(
+          {
+            name: 'Note',
+            columns: { task_id: 'TEXT' },
+            rows: [{ id: 'n1', task_id: 't1' }],
+            decorate: (_c, proto) => (BelongsTo(Task, 'task_id', 'id') as PropertyDecorator)(proto, 'Task'),
+          },
+          dialect,
+        );
+        type Lazy = { Task: { Value?: { id: string }; populate(callback?: (this: W) => void): Promise<void> } };
+        const note = (await Note.where('id', 'n1').first()) as unknown as Lazy;
+
+        await inRoute(() => note.Task.populate());
+        expect(note.Task.Value?.id).to.equal('t1');
+        expect(
+          await settle(() =>
+            note.Task.populate(function () {
+              this.where('owner', 'bob').orWhere('owner', 'alice');
+            }),
+          ),
+        ).to.be.instanceOf(AuthzConfigError);
       });
 
       it('flags a list on a later page', async () => {
