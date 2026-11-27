@@ -2,7 +2,7 @@ import 'mocha';
 import { expect } from 'chai';
 import { createHash, randomUUID } from 'node:crypto';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, sep } from 'node:path';
 import { Readable } from 'node:stream';
 import { finished } from 'node:stream/promises';
 import { IOFail } from '@spinajs/exceptions';
@@ -11,7 +11,7 @@ import { fsNative } from '../src/index.js';
 import type { fs, IFsLocalOptions } from '../src/index.js';
 import { fsApp } from './common.js';
 import { largeZip, S_IFLNK, zipArchive } from './support/zip.js';
-import type { ZipEntry } from './support/zip.js';
+import type { ZipEntry, ZipSandbox } from './support/zip.js';
 
 // Every entry below `path`: directories end in '/'. list() names links too, so a link the unzip made shows up here.
 async function tree(f: fs, path: string, skip: string[] = []): Promise<string[]> {
@@ -19,7 +19,7 @@ async function tree(f: fs, path: string, skip: string[] = []): Promise<string[]>
   for (const name of await f.list(path || '/')) {
     const p = path ? `${path}/${name}` : name;
     if (skip.includes(p)) continue;
-    if (await f.isDir(p)) out.push(`${p}/`, ...(await tree(f, p)));
+    if (await f.isDir(p)) out.push(`${p}/`, ...(await tree(f, p, skip)));
     else out.push(p);
   }
   return out.sort();
@@ -57,6 +57,8 @@ describe('fs unzip entry names', function () {
     await app.dispose();
   });
 
+  const escapeTarget = () => join(sandbox, 'outside', 'escaped-abs.txt');
+
   let n = 0;
   beforeEach(async () => {
     sandbox = join(root.BasePath ?? '', `case-${n++}`);
@@ -65,9 +67,13 @@ describe('fs unzip entry names', function () {
     await provider.mkdir('outside');
   });
 
+  // The destination sits inside `outside/`, so a climbing entry that slipped through would land there, in the sandbox.
+  const DEST = 'outside/dest';
+  const guard = (): ZipSandbox => ({ root: sandbox, destination: join(sandbox, 'outside', 'dest') });
+
   async function unzip(entries: ZipEntry[]): Promise<string> {
-    await provider.write('archives/a.zip', zipArchive(entries));
-    return provider.unzip('archives/a.zip', 'dest', provider);
+    await provider.write('archives/a.zip', zipArchive(entries, guard()));
+    return provider.unzip('archives/a.zip', DEST, provider);
   }
 
   async function expectRefused(entries: ZipEntry[], bad: string, reason: RegExp) {
@@ -100,17 +106,24 @@ describe('fs unzip entry names', function () {
     await expectRefused([{ name: '../escaped.txt', data: Buffer.alloc(1024 * 1024, 0x61) }], '../escaped.txt', /resolves outside the destination/);
   });
 
+  // Spellings of <sandbox>/outside/escaped-abs.txt, so a name that slipped through lands in the sandbox. On posix a drive
+  // or backslash spelling is an ordinary relative name, and a broken check would write it inside the destination.
+  const windows = sep === '\\';
   const absoluteNames: [string, () => string][] = [
-    ['/tmp/x', () => '/tmp/x'],
-    ['C:\\x', () => 'C:\\x'],
-    ['C:/x', () => 'C:/x'],
-    ['C:x', () => 'C:x'],
-    ['\\\\invalid.invalid\\share\\x', () => '\\\\invalid.invalid\\share\\x'],
-    ['an absolute path into the sandbox', () => join(sandbox, 'escaped.txt').replace(/\\/g, '/')],
+    ['rooted, without a drive', () => (windows ? escapeTarget().slice(2) : escapeTarget()).replace(/\\/g, '/')],
+    ['with a drive and backslashes', () => (windows ? escapeTarget() : `C:${escapeTarget().replace(/\//g, '\\')}`)],
+    ['with a drive and forward slashes', () => (windows ? escapeTarget().replace(/\\/g, '/') : `C:${escapeTarget()}`)],
+    ['drive-relative', () => `${windows ? escapeTarget().slice(0, 2) : 'C:'}escaped-rel.txt`],
+    [
+      windows ? 'as a \\\\?\\ device path' : 'with a doubled leading backslash',
+      () => (windows ? `\\\\?\\${escapeTarget()}` : `\\${escapeTarget().replace(/\//g, '\\')}`),
+    ],
+    // posix reads `//x` as `/x`, which a broken check would write into the sandbox
+    [windows ? 'as UNC to an unresolvable host' : 'with a doubled leading slash', () => (windows ? '\\\\escape.invalid\\share\\escaped-unc.txt' : `/${escapeTarget()}`)],
   ];
 
   for (const [label, name] of absoluteNames) {
-    it(`refuses the absolute name ${label}`, async () => {
+    it(`refuses an absolute name ${label}`, async () => {
       await expectRefused([{ name: name(), data: 'x' }], name(), /is an absolute path/);
     });
   }
@@ -118,7 +131,7 @@ describe('fs unzip entry names', function () {
   it('refuses a symbolic link pointing outside and the entry written through it', async () => {
     await expectRefused(
       [
-        { name: 'link', data: '../outside', mode: S_IFLNK | 0o777 },
+        { name: 'link', data: '..', mode: S_IFLNK | 0o777 },
         { name: 'link/escaped.txt', data: 'x' },
       ],
       'link',
@@ -156,8 +169,8 @@ describe('fs unzip entry names', function () {
       { name: 'aux.txt', data: 'a' },
     ]);
 
-    expect(await tree(provider, '', ['archives'])).to.deep.equal(['dest/', 'dest/CON', 'dest/NUL', 'dest/aux.txt', 'outside/']);
-    expect(await provider.read('dest/NUL', 'utf8')).to.equal('n');
+    expect(await tree(provider, '', ['archives'])).to.deep.equal(['outside/', 'outside/dest/', 'outside/dest/CON', 'outside/dest/NUL', 'outside/dest/aux.txt']);
+    expect(await provider.read('outside/dest/NUL', 'utf8')).to.equal('n');
   });
 
   it('writes two names that differ only by case inside the destination, the later one last', async () => {
@@ -166,8 +179,8 @@ describe('fs unzip entry names', function () {
       { name: 'case.txt', data: 'lower' },
     ]);
 
-    expect(await tree(provider, 'outside')).to.deep.equal([]);
-    expect(await provider.read('dest/case.txt', 'utf8')).to.equal('lower');
+    expect(await tree(provider, '', ['archives', DEST])).to.deep.equal(['outside/']);
+    expect(await provider.read('outside/dest/case.txt', 'utf8')).to.equal('lower');
   });
 
   it('extracts a normal archive byte for byte', async () => {
@@ -180,10 +193,10 @@ describe('fs unzip entry names', function () {
       { name: '...data', data: 'dots' },
     ]);
 
-    expect(out).to.equal(join(sandbox, 'dest'));
-    expect(await tree(provider, 'dest')).to.deep.equal(['dest/...data', 'dest/a.txt', 'dest/dir/', 'dest/dir/b.bin', 'dest/dir/c.txt']);
-    expect(await provider.read('dest/dir/b.bin')).to.deep.equal(binary);
-    expect(await provider.read('dest/dir/c.txt', 'utf8')).to.equal('c');
+    expect(out).to.equal(join(sandbox, 'outside', 'dest'));
+    expect(await tree(provider, DEST)).to.deep.equal(['outside/dest/...data', 'outside/dest/a.txt', 'outside/dest/dir/', 'outside/dest/dir/b.bin', 'outside/dest/dir/c.txt']);
+    expect(await provider.read('outside/dest/dir/b.bin')).to.deep.equal(binary);
+    expect(await provider.read('outside/dest/dir/c.txt', 'utf8')).to.equal('c');
   });
 
   it('extracts every entry of an archive with many entries', async function () {
@@ -191,16 +204,16 @@ describe('fs unzip entry names', function () {
     const entries = Array.from({ length: 200 }, (_, i) => ({ name: `d${i % 10}/f${i}.txt`, data: `file ${i}` }));
     await unzip(entries);
 
-    expect((await tree(provider, 'dest')).filter((p) => !p.endsWith('/'))).to.have.length(200);
-    expect(await provider.read('dest/d9/f199.txt', 'utf8')).to.equal('file 199');
+    expect((await tree(provider, DEST)).filter((p) => !p.endsWith('/'))).to.have.length(200);
+    expect(await provider.read('outside/dest/d9/f199.txt', 'utf8')).to.equal('file 199');
   });
 
   it('rejects, naming the destination, when the destination is a file', async function () {
     this.timeout(10000);
-    await provider.write('dest', 'a file');
+    await provider.write(DEST, 'a file');
 
-    await expect(unzip([{ name: 'a.txt', data: 'a' }])).to.be.rejectedWith(IOFail, `cannot create the destination ${join(sandbox, 'dest')}`);
-    expect(await provider.read('dest', 'utf8')).to.equal('a file');
+    await expect(unzip([{ name: 'a.txt', data: 'a' }])).to.be.rejectedWith(IOFail, `cannot create the destination ${join(sandbox, 'outside', 'dest')}`);
+    expect(await provider.read(DEST, 'utf8')).to.equal('a file');
   });
 
   it('rejects, naming the entry, when an entry lies below another entry that is a file', async function () {
@@ -212,7 +225,7 @@ describe('fs unzip entry names', function () {
         { name: 'a/b', data: 'below a file' },
       ]),
     ).to.be.rejectedWith(IOFail, 'cannot write entry "a/b"');
-    expect(await tree(provider, 'outside')).to.deep.equal([]);
+    expect(await tree(provider, '', ['archives', DEST])).to.deep.equal(['outside/']);
   });
 
   it('writes no entry of an archive that holds one bad entry among good ones', async () => {
@@ -230,9 +243,10 @@ describe('fs unzip entry names', function () {
 
   it("does not write into another tenant's prefix", async () => {
     const acme = await local('acme', join(sandbox, 'tenants', 'acme'));
-    await acme.write('a.zip', zipArchive([{ name: '../../globex/x.txt', data: 'x' }]));
+    const name = '../../../globex/x.txt';
+    await acme.write('a.zip', zipArchive([{ name, data: 'x' }], { root: sandbox, destination: join(sandbox, 'tenants', 'acme', 'uploads', 'in') }));
 
-    await expect(acme.unzip('a.zip', 'uploads/in', acme)).to.be.rejectedWith(IOFail, '"../../globex/x.txt"');
+    await expect(acme.unzip('a.zip', 'uploads/in', acme)).to.be.rejectedWith(IOFail, JSON.stringify(name));
     expect(await tree(provider, 'tenants')).to.deep.equal(['tenants/acme/', 'tenants/acme/a.zip']);
   });
 
@@ -240,7 +254,7 @@ describe('fs unzip entry names', function () {
     this.timeout(300000);
     const chunk = Buffer.alloc(1024 * 1024, 0x5a);
     const times = 128;
-    await finished(await provider.writeStream('archives/large.zip', Readable.from(largeZip('large.bin', chunk, times))));
+    await finished(await provider.writeStream('archives/large.zip', Readable.from(largeZip(guard(), 'large.bin', chunk, times))));
 
     const before = process.memoryUsage().arrayBuffers;
     let peak = before;
@@ -249,7 +263,7 @@ describe('fs unzip entry names', function () {
     }, 5);
 
     try {
-      await provider.unzip('archives/large.zip', 'dest', provider);
+      await provider.unzip('archives/large.zip', DEST, provider);
     } finally {
       clearInterval(sampler);
     }
@@ -257,7 +271,7 @@ describe('fs unzip entry names', function () {
     const expected = createHash('sha256');
     for (let i = 0; i < times; i++) expected.update(chunk);
 
-    expect(await sha256(provider, 'dest/large.bin')).to.equal(expected.digest('hex'));
+    expect(await sha256(provider, 'outside/dest/large.bin')).to.equal(expected.digest('hex'));
     // Streamed chunks are garbage V8 collects at about 64 MiB of external memory; a buffered archive keeps all 128 MiB alive.
     expect(peak - before, `peak arrayBuffers grew by ${peak - before} bytes`).to.be.lessThan(96 * 1024 * 1024);
   });
