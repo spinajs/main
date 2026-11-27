@@ -2,6 +2,7 @@ import 'mocha';
 import { expect } from 'chai';
 
 import { DI } from '@spinajs/di';
+import '@spinajs/log';
 import { InvalidArgument, InvalidOperation, MethodNotImplemented, NotSupported } from '@spinajs/exceptions';
 import { DatetimeValueConverter, ICompilerOutput, IdentifierQuoter, InSetStatement, OrmException, QueryContext, RawQuery, SchemaQueryBuilder, ServerResponseMapper } from '@spinajs/orm';
 import { DateTime } from 'luxon';
@@ -213,6 +214,41 @@ describe('mssql statements', function () {
 
     expect(out.expression).to.contain('USING (SELECT ? AS [Email], ? AS [Tenant]) AS source ON (target.[Email] = source.[Email] AND target.[Tenant] = source.[Tenant])');
     expect(out.bindings).to.deep.eq(['e', 't', 'n', 'e', 't', 'n']);
+  });
+
+  it('refuses an upsert of more than one row before anything reaches the server', async () => {
+    const sent: string[] = [];
+    driver.executeOnDb = (stmt: string) => (sent.push(stmt), Promise.resolve([]));
+    const upsert = driver.insert().into('users').values([{ Email: 'a', Name: 'A' }, { Email: 'b', Name: 'B' }]);
+    upsert.onDuplicate('Email').update(['Name']);
+
+    const err = await upsert.then(() => undefined, (e: unknown) => e);
+
+    expect(err).to.be.instanceOf(NotSupported).and.have.property('message').that.contains('one row per statement');
+    expect(sent).to.deep.eq([]);
+  });
+
+  it('refuses every statement of an upsert split by the binding limit, which matched each on the first row', () => {
+    const wide = (id: number): Record<string, string | number> => ({ Email: `e${id}`, ...Object.fromEntries(Array.from({ length: 1000 }, (_v, i) => [`C${i}`, id])) });
+    const upsert = driver.insert().into('users').values([wide(1), wide(2)]);
+    upsert.onDuplicate('Email').update(['C0']);
+
+    const statements = upsert.splitByDriverLimits();
+
+    expect(statements).to.have.length(2);
+    for (const statement of statements) expect(() => statement.toDB()).to.throw(NotSupported, 'one row per statement');
+  });
+
+  it('compiles an upsert of one row and an insert of several rows as before', () => {
+    const one = sql(driver.insert().into('users').values({ Email: 'e', Name: 'n' }).onDuplicate('Email').update(['Name']));
+    const many = sql(driver.insert().into('users').values([{ Email: 'a', Name: 'A' }, { Email: 'b', Name: 'B' }]));
+
+    expect(one).to.deep.eq({
+      expression:
+        'MERGE INTO [users] WITH (HOLDLOCK) AS target USING (SELECT ? AS [Email]) AS source ON (target.[Email] = source.[Email]) WHEN MATCHED THEN UPDATE SET [Name] = ? WHEN NOT MATCHED THEN INSERT   ([Email],[Name]) VALUES (?,?); SELECT SCOPE_IDENTITY() as ID;',
+      bindings: ['e', 'n', 'e', 'n'],
+    });
+    expect(many).to.deep.eq({ expression: 'INSERT INTO [users]  ([Email],[Name]) VALUES (?,?),(?,?); SELECT SCOPE_IDENTITY() as ID, @@ROWCOUNT as INSERTED;', bindings: ['a', 'A', 'b', 'B'] });
   });
 
   it('refuses insert or replace', () => {

@@ -7,8 +7,8 @@ import { CONFIGURATION_CONTAINER_KEY, Configuration, FrameworkConfiguration } fr
 import { InvalidOption } from '@spinajs/exceptions';
 import { AuthnService, MemoryAuthnThrottle } from '@spinajs/authn';
 import { AUTHN_CONFIGURATION_SCHEMA } from '@spinajs/authn/schemas';
-import { AuthnThrottle, IdentityStore, PrincipalFactory } from '@spinajs/authn/contracts';
-import { FakeIdentityStore, RecordingPrincipalFactory } from '@spinajs/authn-testing';
+import { AuthnEventListener, AuthnThrottle, IdentityStore, PrincipalFactory } from '@spinajs/authn/contracts';
+import { FakeIdentityStore, RecordingEventListener, RecordingPrincipalFactory } from '@spinajs/authn-testing';
 
 import { AUTHN_SESSION_CONFIGURATION_SCHEMA, MemorySessionStore, SessionProvider } from '../src/index.js';
 import type { ISession } from '../src/index.js';
@@ -99,6 +99,8 @@ async function resolveAuthn(boot: Boot): Promise<void> {
   bind(child, AuthnThrottle, 'MemoryAuthnThrottle', throttle);
   bind(child, IdentityStore, 'KitIdentityStore', new FakeIdentityStore());
   bind(child, PrincipalFactory, 'KitPrincipalFactory', new RecordingPrincipalFactory());
+  // Without a listener AuthnAudit warns at boot, and this suite loads no Log implementation (@spinajs/log).
+  bind(child, AuthnEventListener, 'KitEventListener', new RecordingEventListener());
   // Registered in the child, so the store resolves with the child's Configuration, not the root's.
   child.register(boot.store === 'ChildMemoryStore' ? ChildMemoryStore : SharedTestStore).as(SessionProvider);
 

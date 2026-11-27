@@ -1,8 +1,10 @@
 import { randomUUID } from 'node:crypto';
 
-import { DI, Injectable, Singleton } from '@spinajs/di';
+import { Autoinject, Container, DI, Injectable, Singleton } from '@spinajs/di';
+import type { IContainer } from '@spinajs/di';
 import { ChangeBus, changeTagsField, engineLog, isValidField, thrownError } from '@spinajs/authz';
 import type { AuthzChange } from '@spinajs/authz';
+import { InvalidOperation } from '@spinajs/exceptions';
 import { Event, QueueEvent, QueueService } from '@spinajs/queue';
 
 interface WireChange {
@@ -50,11 +52,16 @@ export function reviveChange(raw: unknown): AuthzChange | undefined {
 @Singleton()
 @Injectable(ChangeBus)
 export class QueueChangeBus extends ChangeBus {
+  /** The container that resolved the bus; undefined when it was built with new. */
+  @Autoinject(Container)
+  protected Container: IContainer | undefined;
+
   protected readonly node = randomUUID();
   private readonly subscribers = new Set<(c: AuthzChange) => void>();
   private readonly log = engineLog('authz-queue-bus');
   private queue?: Promise<QueueService>;
   private retried = false;
+  private watching = false;
   private disposed = false;
   private timer?: NodeJS.Timeout;
   protected retryMs = 5000;
@@ -71,6 +78,8 @@ export class QueueChangeBus extends ChangeBus {
   }
 
   subscribe(fn: (c: AuthzChange) => void): () => void {
+    // A deaf subscriber would keep decisions another node revoked: fail the boot instead.
+    if (this.disposed) throw new InvalidOperation('authz change bus: the bus is disposed, a subscriber would never hear the other nodes');
     const entry = (c: AuthzChange) => fn(c);
     this.subscribers.add(entry);
     this.listenWithRetry();
@@ -90,9 +99,10 @@ export class QueueChangeBus extends ChangeBus {
         }
       },
       (err) => {
+        if (this.disposed) return;
         this.log.error({ error: thrownError(err) }, 'authz change bus: cannot listen on the queue, retrying');
         this.retried = true;
-        if (this.disposed || this.timer) return;
+        if (this.timer) return;
         this.timer = setTimeout(() => {
           this.timer = undefined;
           if (!this.disposed) this.listenWithRetry();
@@ -104,6 +114,7 @@ export class QueueChangeBus extends ChangeBus {
 
   async dispose(): Promise<void> {
     this.disposed = true;
+    this.Container?.removeListener('di.dispose', this.onContainerDispose);
     if (this.timer) clearTimeout(this.timer);
     this.timer = undefined;
     this.subscribers.clear();
@@ -118,6 +129,10 @@ export class QueueChangeBus extends ChangeBus {
   }
 
   protected start(): Promise<QueueService> {
+    // A disposed bus must not consume again: nothing would stop that consumer. Refused rather than dropped,
+    // so a publisher learns that the other nodes keep their decisions.
+    if (this.disposed) return Promise.reject(new InvalidOperation('authz change bus: the bus is disposed, the change is not sent to the other nodes'));
+    this.watchDispose();
     if (this.queue === undefined) {
       this.queue = this.listen();
       // A failed start is retried by the next call.
@@ -127,6 +142,20 @@ export class QueueChangeBus extends ChangeBus {
     }
     return this.queue;
   }
+
+  /** Container.dispose() disposes Services only; this bus is a plain singleton and would keep its consumer and retry. */
+  private watchDispose(): void {
+    if (this.watching || this.Container === undefined) return;
+    this.watching = true;
+    this.Container.once('di.dispose', this.onContainerDispose);
+  }
+
+  // di.dispose comes after the container disposed its Services, the QueueService and the Configuration among them.
+  private readonly onContainerDispose = (): void => {
+    this.dispose().catch((err: unknown) =>
+      this.log.warn({ error: thrownError(err) }, 'authz change bus: stopping the consumer at container dispose failed; a queue the container disposed first has closed its connections, so nothing is left to stop'),
+    );
+  };
 
   private async listen(): Promise<QueueService> {
     const queue = await this.queueService();
