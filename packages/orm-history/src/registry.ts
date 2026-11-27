@@ -98,6 +98,11 @@ function declaredFor(model: ModelBaseClass): HistoryOptions | false | undefined 
   return undefined;
 }
 
+/** True when `model`, or the nearest base class that declares tracking, opted out with `false`. */
+export function optedOut(model: ModelBaseClass): boolean {
+  return declaredFor(model) === false;
+}
+
 function convertedBy(d: IModelDescriptor, column: string, base: Constructor<ValueConverter>): boolean {
   const converter = d.Converters.get(column)?.Class;
   return converter !== undefined && (converter === base || converter.prototype instanceof base);

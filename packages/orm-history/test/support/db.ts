@@ -2,8 +2,10 @@ import './audit.js';
 import '@spinajs/orm-sqlite';
 import { rowsOf } from '@spinajs/audit-orm';
 import type { Configuration } from '@spinajs/configuration';
-import { DI } from '@spinajs/di';
-import { MemoryTarget } from '@spinajs/log';
+import { DI, Injectable } from '@spinajs/di';
+import '@spinajs/log';
+import { LogTarget } from '@spinajs/log-common';
+import type { ICommonTargetOptions, ILogEntry } from '@spinajs/log-common';
 import { Connection, Model, ModelBase, Orm, Primary, RawQuery } from '@spinajs/orm';
 import type { OrmDriver, TableQueryBuilder } from '@spinajs/orm';
 import { migrateTestDatabase } from '@spinajs/orm/testing';
@@ -12,7 +14,7 @@ import type { TestApp } from '@spinajs/testing';
 import { createTestDatabase } from '@spinajs/testing-orm';
 import type { TestDatabase } from '@spinajs/testing-orm';
 
-import { OrmHistory_2026_11_16_00_00_00 } from '../../src/index.js';
+import { OrmHistoryCoverage_2026_11_25_00_00_00, OrmHistory_2026_11_16_00_00_00 } from '../../src/index.js';
 import type { TrackedModel, TrackedRow } from '../../src/index.js';
 import { resetAudit } from './audit.js';
 
@@ -83,13 +85,24 @@ const COLUMN = new Map<ColumnType, (t: TableQueryBuilder, name: string) => void>
 const LOGGER = {
   targets: [
     { name: 'Empty', type: 'BlackHoleTarget' },
-    { name: 'Memory', type: 'MemoryTarget' },
+    { name: 'Memory', type: 'HistoryWarningsTarget' },
   ],
   rules: [
     { name: '*', level: 'trace', target: 'Empty' },
     { name: 'orm-history', level: 'warn', target: 'Memory' },
   ],
 };
+const WARNINGS: string[] = [];
+
+// `@Logger` keeps the first Log of a name per class for the whole process, so a class that logged in an earlier suite
+// writes to that suite's target: one buffer for every instance sees what each of them writes.
+@Injectable('HistoryWarningsTarget')
+export class HistoryWarningsTarget extends LogTarget<ICommonTargetOptions> {
+  public write(entry: ILogEntry): void {
+    if (entry.Variables.logger === 'orm-history') WARNINGS.push(entry.Variables.message);
+  }
+}
+
 const trailOn = (dialect: Dialect): string => `history-${dialect}`;
 const AUDIT = {
   trails: {
@@ -144,7 +157,7 @@ export class HistoryDb {
 
   /** The messages the `orm-history` logger wrote at warn level or above since the last `clear()`. */
   warnings(): string[] {
-    return (DI.get(MemoryTarget)?.getRecords() ?? []).filter((e) => e.Variables.logger === 'orm-history').map((e) => e.Variables.message);
+    return [...WARNINGS];
   }
 
   driver(dialect: Place): OrmDriver {
@@ -174,6 +187,16 @@ export class HistoryDb {
   async dropHistory(dialect: Dialect): Promise<void> {
     await new OrmHistory_2026_11_16_00_00_00().down(this.driver(dialect));
     this.historyOn.delete(dialect);
+  }
+
+  /** Creates an empty `history_coverage` on `dialect`, dropping what an earlier test or `open()` left. */
+  async migrateCoverage(dialect: Dialect): Promise<void> {
+    await this.dropCoverage(dialect);
+    await new OrmHistoryCoverage_2026_11_25_00_00_00().up(this.driver(dialect));
+  }
+
+  async dropCoverage(dialect: Dialect): Promise<void> {
+    await new OrmHistoryCoverage_2026_11_25_00_00_00().down(this.driver(dialect));
   }
 
   /** Every row of `table`: a trail table by `seq`, a table of `define` by `id`. */
@@ -222,6 +245,6 @@ export class HistoryDb {
     for (const dialect of this.historyOn) if (dialect !== 'sqlite') await this.dropHistory(dialect);
     await this.migrateHistory('sqlite');
     resetAudit();
-    DI.get(MemoryTarget)?.clear();
+    WARNINGS.splice(0);
   }
 }

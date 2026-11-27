@@ -8,12 +8,13 @@ Row history of SpinaJS ORM models, recorded as `data` events in an audit trail o
 - `row.history()` and `historyOf(row)`: `entries()`, `asOf(at)` and `forget()` of one row.
 - `toHistoryEntry(event)`: the history entry of an audit event read from the trail itself.
 - `OrmHistory_2026_11_16_00_00_00`: the migration of the `history` trail's table; subclass it with your own `@Migration` for another connection.
+- `HistoryCoverage`: `since(trail, connection, entity)`, from when on a trail holds every change of the columns an entity's registration records, and `record(models?)`; `OrmHistoryCoverage_2026_11_25_00_00_00`, the migration of its table `history_coverage`.
 - `HistoryConfigError` (a declaration or a read the package refuses) and `HistoryWriteError` (a write whose history cannot be recorded).
 - The types `HistoryOptions`, `TrackedModel`, `TrackedRow`, `ModelHistory`, `RowHistory`, `HistoryEntry`, `HistoryQuery`, `HistoryOp` and `AsOf`.
 
 The package exports these names and nothing else.
 
-Installing the package adds two migrations on the default connection, `orm_history` and the `audit_event` of `@spinajs/audit-orm`; with `db.MigrationCheck: 'fail'` (the default) the application does not boot until `npx spinajs migrate-up` has applied them, also with no model tracked. See the [documentation](../../docs/orm-history/README.md).
+Installing the package adds three migrations on the default connection, `orm_history`, `history_coverage` and the `audit_event` of `@spinajs/audit-orm`; with `db.MigrationCheck: 'fail'` (the default) the application does not boot until `npx spinajs migrate-up` has applied them, also with no model tracked. See the [documentation](../../docs/orm-history/README.md).
 
 A marked model declares the members the mark installs:
 

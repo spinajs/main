@@ -5,6 +5,8 @@ import './rules.js';
 export { History, historyOf, registerHistory } from './registry.js';
 export type { HistoryOptions } from './registry.js';
 export { OrmHistory_2026_11_16_00_00_00 } from './migration.js';
+export { OrmHistoryCoverage_2026_11_25_00_00_00 } from './coverage-migration.js';
 import './observer.js';
 export { toHistoryEntry } from './entry.js';
 import './read.js';
+export { HistoryCoverage } from './coverage.js';

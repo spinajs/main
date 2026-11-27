@@ -39,7 +39,7 @@ History is one producer and reader of an audit trail; it adds no table, store or
 | Package | Holds |
 | --- | --- |
 | `@spinajs/orm` | The write capture: one read of the rows before and after each statement, shared by every observer of the write ([Write capture](../orm/25-write-capture.md)). |
-| `@spinajs/orm-history` | `@History`, `registerHistory`, `audit.data.rules`, the encoding of a row change as an event, `Model.history()`, `row.history()`, `historyOf()`, `toHistoryEntry()`, and the migration of `orm_history` on the default connection. |
+| `@spinajs/orm-history` | `@History`, `registerHistory`, `audit.data.rules`, the encoding of a row change as an event, `Model.history()`, `row.history()`, `historyOf()`, `toHistoryEntry()`, `HistoryCoverage`, and the migrations of `orm_history` and `history_coverage` on the default connection. |
 | `@spinajs/audit`, `@spinajs/audit-orm` | The trail table, its stores and readers, retention, shipping, sealing and erasure ([audit documentation](../audit/README.md)). |
 
 Everything about where events go, how long they are kept and whether they are sealed is a property of the trail, configured under `audit.trails`.
@@ -56,6 +56,7 @@ History passes no actor. `audit().record` stamps every event with the `actor`, `
 | [Reading history](02-reading-history.md) | `Model.history()`, `row.history()`, `historyOf()`, every read with its limits, change feeds and reads across entities. |
 | [As-of and erasure](03-as-of-and-erasure.md) | The answers of `asOf`, what retention does to them, and `forget`. |
 | [Limits](04-limits.md) | What is not captured and what a reader must not assume. |
+| [Coverage](05-coverage.md) | From when on the history of an entity is complete: `HistoryCoverage`, what moves it, the `history_coverage` table. |
 
 ## Related
 
