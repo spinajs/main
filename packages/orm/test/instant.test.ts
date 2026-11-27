@@ -52,10 +52,16 @@ describe('datetime instants', () => {
       expect(toInstant(0)!.toMillis()).to.eq(0);
     });
 
-    it('gives null for no value and for an invalid date', () => {
-      for (const value of [null, undefined, '', new Date(NaN), DateTime.invalid('test')]) {
+    it('gives null for no value', () => {
+      for (const value of [null, undefined, '']) {
         expect(toInstant(value), String(value)).to.eq(null);
       }
+    });
+
+    it('refuses an invalid date, naming the column', () => {
+      expect(() => toInstant(new Date(NaN), 'expires_at')).to.throw(InvalidArgument, 'column expires_at: an Invalid Date is not a valid instant');
+      expect(() => toInstant(DateTime.invalid('test'), 'expires_at')).to.throw(InvalidArgument, 'column expires_at: an invalid DateTime (test) is not a valid instant');
+      expect(() => toInstant(Infinity, 'expires_at')).to.throw(InvalidArgument, 'column expires_at: the number Infinity is not a valid instant');
     });
 
     it('refuses what is not a datetime, naming the column', () => {

@@ -28,15 +28,27 @@ function fromEpoch(value: number, unit: DateTimeUnit): DateTime {
   return unit === 'milliseconds' ? DateTime.fromMillis(value, { zone: 'utc' }) : DateTime.fromSeconds(value, { zone: 'utc' });
 }
 
+function describeInvalid(value: unknown): string {
+  if (DateTime.isDateTime(value)) {
+    return `an invalid DateTime (${value.invalidReason ?? 'invalid'})`;
+  }
+  if (value instanceof Date) {
+    return 'an Invalid Date';
+  }
+  return typeof value === 'number' ? `the number ${value}` : 'a value';
+}
+
 /**
- * Normalises a value a datetime converter accepts into a valid DateTime in UTC, or null for no value or
- * an invalid date. Text without an offset is read as UTC, a number as `unit` since the epoch.
+ * Normalises a value a datetime converter accepts into a valid DateTime in UTC, or null for no value
+ * (`null`, `undefined`, `''`). Text without an offset is read as UTC, a number as `unit` since the epoch.
+ * A present value that is no valid instant throws: written as NULL it would read as "no limit".
  */
 export function toInstant(value: unknown, column?: string, unit: DateTimeUnit = 'seconds'): DateTime | null {
   if (value === null || value === undefined || value === '') {
     return null;
   }
 
+  const target = column === undefined ? 'parameter' : `column ${column}`;
   let dt: DateTime;
   if (DateTime.isDateTime(value)) {
     dt = value;
@@ -50,13 +62,17 @@ export function toInstant(value: unknown, column?: string, unit: DateTimeUnit = 
       dt = DateTime.fromSQL(value, { zone: 'utc' });
     }
     if (!dt.isValid) {
-      throw new InvalidArgument(`column ${column}: "${value}" is not an ISO 8601 or SQL datetime`);
+      throw new InvalidArgument(`${target}: "${value}" is not an ISO 8601 or SQL datetime`);
     }
   } else {
-    throw new InvalidArgument(`column ${column}: a ${value.constructor?.name ?? typeof value} is not a datetime`);
+    throw new InvalidArgument(`${target}: a ${value.constructor?.name ?? typeof value} is not a datetime`);
   }
 
-  return dt.isValid ? dt.toUTC() : null;
+  if (!dt.isValid) {
+    throw new InvalidArgument(`${target}: ${describeInvalid(value)} is not a valid instant`);
+  }
+
+  return dt.toUTC();
 }
 
 /**

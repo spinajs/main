@@ -2,6 +2,7 @@
 import { expect } from 'chai';
 import 'mocha';
 import { DateTime } from 'luxon';
+import { InvalidArgument } from '@spinajs/exceptions';
 import { IColumnDescriptor } from '@spinajs/orm';
 
 import { PostgresDatetimeValueConverter, PostgresJsonValueConverter } from '../src/converters.js';
@@ -80,5 +81,33 @@ describe('utcTypeParser', () => {
   it('leaves timestamptz and other types to pg-types', () => {
     expect((utcTypeParser(1184)('2026-07-01 12:00:00.123+02') as Date).toISOString()).to.equal('2026-07-01T10:00:00.123Z');
     expect(utcTypeParser(23)('42')).to.equal(42);
+  });
+});
+
+describe('PostgresDatetimeValueConverter and an invalid instant', () => {
+  const c = new PostgresDatetimeValueConverter();
+  const expiresAt = (Type: string) => ({ Name: 'ExpiresAt', Type }) as IColumnDescriptor;
+  const notAnInstant: Array<[string, () => unknown]> = [
+    ['DateTime.invalid', () => DateTime.invalid('test')],
+    ['Invalid Date', () => new Date(NaN)],
+    ['NaN', () => NaN],
+    ['Infinity', () => Infinity],
+    ['-Infinity', () => -Infinity],
+  ];
+
+  for (const [label, make] of notAnInstant) {
+    it(`${label} throws naming the column for a timestamptz, a date and an int8 column`, () => {
+      const write = (Type: string, unit: 'seconds' | 'milliseconds') => () => {
+        c.toDB(make(), undefined, expiresAt(Type), { unit });
+      };
+      expect(write('timestamptz', 'seconds')).to.throw(InvalidArgument, /^column ExpiresAt: .* is not a valid instant$/);
+      expect(write('date', 'seconds')).to.throw(InvalidArgument, /^column ExpiresAt: .* is not a valid instant$/);
+      expect(write('int8', 'milliseconds')).to.throw(InvalidArgument, /^column ExpiresAt: .* is not a valid instant$/);
+    });
+  }
+
+  it('undefined stays undefined (DEFAULT) and null writes NULL', () => {
+    expect(c.toDB(undefined, undefined, expiresAt('timestamptz'), { unit: 'seconds' })).to.eq(undefined);
+    expect(c.toDB(null, undefined, expiresAt('timestamptz'), { unit: 'seconds' })).to.eq(null);
   });
 });

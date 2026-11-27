@@ -52,8 +52,8 @@ export class SqlLiteralQuoter extends LiteralQuoter {
     const converter = this.container.resolve<DatetimeValueConverter>(DatetimeValueConverter);
     const converted = converter.toDB(value, null as any, null as any);
 
-    // An invalid luxon DateTime converts to `null` (its own toSQL() is null); without this
-    // check that becomes the literal string 'null' instead of a loud failure.
+    // The shipped converters throw for an invalid date; one registered by an application may
+    // answer `null`, which would otherwise become the literal string 'null'.
     if (converted === null || converted === undefined) {
       throw new InvalidArgument('cannot write an invalid date as an SQL literal');
     }
