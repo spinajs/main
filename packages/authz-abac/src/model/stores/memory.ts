@@ -21,6 +21,10 @@ export class MemoryPolicyStore extends PolicyStore {
     return String(this.counter);
   }
 
+  inTransaction(): boolean {
+    return false;
+  }
+
   put(policy: Policy): void {
     this.policies.set(policy.id, policy);
     this.counter++;

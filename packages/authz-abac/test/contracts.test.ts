@@ -55,7 +55,7 @@ const yes = <_T extends true>(): void => {};
 
 describe('authz-abac pinned shapes', () => {
   it('match the design exactly', () => {
-    yes<Equal<Shape<PolicyStore>, { readonly name: string; load(): Promise<readonly Policy[]>; version(): Promise<string> }>>();
+    yes<Equal<Shape<PolicyStore>, { readonly name: string; load(): Promise<readonly Policy[]>; version(): Promise<string>; inTransaction?(): boolean }>>();
     expect(true).to.equal(true);
   });
 });

@@ -78,7 +78,7 @@ export class AbacModel extends AuthorizationModel {
   private policies = new PolicySnapshot([], new Map(), '');
   /** The generation the loaded policies are current for; behind `generation` means a load is due. */
   private loadedGeneration = 0;
-  /** The background load of an invalidation or a retry; no check awaits it. */
+  /** The background load of an invalidation or a retry. Checks outside a transaction await it; a check inside one reads for itself. */
   private reload: Promise<void> | undefined;
   /** The last load failed; routing falls back to the last good index until one succeeds. */
   private failed = false;
@@ -136,7 +136,7 @@ export class AbacModel extends AuthorizationModel {
   /**
    * Static routing; the first call builds the index, so an unregistered permission fails the boot
    * (B02). While a load is due every pair routes here, so a new policy on a pair this model did
-   * not route yet applies at once: `evaluate` reads the stores. After a failed load the last good
+   * not route yet applies at once: `evaluate` waits for the load. After a failed load the last good
    * index routes, so only this model's pairs are indeterminate while its store is down.
    */
   applies(permission: PermissionDef, type: ResourceType): boolean {
@@ -215,8 +215,8 @@ export class AbacModel extends AuthorizationModel {
 
   /**
    * A change of policy data (`policy`, `policy:<id>`, `model:<name>`, or the host's catch-all `*`)
-   * starts a reload of the stores in the background; until it lands each check reads the stores for
-   * itself. Config stores never change, so a model with nothing else ignores them.
+   * starts a reload of the stores; requests outside a transaction wait for it, one inside a transaction
+   * reads the stores itself. Config stores never change, so a model with nothing else ignores them.
    */
   invalidate(tags: readonly string[]): void {
     if (this.disposed || !this.registry || (this.stores ?? []).every((s) => s instanceof ConfigPolicyStore)) return;
@@ -421,19 +421,22 @@ export class AbacModel extends AuthorizationModel {
   }
 
   /**
-   * The loaded policies, or while a load is due a read of this caller's own: inside one transaction whose
-   * savepoints take turns, a load another caller started can be queued behind this caller's savepoint.
+   * The loaded policies; while a load is due, outside every transaction the shared reload, and inside one a read
+   * of this caller's own: there a load another caller started can be queued behind this caller's savepoint.
    */
   private current(): PolicySnapshot | Promise<PolicySnapshot> {
-    return this.loadedGeneration < this.generation ? this.readFor() : this.policies;
+    if (this.loadedGeneration >= this.generation) return this.policies;
+    // Inside a transaction a read sees that transaction (rows it may roll back, an older snapshot), so it is never kept.
+    if (!(this.stores ?? []).every((s) => s.inTransaction?.() === false)) return this.read(true);
+    return this.upTo(this.generation).then(() => this.policies);
   }
 
-  /** Kept only when no invalidation came since it started, so a later check never takes it for current. */
-  private async readFor(): Promise<PolicySnapshot> {
-    const generation = this.generation;
-    const snapshot = await this.read(true);
-    if (generation === this.generation && generation > this.loadedGeneration) this.adopt(snapshot, generation);
-    return snapshot;
+  /** Outside every transaction: waits until the policies are current for `target`, starting loads as needed; rejects when a load fails. */
+  private async upTo(target: number): Promise<void> {
+    while (this.loadedGeneration < target) {
+      if (!this.reload) this.startLoad();
+      await this.reload;
+    }
   }
 
   private adopt(snapshot: PolicySnapshot, generation: number): void {
