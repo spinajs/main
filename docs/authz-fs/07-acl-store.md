@@ -7,6 +7,7 @@
 1. `AuthzFsMiddleware`, `FsAclRelation` and `FsAcl` resolve `FileAclStore` from the root container on every use; the last registration wins.
 2. Importing `@spinajs/authz-fs` registers `OrmFileAclStore` with `@Injectable(FileAclStore)`.
 3. Paths reach the store normalised, without a base path (`''` is the root). Subject keys are the `subjectKeyOf` keys of `@spinajs/authz-rbac`.
+4. `OrmFileAclStore` writes rows through the model `FsAclRecord`, so the ORM write capture, and a history registered for the model, sees every grant, revoke, owner stamp, delete and move. It reads with plain queries on the same connection.
 
 ## Services and extension points
 

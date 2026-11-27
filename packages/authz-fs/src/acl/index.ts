@@ -1,4 +1,5 @@
 export * from './store.js';
+export * from './record.js';
 export * from './orm-store.js';
 export * from './relation.js';
 export * from './facade.js';

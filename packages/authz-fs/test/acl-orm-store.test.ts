@@ -10,7 +10,7 @@ import { Orm, QueryContext, extractMigrationDescriptor } from '@spinajs/orm';
 import type { OrmDriver } from '@spinajs/orm';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 
-import { AuthzFsAcl_2026_10_17_00_00_00, FileAclStore, OrmFileAclStore } from '../src/index.js';
+import { AuthzFsAcl_2026_10_17_00_00_00, FS_ACL_CONNECTION, FileAclStore, FsAclRecord, OrmFileAclStore } from '../src/index.js';
 import { aclPathHash } from '../src/acl/shared.js';
 import { FakeConfiguration } from './helpers.js';
 import { ALICE, BOB, aclStoreContract } from './support/acl-contract.js';
@@ -27,16 +27,63 @@ const rawSql = (driver: OrmDriver, sql: string): Promise<unknown> => (driver as 
 const PG = { Host: '127.0.0.1', Port: Number(process.env.ORM_TEST_POSTGRES_PORT ?? 15432), User: 'postgres', Password: 'postgres' };
 const MYSQL = { Host: '127.0.0.1', Port: Number(process.env.ORM_TEST_MYSQL_PORT ?? 13306), User: 'root', Password: 'root' };
 
-/** A throwaway database on the orm packages' test containers, dropped afterwards. */
-async function externalDb(kind: 'postgres' | 'mysql'): Promise<{ connection: Record<string, unknown>; drop(): Promise<void> }> {
-  const name = `authz_fs_${randomUUID().slice(0, 8)}`;
+const rawRows = async (driver: OrmDriver, sql: string, bindings: unknown[] = []): Promise<Record<string, unknown>[]> =>
+  (await (driver as unknown as { executeOnDb(sql: string, bindings: unknown[], context: QueryContext): Promise<unknown> }).executeOnDb(sql, bindings, QueryContext.Select)) as Record<string, unknown>[];
+
+/** How many statements of this database wait for a row lock. */
+async function lockWaits(driver: OrmDriver, kind: 'postgres' | 'mysql'): Promise<number> {
+  const sql =
+    kind === 'postgres'
+      ? "SELECT count(*) AS n FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock'"
+      : 'SELECT COUNT(*) AS n FROM performance_schema.data_lock_waits w JOIN performance_schema.data_locks l ON l.ENGINE_LOCK_ID = w.REQUESTING_ENGINE_LOCK_ID WHERE l.OBJECT_SCHEMA = DATABASE()';
+  const [row] = await rawRows(driver, sql);
+  return Number(row.n);
+}
+
+/** Polls (no timing is asserted) until `count` statements wait for a lock. */
+async function untilWaiting(driver: OrmDriver, kind: 'postgres' | 'mysql', count: number): Promise<void> {
+  for (let i = 0; i < 600; i++) {
+    if ((await lockWaits(driver, kind)) >= count) return;
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  throw new Error(`no ${count} statements waited for a lock`);
+}
+
+interface HeldLock {
+  release(): Promise<void>;
+}
+
+/** Holds a row lock on `id` from a connection of its own until release(). */
+async function lockRow(locker: OrmDriver, id: string): Promise<HeldLock> {
+  let release!: () => void;
+  const released = new Promise<void>((resolve) => (release = resolve));
+  let locked!: () => void;
+  const isLocked = new Promise<void>((resolve) => (locked = resolve));
+  const held = locker.transaction(async (t) => {
+    await t.select().from('fs_acl').where({ id }).forUpdate();
+    locked();
+    await released;
+  });
+  await Promise.race([isLocked, held]);
+  return {
+    async release() {
+      release();
+      await held;
+    },
+  };
+}
+
+/** A throwaway database on the orm packages' test containers, dropped afterwards; AUTHZ_FS_DB_NAME names it. */
+async function externalDb(kind: 'postgres' | 'mysql'): Promise<{ connection: Record<string, unknown>; open: () => Promise<OrmDriver>; drop(): Promise<void> }> {
+  const name = process.env.AUTHZ_FS_DB_NAME ?? `authz_fs_${randomUUID().slice(0, 8)}`;
   const type = kind === 'postgres' ? (await import('@spinajs/orm-postgres')).PostgresOrmDriver : (await import('@spinajs/orm-mysql')).MySqlOrmDriver;
   const server = kind === 'postgres' ? { ...PG, Database: 'postgres' } : { ...MYSQL, Database: 'mysql' };
-  const admin = async (): Promise<OrmDriver> => {
-    const driver = (await DI.child().resolve(type as never, [{ Name: `authz-fs-${kind}-admin`, Driver: `orm-driver-${kind}`, ...server }])) as OrmDriver;
+  const connect = async (options: Record<string, unknown>): Promise<OrmDriver> => {
+    const driver = (await DI.child().resolve(type as never, [options])) as OrmDriver;
     await driver.connect();
     return driver;
   };
+  const admin = (): Promise<OrmDriver> => connect({ Name: `authz-fs-${kind}-admin`, Driver: `orm-driver-${kind}`, ...server });
   const a = await admin();
   try {
     await a.schema().createDatabase(name);
@@ -44,8 +91,10 @@ async function externalDb(kind: 'postgres' | 'mysql'): Promise<{ connection: Rec
     await a.disconnect();
   }
   const quoted = kind === 'postgres' ? `"${name}"` : `\`${name}\``;
+  const connection = { Driver: `orm-driver-${kind}`, Name: kind, ...server, Database: name, Migration: { Table: 'orm_migrations' } };
   return {
-    connection: { Driver: `orm-driver-${kind}`, Name: kind, ...server, Database: name, Migration: { Table: 'orm_migrations' } },
+    connection,
+    open: () => connect({ ...connection, Name: `authz-fs-${kind}-second`, Migration: undefined }),
     async drop() {
       const d = await admin();
       try {
@@ -67,10 +116,10 @@ function ormSuite(kind: DbKind): void {
     let config: Configuration;
     let undoLog: (() => void) | undefined;
     let drop: (() => Promise<void>) | undefined;
+    let open: (() => Promise<OrmDriver>) | undefined;
     const store = new OrmFileAclStore();
-    const sqliteOnly = (ctx: Mocha.Context): void => {
-      if (kind !== 'sqlite') ctx.skip();
-    };
+    const pathsOf = async (fs: string): Promise<string[]> => ((await db.select().from('fs_acl').where({ fs })) as Record<string, unknown>[]).map((r) => `${String(r.path)}:${String(r.subject_key)}`).sort();
+    const idOf = async (fs: string, path: string): Promise<string> => String(((await db.select().from('fs_acl').where({ fs, path })) as Record<string, unknown>[])[0].id);
 
     before(async () => {
       undoLog = installQuietLog();
@@ -81,15 +130,19 @@ function ormSuite(kind: DbKind): void {
         const external = await externalDb(kind);
         main = external.connection;
         drop = external.drop;
+        open = () => external.open();
       }
       DI.register(FakeConfiguration).as(Configuration);
       DI.register(SqliteOrmDriver).as('orm-driver-sqlite');
       config = (await DI.resolve(Configuration)) as Configuration;
       // MigrationCheck off: the boot would otherwise refuse the pending migrations this suite applies by hand
-      config.set(['db'], { DefaultConnection: main.Name, MigrationCheck: 'off', Connections: [main, sqlite('other'), sqlite('nocase')] });
+      // StrictTableCheck off: fs_acl is made after the boot, and MigrationCheck 'off' does not skip the table check.
+      config.set(['db'], { DefaultConnection: main.Name, MigrationCheck: 'off', StrictTableCheck: false, Connections: [main], Aliases: { [FS_ACL_CONNECTION]: 'default' } });
       orm = (await DI.resolve(Orm)) as Orm;
       db = orm.Connections.get('default')!;
       await new AuthzFsAcl_2026_10_17_00_00_00().up(db);
+      // The table was made after the boot, by hand: the model has no columns until the ORM reads it.
+      await orm.reloadTableInfo({ models: [FsAclRecord] });
     });
 
     after(async () => {
@@ -172,35 +225,98 @@ function ormSuite(kind: DbKind): void {
       expect(await store.list(fs, 'a.txt')).to.have.length(2);
     });
 
-    it('uses the connection authz.fsAcl.connection names, else the default one', async function () {
-      sqliteOnly(this);
-      const other = orm!.Connections.get('other')!;
-      await new AuthzFsAcl_2026_10_17_00_00_00().up(other);
-      config.set(['authz', 'fsAcl', 'connection'], 'other');
-      await store.setOwnerIfAbsent('conn', 'a.txt', BOB);
-      expect(((await other.select().from('fs_acl').where({ path: 'a.txt', fs: 'conn' })) as unknown[]).length).to.equal(1);
-      expect(((await db.select().from('fs_acl').where({ path: 'a.txt', fs: 'conn' })) as unknown[]).length).to.equal(0);
-      expect(await new OrmFileAclStore({ connection: 'default' }).ownerOf('conn', 'a.txt')).to.equal(null);
-
-      config.set(['authz', 'fsAcl', 'connection'], 'nope');
-      const e = await store.ownerOf('conn', 'a.txt').then(
-        () => undefined,
-        (err: unknown) => err as Error,
-      );
-      expect(e).to.be.instanceOf(AuthzConfigError);
-      expect(e!.message).to.contain('authz.fsAcl.connection');
+    it('stores a datetime in the form a builder insert stores it', async () => {
+      const fs = `dates-${randomUUID().slice(0, 8)}`;
+      const until = new Date('2031-02-03T04:05:06.000Z');
+      await store.grant({ fs, path: 'a.txt', subject: ALICE, relation: 'viewer', expiresAt: until });
+      await db.insert().into('fs_acl').values({ id: randomUUID(), fs, path: 'b.txt', path_hash: aclPathHash('b.txt'), subject_key: 'user:alice', relation: 'viewer', expires_at: until, created_at: until });
+      const rows = (await db.select().from('fs_acl').where({ fs }).orderBy('path')) as Record<string, unknown>[];
+      expect(rows.map((r) => r.path)).to.deep.equal(['a.txt', 'b.txt']);
+      expect(rows[0].expires_at).to.deep.equal(rows[1].expires_at);
     });
 
-    it('on a case-insensitive table matches rows exactly in code', async function () {
-      sqliteOnly(this);
-      // As MySQL's or MSSQL's default collation would make the table; SQLite's LIKE also ignores ASCII case.
-      await rawSql(orm!.Connections.get('nocase')!, 'CREATE TABLE fs_acl (id varchar(36) PRIMARY KEY, fs varchar(64) COLLATE NOCASE NOT NULL, path varchar(512) COLLATE NOCASE NOT NULL, path_hash varchar(64) COLLATE NOCASE NOT NULL, subject_key varchar(200) COLLATE NOCASE NOT NULL, relation varchar(64) COLLATE NOCASE NOT NULL, expires_at datetime, granted_by varchar(100), created_at datetime NOT NULL)');
-      const ci = new OrmFileAclStore({ connection: 'nocase' });
-      await ci.grant({ fs: 'ci', path: 'Docs/A.txt', subject: ALICE, relation: 'viewer' });
-      expect(await ci.holds('ci', ['docs/a.txt'], ['user:alice'], 'viewer', new Date())).to.equal(false);
-      expect(await ci.list('ci', 'docs/a.txt')).to.deep.equal([]);
-      await ci.deleteTree('ci', 'docs');
-      expect(await ci.list('ci', 'Docs/A.txt')).to.have.length(1);
+    // MySQL's utf8mb4_bin and MSSQL compare with trailing spaces ignored; the store decides by === in code.
+    it('a row answers only its exact filesystem, path and subject: no case, trailing-space, Unicode-form or prefix variant', async () => {
+      const fs = `exact-${randomUUID().slice(0, 8)}`;
+      const at = new Date();
+      await store.grant({ fs, path: 'A/b', subject: ALICE, relation: 'viewer' });
+      await store.grant({ fs, path: 'café.txt', subject: ALICE, relation: 'viewer' });
+      expect(await store.holds(fs, ['./A//b/'], ['user:alice'], 'viewer', at)).to.equal(true);
+      expect(await store.holds(fs, ['a/b', 'A/B', 'A/bc', 'A'], ['user:alice'], 'viewer', at)).to.equal(false);
+      expect(await store.holds(`${fs} `, ['A/b'], ['user:alice'], 'viewer', at)).to.equal(false);
+      expect(await store.holds(fs.toUpperCase(), ['A/b'], ['user:alice'], 'viewer', at)).to.equal(false);
+      expect(await store.holds(fs, ['A/b'], ['user:alice ', 'USER:ALICE'], 'viewer', at)).to.equal(false);
+      expect(await store.holds(fs, ['café.txt'], ['user:alice'], 'viewer', at)).to.equal(false);
+      expect(await store.list(`${fs} `, 'A/b')).to.deep.equal([]);
+      await store.deleteTree(fs, 'A/b/c');
+      await store.deleteTree(`${fs} `, 'A');
+      expect(await store.list(fs, 'A/b')).to.have.length(1);
+
+      // Another subject: under PAD SPACE the unique key would refuse the same subject on both filesystems.
+      await store.grant({ fs: `${fs} `, path: 'm.txt', subject: BOB, relation: 'viewer' });
+      await store.grant({ fs, path: 'm.txt', subject: ALICE, relation: 'viewer' });
+      await store.movePath(fs, 'm.txt', fs, 'n.txt');
+      expect(await store.list(`${fs} `, 'm.txt')).to.have.length(1);
+      expect(await store.list(fs, 'n.txt')).to.have.length(1);
+    });
+
+    it('movePath also moves a grant committed while it waits: one statement moves the path', async function () {
+      if (kind === 'sqlite') return this.skip();
+      const fs = `race-${randomUUID().slice(0, 8)}`;
+      await store.grant({ fs, path: 'm.txt', subject: ALICE, relation: 'viewer' });
+      await store.grant({ fs, path: 'n.txt', subject: ALICE, relation: 'viewer' });
+      const locker = await open!();
+      try {
+        // The replaced destination row is locked, so the move waits between its reads and its writes.
+        const lock = await lockRow(locker, await idOf(fs, 'n.txt'));
+        const moved = store.movePath(fs, 'm.txt', fs, 'n.txt');
+        await untilWaiting(db, kind, 1);
+        await store.grant({ fs, path: 'm.txt', subject: BOB, relation: 'viewer' });
+        await lock.release();
+        await moved;
+      } finally {
+        await locker.disconnect();
+      }
+      expect(await pathsOf(fs)).to.deep.equal(['n.txt:user:alice', 'n.txt:user:bob']);
+    });
+
+    it('of two moves of one path the second finds nothing: it never takes a row that already left', async function () {
+      if (kind === 'sqlite') return this.skip();
+      const fs = `race2-${randomUUID().slice(0, 8)}`;
+      await store.grant({ fs, path: 'm.txt', subject: ALICE, relation: 'viewer' });
+      const locker = await open!();
+      try {
+        const lock = await lockRow(locker, await idOf(fs, 'm.txt'));
+        const first = store.movePath(fs, 'm.txt', fs, 'n.txt');
+        await untilWaiting(db, kind, 1);
+        const second = store.movePath(fs, 'm.txt', fs, 'o.txt');
+        await untilWaiting(db, kind, 2);
+        await lock.release();
+        await Promise.all([first, second]);
+      } finally {
+        await locker.disconnect();
+      }
+      expect(await pathsOf(fs)).to.deep.equal(['n.txt:user:alice']);
+    });
+
+    it('an unreadable expiry on a grant refuses the check instead of granting', async function () {
+      const fs = `bad-date-${randomUUID().slice(0, 8)}`;
+      const row = { fs, path: 'a.txt', path_hash: aclPathHash('a.txt'), subject_key: 'user:alice', relation: 'viewer' };
+      if (kind === 'sqlite') {
+        await db.insert().into('fs_acl').values({ id: randomUUID(), ...row, expires_at: 'not a date', created_at: new Date() });
+      } else if (kind === 'postgres') {
+        await rawRows(db, `INSERT INTO fs_acl (id, fs, path, path_hash, subject_key, relation, expires_at, created_at) VALUES (?, ?, ?, ?, ?, ?, 'infinity', now())`, [randomUUID(), ...Object.values(row)]);
+      } else {
+        await db.transaction(async (t) => {
+          // A zero date needs a lenient SESSION sql_mode; the connection's own mode is put back before it returns to the pool.
+          const [{ mode }] = await rawRows(t, 'SELECT @@SESSION.sql_mode AS mode');
+          await rawRows(t, "SET SESSION sql_mode = ''");
+          await rawRows(t, `INSERT INTO fs_acl (id, fs, path, path_hash, subject_key, relation, expires_at, created_at) VALUES (?, ?, ?, ?, ?, ?, '0000-00-00 00:00:00', NOW())`, [randomUUID(), ...Object.values(row)]);
+          await rawRows(t, 'SET SESSION sql_mode = ?', [mode]);
+        });
+      }
+      await expect(store.holds(fs, ['a.txt'], ['user:alice'], 'viewer', new Date())).to.be.rejectedWith(AuthzConfigError, 'unreadable datetime');
+      await expect(store.list(fs, 'a.txt')).to.be.rejectedWith(AuthzConfigError, 'unreadable datetime');
     });
   });
 }

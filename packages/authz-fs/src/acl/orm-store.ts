@@ -5,11 +5,13 @@ import type { PrincipalRef } from '@spinajs/authz';
 import { DI, Injectable } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 import { InvalidArgument } from '@spinajs/exceptions';
-import { Orm, instantFromDb } from '@spinajs/orm';
+import { IdentifierQuoter, Orm, OrmConnectionMissing, RawQuery, SqlExpressions, instantFromDb, modelDriver } from '@spinajs/orm';
 import type { OrmDriver } from '@spinajs/orm';
 import { chunk } from '@spinajs/util';
+import { DateTime } from 'luxon';
 
-import { FS_ACL_CONNECTION_KEY, FS_ACL_OWNER, fsAclConfig } from '../access-config/acl-config.js';
+import { FS_ACL_CONNECTION, FS_ACL_CONNECTION_KEY, FS_ACL_OWNER, fsAclConfig } from '../access-config/acl-config.js';
+import { FsAclRecord } from './record.js';
 import { FS_ACL_LIMITS, FS_ACL_TABLE, aclExpiry, aclFs, aclOwnerKey, aclPath, aclPathHash, aclRelation, aclSubjectKey, checkMove, fits, isWildcardKey, movedPath, subjectOfKey } from './shared.js';
 import { FileAclStore } from './store.js';
 import type { FsAclRow } from './store.js';
@@ -27,7 +29,7 @@ interface Row {
 }
 
 export interface OrmFileAclStoreOptions {
-  /** The ORM connection; default `authz.fsAcl.connection`, else 'default'. */
+  /** Must name the connection of FsAclRecord (`db.Aliases['authz-fs-acl']`); default `authz.fsAcl.connection`, else 'default'. */
   readonly connection?: string;
   /** Where Configuration and Orm are resolved; default the DI root. */
   readonly container?: IContainer;
@@ -36,10 +38,11 @@ export interface OrmFileAclStoreOptions {
 const IN_CHUNK = 500;
 
 /**
- * FileAclStore over `fs_acl` (migration AuthzFsAcl_2026_10_17_00_00_00). Reads are narrowed in SQL by `path_hash`
- * (the indexed key) and decided by an exact comparison of `path` in code, and rows change by id, so a table created
- * with a case-insensitive collation never merges two paths. Tree reads (`deleteTree`, `moveTree`) go by
- * `(fs, path)`, the index of AuthzFsAclPathIndex_2026_10_21_00_00_00.
+ * FileAclStore over `fs_acl` (migration AuthzFsAcl_2026_10_17_00_00_00). Rows are written through FsAclRecord, so
+ * the ORM write capture sees every change; reads are plain queries on the same connection, which never go to a read
+ * replica. Reads are narrowed in SQL by `path_hash` (the indexed key) and decided by an exact comparison of `path`
+ * in code, and rows change by id, so a table created with a case-insensitive collation never merges two paths. Tree
+ * reads (`deleteTree`, `moveTree`) go by `(fs, path)`, the index of AuthzFsAclPathIndex_2026_10_21_00_00_00.
  */
 @Injectable(FileAclStore)
 export class OrmFileAclStore extends FileAclStore {
@@ -71,12 +74,13 @@ export class OrmFileAclStore extends FileAclStore {
 
   async grant(row: FsAclRow): Promise<void> {
     const key = { fs: aclFs(row.fs), path: aclPath(row.path), subject_key: aclSubjectKey(row.subject), relation: aclRelation(row.relation) };
-    const values = { expires_at: aclExpiry(row.expiresAt), granted_by: row.grantedBy === undefined ? null : fits(row.grantedBy, 'granted_by') };
+    const expires = aclExpiry(row.expiresAt);
+    const values = { expires_at: expires ? utc(expires) : null, granted_by: row.grantedBy === undefined ? null : fits(row.grantedBy, 'granted_by') };
     const driver = await this.driver();
     await driver.transaction(async (tx) => {
       const found = (await exactRows(tx, key.fs, key.path)).find((r) => r.subject_key === key.subject_key && r.relation === key.relation);
-      if (found) await tx.update().in(FS_ACL_TABLE).update(values).where({ id: found.id });
-      else await tx.insert().into(FS_ACL_TABLE).values({ id: randomUUID(), ...key, path_hash: aclPathHash(key.path), ...values, created_at: new Date() });
+      if (found) await FsAclRecord.update(values).where('id', found.id);
+      else await FsAclRecord.insert({ id: randomUUID(), ...key, path_hash: aclPathHash(key.path), ...values, created_at: utc(new Date()) });
     });
   }
 
@@ -85,12 +89,7 @@ export class OrmFileAclStore extends FileAclStore {
     const p = aclPath(path);
     const r = aclRelation(relation);
     const driver = await this.driver();
-    await driver.transaction(async (tx) =>
-      deleteIds(
-        tx,
-        (await exactRows(tx, f, p)).filter((row) => row.subject_key === subjectKey && row.relation === r).map((row) => row.id),
-      ),
-    );
+    await driver.transaction(async (tx) => deleteIds((await exactRows(tx, f, p)).filter((row) => row.subject_key === subjectKey && row.relation === r).map((row) => row.id)));
   }
 
   async ownerOf(fs: string, path: string): Promise<PrincipalRef | null> {
@@ -107,7 +106,7 @@ export class OrmFileAclStore extends FileAclStore {
     const driver = await this.driver();
     await driver.transaction(async (tx) => {
       if ((await exactRows(tx, key.fs, key.path)).some((r) => r.relation === FS_ACL_OWNER)) return;
-      await tx.insert().into(FS_ACL_TABLE).values({ id: randomUUID(), ...key, path_hash: aclPathHash(key.path), expires_at: null, granted_by: null, created_at: new Date() });
+      await FsAclRecord.insert({ id: randomUUID(), ...key, path_hash: aclPathHash(key.path), expires_at: null, granted_by: null, created_at: utc(new Date()) });
     });
   }
 
@@ -115,14 +114,14 @@ export class OrmFileAclStore extends FileAclStore {
     const f = aclFs(fs);
     const p = aclPath(path);
     const driver = await this.driver();
-    await driver.transaction(async (tx) => deleteIds(tx, (await tree(tx, f, p)).map((r) => r.id)));
+    await driver.transaction(async (tx) => deleteIds((await tree(tx, f, p)).map((r) => r.id)));
   }
 
   async deletePath(fs: string, path: string): Promise<void> {
     const f = aclFs(fs);
     const p = aclPath(path);
     const driver = await this.driver();
-    await driver.transaction(async (tx) => deleteIds(tx, (await exactRows(tx, f, p)).map((r) => r.id)));
+    await driver.transaction(async (tx) => deleteIds((await exactRows(tx, f, p)).map((r) => r.id)));
   }
 
   async moveTree(fromFs: string, from: string, toFs: string, to: string): Promise<void> {
@@ -142,8 +141,8 @@ export class OrmFileAclStore extends FileAclStore {
       const taken = new Set(moves.map((m) => rowKey(m.path, m.row)));
       const replaced = (await tree(tx, dst.fs, dst.path)).filter((r) => taken.has(rowKey(r.path, r))).map((r) => r.id);
       const dropped = landing.filter((m) => !moves.includes(m)).map((m) => m.row.id);
-      await deleteIds(tx, [...replaced, ...dropped]);
-      for (const m of moves) await tx.update().in(FS_ACL_TABLE).update({ fs: dst.fs, path: m.path, path_hash: aclPathHash(m.path) }).where({ id: m.row.id });
+      await deleteIds([...replaced, ...dropped]);
+      for (const m of moves) await FsAclRecord.update({ fs: dst.fs, path: m.path, path_hash: aclPathHash(m.path) }).where('id', m.row.id);
     });
   }
 
@@ -154,26 +153,47 @@ export class OrmFileAclStore extends FileAclStore {
     const driver = await this.driver();
     await driver.transaction(async (tx) => {
       // The destination's equal rows go first, else the UPDATE would break the unique key.
-      const moving = new Set((await exactRows(tx, src.fs, src.path)).map((r) => rowKey(dst.path, r)));
-      await deleteIds(
-        tx,
-        (await exactRows(tx, dst.fs, dst.path)).filter((r) => moving.has(rowKey(r.path, r))).map((r) => r.id),
-      );
-      await tx.update().in(FS_ACL_TABLE).update({ fs: dst.fs, path: dst.path, path_hash: aclPathHash(dst.path) }).where({ fs: src.fs, path_hash: aclPathHash(src.path), path: src.path });
+      const rows = await exactRows(tx, src.fs, src.path);
+      const moving = new Set(rows.map((r) => rowKey(dst.path, r)));
+      await deleteIds((await exactRows(tx, dst.fs, dst.path)).filter((r) => moving.has(rowKey(r.path, r))).map((r) => r.id));
+      // One statement, so a row committed meanwhile moves too and one that left is not taken. `fs = ?` seeks the index;
+      // equalsExactly decides, since `=` ignores case or trailing spaces under some collations (MySQL, MSSQL).
+      await FsAclRecord.update({ fs: dst.fs, path: dst.path, path_hash: aclPathHash(dst.path) }).where({ fs: src.fs, path_hash: aclPathHash(src.path), path: src.path }).where(exactly(tx, 'fs', src.fs));
     });
   }
 
+  /** The connection of FsAclRecord. The configured one must be that connection: the rows are written through the model. */
   private async driver(): Promise<OrmDriver> {
     const container = this.opts.container ?? DI.RootContainer;
     const name = this.opts.connection ?? fsAclConfig(container).connection;
     const orm = (await container.resolve(Orm)) as Orm;
-    const driver = orm.Connections.get(name);
-    if (!driver) throw new AuthzConfigError(`OrmFileAclStore: ${FS_ACL_CONNECTION_KEY} names connection ${JSON.stringify(name)}, which the ORM does not have (connections: ${[...orm.Connections.keys()].join(', ') || 'none'})`);
-    return driver;
+    const asked = orm.Connections.get(name);
+    if (!asked) throw new AuthzConfigError(`OrmFileAclStore: ${FS_ACL_CONNECTION_KEY} names connection ${JSON.stringify(name)}, which the ORM does not have (connections: ${[...orm.Connections.keys()].join(', ') || 'none'})`);
+    const own = recordDriver();
+    if (own !== asked) {
+      throw new AuthzConfigError(`OrmFileAclStore: ${FS_ACL_CONNECTION_KEY} names connection ${JSON.stringify(name)}, but ${FsAclRecord.name} writes ${FS_ACL_TABLE} on connection ${JSON.stringify(own.Options.Name)}; remove the app's own db.Aliases['${FS_ACL_CONNECTION}'], which then follows ${FS_ACL_CONNECTION_KEY}, or set it to ${JSON.stringify(name)}`);
+    }
+    return own;
   }
 }
 
 const rowKey = (path: string, r: Row): string => `${path}\0${r.subject_key}\0${r.relation}`;
+
+const utc = (date: Date): DateTime => DateTime.fromJSDate(date, { zone: 'utc' });
+
+function exactly(driver: OrmDriver, column: string, value: string): RawQuery {
+  const fragment = driver.Container.resolve(SqlExpressions).equalsExactly(driver.Container.resolve(IdentifierQuoter).quote(column), { sql: '?', bindings: [value] });
+  return RawQuery.create(fragment.sql, [...fragment.bindings]);
+}
+
+function recordDriver(): OrmDriver {
+  try {
+    return modelDriver(FsAclRecord);
+  } catch (err) {
+    if (err instanceof OrmConnectionMissing) throw new AuthzConfigError(`${FsAclRecord.name}: no ORM connection answers to "${FS_ACL_CONNECTION}"; set db.Aliases['${FS_ACL_CONNECTION}']`, { cause: err });
+    throw err;
+  }
+}
 
 // Rows are read without a model, so no column converter runs: SQLite hands back ISO text, the others a Date.
 function toDate(value: unknown, column: string): Date | null {
@@ -217,6 +237,6 @@ async function tree(driver: OrmDriver, fs: string, path: string): Promise<Row[]>
   return [...(await exactRows(driver, fs, path)), ...below.filter((r) => r.fs === fs && r.path.startsWith(`${path}/`))];
 }
 
-async function deleteIds(driver: OrmDriver, ids: readonly string[]): Promise<void> {
-  for (const part of chunk(ids, IN_CHUNK)) await driver.del().from(FS_ACL_TABLE).whereIn('id', part);
+async function deleteIds(ids: readonly string[]): Promise<void> {
+  for (const part of chunk(ids, IN_CHUNK)) await FsAclRecord.destroy().whereIn('id', part);
 }
