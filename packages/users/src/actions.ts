@@ -1,4 +1,4 @@
-import { insertModel, updateModel } from '@spinajs/orm';
+import { createQuery, DeleteQueryBuilder, insertModel, updateModel } from '@spinajs/orm';
 import { _check_arg, _gt, _non_nil, _is_email, _non_empty, _trim, _is_number, _is_string, _default, _max_length, toArray } from '@spinajs/util';
 import _ from 'lodash';
 import { emailDeferred, IEmailAttachement } from '@spinajs/email';
@@ -617,14 +617,14 @@ export function assertLoginNotReserved(login: string): void {
 
 /**
  * Hard-deletes a row `create()` has just inserted, with its metadata. `destroy()` would only soft
- * delete it and keep its login and email taken. A failure here is logged, not thrown: the caller is
- * already reporting the error that made it discard the row.
+ * delete it and keep its login and email taken; the deletes keep their models, so the query
+ * middlewares and write observers of `userModel()` see them. A failure here is logged, not thrown:
+ * the caller is already reporting the error that made it discard the row.
  */
 async function discardInsertedUser(u: User): Promise<void> {
   try {
-    const driver = User.query().Driver;
-    await driver.del().from(UserMetadataBase.getModelDescriptor().TableName).where('user_id', u.Id);
-    await driver.del().from(User.getModelDescriptor().TableName).where('Id', u.Id);
+    await createQuery(UserMetadataBase, DeleteQueryBuilder).query.where('user_id', u.Id);
+    await createQuery(userModel(), DeleteQueryBuilder).query.where('Id', u.Id);
   } catch (err) {
     DI.resolve(Log, ['rbac']).error({ error: err, userUuid: u.Uuid }, 'Could not remove the account ${userUuid} after its creation failed; delete it by hand.');
   }

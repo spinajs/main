@@ -12,9 +12,11 @@ import { EmailSend } from '@spinajs/email';
 import { AuthzConfigError, AuthzService, DefaultAuthzAdmin, SYSTEM } from '@spinajs/authz';
 import type { Principal } from '@spinajs/authz';
 import { PasswordService } from '@spinajs/authn/contracts';
+import { Connection, DeleteQueryBuilder, Model, QueryMiddleware, WriteObserver } from '@spinajs/orm';
+import type { CaptureInterest, CapturedWrite, QueryBuilder, WriteStatement } from '@spinajs/orm';
 import { join, normalize, resolve } from 'path';
 
-import { User, UserCreated, UserCreatedIncomplete, USER_COMMON_METADATA } from '../src/index.js';
+import { RBAC_USER_MODEL, User, UserCreated, UserCreatedIncomplete, USER_COMMON_METADATA } from '../src/index.js';
 import { create } from '../src/actions.js';
 import { TestConfiguration } from './common.test.js';
 import { globalRolesOf, registerAuthzHost, rootAuthz } from './support/authz-host.js';
@@ -40,6 +42,32 @@ async function rejection(p: Promise<unknown>): Promise<Error> {
 
 async function nothingWritten(login: string): Promise<void> {
   expect(await User.query().withDeleted().whereLogin(login).first(), 'no row, not even a soft-deleted one').to.not.exist;
+}
+
+@Connection('default')
+@Model('users')
+class DiscardAppUser extends User {}
+
+const deletes: { model: string; rows: number }[] = [];
+
+class DeleteRecorder extends WriteObserver {
+  interest(statement: WriteStatement): CaptureInterest | undefined {
+    return statement.kind === 'delete' ? { columns: [], transactional: false } : undefined;
+  }
+
+  observe(write: CapturedWrite): Promise<void> {
+    deletes.push({ model: write.model.name, rows: write.rows.filter((r) => r.after === undefined).length });
+    return Promise.resolve();
+  }
+}
+
+/** What a history guard does on a resource table: a write without the model is refused. */
+class RefuseBareDeletes extends QueryMiddleware {
+  afterQueryCreation(): void {}
+
+  beforeQueryExecution(query: QueryBuilder): void {
+    if (query instanceof DeleteQueryBuilder && query.Model === undefined) throw new Error(`bare delete on ${query.Table}`);
+  }
 }
 
 describe('create(user, roles?)', function () {
@@ -242,6 +270,55 @@ describe('create(user, roles?)', function () {
       expect(emit.args.map((a) => a[0]).filter((e) => e instanceof EmailSend)).to.deep.eq([]);
       expect(Object.keys(user.Metadata).some((k) => k.startsWith('user:pwd_reset:'))).to.eq(false);
       expect(emit.args.map((a) => a[0]).some((e) => e instanceof UserCreated)).to.eq(true);
+    });
+  });
+
+  describe('a half-created account', () => {
+    beforeEach(() => {
+      deletes.length = 0;
+      DI.register(DeleteRecorder).as(WriteObserver);
+    });
+
+    afterEach(() => {
+      DI.unregister(DeleteRecorder);
+    });
+
+    it('is deleted through the metadata and user models, so a write observer sees both deletes', async () => {
+      const execute = sinon.stub(DefaultAuthzAdmin.prototype, 'execute');
+      execute.callsFake(function (this: DefaultAuthzAdmin, ...args: Parameters<DefaultAuthzAdmin['execute']>) {
+        return args[2]?.dryRun ? execute.wrappedMethod.apply(this, args) : Promise.reject(new Error('assignment store down'));
+      });
+
+      await expect(create({ Email: 'observed@spinajs.pl', Login: 'observed' }, ['editor'])).to.be.rejectedWith('assignment store down');
+
+      expect(deletes).to.deep.eq([
+        { model: 'UserMetadataBase', rows: 1 },
+        { model: 'User', rows: 1 },
+      ]);
+      await nothingWritten('observed');
+    });
+
+    it('is deleted when a query middleware refuses deletes without a model', async () => {
+      DI.register(RefuseBareDeletes).as(QueryMiddleware);
+      try {
+        sinon.stub(TestPasswordService.prototype, 'set').rejects(new Error('credential store down'));
+
+        await expect(create({ Email: 'baredelete@spinajs.pl', Login: 'baredelete', Password: 'passw0rd123' })).to.be.rejectedWith('credential store down');
+
+        await nothingWritten('baredelete');
+      } finally {
+        DI.unregister(RefuseBareDeletes);
+      }
+    });
+
+    it("is deleted through the application's user model", async () => {
+      DI.register(DiscardAppUser).asValue(RBAC_USER_MODEL, true);
+      sinon.stub(TestPasswordService.prototype, 'set').rejects(new Error('credential store down'));
+
+      await expect(create({ Email: 'appmodel@spinajs.pl', Login: 'appmodel', Password: 'passw0rd123' })).to.be.rejectedWith('credential store down');
+
+      expect(deletes.map((d) => d.model)).to.deep.eq(['UserMetadataBase', 'DiscardAppUser']);
+      await nothingWritten('appmodel');
     });
   });
 

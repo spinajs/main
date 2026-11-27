@@ -18,7 +18,7 @@ Every action that takes `identifier` accepts a numeric id, a UUID, an email, a l
 8. Inserts the row (with the columns a hook set; `Uuid`, the password marker, `PasswordSetAt` and `DeletedAt` stay `create()`'s).
 9. With a password: `PasswordService.set(user:<Uuid>, password, ctx, { actor })`. Without one: stores `user:invite:pending = true`.
 10. Grants the roles at GLOBAL through `AuthzAdmin`, as `actor`.
-11. If step 9 or 10 fails, the row and its metadata are hard-deleted and the error is rethrown.
+11. If step 9 or 10 fails, the row and its metadata are hard-deleted and the error is rethrown. The deletes go through `UserMetadataBase` and `userModel()`, so query middlewares and write observers of those models see them.
 12. Writes `data.Metadata` (as a hook left it) without the `users.metadata.set` hooks: the keys were checked with the create input. Emits `UserCreated` (with the granted roles).
 13. Without a password: `PasswordService.invite()` sends the invite through authn-local's `PasswordMailer`.
 14. If step 12 or 13 fails, the account stays. It throws `UserCreatedIncomplete` with `data: { user: <Uuid>, resendInvite, error: <error class> }`.
