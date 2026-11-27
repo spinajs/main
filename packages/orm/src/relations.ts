@@ -58,6 +58,12 @@ export interface IOrmRelation {
    * Without it a clone shares the relation, which compiles into the original query only.
    */
   cloneFor?(query: ISelectQueryBuilder, owner: IOrmRelation | undefined): IOrmRelation;
+
+  /**
+   * The relation's query while it waits to be folded into the owner's statement (a to-one populate that did not
+   * compile yet); `undefined` once it compiled, and for a relation whose query runs as a statement of its own.
+   */
+  pendingQuery?(): ISelectQueryBuilder | undefined;
 }
 
 function _paramCheck<T>(callback: () => T, err: string): NonNullable<T> {
@@ -192,6 +198,11 @@ export class BelongsToRelation extends NativeOrmRelation {
 
   protected relationQueryExecution(): BuilderExecution {
     return { kind: 'merged', into: 'parent', relation: this._description };
+  }
+
+  // After the compile the owner holds these statements itself, and a clone of the owner holds copies of them.
+  public pendingQuery(): ISelectQueryBuilder | undefined {
+    return this._compiled ? undefined : this._relationQuery;
   }
 
   public compile() {
