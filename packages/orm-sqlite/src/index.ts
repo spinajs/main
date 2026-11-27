@@ -72,6 +72,9 @@ export class SqliteServerResponseMapper extends ServerResponseMapper {
 
 const quoteSqliteIdentifier = (identifier: string) => `"${identifier.replace(/"/g, '""')}"`;
 
+/** `PRAGMA schema.name("argument")`, unqualified without a schema. */
+const pragmaOf = (name: string, argument: string, schema?: string) => `PRAGMA ${schema ? `${quoteSqliteIdentifier(schema)}.` : ''}${name}(${quoteSqliteIdentifier(argument)})`;
+
 const QUOTED_DEFAULT = /^'((?:[^']|'')*)'$/;
 const NUMERIC_DEFAULT = /^[+-]?\d+(\.\d+)?$/;
 
@@ -699,13 +702,13 @@ export class SqliteOrmDriver extends SqlDriver {
     await this.schema().raw(`DELETE FROM ${this.Container.resolve(IdentifierQuoter).quoteQualified(table)} WHERE 0`);
   }
 
-  public async tableInfo(name: string, _schema?: string): Promise<IColumnDescriptor[]> {
+  public async tableInfo(name: string, schema?: string): Promise<IColumnDescriptor[]> {
     // The map is cached by `Orm.registerDefaultConverters()`; a driver used without a booted Orm ( a bare
     // MigrationRunner's `ensureStorage()` probe, a driver resolved on its own ) has none. An empty map degrades as an
     // unrecognised column type does: `DefaultValue` keeps the raw `dflt_value`.
     const converters = this.Container.get(ORM_DB_VALUE_CONVERTERS) ?? new Map<string, Class<ValueConverter>>();
 
-    const tblInfo = (await this.executeOnDb(`PRAGMA table_info(${quoteSqliteIdentifier(name)});`, [] as any, QueryContext.Select)) as ITableInfo[];
+    const tblInfo = (await this.isAttached(schema)) ? ((await this.executeOnDb(`${pragmaOf('table_info', name, schema)};`, [] as any, QueryContext.Select)) as ITableInfo[]) : [];
 
     if (!tblInfo || !Array.isArray(tblInfo) || tblInfo.length === 0) {
       return null as any;
@@ -713,10 +716,10 @@ export class SqliteOrmDriver extends SqlDriver {
 
     // only a single-column unique index makes its column unique on its own: onDuplicate() turns
     // Unique columns into the conflict target, which must match one index exactly
-    const indexes = await this.readIndexes(name);
+    const indexes = await this.readIndexes(name, schema);
     const uIndices = indexes.filter((i) => i.unique === 1 && i.columns.length === 1).map((i) => i.columns[0]);
 
-    const foreignKeys = await this.readForeignKeys(name);
+    const foreignKeys = await this.readForeignKeys(name, schema);
 
     // PRAGMA table_info reports `pk` as the 1-BASED POSITION within the primary key, not a
     // boolean. Every column with pk > 0 is part of the key.
@@ -753,22 +756,24 @@ export class SqliteOrmDriver extends SqlDriver {
         AutoIncrement: rowidAlias && r.pk === 1,
         Name: r.name,
         Converter: null as any,
-        Schema: _schema ? _schema : this.Options.Database,
+        Schema: schema ? schema : this.Options.Database,
         Unique: uIndices.includes(r.name),
       };
     });
   }
 
-  public async tableIndexes(name: string, _schema?: string): Promise<LiveIndex[]> {
+  public async tableIndexes(name: string, schema?: string): Promise<LiveIndex[]> {
+    if (!(await this.isAttached(schema))) return [];
+
     // PRAGMA index_info names an expression part null; it is left out, as the other drivers leave it out.
-    const indexes: LiveIndex[] = (await this.readIndexes(name)).map((i) => {
+    const indexes: LiveIndex[] = (await this.readIndexes(name, schema)).map((i) => {
       const columns = i.columns.filter((c) => typeof c === 'string');
       return { name: i.name, columns, unique: i.unique === 1, primary: i.origin === 'pk', ...(columns.length < i.columns.length ? { inexact: true } : {}) };
     });
 
     if (!indexes.some((i) => i.primary)) {
       // An INTEGER PRIMARY KEY is the rowid itself and has no index of its own to list.
-      const info = (await this.executeOnDb(`PRAGMA table_info(${quoteSqliteIdentifier(name)})`, [], QueryContext.Select)) as ITableInfo[];
+      const info = (await this.executeOnDb(pragmaOf('table_info', name, schema), [], QueryContext.Select)) as ITableInfo[];
       const key = info.filter((c) => c.pk > 0).sort((a, b) => a.pk - b.pk).map((c) => c.name);
       if (key.length > 0) {
         indexes.push({ name: 'PRIMARY', columns: key, unique: true, primary: true });
@@ -789,8 +794,10 @@ export class SqliteOrmDriver extends SqlDriver {
     });
   }
 
-  public async tableForeignKeys(name: string, _schema?: string): Promise<LiveForeignKey[]> {
-    const keys = [...(await this.readForeignKeys(name))].sort((a, b) => a.id - b.id || a.seq - b.seq);
+  public async tableForeignKeys(name: string, schema?: string): Promise<LiveForeignKey[]> {
+    if (!(await this.isAttached(schema))) return [];
+
+    const keys = [...(await this.readForeignKeys(name, schema))].sort((a, b) => a.id - b.id || a.seq - b.seq);
 
     return keys.map((fk) => ({
       // sqlite keeps no constraint name in its catalog
@@ -803,20 +810,30 @@ export class SqliteOrmDriver extends SqlDriver {
     }));
   }
 
+  /**
+   * A database attached after the Orm booted is unknown while it reflects its models, and a qualified pragma fails on
+   * it: its tables read as missing until `reloadTableInfo()`. `temp` is not listed before its first table.
+   */
+  private async isAttached(schema?: string): Promise<boolean> {
+    if (!schema || schema.toLowerCase() === 'temp') return true;
+    const found = await this.executeOnDb('SELECT 1 FROM pragma_database_list WHERE name = ? COLLATE NOCASE', [schema], QueryContext.Select);
+    return Array.isArray(found) && found.length > 0;
+  }
+
   /** PRAGMA index_list with each index's columns in key order. */
-  private async readIndexes(name: string): Promise<Array<IIndexInfoList & { columns: string[] }>> {
-    const list = (await this.executeOnDb(`PRAGMA index_list(${quoteSqliteIdentifier(name)})`, [], QueryContext.Select)) as IIndexInfoList[];
+  private async readIndexes(name: string, schema?: string): Promise<Array<IIndexInfoList & { columns: string[] }>> {
+    const list = (await this.executeOnDb(pragmaOf('index_list', name, schema), [], QueryContext.Select)) as IIndexInfoList[];
     const indexes: Array<IIndexInfoList & { columns: string[] }> = [];
 
     for (const index of list) {
-      const info = (await this.executeOnDb(`PRAGMA index_info(${quoteSqliteIdentifier(index.name)})`, [], QueryContext.Select)) as IIndexInfo[];
+      const info = (await this.executeOnDb(pragmaOf('index_info', index.name, schema), [], QueryContext.Select)) as IIndexInfo[];
       indexes.push({ ...index, columns: [...info].sort((a, b) => a.seqno - b.seqno).map((c) => c.name) });
     }
 
     return indexes;
   }
 
-  private async readForeignKeys(name: string): Promise<IForeignKeyList[]> {
-    return (await this.executeOnDb(`PRAGMA foreign_key_list(${quoteSqliteIdentifier(name)})`, [], QueryContext.Select)) as IForeignKeyList[];
+  private async readForeignKeys(name: string, schema?: string): Promise<IForeignKeyList[]> {
+    return (await this.executeOnDb(pragmaOf('foreign_key_list', name, schema), [], QueryContext.Select)) as IForeignKeyList[];
   }
 }

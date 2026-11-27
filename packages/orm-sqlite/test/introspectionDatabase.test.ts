@@ -153,6 +153,22 @@ describe('sqlite introspection of a table in an attached database', function () 
       expect(await sqlite().tableForeignKeys('p_child', 's')).to.deep.equal([{ name: 'fk_p_child_0', column: 'ParentId', table: 'p_up', references: 'Id', onDelete: 'CASCADE', onUpdate: 'NO ACTION' }]);
     });
 
+    it('reads through the pragmas of that schema', async () => {
+      expect(await statementsDuring(() => sqlite().tableInfo('p_up', 's'))).to.deep.equal([
+        'SELECT 1 FROM pragma_database_list WHERE name = ? COLLATE NOCASE',
+        'PRAGMA "s".table_info("p_up");',
+        'PRAGMA "s".index_list("p_up")',
+        'PRAGMA "s".index_info("sqlite_autoindex_p_up_1")',
+        'PRAGMA "s".foreign_key_list("p_up")',
+      ]);
+    });
+
+    it('reads a schema that is not attached as holding no table', async () => {
+      expect(await sqlite().tableInfo('p_up', 'nope')).to.equal(null);
+      expect(await sqlite().tableIndexes('p_up', 'nope')).to.deep.equal([]);
+      expect(await sqlite().tableForeignKeys('p_child', 'nope')).to.deep.equal([]);
+    });
+
     it('reads main when main is named', async () => {
       expect((await sqlite().tableInfo('p_up', 'main')).map((c) => [c.Name, c.Unique])).to.deep.equal([
         ['Id', false],
