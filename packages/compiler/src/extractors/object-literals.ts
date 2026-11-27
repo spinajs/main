@@ -49,6 +49,7 @@ export function memberOf(options: ts.Expression, key: string, ctx: LiteralContex
 
 function symbolReadsConstantsOnly(symbol: ts.Symbol | undefined, ctx: LiteralContext): boolean {
   const decl = symbol && (symbol.flags & ts.SymbolFlags.Alias ? ctx.checker.getAliasedSymbol(symbol) : symbol).valueDeclaration;
+  if (decl && ts.isClassDeclaration(decl)) return false;
   if (!decl || !ts.isVariableDeclaration(decl)) return true;
   const initializer = initializerOf(symbol, ctx);
   return !!initializer && readsConstantsOnly(initializer, ctx);
@@ -61,7 +62,10 @@ function memberReadsConstantsOnly(member: ts.ObjectLiteralElementLike, ctx: Lite
   return (!ts.isComputedPropertyName(member.name) || readsConstantsOnly(member.name.expression, ctx)) && readsConstantsOnly(member.initializer, ctx);
 }
 
-/** False when `expr` reads a `let` or `var` at any depth: it may be reassigned before the value is used. */
+/**
+ * False when `expr` reads a `let` or `var` at any depth (it may be reassigned before the value is used) or a class, which
+ * `literalValue` reads as its name.
+ */
 export function readsConstantsOnly(expr: ts.Expression, ctx: LiteralContext): boolean {
   if (ts.isParenthesizedExpression(expr) || ts.isAsExpression(expr) || ts.isSatisfiesExpression(expr)) return readsConstantsOnly(expr.expression, ctx);
   if (ts.isCallExpression(expr)) return expr.arguments.every((a) => readsConstantsOnly(a, ctx));
@@ -77,4 +81,17 @@ export function isPlainJson(value: unknown): boolean {
   if (Array.isArray(value)) return value.every(isPlainJson);
   if (typeof value === 'object' && Object.getPrototypeOf(value) === Object.prototype) return Object.values(value).every(isPlainJson);
   return false;
+}
+
+/** The value of `expr` when the build reads all of it: literals and constants only, nothing that needs a `CMP001` note. */
+export function constantValueOf(expr: ts.Expression, ctx: LiteralContext): { value: unknown } | undefined {
+  if (!readsConstantsOnly(expr, ctx)) return undefined;
+  let unread = false;
+  const value = literalValue(expr, {
+    checker: ctx.checker,
+    info: () => {
+      unread = true;
+    },
+  });
+  return unread || !isPlainJson(value) ? undefined : { value };
 }

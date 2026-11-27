@@ -348,7 +348,12 @@ export interface Diagnostic { code: string; severity: 'error' | 'warning' | 'inf
  * `[[{ type: 'AllowAnonymous' }]]` when it says so.
  */
 export interface AuthzSection {
-  resources: Array<{ type: string; model: string; relations: Array<{ name: string; kind: 'parent' | 'owner' | 'self' | 'relation'; column: string; target?: string }>; rls?: boolean | 'partial'; source: SourceRef }>;
+  /**
+   * `relations[].typeColumn`: the column that names the principal type of an owner or a named relation; without it the
+   * principal is a user. `relations[].nullable`: a `@Parent(type, { nullable: true })` column, which may hold no parent.
+   * `relations[].unread`: those of the two the build could not read (`CMP001`); their absence then says nothing.
+   */
+  resources: Array<{ type: string; model: string; relations: Array<{ name: string; kind: 'parent' | 'owner' | 'self' | 'relation'; column: string; target?: string; typeColumn?: string; nullable?: true; unread?: Array<'typeColumn' | 'nullable'> }>; rls?: boolean | 'partial'; source: SourceRef }>;
   permissions: Array<{ name: string; declaredIn: 'config' | 'adapter' | 'model'; list?: boolean; fields?: boolean }>;
   entryPoints: Array<{ kind: 'route' | 'socket-command' | 'socket-event' | 'queue-handler' | 'schedule' | 'cli'; id: string; access: PolicyRef[][]; system?: string; source: SourceRef }>;
   /** AUTHZ0xx from the flow pass. */

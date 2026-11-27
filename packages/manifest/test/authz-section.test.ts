@@ -27,6 +27,19 @@ describe('manifest authz section', () => {
     expect(validateFragment(fragment('app', { models: [model('app', 'Post', 'post')], authz }))).to.deep.equal([]);
   });
 
+  it('validates the type column, nullable and unread members of a resource relation', () => {
+    const withRelations = (relations: unknown[]): unknown => ({ ...fragment('app'), authz: { ...section(), resources: [{ type: 'ticket', model: 'app:Ticket', relations, source: src() }] } });
+    const relations = [
+      { name: 'parent', kind: 'parent', column: 'QueueId', target: 'queue', nullable: true },
+      { name: 'parent', kind: 'parent', column: 'LaneId', target: 'lane', unread: ['nullable'] },
+      { name: 'owner', kind: 'owner', column: 'OwnerId', typeColumn: 'OwnerType' },
+      { name: 'watcher', kind: 'relation', column: 'WatcherId', unread: ['typeColumn'] },
+    ];
+    expect(validateFragment(withRelations(relations))).to.deep.equal([]);
+    expect(validateFragment(withRelations([{ name: 'parent', kind: 'parent', column: 'QueueId', target: 'queue', nullable: false }]))).to.not.deep.equal([]);
+    expect(validateFragment(withRelations([{ name: 'owner', kind: 'owner', column: 'OwnerId', unread: ['column'] }]))).to.not.deep.equal([]);
+  });
+
   it('rejects the boolean accessResource of fragments older than the type string', () => {
     const old = { ...model('app', 'Post'), accessResource: true } as unknown as ModelEntry;
     expect(validateFragment(fragment('app', { models: [old] }))).to.not.deep.equal([]);

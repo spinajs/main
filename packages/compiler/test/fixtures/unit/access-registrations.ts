@@ -47,3 +47,5 @@ let col = 'AuthorId';
 col = 'OwnerId';
 registerAccessResource(Other, 'other', { ...late });
 registerAccessResource(Other, 'other', { owner: col });
+class Klass {}
+registerAccessResource(Other, 'other', { owner: Klass });
