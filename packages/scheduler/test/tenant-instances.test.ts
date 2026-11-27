@@ -151,6 +151,7 @@ describe('schedule instances', () => {
       expect(emitJobId('digest', T, null)).to.eq(emitJobId('digest', T));
       expect(emitJobId('digest', T, 'acme')).to.not.eq(emitJobId('digest', T));
       expect(emitJobId('digest', T, 'acme')).to.not.eq(emitJobId('digest', T, 'globex'));
+      expect(emitJobId('digest', T, 'acme')).to.not.eq(emitJobId('acme:digest', T));
       const run = { Id: 'r', Schedule: 'digest', Trigger: 'schedule' as const, ScheduledAt: T };
       expect(runJobId({ ...run, Tenant: 'acme' })).to.eq(emitJobId('digest', T, 'acme'));
       expect(runJobId(run)).to.eq(emitJobId('digest', T));
