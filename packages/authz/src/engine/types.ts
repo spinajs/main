@@ -125,6 +125,8 @@ export interface Nested {
   /** Some decision or data load of the call tree failed: every decision of the tree may rest on it. */
   faulted: boolean;
   readonly tags: Set<string>;
+  /** The earliest validUntil of the nested decisions: no decision above them is valid longer. */
+  until: Date | undefined;
 }
 
 /** Who the models run with. */

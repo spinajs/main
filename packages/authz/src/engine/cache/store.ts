@@ -6,7 +6,7 @@ import { l1Key, memo } from '../context.js';
 import type { MaybePromise } from '../context.js';
 import { isThenable } from '../run.js';
 import { thrownError } from '../vote.js';
-import { audits, nest, withOwnDate } from '../support/misc.js';
+import { audits, nest, nestExpiry, withOwnDate } from '../support/misc.js';
 import { logAt } from '../support/plumbing.js';
 import { CachedDecision } from '../types.js';
 import type { Checked, Engine, NodeLoad, Run } from '../types.js';
@@ -15,6 +15,7 @@ import { ttlOf } from './ttl.js';
 /** Stores a cacheable decision (L1 always, L2 when its tags are known and no invalidate came since the scope was born) and hands its tags to the decisions above. */
 export function remember(engine: Engine, checked: Checked, key: string | undefined, run: Run, tags: () => readonly string[] | undefined): Checked {
   if (run.depth > 0) {
+    nestExpiry(run.nested, checked.decision.validUntil);
     if (checked.uncacheable) run.nested.uncacheable = true;
     else nest(run, tags());
   }

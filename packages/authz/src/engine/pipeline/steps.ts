@@ -226,7 +226,7 @@ function outcomeOf(v: Voted, c: Combination, f: FieldsStep, r: Reason): Outcome 
   const outcome: { -readonly [K in keyof Outcome]: Outcome[K] } = { principal: v.parties.ref, residual: f.allowed ? f.residual : FALSE, roles: mergeRoles(v.votes), fields: f.fields, models: v.models.map((m) => m.name), votes: v.votes };
   if (v.parties.actorRef) outcome.actor = v.parties.actorRef;
   if (r.reason) outcome.reason = r.reason;
-  const validUntil = earliest([...v.votes.map((x) => x.validUntil), v.ceiling.expiresAt, v.delegated?.decision.validUntil, c.typeLevel?.decision.validUntil]);
+  const validUntil = earliest([...v.votes.map((x) => x.validUntil), v.ceiling.expiresAt, v.delegated?.decision.validUntil, c.typeLevel?.decision.validUntil, v.run.nested.until]);
   if (validUntil) outcome.validUntil = validUntil;
   return outcome;
 }

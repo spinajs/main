@@ -13,7 +13,7 @@ import type { Nested, RequestScope, Run } from '../types.js';
 
 export const scopeMap = (scope: RequestScope | undefined): Map<string, unknown> => (scope?.cache instanceof Map ? scope.cache : new Map<string, unknown>());
 
-export const newNested = (): Nested => ({ uncacheable: false, untagged: false, faulted: false, tags: new Set() });
+export const newNested = (): Nested => ({ uncacheable: false, untagged: false, faulted: false, tags: new Set(), until: undefined });
 
 /** Only a top-level check outside summary/covers is an access attempt. */
 export const audits = (run: Run): boolean => run.depth === 0 && run.quiet !== true;
@@ -22,6 +22,14 @@ export const audits = (run: Run): boolean => run.depth === 0 && run.quiet !== tr
 export function nest(run: Run, tags: readonly string[] | undefined): void {
   if (tags === undefined) run.nested.untagged = true;
   else for (const t of tags) run.nested.tags.add(t);
+}
+
+/** An expiry that cannot be dated counts as passed: the decisions above stay out of every cache. */
+export function nestExpiry(nested: Nested, validUntil: unknown): void {
+  if (validUntil === undefined) return;
+  const until = validDate(validUntil);
+  if (until === undefined) nested.uncacheable = true;
+  else if (nested.until === undefined || until.getTime() < nested.until.getTime()) nested.until = until;
 }
 
 export function once<T>(f: () => T): () => T {
