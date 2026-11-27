@@ -102,10 +102,9 @@ describe('OrmKeyStore', () => {
 
     const warnings = (): sinon.SinonSpy => sinon.spy(DI.resolve(Log, ['authn-keys']), 'warn');
 
-    it('treats a key whose revoked_at no converter reads as revoked, through get and listByOwner', async () => {
-      const store = new OrmKeyStore();
-      for (const value of UNREADABLE) {
-        await clearKeys();
+    for (const value of UNREADABLE) {
+      it(`treats a key whose revoked_at holds ${JSON.stringify(value)} as revoked, through get and listByOwner`, async () => {
+        const store = new OrmKeyStore();
         const key = await seed(store, 'k-6');
         await write('k-6', 'revoked_at', value);
         const warn = warnings();
@@ -126,14 +125,12 @@ describe('OrmKeyStore', () => {
           messages.every((m) => m.includes('k-6') && m.includes('revoked_at') && !m.includes(key.thumbprint) && !m.includes(key.jwk.x)),
           value,
         );
-        sinon.restore();
-      }
-    });
+      });
+    }
 
-    it('treats a key whose expires_at no converter reads as expired, and a NULL as no expiry', async () => {
-      const store = new OrmKeyStore();
-      for (const value of UNREADABLE) {
-        await clearKeys();
+    for (const value of UNREADABLE) {
+      it(`treats a key whose expires_at holds ${JSON.stringify(value)} as expired, and a NULL as no expiry`, async () => {
+        const store = new OrmKeyStore();
         await seed(store, 'k-7');
         await seed(store, 'k-8');
         await write('k-7', 'expires_at', value);
@@ -150,9 +147,8 @@ describe('OrmKeyStore', () => {
         assert.strictEqual(plain?.expiresAt, undefined, value);
         assert.strictEqual(isUsableKey(plain!, new Date()), true, value);
         assert.strictEqual(warn.callCount, 2, `${value}: one warning per read of the row, none for the NULL one`);
-        sinon.restore();
-      }
-    });
+      });
+    }
 
     it('still reads a past, a future and a zone-less instant as datetimes, without a warning', async () => {
       const store = new OrmKeyStore();
