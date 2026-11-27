@@ -5,7 +5,7 @@ import { KeyRegistry } from '@spinajs/authn/contracts';
 import type { KeyRecord } from '@spinajs/authn/contracts';
 import { OWNER_TYPES, ownerArg } from './common.js';
 
-const iso = (d?: Date): string => (d ? d.toISOString() : '-');
+const iso = (d?: Date): string => (d === undefined ? '-' : Number.isNaN(d.getTime()) ? 'unreadable' : d.toISOString());
 
 export function keyLine(k: KeyRecord): string {
   return [k.kid, k.alg, k.name ?? '-', `created ${iso(k.createdAt)}`, `expires ${iso(k.expiresAt)}`, `revoked ${iso(k.revokedAt)}`, `last used ${iso(k.lastUsedAt)}`].join('  ');

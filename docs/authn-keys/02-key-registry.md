@@ -79,7 +79,7 @@ The commands run through the `spinajs` bin (`npx spinajs <command>`). They act a
 | Command | Arguments | Options | Effect |
 | --- | --- | --- | --- |
 | `authn:key-add` | `<ownerType>` (`service` or `agent`), `<ownerId>` | exactly one of `--jwk <json>`, `--file <path>`; `--kid <kid>`, `--name <name>`, `--expires <iso>` | Registers a key and prints its kid, algorithm and thumbprint |
-| `authn:key-list` | `<ownerType>` (`user`, `service` or `agent`), `<ownerId>` | none | Prints one line per key: kid, algorithm, name, created, expires, revoked, last used |
+| `authn:key-list` | `<ownerType>` (`user`, `service` or `agent`), `<ownerId>` | none | Prints one line per key: kid, algorithm, name, created, expires, revoked, last used; `-` for none, `unreadable` for a [stored value that is no datetime](03-key-store.md#unreadable-expires_at-or-revoked_at) |
 | `authn:key-revoke` | `<ownerType>`, `<ownerId>`, `<kid>` | none | Revokes the key; fails with `no key <kid> of <type> <id>` when it is not that owner's |
 
 - `--file` takes a JSON JWK or a PEM `PUBLIC KEY` (SPKI). A PEM with `PRIVATE KEY` is refused.

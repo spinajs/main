@@ -30,6 +30,12 @@ export class AuthnKey extends ModelBase<AuthnKey> {
   @DT()
   public revoked_at?: DateTime;
 
+  /** No column: whether the row holds an expires_at, on the rows OrmKeyStore reads. */
+  public expires_at_set?: boolean;
+
+  /** No column: whether the row holds a revoked_at, on the rows OrmKeyStore reads. */
+  public revoked_at_set?: boolean;
+
   @DT()
   public last_used_at?: DateTime;
 
