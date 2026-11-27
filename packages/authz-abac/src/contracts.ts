@@ -23,4 +23,6 @@ export abstract class PolicyStore {
   abstract readonly name: string;
   abstract load(): Promise<readonly Policy[]>;
   abstract version(): Promise<string>;
+  /** True when a read made now would run inside an ORM transaction on this store's connection; absent: unknown, counted as inside. */
+  inTransaction?(): boolean;
 }

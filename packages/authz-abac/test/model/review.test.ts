@@ -5,7 +5,7 @@ import type { DecisionRequest, EvaluationContext, Vote } from '@spinajs/authz';
 import type { Policy } from '../../src/contracts.js';
 import { StaticModel, agentPrincipal, fakeEvaluationContext, fakeModelInitContext, userPrincipal } from '@spinajs/authz-testing';
 
-import { AbacModel, ConfigPolicyStore, DbPolicyStore, MemoryPolicyStore, storesFromConfig } from '../../src/index.js';
+import { AbacModel, ConfigPolicyStore, DbPolicyStore, MemoryPolicyStore, PolicyStore, storesFromConfig } from '../../src/index.js';
 
 const expect = chai.expect;
 
@@ -44,6 +44,57 @@ class GatedStore extends MemoryPolicyStore {
     this.loads++;
     if (this.gate) await this.gate;
     return super.load();
+  }
+}
+
+/** A memory store that holds its next `hold` loads, each with the policies of its start, until released; `inside` plays a read inside a transaction. */
+class HeldStore extends MemoryPolicyStore {
+  hold = 0;
+  loads = 0;
+  inside = true;
+  readonly held: (() => void)[] = [];
+
+  override inTransaction(): boolean {
+    return this.inside;
+  }
+
+  async load(): Promise<readonly Policy[]> {
+    this.loads++;
+    const policies = await super.load();
+    if (this.hold > 0) {
+      this.hold--;
+      await new Promise<void>((resolve) => this.held.push(resolve));
+    }
+    return policies;
+  }
+
+  releaseAll(): void {
+    for (const release of this.held) release();
+  }
+}
+
+/** A third-party store that does not say whether its reads run inside a transaction; its next load can be held. */
+class UnknownStore extends PolicyStore {
+  readonly name = 'unknown';
+  loads = 0;
+  hold = false;
+  release: () => void = () => undefined;
+
+  constructor(private readonly policies: readonly Policy[]) {
+    super();
+  }
+
+  async load(): Promise<readonly Policy[]> {
+    this.loads++;
+    if (this.hold) {
+      this.hold = false;
+      await new Promise<void>((resolve) => (this.release = resolve));
+    }
+    return this.policies;
+  }
+
+  async version(): Promise<string> {
+    return '1';
   }
 }
 
@@ -252,6 +303,168 @@ describe('authz-abac: field sets, reloads and decided conditions (review 4-8)', 
       expect(m.capabilities.sync).to.equal('always');
       expect(m.evaluate(req(), ctx())).to.not.be.instanceOf(Promise);
     });
+  });
+
+  describe('checks share the reload outside a transaction and read for themselves inside one (tq-01h)', () => {
+    const settle = () => new Promise((resolve) => setTimeout(resolve, 5));
+    const denies = async (m: AbacModel): Promise<boolean> => (await m.evaluate(req(), ctx())).denyWhen === TRUE;
+    const overlapping = (m: AbacModel, n: number) => {
+      const state = { settled: 0 };
+      const checks = Array.from({ length: n }, async () => {
+        const denied = await denies(m);
+        state.settled++;
+        return denied;
+      });
+      return { state, all: () => Promise.all(checks) };
+    };
+
+    it('outside a transaction, overlapping checks wait for the one background reload: one read per invalidation', async () => {
+      const store = new HeldStore([policy('read')]);
+      store.inside = false;
+      const m = await model({ stores: [store] });
+      let loads = store.loads;
+      for (let i = 0; i < 5; i++) await m.evaluate(req(), ctx());
+      expect(store.loads - loads, 'reads per check when nothing is behind').to.equal(0);
+      store.hold = 1;
+      store.put(policy('no-read', { effect: 'deny' }));
+      loads = store.loads;
+      m.invalidate(['policy']);
+      const ten = overlapping(m, 10);
+      await settle();
+      expect(ten.state.settled, 'checks settled before the reload landed').to.equal(0);
+      store.releaseAll();
+      expect(await ten.all()).to.deep.equal(Array.from({ length: 10 }, () => true));
+      expect(store.loads - loads, 'reads for one invalidation and 10 overlapping checks').to.equal(1);
+    });
+
+    it('inside a transaction, each check reads the policies itself and the model keeps nothing it read', async () => {
+      const store = new HeldStore([policy('read')]);
+      const m = await model({ stores: [store] });
+      store.hold = 1;
+      store.put(policy('no-read', { effect: 'deny' }));
+      m.invalidate(['policy']);
+      let loads = store.loads;
+      const ten = overlapping(m, 10);
+      await settle();
+      expect(ten.state.settled, 'checks that waited for the held background reload').to.equal(10);
+      expect(await ten.all()).to.deep.equal(Array.from({ length: 10 }, () => true));
+      expect(store.loads - loads, 'reads of 10 overlapping checks inside a transaction').to.equal(10);
+      loads = store.loads;
+      expect(await denies(m)).to.equal(true);
+      expect(store.loads - loads, 'a later check inside reads again: nothing was kept').to.equal(1);
+      expect(m.version()).to.match(/~$/);
+      store.releaseAll();
+      await settle();
+      loads = store.loads;
+      expect(await denies(m)).to.equal(true);
+      expect(store.loads - loads, 'reads once the background reload landed').to.equal(0);
+      expect(m.version()).to.not.match(/~$/);
+    });
+
+    it('a check inside a transaction evaluates on the read it started, and the next one reads again after an invalidation', async () => {
+      const store = new HeldStore([policy('read')]);
+      const m = await model({ stores: [store] });
+      store.hold = 2;
+      m.invalidate(['policy']);
+      const first = denies(m);
+      await settle();
+      store.put(policy('no-read', { effect: 'deny' }));
+      m.invalidate(['policy:no-read']);
+      store.held[1]();
+      expect(await first, 'a check evaluates on the read it started').to.equal(false);
+      expect(await denies(m), 'the next check after the invalidation').to.equal(true);
+      store.releaseAll();
+    });
+
+    it('the background reload, not a check inside a transaction, makes the model current', async () => {
+      const store = new HeldStore([policy('read')]);
+      const m = await model({ stores: [store] });
+      store.hold = 1;
+      m.invalidate(['policy']);
+      store.put(policy('no-read', { effect: 'deny' }));
+      m.invalidate(['policy:no-read']);
+      expect(await denies(m)).to.equal(true);
+      expect(m.version()).to.match(/~$/);
+      store.releaseAll();
+      await settle();
+      store.inside = false;
+      expect(await denies(m)).to.equal(true);
+      expect(m.version()).to.not.match(/~$/);
+    });
+
+    it('a check inside a transaction keeps nothing it read, also when its read lands after the background reload', async () => {
+      const store = new HeldStore([policy('read')]);
+      const m = await model({ stores: [store] });
+      store.hold = 2;
+      m.invalidate(['policy']);
+      // Stands for a row only this transaction sees: the held background reload read before it.
+      store.put(policy('no-read', { effect: 'deny' }));
+      const inside = denies(m);
+      await settle();
+      store.held[0]();
+      await settle();
+      store.held[1]();
+      expect(await inside, 'the check answers from its own read').to.equal(true);
+      await settle();
+      store.inside = false;
+      expect(await denies(m), 'the model holds the background reload, not the inside read').to.equal(false);
+    });
+
+    it('a store that does not say whether it is in a transaction counts as inside: each check reads itself, nothing is kept', async () => {
+      const store = new UnknownStore([policy('no-read', { effect: 'deny' })]);
+      const m = await model({ stores: [store] });
+      store.hold = true;
+      m.invalidate(['policy']);
+      let loads = store.loads;
+      const three = overlapping(m, 3);
+      await settle();
+      expect(three.state.settled, 'checks that waited for the held background reload').to.equal(3);
+      expect(await three.all()).to.deep.equal([true, true, true]);
+      expect(store.loads - loads, 'reads of three overlapping checks').to.equal(3);
+      loads = store.loads;
+      expect(await denies(m)).to.equal(true);
+      expect(store.loads - loads, 'a later check reads again: nothing was kept').to.equal(1);
+      store.release();
+      await settle();
+      loads = store.loads;
+      expect(await denies(m)).to.equal(true);
+      expect(store.loads - loads, 'reads once the background reload landed').to.equal(0);
+    });
+
+    for (const inside of [false, true]) {
+      it(`a failed read fails the check, never an empty policy set, and the next check reads again (${inside ? 'inside' : 'outside'} a transaction)`, async () => {
+        const store = new HeldStore([policy('no-read', { effect: 'deny' })]);
+        store.inside = inside;
+        const m = await model({ stores: [store] });
+        const load = MemoryPolicyStore.prototype.load.bind(store);
+        let down = true;
+        store.load = async () => {
+          if (down) throw new Error('db down');
+          return load();
+        };
+        m.invalidate(['policy']);
+        const failure = await Promise.resolve(m.evaluate(req(), ctx())).then(
+          () => undefined,
+          (e: unknown) => e,
+        );
+        expect(failure).to.be.instanceOf(Error);
+        down = false;
+        expect(await denies(m)).to.equal(true);
+      });
+
+      it(`through the engine, a read that hangs denies with model_error at modelTimeoutMs (${inside ? 'inside' : 'outside'} a transaction)`, async () => {
+        const reg = registry();
+        const store = new HeldStore([policy('read')]);
+        store.inside = inside;
+        const m = await model({ stores: [store] }, reg);
+        const a = new Authorizer({ domain: 'root', models: [m], registry: reg, conditions: new DefaultConditionCompiler(), clock: () => NOW, config: { modelTimeoutMs: 30 } });
+        store.hold = 2;
+        a.invalidate(['policy']);
+        const d = await a.check({ principal: alice, permission: 'file:read', resource: F1 });
+        expect([d.allowed, d.reason?.code]).to.deep.equal([false, 'model_error']);
+        store.releaseAll();
+      });
+    }
   });
 
   describe('conditions decided without the row (I4)', () => {

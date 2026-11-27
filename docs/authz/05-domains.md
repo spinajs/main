@@ -128,6 +128,7 @@ authz: {
 - **Registration makes a model available, `models` activates it.** A level activates only what its `models` list names, so a registration in root does not leak into other domains. A level without `models` activates nothing of its own and keeps what its ancestors activated.
 - **A model instance initialises once.** `init` runs in the first domain that lists it; other domains replay its permissions, native filters and relations. A child sees every registration of its parent.
 - **Changes reach descendants.** A change published for domain `X` invalidates `X` and every domain below it. A change without a domain invalidates every domain.
+- **Resolve each domain's service at startup when its models read the database in `init`.** The first `service(name)` boots the domain and its models' `init` reads run in the caller's ORM transaction; two first calls from one transaction, one of them inside a nested `transaction()`, wait for each other ([Transactions](../orm/08-transactions.md#important-behaviour)).
 - **Create domains after `Configuration` is resolved.** `create()` reads `authz.domains.<name>.parent` synchronously.
 - **Each domain has its own L2 cache.** Register a custom `DecisionCache` as a factory so each domain gets a fresh one ([Caching](06-caching-and-change-propagation.md)).
 

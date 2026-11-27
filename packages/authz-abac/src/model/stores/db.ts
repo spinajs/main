@@ -4,7 +4,7 @@ import type { AuthzTx, PrincipalRef } from '@spinajs/authz';
 // Registers DbChangeLog and its migration: put and delete append to it.
 import '@spinajs/authz-orm/changelog';
 import type { Policy } from '../../contracts.js';
-import { UniqueViolation } from '@spinajs/orm';
+import { UniqueViolation, modelDriver } from '@spinajs/orm';
 import type { ISelectQueryBuilder } from '@spinajs/orm';
 import { DateTime } from 'luxon';
 
@@ -35,6 +35,10 @@ export class DbPolicyStore extends PolicyStore {
 
   async load(): Promise<readonly Policy[]> {
     return (await this.records()).map(recordToPolicy);
+  }
+
+  inTransaction(): boolean {
+    return modelDriver(PolicyRecord).CurrentTransaction !== undefined;
   }
 
   async version(): Promise<string> {

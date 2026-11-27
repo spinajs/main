@@ -28,4 +28,8 @@ export class ConfigPolicyStore extends PolicyStore {
   async version(): Promise<string> {
     return this.hash;
   }
+
+  inTransaction(): boolean {
+    return false;
+  }
 }
