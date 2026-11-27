@@ -71,16 +71,21 @@ async function extractArchive(archive: string, srcPath: string, destination: str
 
     try {
       await mkdir(destination, { recursive: true });
-      for (const { entry, target, isDirectory } of targets) {
+    } catch (err) {
+      throw new IOFail(`Cannot unzip ${archive}: cannot create the destination ${destination}`, err);
+    }
+
+    for (const { entry, target, isDirectory } of targets) {
+      try {
         if (isDirectory) {
           await mkdir(target, { recursive: true });
           continue;
         }
         await mkdir(dirname(target), { recursive: true });
         await pipeline(entry.stream(), createWriteStream(target));
+      } catch (err) {
+        throw new IOFail(`Cannot unzip ${archive}: cannot write entry ${JSON.stringify(entry.path)}`, err);
       }
-    } catch (err) {
-      throw new IOFail(`Cannot unzip file ${archive}`, err);
     }
   } finally {
     await handle.close();
