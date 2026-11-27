@@ -83,7 +83,7 @@ Key schema: `SessionId` (`HASH`, type `S`). No secondary indexes. TTL attribute:
 | `Expiration` | `N` | Absolute expiration in epoch **seconds** (fractional, so the millisecond is kept). Absent means the session never expires. |
 | `Data` | `S` | Session data as JSON, written by `encodeSessionData` (keeps `Map`, `Set` and luxon `DateTime`). |
 
-An item without a readable `Subject` reads as absent.
+An item without a readable `Subject` (a principal key with a non-empty type and id) reads as absent.
 
 An unreadable `ImpersonatorId` or `ExternalKey` is fail-closed because the revocations match on them: `deleteBySubject(admin, { includeImpersonations: true })` and `deleteByExternalKey` filter on the exact `S` value, so they cannot find such an item. Every reader treats it as expired instead: `restore` answers `null`, listings leave it out, `touch` does not extend it, and `deleteBySubject(subject)` deletes it without counting it. The item itself stays until that subject revocation or its TTL. Each read logs a warning naming the subject and the attribute, never the session id.
 
