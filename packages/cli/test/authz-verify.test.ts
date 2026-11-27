@@ -84,6 +84,7 @@ describe('spinajs authz:verify -k', function () {
   this.timeout(60000);
 
   let lines: string[];
+  let cmd: AuthzVerifyCommand;
   const spinajs = async (...args: string[]) => {
     DI.register(() => ['node', 'spinajs', 'authz:verify', '--ir', fixture('authz.ir.json'), '-a', fixture('bounded.assertions.js'), ...args]).as('__cli_argv_provider__');
     await DI.resolve(Cli);
@@ -94,7 +95,7 @@ describe('spinajs authz:verify -k', function () {
     DI.register(VerifyCliConf).as(Configuration);
     await DI.resolve(Configuration);
     lines = [];
-    const cmd = await DI.resolve(AuthzVerifyCommand);
+    cmd = await DI.resolve(AuthzVerifyCommand);
     (cmd as unknown as { Print: (l: string) => void }).Print = (l) => lines.push(l);
     process.exitCode = undefined;
   });
@@ -103,16 +104,28 @@ describe('spinajs authz:verify -k', function () {
     process.exitCode = undefined;
   });
 
-  for (const k of ['0', '-1', '1.5', 'abc', '']) {
+  /** Replaces the verifier run: a large bound must be shown to reach it without paying for it. */
+  const recordBounds = () => {
+    const bounds: number[] = [];
+    cmd.execute = (options) => {
+      bounds.push(options.bound);
+      return Promise.resolve();
+    };
+    return bounds;
+  };
+
+  for (const k of ['0', '-1', '1.5', 'abc', '', '65', '5000000', '4294967296']) {
     it(`refuses -k '${k}' as a usage error before verifying anything`, async () => {
+      const bounds = recordBounds();
       let error: unknown;
       try {
         await spinajs('-k', k);
       } catch (e) {
         error = e;
       }
-      expect(String(error)).to.equal(`CommanderError: error: option '-k, --bound <k>' argument '${k}' is invalid. the bound must be a whole number of at least 1`);
+      expect(String(error)).to.equal(`CommanderError: error: option '-k, --bound <k>' argument '${k}' is invalid. The bound must be a whole number from 1 to 64.`);
       expect(error).to.be.instanceOf(CommanderError).and.include({ code: 'commander.invalidArgument', exitCode: 1 });
+      expect(bounds).to.deep.equal([]);
       expect(lines).to.deep.equal([]);
       expect(process.exitCode).to.equal(undefined);
     });
@@ -122,6 +135,17 @@ describe('spinajs authz:verify -k', function () {
     await spinajs('-k', '1');
     expect(lines).to.deep.equal(['warn AZV003 isolated(folder)  not decided: isolated(folder) needs k >= 2', '0 error(s), 1 warning(s), 0 info']);
     expect(process.exitCode).to.equal(undefined);
+  });
+
+  it('searches two objects per type with -k 2', async () => {
+    await spinajs('-k', '2');
+    expect(lines).to.deep.equal(['ok   AZV002 isolated(folder)  verified up to k=2', '0 error(s), 0 warning(s), 1 info']);
+  });
+
+  it('accepts -k 64, the largest bound', async () => {
+    const bounds = recordBounds();
+    await spinajs('-k', '64');
+    expect(bounds).to.deep.equal([64]);
   });
 
   it('searches three objects per type without -k', async () => {
