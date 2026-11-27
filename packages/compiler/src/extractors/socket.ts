@@ -52,6 +52,12 @@ export const SOCKET_ACCESS_POLICY = 'SocketAccessPolicy';
 
 type SocketScope = 'handler' | 'class';
 
+/** http guard decorators, each with the socket form that `@spinajs/http-socket` mounts in its place. */
+const HTTP_GUARDS = [
+  ['Access', 'SocketAccess'],
+  ['Policy', 'SocketPolicy'],
+] as const;
+
 /** The `also` policies of `@SocketAccess(permission, { also: [A, B] })`, by class name. */
 function alsoOf(node: ts.HasDecorators): string[] {
   const options = findDecorator(node, 'SocketAccess')?.args[1];
@@ -63,7 +69,11 @@ function alsoOf(node: ts.HasDecorators): string[] {
 /** `@SocketAccess` joins the `@SocketPolicy` groups as one more alternative: its policy and the `also` policies, ANDed. */
 function guardsOf(node: ts.HasDecorators, scope: SocketScope, ctx: ExtractorContext): { access?: string[]; policies: PolicyRef[][] } {
   const access = socketAccessOf(node, ctx);
-  const policies = policyGroupsOf(node, ctx, scope === 'class' ? 'class' : 'route');
+  const policies = policyGroupsOf(node, ctx, scope === 'class' ? 'class' : 'route', 'socket');
+  for (const [http, socket] of HTTP_GUARDS) {
+    const written = findDecorator(node, http);
+    if (written) ctx.warn('AUTHZ013', `@${http} guards no socket handler: @spinajs/http-socket mounts @${socket}, so this check never runs here`, written.node);
+  }
   if (access) policies.push([{ type: SOCKET_ACCESS_POLICY, options: [scope] }, ...alsoOf(node).map((type) => ({ type, options: [] as unknown[] }))]);
   return { ...(access ? { access } : {}), policies };
 }

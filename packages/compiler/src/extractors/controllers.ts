@@ -137,7 +137,7 @@ function routeOf(m: ts.MethodDeclaration, mountPath: string, className: string, 
   const pagination = sig && declaredPaginationOf(m, sig, params, { owner: className, handler, abstract }, ctx);
   return {
     method: ROUTE_METHODS[dec.name], path, handler, fullPath, params,
-    returnType, ...(pagination ? { pagination } : {}), policies: policyGroupsOf(m, ctx, 'route'), middlewares,
+    returnType, ...(pagination ? { pagination } : {}), policies: policyGroupsOf(m, ctx, 'route', 'http'), middlewares,
     ...(access ? { access } : {}), ...(allowAnonymous ? { allowAnonymous } : {}), ...(reason ? { public: reason } : {}), ...(idempotency ? { idempotency } : {}), ...(doc ? { doc } : {}),
     source: ctx.sourceRef(m),
   };
@@ -155,7 +155,7 @@ function controllerOf(node: NamedClass, ctx: ExtractorContext): ControllerEntry 
   const deprecated = isDeprecated(node, ctx);
   return {
     id: `${ctx.packageName}:${node.name.text}`, className: node.name.text, basePath, ...(basePathConfig ? { basePathConfig } : {}), mountPath,
-    policies: policyGroupsOf(node, ctx, 'class'), middlewares: middlewaresOf(node, ctx),
+    policies: policyGroupsOf(node, ctx, 'class', 'http'), middlewares: middlewaresOf(node, ctx),
     ...(access ? { access } : {}), ...(allowAnonymous ? { allowAnonymous } : {}), ...(reason ? { public: reason } : {}),
     routes: node.members.filter(ts.isMethodDeclaration).map((m) => routeOf(m, mountPath, node.name.text, ctx, deprecated)).filter((r): r is RouteEntry => !!r),
     ...(condition ? { condition } : {}), source: ctx.sourceRef(node),
@@ -184,7 +184,7 @@ export function routeOverridesOf(node: NamedClass, ancestor: ControllerEntry, mo
       handler: base.handler,
       ...(route ? { route } : {}),
       params: route?.params ?? paramsOf(m, fullPath, `${node.name.text}.${base.handler}`, ctx),
-      policies: policyGroupsOf(m, ctx, 'route'), middlewares: middlewaresOf(m, ctx),
+      policies: policyGroupsOf(m, ctx, 'route', 'http'), middlewares: middlewaresOf(m, ctx),
       ...(access ? { access } : {}), ...(allowAnonymous ? { allowAnonymous } : {}), ...(reason ? { public: reason } : {}), ...(doc ? { doc } : {}),
       source: ctx.sourceRef(m),
     }];
