@@ -8,7 +8,7 @@ import { QueryContext } from '@spinajs/orm';
 import type { OrmDriver } from '@spinajs/orm';
 
 import { AUTHZ_POLICY_TABLE, AbacModel, AbacPolicyHandler, AbacPolicyReader, AbacScopeForgetter, DbPolicyStore, PolicyStore } from '../../src/index.js';
-import { DB_KINDS, bootDb, rawQuery } from '../support/db.js';
+import { DB_KINDS, bootDb, rawQuery, unreadableExpiry } from '../support/db.js';
 import type { TestDb } from '../support/db.js';
 
 const expect = chai.expect;
@@ -177,6 +177,21 @@ for (const kind of DB_KINDS) {
       );
       expect(e).to.be.instanceOf(AuthzConfigError);
       expect((e as Error).message).to.match(/^authz_policy: a row holds a JSON column that does not parse \(/);
+    });
+
+    // As for JSON, the admin API refuses while the row is there: the repair is SQL or DbPolicyStore.delete.
+    it('a row whose expiry is unreadable fails the forgetter and the admin put and delete', async () => {
+      await rawQuery(db.driver, `INSERT INTO ${AUTHZ_POLICY_TABLE} (id, effect, permissions, scope_type, scope_id, expires_at, created_at) VALUES ('broken', 'permit', '["file:read"]', 'project', 'p1', ${unreadableExpiry(kind)}, '2026-10-01 00:00:00')`, [], QueryContext.Insert);
+      const refused = 'authz_policy: the expires_at of policy "broken" is not a datetime the store can read';
+      const attempts = [() => write((tx) => new AbacScopeForgetter().forget(P1, context(), tx)), () => run({ kind: 'policy.delete', id: 'broken' }), () => run(put({ id: 'broken', effect: 'deny', permissions: ['file:read'], scope: P1 }))];
+      for (const attempt of attempts) {
+        const e = await attempt().then(
+          () => undefined,
+          (err: unknown) => err,
+        );
+        expect(e).to.be.instanceOf(AuthzConfigError);
+        expect((e as Error).message).to.equal(refused);
+      }
     });
   });
 }

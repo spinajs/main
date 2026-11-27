@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { InvalidArgumentError } from 'commander';
 import { CliCommand, Command, Option } from '../index.js';
 
 interface AssertionSet {
@@ -31,11 +32,20 @@ interface AuthzVerifyOptions {
 
 const isAssertionSet = (v: unknown): v is AssertionSet => typeof v === 'object' && v !== null && Array.isArray((v as { assertions?: unknown }).assertions);
 
+/** Cost grows between k² and k³: 64 took about 19 s and 674 MB on a two-type policy, 128 took 78 s and 1.7 GB; past 2^32 - 1 the engine throws a RangeError. */
+const MAX_BOUND = 64;
+
+/** Below one object per type the bounded engine has no resource to search and crashes; digits only, so `2abc` and `1e1` fail too. */
+function parseBound(value: string): number {
+  if (!/^[1-9][0-9]*$/.test(value) || Number(value) > MAX_BOUND) throw new InvalidArgumentError(`The bound must be a whole number from 1 to ${MAX_BOUND}.`);
+  return Number(value);
+}
+
 @Command('authz:verify', 'Checks the authorization assertions of an app against its policy IR')
 @Option('--ir <path>', false, 'canonical policy IR (JSON)', 'authz.ir.json')
 @Option('-a, --assertions <path>', false, 'module whose default export is defineAssertions(...)', 'authz.assertions.js')
 @Option({ flags: '-f, --format <format>', description: 'output format', defaultValue: 'text', choices: ['text', 'json', 'github'] })
-@Option('-k, --bound <k>', false, 'objects per type for the bounded engine', 3, (v: string) => Number.parseInt(v, 10))
+@Option('-k, --bound <k>', false, `objects per type for the bounded engine, 1 to ${MAX_BOUND}`, 3, parseBound)
 @Option('--require-solver', false, 'report a missing z3-solver (AZV090) as an error')
 @Option({ flags: '--fail-on <severity>', description: 'severity that sets a non-zero exit code', defaultValue: 'error', choices: ['warning', 'error'] })
 export class AuthzVerifyCommand extends CliCommand {

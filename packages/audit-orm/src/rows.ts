@@ -1,5 +1,5 @@
 import { AUDIT_KINDS, AUDIT_OUTCOMES, AuditConfigError, ERASURE, canonicalJson, payloadHash } from '@spinajs/audit';
-import type { AuditEvent, StoredAuditEvent } from '@spinajs/audit';
+import type { AuditEvent, AuditSubject, StoredAuditEvent } from '@spinajs/audit';
 import { DI } from '@spinajs/di';
 import { Orm, instantFromDb } from '@spinajs/orm';
 import type { IWhereBuilder, OrmDriver } from '@spinajs/orm';
@@ -20,6 +20,13 @@ export function erasureRecords(this: IWhereBuilder<unknown>): void {
 export function exceptErasureRecords(this: IWhereBuilder<unknown>): void {
   this.where('kind', '<>', ERASURE.kind);
   this.orWhere('action', '<>', ERASURE.action);
+}
+
+/** A where clause for the rows of `subject`, its type and id compared byte for byte. */
+export function ofSubject(subject: AuditSubject): (this: IWhereBuilder<unknown>) => void {
+  return function (this: IWhereBuilder<unknown>) {
+    this.whereExactly('subject_type', subject.type).whereExactly('subject_id', subject.id);
+  };
 }
 
 /** A row of a trail table as a select without a model returns it: column names to driver values. */
