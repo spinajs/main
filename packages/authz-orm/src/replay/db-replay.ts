@@ -1,6 +1,6 @@
 import { AuthzConfigError, DecisionReplay, PolicyHashSource, ReplayBusy, ReplayInTransaction, SYSTEM, changeLog, parseResourceKey, runWithPrincipal } from '@spinajs/authz';
 import type { ReplayOptions, ReplayReport, ResourceRef } from '@spinajs/authz';
-import { AttributeHistoryContributors, HistoryContributors, StoredPolicySplicers, replayDecision, replayVerdict } from '@spinajs/authz-ir';
+import { AttributeHistoryContributors, HistoryContributors, StoredPolicySplicers, changeLogReplay, replayDecision, replayVerdict } from '@spinajs/authz-ir';
 import type { ReplayDeps } from '@spinajs/authz-ir';
 import { DI, Injectable, Singleton } from '@spinajs/di';
 
@@ -35,7 +35,7 @@ async function depsOf(config: ReplayConfig): Promise<ReplayDeps> {
   const attributes = attributeContributor();
   return {
     ...(attributes === undefined ? {} : { attributes }),
-    log: changeLog(),
+    ...changeLogReplay(changeLog()),
     // A hash readPolicyVersion would refuse names no stored version.
     loadPolicy: async (h) => (POLICY_HASH.test(h) ? (await readPolicyVersion(h))?.ir : undefined),
     contributors: contributors(),

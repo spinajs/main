@@ -183,7 +183,7 @@ await connection.schema().alterTable('invoices', (table) => {
 | MSSQL | `COLLATE Latin1_General_100_BIN2`, and a `string()` column is written `NVARCHAR(n)`: a binary collation on `VARCHAR` limits it to code page 1252 |
 | SQLite | none: `BINARY` is the default collation |
 
-MySQL's `_bin` collations and MSSQL's `=` still ignore trailing blanks. To compare a column that is not `exact()` byte for byte, use `SqlExpressions.equalsExactly()`; see [SQL helpers](17-sql-helpers.md#dialect-expressions).
+MySQL's `_bin` collations and MSSQL's `=` still ignore trailing blanks. To compare byte for byte, trailing blanks included, use `whereExactly(column, value)` on a builder, or `SqlExpressions.equalsExactly()` in raw SQL; see [SQL helpers](17-sql-helpers.md#dialect-expressions).
 
 ### Indexes
 
