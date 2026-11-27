@@ -31,15 +31,14 @@ interface Entry {
   readonly until: number;
 }
 
-interface Pending {
-  readonly rows: Promise<Rows>;
-  readonly at: number;
-}
-
-interface Snapshot {
-  readonly generation: number;
-  readonly at: number;
-  readonly rows: Rows | Promise<Rows>;
+class Snapshot {
+  constructor(
+    readonly generation: number,
+    /** Order of the read that stored it; an older read never replaces it. */
+    readonly started: number,
+    readonly at: number,
+    readonly rows: Rows,
+  ) {}
 }
 
 const MEMO_PREFIX = '\u0000rbac:assignments:';
@@ -54,17 +53,18 @@ const SET_PREFIX = '%set:';
  *   time; new rows arrive with an invalidate). So rows read for `at` serve any request whose now is
  *   at or after it, and `collect` re-checks expiry against ctx.now; a request before `at` reads anew.
  * - Every invalidate moves the generation. A load that started in an older generation answers its
- *   own callers but stores nothing, and later reads never join it; a ctx.cache snapshot of an older
- *   generation is not reused.
- * - A failed load is never stored, at either level: its callers get the rejection, the next read
- *   goes to the store.
- * - Only promises and settled rows are memoised, never a placeholder.
+ *   own caller but stores nothing; a ctx.cache snapshot of an older generation is not reused.
+ * - Only settled rows are kept, at either level; a read that finds no settled rows loads for itself.
+ *   A load still in flight is never shared: inside a transaction, a caller in a savepoint that
+ *   awaited a load another caller issued on the enclosing level would wait for a statement queued
+ *   behind its own savepoint. So concurrent first reads of a subject each go to the store.
+ * - A failed load is never stored: its caller gets the rejection, the next read goes to the store.
  */
 export class AssignmentCache {
   private generation = 0;
   private loads = 0;
+  private reads = 0;
   private readonly entries = new Map<string, Entry>();
-  private readonly pending = new Map<string, Pending>();
 
   constructor(private readonly store: AssignmentStore, private readonly opts: AssignmentCacheOptions) {}
 
@@ -79,28 +79,20 @@ export class AssignmentCache {
     for (const s of subjects) bySubject.set(subjectKey(s), s);
     const memoKey = MEMO_PREFIX + JSON.stringify([...bySubject.keys()]);
     const at = ctx.now.getTime();
-    const memo = ctx.cache.get(memoKey) as Snapshot | undefined;
-    if (opts.fresh !== true && memo !== undefined && memo.generation === this.generation && memo.at <= at) {
+    const memo = ctx.cache.get(memoKey);
+    if (opts.fresh !== true && memo instanceof Snapshot && memo.generation === this.generation && memo.at <= at) {
       Perf.count('authz.rbac.assignments.hit');
       return memo.rows;
     }
     const generation = this.generation;
+    const started = ++this.reads;
+    const keep = (value: Rows): Rows => {
+      const current = ctx.cache.get(memoKey);
+      if (this.generation === generation && !(current instanceof Snapshot && current.generation === generation && current.started > started)) ctx.cache.set(memoKey, new Snapshot(generation, started, at, value));
+      return value;
+    };
     const rows = this.load(bySubject, ctx.now, opts.fresh === true);
-    if (!(rows instanceof Promise)) {
-      ctx.cache.set(memoKey, { generation, at, rows });
-      return rows;
-    }
-    const snapshot: Snapshot = { generation, at, rows };
-    ctx.cache.set(memoKey, snapshot);
-    rows.then(
-      (value) => {
-        if (ctx.cache.get(memoKey) === snapshot) ctx.cache.set(memoKey, { generation, at, rows: value });
-      },
-      () => {
-        if (ctx.cache.get(memoKey) === snapshot) ctx.cache.delete(memoKey);
-      },
-    );
-    return rows;
+    return rows instanceof Promise ? rows.then(keep) : keep(rows);
   }
 
   /**
@@ -128,7 +120,7 @@ export class AssignmentCache {
   private load(subjects: ReadonlyMap<string, AssignmentSubject>, at: Date, fresh = false): Rows | Promise<Rows> {
     const now = at.getTime();
     const clock = this.opts.clock.now().getTime();
-    const parts = new Map<string, Rows | Promise<Rows>>();
+    const parts = new Map<string, Rows>();
     const missing: string[] = [];
     for (const key of subjects.keys()) {
       if (fresh) {
@@ -144,49 +136,29 @@ export class AssignmentCache {
         parts.set(key, entry.rows);
         continue;
       }
-      const pending = this.pending.get(key);
-      if (pending !== undefined && pending.at <= now) parts.set(key, pending.rows);
-      else missing.push(key);
+      missing.push(key);
     }
     Perf.count(missing.length > 0 ? 'authz.rbac.assignments.miss' : 'authz.rbac.assignments.hit');
-    if (missing.length > 0) for (const [key, rows] of this.fetch(missing, subjects, at)) parts.set(key, rows);
-    const ordered = [...subjects.keys()].map((key) => parts.get(key)!);
-    if (!ordered.some((p) => p instanceof Promise)) return Object.freeze((ordered as Rows[]).flat());
-    return Promise.all(ordered).then((all) => Object.freeze(all.flat()));
+    const ordered = (fetched: ReadonlyMap<string, Rows>) => Object.freeze([...subjects.keys()].flatMap((key) => parts.get(key) ?? fetched.get(key)!));
+    if (missing.length === 0) return ordered(new Map());
+    return this.fetch(missing, subjects, at).then(ordered);
   }
 
   /** One store read for `keys`; its rows are stored only if no invalidate came since it started. */
-  private fetch(keys: readonly string[], subjects: ReadonlyMap<string, AssignmentSubject>, at: Date): Map<string, Promise<Rows>> {
+  private async fetch(keys: readonly string[], subjects: ReadonlyMap<string, AssignmentSubject>, at: Date): Promise<Map<string, Rows>> {
     const generation = this.generation;
     const started = ++this.loads;
     const until = this.opts.clock.now().getTime() + this.opts.ttlMs;
-    const mine = new Map<string, Promise<Rows>>();
-    const settle = () => {
-      for (const [key, rows] of mine) if (this.pending.get(key)?.rows === rows) this.pending.delete(key);
-    };
-    const batch = Promise.resolve()
-      .then(() =>
-        this.store.forSubjects(
-          keys.map((k) => subjects.get(k)!),
-          at,
-        ),
-      )
-      .then((rows) => {
-        const buckets = new Map<string, Assignment[]>(keys.map((k) => [k, []]));
-        // A row of a subject not asked for is dropped; a row whose subject cannot be read fails the load.
-        for (const row of rows.map(frozenData)) buckets.get(subjectKey(row.subject))?.push(row);
-        const out = new Map<string, Rows>([...buckets].map(([k, list]) => [k, Object.freeze(list)]));
-        settle();
-        if (this.generation === generation) for (const [key, list] of out) this.keep(key, { rows: list, started, at: at.getTime(), until });
-        return out;
-      });
-    batch.catch(settle);
-    for (const key of keys) {
-      const rows = batch.then((out) => out.get(key)!);
-      mine.set(key, rows);
-      this.pending.set(key, { rows, at: at.getTime() });
-    }
-    return mine;
+    const rows = await this.store.forSubjects(
+      keys.map((k) => subjects.get(k)!),
+      at,
+    );
+    const buckets = new Map<string, Assignment[]>(keys.map((k) => [k, []]));
+    // A row of a subject not asked for is dropped; a row whose subject cannot be read fails the load.
+    for (const row of rows.map(frozenData)) buckets.get(subjectKey(row.subject))?.push(row);
+    const out = new Map<string, Rows>([...buckets].map(([k, list]) => [k, Object.freeze(list)]));
+    if (this.generation === generation) for (const [key, list] of out) this.keep(key, { rows: list, started, at: at.getTime(), until });
+    return out;
   }
 
   private keep(key: string, entry: Entry): void {
@@ -199,12 +171,10 @@ export class AssignmentCache {
 
   private drop(match: (key: string) => boolean): void {
     for (const key of [...this.entries.keys()]) if (match(key)) this.entries.delete(key);
-    for (const key of [...this.pending.keys()]) if (match(key)) this.pending.delete(key);
   }
 
   private clear(): void {
     this.entries.clear();
-    this.pending.clear();
   }
 }
 
