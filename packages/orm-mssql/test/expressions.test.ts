@@ -3,7 +3,6 @@ import 'mocha';
 import { expect } from 'chai';
 import '@spinajs/log';
 import { DI } from '@spinajs/di';
-import { NotSupported } from '@spinajs/exceptions';
 import { QueryContext, SqlExpressions } from '@spinajs/orm';
 
 import { MsSqlOrmDriver } from '../src/index.js';
@@ -50,7 +49,14 @@ describe('mssql sql expressions', function () {
     expect(driver.ago(2, 'hour').Query).to.eq('(DATEADD(hour, -2, SYSDATETIMEOFFSET()))');
   });
 
-  it('refuses a row lock: MSSQL takes it as a table hint', () => {
-    expect(() => driver.select().from('t').forUpdate().toDB()).to.throw(NotSupported);
+  it('takes a row lock as a table hint after the table', () => {
+    const sql = (lock: 'update' | 'share') => {
+      const select = driver.select().from('t').where('a', 1);
+      return (lock === 'update' ? select.forUpdate() : select.forShare()).toDB().expression;
+    };
+
+    expect(sql('update')).to.eq('SELECT * FROM [t] WITH (UPDLOCK, ROWLOCK) WHERE [a] = ?');
+    expect(sql('share')).to.eq('SELECT * FROM [t] WITH (REPEATABLEREAD, ROWLOCK) WHERE [a] = ?');
+    expect(driver.select().from('t').toDB().expression).to.eq('SELECT * FROM [t]');
   });
 });

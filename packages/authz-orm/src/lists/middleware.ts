@@ -107,7 +107,6 @@ function rowsLeft(query: SyncStatement, conditions: readonly IQueryStatement[], 
   return captureReadScope().run(async () => {
     const { query: select } = createQuery(model, SelectQueryBuilder, true, query.Driver);
     select.withDeleted().withArchived().onPrimary();
-    // MSSQL has no row lock clause; its READ COMMITTED reads see committed rows anyway.
     if (supportsRowLocks(query.Driver)) select.forShare();
     select.Statements.splice(0, select.Statements.length, ...conditions.map((s) => cloneInto(select, s)));
     const keys = extractModelDescriptor(model)?.PrimaryKey ?? [];

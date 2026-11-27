@@ -2,7 +2,7 @@ import { Autoinject, Container, IContainer, Inject, NewInstance } from '@spinajs
 import { MethodNotImplemented, NotSupported } from '@spinajs/exceptions';
 import { TableExistsCompiler, TableExistsQueryBuilder, ICompilerOutput, ColumnQueryCompiler, ForeignKeyQueryCompiler, ColumnQueryBuilder, TableAliasCompiler, IQueryBuilder, ColumnStatement, RawQuery, InsertQueryBuilder, OrmException, IdentifierQuoter, CreateDatabaseCompiler, CreateDatabaseQueryBuilder, DropDatabaseCompiler, DropDatabaseQueryBuilder, CreateViewQueryBuilder, IOrderByBuilder, AlterColumnQueryBuilder, AlterColumnQueryCompiler, ColumnAlterationType } from '@spinajs/orm';
 import type { IColumnDescriptor } from '@spinajs/orm';
-import { SqlColumnQueryCompiler, SqlDeleteQueryCompiler, SqlInsertQueryCompiler, SqlLimitQueryCompiler, SqlOrderByQueryCompiler, SqlTableQueryCompiler, SqlOnDuplicateQueryCompiler, assertCharsetName, SqlCreateViewQueryCompiler, SqlDefaultValueBuilder, SqlAlterTableQueryCompiler, SqlAlterColumnQueryCompiler } from '@spinajs/orm-sql';
+import { SqlColumnQueryCompiler, SqlDeleteQueryCompiler, SqlSelectQueryCompiler, SqlInsertQueryCompiler, SqlLimitQueryCompiler, SqlOrderByQueryCompiler, SqlTableQueryCompiler, SqlOnDuplicateQueryCompiler, assertCharsetName, SqlCreateViewQueryCompiler, SqlDefaultValueBuilder, SqlAlterTableQueryCompiler, SqlAlterColumnQueryCompiler } from '@spinajs/orm-sql';
 import _ from 'lodash';
 import { MsSqlNowExpression } from './statements.js';
 import { outputKeys } from './inserted-keys.js';
@@ -394,6 +394,19 @@ export class MsSqlDefaultValueBuilder<T> extends SqlDefaultValueBuilder<T> {
   public dateTime(): T {
     this.Query = RawQuery.create(new MsSqlNowExpression().sql());
     return this.Owner;
+  }
+}
+
+/**
+ * SQL Server takes a row lock as a table hint after the table, not as a clause after the select. The update lock is held
+ * to the end of the transaction, so a row read for an update cannot change before the statement runs.
+ */
+@NewInstance()
+export class MsSqlSelectQueryCompiler extends SqlSelectQueryCompiler {
+  protected from(): string {
+    const lock = this._builder.RowLock;
+    if (lock === undefined) return super.from();
+    return `${super.from()} ${lock === 'update' ? 'WITH (UPDLOCK, ROWLOCK)' : 'WITH (REPEATABLEREAD, ROWLOCK)'}`;
   }
 }
 
