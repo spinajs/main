@@ -1,6 +1,8 @@
 import 'mocha';
 import { expect } from 'chai';
+import { execFile } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
+import { promisify } from 'node:util';
 import { currentPrincipal, runWithPrincipal } from '@spinajs/authz';
 import { DI } from '@spinajs/di';
 import { MigrationTransactionMode } from '@spinajs/orm';
@@ -354,5 +356,15 @@ describe('@spinajs/tenancy/scheduler: runs of the scheduler loop', function () {
     expect(seen).to.deep.eq([{ tenant: undefined, ctx: undefined, principal: 'unattended' }]);
     expect((await runOfInstance('observe', null)).Status).to.eq('succeeded');
     expect(await ScheduleModel.where('Tenant', '!=', '')).to.deep.eq([]);
+  });
+});
+
+describe('@spinajs/tenancy/scheduler: loaded alone', function () {
+  this.timeout(120000);
+
+  it('runs a tenant instance in a process that imports nothing else of the package', async () => {
+    const args = ['--no-warnings', '--loader', 'ts-node/esm', '--experimental-specifier-resolution=node', 'test/support/scheduler-subpath.ts'];
+    const { stdout } = await promisify(execFile)(process.execPath, args, { cwd: new URL('..', import.meta.url), env: { ...process.env, TS_NODE_PROJECT: 'tsconfig.json' } });
+    expect(JSON.parse(stdout.trim().split('\n').pop() ?? '')).to.deep.eq({ status: 'succeeded', error: null });
   });
 });

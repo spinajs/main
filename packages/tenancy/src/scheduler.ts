@@ -1,8 +1,8 @@
 import { Injectable } from '@spinajs/di';
 import { ScheduleRunHook } from '@spinajs/scheduler';
 import type { ScheduleRunInfo } from '@spinajs/scheduler';
-import { establishTenantScope, tenantScopeOf } from './scope.js';
-import { admitTenant } from './services.js';
+import { admitTenant, tenantScopeOf } from './index.js'; // the entry registers the registries: a loop process may load nothing else
+import { establishTenantScope } from './scope.js';
 
 /** Below the default order: a hook of another package (authz, audit) runs inside the run's tenant. */
 export const TENANT_SCHEDULE_HOOK_ORDER = -100;
