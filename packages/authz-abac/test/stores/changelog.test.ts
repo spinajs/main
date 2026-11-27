@@ -8,7 +8,7 @@ import { QueryContext } from '@spinajs/orm';
 import type { OrmDriver } from '@spinajs/orm';
 
 import { AUTHZ_POLICY_TABLE, DbPolicyStore } from '../../src/index.js';
-import { DB_KINDS, bootDb, rawQuery } from '../support/db.js';
+import { DB_KINDS, bootDb, rawQuery, unreadableExpiry } from '../support/db.js';
 import type { TestDb } from '../support/db.js';
 
 const expect = chai.expect;
@@ -79,6 +79,21 @@ for (const kind of DB_KINDS) {
       const [, put, removed] = await changeLog().since(0);
       expect([put.op, put.before]).to.deep.equal(['put', null]);
       expect([removed.op, removed.payload]).to.deep.equal(['remove', null]);
+    });
+
+    // Catches a check left in DbPolicyStore.load(): the image would log a policy that never expires.
+    it('a row whose expiry is unreadable is still replaced and deleted, logged without its image', async () => {
+      const unreadable = `UPDATE ${AUTHZ_POLICY_TABLE} SET expires_at = ${unreadableExpiry(kind)} WHERE id = 'p'`;
+      await write((tx) => store.put({ id: 'p', effect: 'permit', permissions: ['file:read'] }, alice, tx, NOW));
+      await rawQuery(db.driver, unreadable, [], QueryContext.Update);
+      await write((tx) => store.put({ id: 'p', effect: 'deny', permissions: ['file:read'] }, undefined, tx, NOW));
+      await rawQuery(db.driver, unreadable, [], QueryContext.Update);
+      await write((tx) => store.delete('p', tx));
+
+      const [, put, removed] = await changeLog().since(0);
+      expect([put.op, put.before]).to.deep.equal(['put', null]);
+      expect([removed.op, removed.payload]).to.deep.equal(['remove', null]);
+      expect(await store.load()).to.deep.equal([]);
     });
 
     it('a rolled-back write logs nothing', async () => {
