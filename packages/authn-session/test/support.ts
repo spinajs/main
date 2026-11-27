@@ -34,7 +34,7 @@ export const UNREADABLE_INSTANTS: [string, DateTime][] = [
   ['arithmetic on an invalid instant', DateTime.invalid('test').plus({ minutes: 30 })],
 ];
 
-const isPlain =(v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
+const isPlain = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
 
 function merge(target: Record<string, unknown>, source: Record<string, unknown>): void {
   for (const [k, v] of Object.entries(source)) {

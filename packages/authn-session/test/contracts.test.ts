@@ -369,6 +369,14 @@ describe('@spinajs/authn-session contracts', function () {
       expect(store.expired(session('ok', { Expiration: future }))).to.eq(false);
     });
 
+    it('a Creation in the future (clock skew, a shifted zone) is a readable instant and does not expire the session', () => {
+      const store = new MemoryStore();
+      const ahead = DateTime.now().plus({ hours: 5 });
+      expect(store.expired(session('ahead', { Creation: ahead })), 'no Expiration').to.eq(false);
+      expect(store.expired(session('ahead', { Creation: ahead, Expiration: DateTime.now().plus({ minutes: 30 }) })), 'future Expiration').to.eq(false);
+      expect(store.expired(session('epoch', { Creation: DateTime.fromMillis(0) })), 'the epoch is a readable Creation').to.eq(false);
+    });
+
     it('a strategy result that is not a valid instant is stored as the epoch, a valid past instant; an absent one stays absent', () => {
       for (const [label, at] of UNREADABLE_INSTANTS) {
         const store = new MemoryStore(new ConstantExpiration(at));
