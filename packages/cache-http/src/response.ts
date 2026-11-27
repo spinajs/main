@@ -27,6 +27,9 @@ const NEVER_REPLAYED: ReadonlySet<string> = new Set([
   'idempotent-replayed',
 ]);
 
+// a reply that varies on these was made for one caller; other names (CORS's Origin) change headers set again on a hit
+const PER_CALLER_VARY: ReadonlySet<string> = new Set(['cookie', 'authorization']);
+
 const JSON_TYPE = /^application\/(?:[\w.+-]+\+)?json\s*(?:;|$)/i;
 
 // what node's setHeader refuses in a value
@@ -81,11 +84,13 @@ export interface StoredResponseHeaders {
 
 /**
  * What the response cache stores of a finished route: the JSON reply when the route answered no error, the response set
- * no cookie, did not vary on `*` and said neither `no-store` nor, on a tenant or shared route, `private`; undefined when
- * nothing is stored.
+ * no cookie, did not vary on `*` (nor, on a tenant or shared route, on `Cookie` or `Authorization`) and said neither
+ * `no-store` nor, on a tenant or shared route, `private`; undefined when nothing is stored.
  */
 export function replyToStore(outcome: IRouteOutcome, res: StoredResponseHeaders, scope: ResponseCacheScope): CapturedJsonReply | undefined {
-  if (outcome.error !== undefined || res.getHeader('set-cookie') !== undefined || tokensOf(res.getHeader('vary')).includes('*')) return undefined;
+  if (outcome.error !== undefined || res.getHeader('set-cookie') !== undefined) return undefined;
+  const vary = tokensOf(res.getHeader('vary'));
+  if (vary.includes('*') || (scope !== 'principal' && vary.some((name) => PER_CALLER_VARY.has(name)))) return undefined;
   const directives = tokensOf(res.getHeader('cache-control')).map((directive) => directive.split('=')[0]);
   if (directives.includes('no-store') || (directives.includes('private') && scope !== 'principal')) return undefined;
   return replayableReply(outcome.reply);

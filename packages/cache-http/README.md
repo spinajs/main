@@ -36,6 +36,9 @@ Limits of this version:
   `x-forwarded-host` (and `x-forwarded-proto`) behind a proxy: otherwise one caller's `Host` header plants its links in
   the reply every caller gets. Without `@spinajs/intl-http` the language is not in the key: an action that reads
   `Accept-Language` itself needs `vary: ['accept-language']`.
+- On a `'tenant'` or `'shared'` route a reply whose `Vary` names `Cookie` or `Authorization` is not stored: it was
+  made for one caller. Other names are not checked against the key (CORS adds `Vary: Origin` to every reply); a
+  header the body depends on belongs in `vary`.
 - The key holds no build or version of the application: a reply cached before a deployment is served after it until
   its ttl, and two versions behind one shared store exchange their replies. Invalidate the route's tags on deploy, or
   register a `ResponseCacheKeyPart` that returns the build id.

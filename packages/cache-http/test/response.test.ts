@@ -157,4 +157,14 @@ describe('the stored reply', () => {
     expect(replyToStore({ reply: STORED }, personal, 'tenant')).to.eq(undefined);
     expect(replyToStore({ reply: STORED }, personal, 'shared')).to.eq(undefined);
   });
+
+  it('is not taken on a wider scope from a response that varies on the cookie or the credentials of its caller', () => {
+    for (const vary of ['Cookie', 'accept, authorization', ['origin', ' COOKIE ']]) {
+      expect(replyToStore({ reply: STORED }, headersOf({ vary }), 'tenant'), String(vary)).to.eq(undefined);
+      expect(replyToStore({ reply: STORED }, headersOf({ vary }), 'shared'), String(vary)).to.eq(undefined);
+      expect(replyToStore({ reply: STORED }, headersOf({ vary }), 'principal'), String(vary)).to.deep.eq(STORED);
+    }
+    // CORS varies every reply on Origin: it changes headers a middleware sets again on a hit, not the body
+    expect(replyToStore({ reply: STORED }, headersOf({ vary: 'Origin' }), 'shared')).to.not.eq(undefined);
+  });
 });
