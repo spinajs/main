@@ -269,6 +269,16 @@ describe('OtelPerfSink', () => {
     }
   });
 
+  it('starts no export from the record path: exports run on the reader interval only', async () => {
+    const sink = new OtelPerfSink();
+    const exporter = new BrokenExporter('fail');
+    configure(sink, true, undefined, new PeriodicExportingMetricReader({ exporter, exportIntervalMillis: 60_000 }));
+    for (let i = 0; i < 1000; i++) sink.collect({ name: 'cache.hit', kind: 'counter', value: 1 });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(exporter.calls).to.eq(0);
+    await sink.dispose();
+  });
+
   for (const mode of ['hang', 'throw', 'fail'] as const) {
     it(`neither fails nor waits for an exporter that ${mode}s, and its dispose resolves`, async () => {
       const sink = new OtelPerfSink();
