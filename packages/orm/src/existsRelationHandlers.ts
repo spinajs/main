@@ -61,6 +61,15 @@ function correlationSource(context: unknown, fallback: WhereBuilder<any>): Where
   return ((context as ISelectQueryBuilder)?.CorrelationSource as WhereBuilder<any>) ?? fallback;
 }
 
+/**
+ * Marks the correlation predicate just pushed as the ORM's own, so an OR of the callback stays in a group before it:
+ * `( a OR b ) AND <correlation>`. The flag sits on the lazy statement itself: the predicate it builds lives on a clone.
+ */
+function markCorrelation(relQuery: ISelectQueryBuilder): void {
+  const correlation = relQuery.Statements.at(-1);
+  if (correlation) correlation.Scope = true;
+}
+
 @Injectable(ExistsRelationHandler)
 export class OneExistsRelationHandler extends ExistsRelationHandler {
   public get Type(): RelationType {
@@ -110,6 +119,7 @@ export class OneExistsRelationHandler extends ExistsRelationHandler {
         this.where(new RawQuery(`${q.quote(alias)}.${q.quote(rel.PrimaryKey)} = ${sourceColumnRef(q, correlationSource(this, builder), tDesc, rel.ForeignKey)}`));
       }),
     );
+    markCorrelation(relQuery);
 
     callback.apply(relQuery);
 
@@ -137,6 +147,7 @@ export class ManyExistsRelationHandler extends ExistsRelationHandler {
         this.where(new RawQuery(`${q.quote(alias)}.${q.quote(rel.ForeignKey)} = ${sourcePKeyRef(q, correlationSource(this, builder), tDesc)}`));
       }),
     );
+    markCorrelation(relQuery);
 
     if (callback) {
       callback.apply(relQuery);

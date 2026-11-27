@@ -5602,9 +5602,6 @@
     "@typescript-eslint/no-empty-object-type": {
       "count": 7
     },
-    "@typescript-eslint/no-unnecessary-type-assertion": {
-      "count": 1
-    },
     "@typescript-eslint/no-unsafe-declaration-merging": {
       "count": 16
     },

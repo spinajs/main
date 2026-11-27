@@ -53,6 +53,7 @@ Filtering with `whereExist()`:
    - `ManyExistsRelationHandler` (has-many) correlates the target table on `<target>.<ForeignKey> = <source>.<primary key>`. The callback filters the target.
    - `ManyToManyExistsRelationHandler` correlates the junction table on its source column. With a callback it right-joins the target table and applies the callback there.
 5. The sub-query alias is `<table>_exists`. The outer alias is read at compile time, so a later `setAlias()` and `clone()` stay correct.
+6. The belongs-to and has-many correlation stays outside an `OR` of the callback: `whereExist('Items', function () { this.where('Sku', 'B').orWhere('Sku', 'Q') })` compiles `WHERE ( Sku = ? OR Sku = ? ) AND order_id = <outer>.Id`; a soft-delete or archive filter of the target comes first.
 
 ## Decorators
 
