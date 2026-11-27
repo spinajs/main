@@ -8,7 +8,7 @@
 2. `DefaultSessionIssuer` resolves its store with `@AutoinjectService('authn.session', SessionProvider)`: the container reads `authn.session.service` and builds the registered `SessionProvider` with that class name. See [Config-selected services](../configuration/08-config-selected-services.md#autoinjectservice).
 3. The store is a singleton, cached by its concrete class name. `DI.resolve(RedisSessionStore)` and the issuer get the same instance when `authn.session.service` is `'RedisSessionStore'`; with a subclass selected, resolve the subclass instead.
 4. On the first resolve the container injects `Log` (`@Logger('redis-session-store')`), `RedisConfig` (`@Config('authn.session.redis')`) and `Expiration` (`@AutoinjectService('authn.session.expiration', SessionExpirationProvider)`, from `SessionProvider`), then awaits `resolve()`.
-5. `resolve()` calls `createClient()` and attaches an `error` listener that logs to `redis-session-store`. Every other method reads `this.Client`.
+5. `resolve()` calls `createClient()` and attaches an `error` listener that logs to `redis-session-store`. Every other method reads `this.Client`. The public ones run their body through `run()`, which strips ioredis's command arguments from the errors they throw.
 
 ## Configuration
 
@@ -55,6 +55,7 @@ Overridable members:
 | `sessionKey()`, `indexKey()`, `indexSetsOf()`, `keyPatterns()` | protected | Change key names, which sets a row joins, or the patterns `truncate()` scans |
 | `toSession()`, `expirationOf()`, `instant()` | protected | Read another stored shape; keep returning `null` for a value without a readable `Subject`, and an expired session for one whose `Impersonator` or `ExternalKey` cannot be read |
 | `lookup()`, `prune()`, `scanSessionKeys()`, `expireAt()`, `exec()`, `expirationEquals()` | protected | Low-level helpers the operations share |
+| `run()` | protected | Run the body of a method you add that calls `this.Client`: `return this.run(async () => { … })`. It removes ioredis's `command` (session keys, stored values, the `AUTH` password) from the error it rethrows |
 | `Log`, `RedisConfig`, `Client`, `Expiration` | protected fields | The logger, the raw config, the ioredis client, the expiration strategy |
 
 The example below writes an audit line for every mass revocation (ban, password reset, "sign out everywhere"):
