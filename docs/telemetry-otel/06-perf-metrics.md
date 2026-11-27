@@ -48,7 +48,7 @@ exported at all.
 | --- | --- | --- |
 | Attributes per measurement | 8 | the labels after the eighth are left out |
 | Length of an attribute key and of a string attribute value | 128 characters | cut |
-| Series (attribute sets) per metric name | 100 | further sets add to one series with the attribute `otel.metric.overflow: true` |
+| Series per metric name | 100, the overflow series included | the 100th distinct attribute set and every later one add to the series `otel.metric.overflow: true` |
 | Metric names | 256 | the measurement is dropped and counted |
 
 A dropped measurement adds one to the counter `spinajs.perf.dropped`, attribute `reason`: `instruments` past the name
