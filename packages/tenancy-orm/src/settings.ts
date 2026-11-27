@@ -117,6 +117,8 @@ export class TenantSettingsService {
     await row.update();
     // The registry cache and this process's settings snapshot would keep the old settings for tenancy.registryCacheMs.
     (await tenantRegistry()).invalidate(id);
+    // The first load can join a refresh that read the row before this write; the second reads it again.
+    await loadTenantSettings(id);
     await loadTenantSettings(id);
     return toTenantRecord(await this.current(id));
   }

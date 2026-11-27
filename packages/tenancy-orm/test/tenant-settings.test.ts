@@ -3,7 +3,8 @@ import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 import { InvalidConfiguration, registerConfigurationSchemaAtImport } from '@spinajs/configuration';
 import { InvalidArgument, InvalidOperation } from '@spinajs/exceptions';
-import { CachedTenantRegistry, TenantMismatch, TenantSettings, TenantUnavailable, admitTenant, runAcrossTenants, runInTenant } from '@spinajs/tenancy';
+import { DI } from '@spinajs/di';
+import { CachedTenantRegistry, TenancyServices, TenantMismatch, TenantSettings, TenantUnavailable, admitTenant, runAcrossTenants, runInTenant } from '@spinajs/tenancy';
 import type { TestApp } from '@spinajs/testing';
 import { DbTenantRegistry, TenantModel, TenantSettingsService } from '../src/index.js';
 import { bootApp } from './support/app.js';
@@ -206,6 +207,41 @@ describe('TenantSettingsService', function () {
     await service.set('acme', 'mail.from', 'new@acme.test');
 
     expect(await read('acme', 'mail.from')).to.equal('new@acme.test');
+  });
+
+  it('the next read in this process sees the new value also when a refresh that read the old row was still running', async () => {
+    const services = await DI.resolve(TenancyServices);
+    await admitTenant('acme');
+    services.registry.invalidate('acme');
+    const { registry: { inner }, settings } = services;
+    const [get, load] = [inner.get.bind(inner), settings.load.bind(settings)];
+    const oldRowRead = Promise.withResolvers<void>();
+    const hold = Promise.withResolvers<void>();
+    let loads = 0;
+    inner.get = async (id) => {
+      const record = await get(id);
+      oldRowRead.resolve();
+      await hold.promise;
+      return record;
+    };
+    // The refresh is held until the write asks for the settings: the write then finds it running.
+    settings.load = (tenant) => {
+      const loading = load(tenant);
+      if (++loads === 2) hold.resolve();
+      return loading;
+    };
+
+    try {
+      const refresh = settings.load('acme');
+      await oldRowRead.promise;
+      await service.set('acme', 'mail.from', 'new@acme.test');
+      await refresh;
+
+      expect(await read('acme', 'mail.from')).to.equal('new@acme.test');
+    } finally {
+      inner.get = get;
+      settings.load = load;
+    }
   });
 
   it('another process sees the new value once its settings are older than tenancy.registryCacheMs', async () => {

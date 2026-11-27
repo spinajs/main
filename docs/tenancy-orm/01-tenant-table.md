@@ -129,7 +129,9 @@ application lists; guard the route or command that calls them.
   can fix the configuration of a suspended tenant before resuming it.
 
 After the write the service drops the tenant from the registry cache and loads its settings again, so the next read in
-this process answers the new value. Other processes see it once their copy is older than `tenancy.registryCacheMs`
+this process answers the new value, also when a background refresh that read the old row was still running. One gap
+stays: a request admitted at the same moment, whose registry read began before the write, can put the old settings
+back in this process until the next admission or refresh of the tenant. Other processes see it once their copy is older than `tenancy.registryCacheMs`
 (5000 by default): a request, which admits the tenant, after at most `tenancy.registryCacheMs`; code that reads without
 admitting gets the old value at the first read past that interval, which starts the refresh, and the new one after it,
 at most about twice the interval after the write. A failed refresh keeps the last settings and is tried again one
