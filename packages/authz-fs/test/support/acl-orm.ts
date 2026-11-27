@@ -17,6 +17,8 @@ export interface AclOrm {
 function unregister(undoLog: () => void): void {
   DI.uncache(Orm);
   DI.uncache(Configuration);
+  // The instance is cached under its own class too; the next boot would get it back with this suite's settings.
+  DI.uncache(FakeConfiguration);
   DI.unregister(FakeConfiguration);
   DI.unregister(SqliteOrmDriver);
   undoLog();

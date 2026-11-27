@@ -3,14 +3,13 @@ import chaiAsPromised from 'chai-as-promised';
 import 'mocha';
 import { randomUUID } from 'node:crypto';
 
-import { AuthzConfigError } from '@spinajs/authz';
 import { Configuration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
 import { Orm, QueryContext, extractMigrationDescriptor } from '@spinajs/orm';
 import type { OrmDriver } from '@spinajs/orm';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 
-import { AuthzFsAcl_2026_10_17_00_00_00, FileAclStore, OrmFileAclStore } from '../src/index.js';
+import { AuthzFsAcl_2026_10_17_00_00_00, FS_ACL_CONNECTION, FileAclStore, FsAclRecord, OrmFileAclStore } from '../src/index.js';
 import { aclPathHash } from '../src/acl/shared.js';
 import { FakeConfiguration } from './helpers.js';
 import { ALICE, BOB, aclStoreContract } from './support/acl-contract.js';
@@ -68,9 +67,6 @@ function ormSuite(kind: DbKind): void {
     let undoLog: (() => void) | undefined;
     let drop: (() => Promise<void>) | undefined;
     const store = new OrmFileAclStore();
-    const sqliteOnly = (ctx: Mocha.Context): void => {
-      if (kind !== 'sqlite') ctx.skip();
-    };
 
     before(async () => {
       undoLog = installQuietLog();
@@ -86,10 +82,13 @@ function ormSuite(kind: DbKind): void {
       DI.register(SqliteOrmDriver).as('orm-driver-sqlite');
       config = (await DI.resolve(Configuration)) as Configuration;
       // MigrationCheck off: the boot would otherwise refuse the pending migrations this suite applies by hand
-      config.set(['db'], { DefaultConnection: main.Name, MigrationCheck: 'off', Connections: [main, sqlite('other'), sqlite('nocase')] });
+      // StrictTableCheck off: fs_acl is made after the boot, and MigrationCheck 'off' does not skip the table check.
+      config.set(['db'], { DefaultConnection: main.Name, MigrationCheck: 'off', StrictTableCheck: false, Connections: [main], Aliases: { [FS_ACL_CONNECTION]: 'default' } });
       orm = (await DI.resolve(Orm)) as Orm;
       db = orm.Connections.get('default')!;
       await new AuthzFsAcl_2026_10_17_00_00_00().up(db);
+      // The table was made after the boot, by hand: the model has no columns until the ORM reads it.
+      await orm.reloadTableInfo({ models: [FsAclRecord] });
     });
 
     after(async () => {
@@ -172,35 +171,39 @@ function ormSuite(kind: DbKind): void {
       expect(await store.list(fs, 'a.txt')).to.have.length(2);
     });
 
-    it('uses the connection authz.fsAcl.connection names, else the default one', async function () {
-      sqliteOnly(this);
-      const other = orm!.Connections.get('other')!;
-      await new AuthzFsAcl_2026_10_17_00_00_00().up(other);
-      config.set(['authz', 'fsAcl', 'connection'], 'other');
-      await store.setOwnerIfAbsent('conn', 'a.txt', BOB);
-      expect(((await other.select().from('fs_acl').where({ path: 'a.txt', fs: 'conn' })) as unknown[]).length).to.equal(1);
-      expect(((await db.select().from('fs_acl').where({ path: 'a.txt', fs: 'conn' })) as unknown[]).length).to.equal(0);
-      expect(await new OrmFileAclStore({ connection: 'default' }).ownerOf('conn', 'a.txt')).to.equal(null);
-
-      config.set(['authz', 'fsAcl', 'connection'], 'nope');
-      const e = await store.ownerOf('conn', 'a.txt').then(
-        () => undefined,
-        (err: unknown) => err as Error,
-      );
-      expect(e).to.be.instanceOf(AuthzConfigError);
-      expect(e!.message).to.contain('authz.fsAcl.connection');
+    it('stores a datetime in the form a builder insert stores it', async () => {
+      const fs = `dates-${randomUUID().slice(0, 8)}`;
+      const until = new Date('2031-02-03T04:05:06.000Z');
+      await store.grant({ fs, path: 'a.txt', subject: ALICE, relation: 'viewer', expiresAt: until });
+      await db.insert().into('fs_acl').values({ id: randomUUID(), fs, path: 'b.txt', path_hash: aclPathHash('b.txt'), subject_key: 'user:alice', relation: 'viewer', expires_at: until, created_at: until });
+      const rows = (await db.select().from('fs_acl').where({ fs }).orderBy('path')) as Record<string, unknown>[];
+      expect(rows.map((r) => r.path)).to.deep.equal(['a.txt', 'b.txt']);
+      expect(rows[0].expires_at).to.deep.equal(rows[1].expires_at);
     });
 
-    it('on a case-insensitive table matches rows exactly in code', async function () {
-      sqliteOnly(this);
-      // As MySQL's or MSSQL's default collation would make the table; SQLite's LIKE also ignores ASCII case.
-      await rawSql(orm!.Connections.get('nocase')!, 'CREATE TABLE fs_acl (id varchar(36) PRIMARY KEY, fs varchar(64) COLLATE NOCASE NOT NULL, path varchar(512) COLLATE NOCASE NOT NULL, path_hash varchar(64) COLLATE NOCASE NOT NULL, subject_key varchar(200) COLLATE NOCASE NOT NULL, relation varchar(64) COLLATE NOCASE NOT NULL, expires_at datetime, granted_by varchar(100), created_at datetime NOT NULL)');
-      const ci = new OrmFileAclStore({ connection: 'nocase' });
-      await ci.grant({ fs: 'ci', path: 'Docs/A.txt', subject: ALICE, relation: 'viewer' });
-      expect(await ci.holds('ci', ['docs/a.txt'], ['user:alice'], 'viewer', new Date())).to.equal(false);
-      expect(await ci.list('ci', 'docs/a.txt')).to.deep.equal([]);
-      await ci.deleteTree('ci', 'docs');
-      expect(await ci.list('ci', 'Docs/A.txt')).to.have.length(1);
+    // MySQL's utf8mb4_bin and MSSQL compare with trailing spaces ignored; the store decides by === in code.
+    it('a row answers only its exact filesystem, path and subject: no case, trailing-space, Unicode-form or prefix variant', async () => {
+      const fs = `exact-${randomUUID().slice(0, 8)}`;
+      const at = new Date();
+      await store.grant({ fs, path: 'A/b', subject: ALICE, relation: 'viewer' });
+      await store.grant({ fs, path: 'café.txt', subject: ALICE, relation: 'viewer' });
+      expect(await store.holds(fs, ['./A//b/'], ['user:alice'], 'viewer', at)).to.equal(true);
+      expect(await store.holds(fs, ['a/b', 'A/B', 'A/bc', 'A'], ['user:alice'], 'viewer', at)).to.equal(false);
+      expect(await store.holds(`${fs} `, ['A/b'], ['user:alice'], 'viewer', at)).to.equal(false);
+      expect(await store.holds(fs.toUpperCase(), ['A/b'], ['user:alice'], 'viewer', at)).to.equal(false);
+      expect(await store.holds(fs, ['A/b'], ['user:alice ', 'USER:ALICE'], 'viewer', at)).to.equal(false);
+      expect(await store.holds(fs, ['café.txt'], ['user:alice'], 'viewer', at)).to.equal(false);
+      expect(await store.list(`${fs} `, 'A/b')).to.deep.equal([]);
+      await store.deleteTree(fs, 'A/b/c');
+      await store.deleteTree(`${fs} `, 'A');
+      expect(await store.list(fs, 'A/b')).to.have.length(1);
+
+      // Another subject: under PAD SPACE the unique key would refuse the same subject on both filesystems.
+      await store.grant({ fs: `${fs} `, path: 'm.txt', subject: BOB, relation: 'viewer' });
+      await store.grant({ fs, path: 'm.txt', subject: ALICE, relation: 'viewer' });
+      await store.movePath(fs, 'm.txt', fs, 'n.txt');
+      expect(await store.list(`${fs} `, 'm.txt')).to.have.length(1);
+      expect(await store.list(fs, 'n.txt')).to.have.length(1);
     });
   });
 }
