@@ -85,7 +85,10 @@ describe('TenantSettingsService', function () {
     expect(record.settings).to.deep.equal({ plan: 'pro', mail: {} });
   });
 
-  it('refuses a path that tenancy.config.overridable does not list, also a free-form key and a parent of a listed path', async () => {
+  it('refuses a path that tenancy.config.overridable does not list, also a free-form key and a parent or child of a listed path', async () => {
+    await expect(service.set('acme', 'notes.text.x', 'v')).to.be.rejectedWith(InvalidArgument, 'notes.text.x is not listed');
+    await expect(service.set('acme', 'mail.from.x', 'v')).to.be.rejectedWith(InvalidArgument, 'mail.from.x is not listed');
+    await expect(service.unset('acme', 'limits.export.limit')).to.be.rejectedWith(InvalidArgument, 'limits.export.limit is not listed');
     await expect(service.set('acme', 'mail.enabled', false)).to.be.rejectedWith(InvalidArgument, 'mail.enabled is not listed in tenancy.config.overridable');
     await expect(service.set('acme', 'plan', 'free')).to.be.rejectedWith(InvalidArgument, 'plan is not listed');
     await expect(service.set('acme', 'mail', { from: 'x@acme.test', enabled: false })).to.be.rejectedWith(InvalidArgument, 'mail is not listed');
