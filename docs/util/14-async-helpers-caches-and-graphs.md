@@ -60,12 +60,13 @@ A least-recently-used cache whose entries expire and can be dropped by tag.
 | Option | Default | Meaning |
 | --- | --- | --- |
 | `maxEntries` | required | Entries held at most, an integer `>= 0`; 0 holds nothing |
+| `maxWeight` | none | Total weight held at most (for example bytes), a number `>= 0`; the least recently used entries go first |
 | `ttlMs` | none | TTL of an entry set without one; without either, the entry never expires |
 | `clock` | wall clock | Times the TTL |
 | `expireOnClockRewind` | `false` | An entry stored at a later clock time than now (the clock went back) counts as expired |
 | `onEvict(key, value, reason)` | none | Called for every entry that leaves: `expired`, `capacity`, `replaced`, `invalidated`, `deleted` or `cleared` |
 
-`set(key, value, { ttlMs?, tags? })` stores an entry. A `ttlMs` that is not a finite number above 0, or a clock that answers an invalid date, stores nothing (and still drops the old entry). `get` marks the entry as most recently used; `peek` and `has` do not. `invalidate(tags)` drops every entry with any of the tags. `size` counts expired entries that were not read since.
+`set(key, value, { ttlMs?, tags?, weight? })` stores an entry. A `ttlMs` that is not a finite number above 0, or a clock that answers an invalid date, stores nothing (and still drops the old entry). `weight` (default 0) counts against `maxWeight`; an entry heavier than `maxWeight`, or whose weight is not a finite number `>= 0`, is not stored. `weight` on the cache reads the total held. Without `maxWeight` the weights bound nothing. `get` marks the entry as most recently used; `peek` and `has` do not. `invalidate(tags)` drops every entry with any of the tags. `size` counts expired entries that were not read since.
 
 ### `BoundedMap<K, V>`
 

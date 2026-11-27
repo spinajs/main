@@ -9,6 +9,9 @@ export interface LruTtlCacheOptions<K, V> {
   /** Entries held at most; the least recently used goes first. 0 holds nothing. */
   readonly maxEntries: number;
 
+  /** Total weight held at most ( eg. bytes ); the least recently used entries go first. Omitted: no bound. */
+  readonly maxWeight?: number;
+
   /** TTL of an entry set without one. Omitted: such entries never expire. */
   readonly ttlMs?: number;
 
@@ -28,6 +31,9 @@ export interface LruTtlSetOptions {
 
   /** {@link LruTtlCache.invalidate} with any of these drops the entry. */
   readonly tags?: Iterable<string>;
+
+  /** Counts against `maxWeight`. Default 0. An entry heavier than `maxWeight`, or with a weight that is not a finite number of at least 0, is not stored. */
+  readonly weight?: number;
 }
 
 interface Entry<V> {
@@ -35,6 +41,7 @@ interface Entry<V> {
   readonly tags: ReadonlySet<string>;
   readonly storedAt: number;
   readonly expiresAt: number;
+  readonly weight: number;
 }
 
 /** A least-recently-used cache whose entries expire after a TTL and can be dropped by tag. */
@@ -43,6 +50,8 @@ export class LruTtlCache<K, V> {
   private readonly entries = new Map<K, Entry<V>>();
   private readonly byTag = new Map<string, Set<K>>();
   private readonly maxEntries: number;
+  private readonly maxWeight: number;
+  private totalWeight = 0;
 
   constructor(private readonly options: LruTtlCacheOptions<K, V>) {
     const max = options.maxEntries;
@@ -50,11 +59,21 @@ export class LruTtlCache<K, V> {
       throw new InvalidArgument(`LruTtlCache: maxEntries must be an integer >= 0, got ${String(max)}`, 'maxEntries');
     }
     this.maxEntries = max;
+    const maxWeight = options.maxWeight ?? Number.POSITIVE_INFINITY;
+    if (typeof maxWeight !== 'number' || Number.isNaN(maxWeight) || maxWeight < 0) {
+      throw new InvalidArgument(`LruTtlCache: maxWeight must be a number >= 0, got ${String(maxWeight)}`, 'maxWeight');
+    }
+    this.maxWeight = maxWeight;
   }
 
   /** Entries held, including expired ones not yet read. */
   get size(): number {
     return this.entries.size;
+  }
+
+  /** Total weight of the entries held. */
+  get weight(): number {
+    return this.totalWeight;
   }
 
   /** The live value under `key`, marked as the most recently used. */
@@ -63,6 +82,7 @@ export class LruTtlCache<K, V> {
     if (entry === undefined) return undefined;
     this.entries.delete(key);
     if (this.expired(entry, this.now())) {
+      this.totalWeight -= entry.weight;
       this.unindex(key, entry);
       this.options.onEvict?.(key, entry.value, 'expired');
       return undefined;
@@ -86,19 +106,19 @@ export class LruTtlCache<K, V> {
     this.remove(key, 'replaced');
     if (this.maxEntries === 0) return;
     const ttlMs = options.ttlMs ?? this.options.ttlMs;
-    if (ttlMs !== undefined && (typeof ttlMs !== 'number' || !Number.isFinite(ttlMs) || ttlMs <= 0)) return;
+    const weight = options.weight ?? 0;
     const now = this.now();
-    // An invalid clock date gives a NaN deadline; such an entry could never hit.
-    if (!Number.isFinite(now)) return;
-    const entry: Entry<V> = { value, tags: new Set(options.tags ?? []), storedAt: now, expiresAt: ttlMs === undefined ? Number.POSITIVE_INFINITY : now + ttlMs };
+    if (!this.storable(ttlMs, weight, now)) return;
+    const entry: Entry<V> = { value, tags: new Set(options.tags ?? []), storedAt: now, expiresAt: ttlMs === undefined ? Number.POSITIVE_INFINITY : now + ttlMs, weight };
     this.entries.set(key, entry);
+    this.totalWeight += weight;
     for (const tag of entry.tags) {
       let keys = this.byTag.get(tag);
       if (keys === undefined) this.byTag.set(tag, (keys = new Set()));
       keys.add(key);
     }
     for (const oldest of this.entries.keys()) {
-      if (this.entries.size <= this.maxEntries) break;
+      if (this.entries.size <= this.maxEntries && this.totalWeight <= this.maxWeight) break;
       this.remove(oldest, 'capacity');
     }
   }
@@ -124,6 +144,13 @@ export class LruTtlCache<K, V> {
     return this.options.clock ? this.options.clock.now().getTime() : Date.now();
   }
 
+  private storable(ttlMs: number | undefined, weight: number, now: number): boolean {
+    if (ttlMs !== undefined && (typeof ttlMs !== 'number' || !Number.isFinite(ttlMs) || ttlMs <= 0)) return false;
+    if (typeof weight !== 'number' || !Number.isFinite(weight) || weight < 0 || weight > this.maxWeight) return false;
+    // An invalid clock date gives a NaN deadline; such an entry could never hit.
+    return Number.isFinite(now);
+  }
+
   private expired(entry: Entry<V>, now: number): boolean {
     return !(now < entry.expiresAt) || (this.options.expireOnClockRewind === true && now < entry.storedAt);
   }
@@ -132,6 +159,7 @@ export class LruTtlCache<K, V> {
     const entry = this.entries.get(key);
     if (entry === undefined) return false;
     this.entries.delete(key);
+    this.totalWeight -= entry.weight;
     this.unindex(key, entry);
     this.options.onEvict?.(key, entry.value, reason);
     return true;
