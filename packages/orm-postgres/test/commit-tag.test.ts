@@ -3,6 +3,7 @@ import { OrmException, QueryContext } from '@spinajs/orm';
 import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 import 'mocha';
+import pg from 'pg';
 import sinon from 'sinon';
 import { PostgresOrmDriver } from '../src/index.js';
 
@@ -11,7 +12,7 @@ chai.use(chaiAsPromised);
 
 /** A server error as node-postgres raises it. */
 function pgError(code: string, message: string): Error {
-  return Object.assign(new Error(message), { code });
+  return Object.assign(new pg.DatabaseError(message, 0, 'error'), { code, severity: 'ERROR' });
 }
 
 /** A pooled client whose COMMIT reports `commitTag` as the server's command tag (none when undefined); a statement in `failing` rejects with its error. */
