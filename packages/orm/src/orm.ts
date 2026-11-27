@@ -316,7 +316,7 @@ export class Orm extends AsyncService {
   protected warnUnmatchedRequiredTables(): void {
     const tables = this.Models.flatMap((m) => extractModelDescriptor(m.type)?.TableName ?? []);
     for (const table of unmatchedTables(requiredTables(this.Configuration.get<unknown>('db.WriteCapture.Required')), tables)) {
-      this.Log.warn({ table }, 'db.WriteCapture.Required lists ${table}, and no model of this process has that table: no model write of it is refused here');
+      this.Log.warn({ table }, 'db.WriteCapture.Required lists ${table}, and no model of this process has that table: here only its writes that go past a model are refused');
     }
   }
 

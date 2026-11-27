@@ -5,10 +5,10 @@ import 'mocha';
 import sinon from 'sinon';
 import { Configuration, InvalidConfiguration } from '@spinajs/configuration';
 import { FrameworkLogger } from '@spinajs/log';
-import { WriteCaptureRequired, WriteObserver } from '@spinajs/orm';
+import { InsertQueryBuilder, OrmException, WriteCaptureRequired,WriteObserver, createQuery, deleteChunked, insertChunked, purgeBatch } from '@spinajs/orm';
 import type { CaptureInterest, CapturedWrite, WriteStatement } from '@spinajs/orm';
 import { SqliteOrmDriver } from '../src/index.js';
-import { db } from './common.js';
+import { TEST_MIGRATION_TABLE_NAME, db } from './common.js';
 import { bootUow, captureStatements, registerUowConnection, rows, UowClient, UowTag } from './uowFixture.js';
 
 chai.use(chaiAsPromised);
@@ -29,6 +29,16 @@ class TagObserver extends WriteObserver {
 }
 
 const refusal = (kind: 'insert' | 'update' | 'delete'): string => `write capture: UowTag writes uow_tag, a table db.WriteCapture.Required lists, and no WriteObserver takes this ${kind}; load the package that observes uow_tag in this process or take the table off the list`;
+
+type PastModel = 'an insert' | 'an update' | 'a delete' | 'a truncate';
+
+const unseen = (phrase: PastModel, table = 'uow_tag'): string => `write capture: ${phrase} of ${table}, a table db.WriteCapture.Required lists, does not go through the table's model, so no WriteObserver can take it; write it through its model, or with raw SQL where it must not be recorded`;
+
+const sqlite = (): SqliteOrmDriver => {
+  const driver = db().Connections.get('sqlite');
+  if (!(driver instanceof SqliteOrmDriver)) throw new Error('the sqlite connection is not a SqliteOrmDriver');
+  return driver;
+};
 
 async function requireTables(tables: string[]): Promise<void> {
   (await DI.resolve(Configuration)).set('db.WriteCapture.Required', tables);
@@ -142,14 +152,157 @@ describe('db.WriteCapture.Required on sqlite', function () {
 
     const unmatched = warn.getCalls().filter((c) => typeof c.args[1] === 'string' && c.args[1].startsWith('db.WriteCapture.Required lists'));
     expect(unmatched.map((c) => c.args[0])).to.deep.eq([{ table: 'uow_tags' }]);
+    expect(unmatched.map((c) => c.args[1])).to.deep.eq(['db.WriteCapture.Required lists ${table}, and no model of this process has that table: here only its writes that go past a model are refused']);
   });
 
-  it('does not see a builder without a model, like the rest of the capture', async () => {
+  it('refuses a write of a listed table that goes past its model, before any statement runs', async () => {
+    await UowTag.insert({ Name: 'red' });
     await requireTables(['uow_tag']);
+    const driver = sqlite();
+    const { statements, restore } = captureStatements();
+    try {
+      await expect(driver.insert().into('uow_tag').values({ Name: 'bare' })).to.be.rejectedWith(WriteCaptureRequired, unseen('an insert'));
+      await expect(driver.insert().into('uow_tag').values({ Id: 1, Name: 'bare' }).onDuplicate('Id').update(['Name'])).to.be.rejectedWith(WriteCaptureRequired, unseen('an insert'));
+      await expect(driver.update().in('uow_tag').update({ Name: 'bare' }).where('Id', 1)).to.be.rejectedWith(WriteCaptureRequired, unseen('an update'));
+      await expect(driver.del().from('uow_tag').where('Id', 1)).to.be.rejectedWith(WriteCaptureRequired, unseen('a delete'));
+      await expect(insertChunked(driver, 'uow_tag', [{ Name: 'a' }, { Name: 'b' }])).to.be.rejectedWith(WriteCaptureRequired, unseen('an insert'));
+      await expect(deleteChunked(driver, 'uow_tag', 'Id', [1])).to.be.rejectedWith(WriteCaptureRequired, unseen('a delete'));
+      await expect(UowTag.truncate()).to.be.rejectedWith(WriteCaptureRequired, unseen('a truncate'));
+      await expect(driver.truncate('uow_tag')).to.be.rejectedWith(WriteCaptureRequired, unseen('a truncate'));
+      // The observers were asked about UowClient, not about the table this builder writes.
+      await expect(createQuery(UowClient, InsertQueryBuilder).query.into('uow_tag').values({ Name: 'bare' })).to.be.rejectedWith(WriteCaptureRequired, unseen('an insert'));
+      await expect(
+        purgeBatch(driver, {
+          table: 'uow_tag',
+          key: 'Id',
+          where: function () {
+            this.where('Name', 'red');
+          },
+        }),
+      ).to.be.rejectedWith(WriteCaptureRequired, unseen('a delete'));
+    } finally {
+      restore();
+    }
 
-    await db().Connections.get('sqlite')!.insert().into('uow_tag').values({ Name: 'raw' });
+    // Only the select of purgeBatch reached the driver.
+    expect(statements.map((s) => s.expression.split(' ')[0])).to.deep.eq(['SELECT']);
+    expect(await names('uow_tag')).to.deep.eq(['red']);
+  });
 
-    expect(await names('uow_tag')).to.deep.eq(['raw']);
+  it('matches a qualified, quoted or aliased name of a write past the model by its table part, without case', async () => {
+    await requireTables(['UOW_TAG']);
+    const driver = sqlite();
+    const { statements, restore } = captureStatements();
+    try {
+      await expect(driver.insert().into('uow_tag').values({ Name: 'a' })).to.be.rejectedWith(WriteCaptureRequired, unseen('an insert'));
+      await expect(driver.insert().into('main.uow_tag').values({ Name: 'a' })).to.be.rejectedWith(WriteCaptureRequired, unseen('an insert', 'main.uow_tag'));
+      await expect(driver.insert().into('"main"."Uow_Tag"').values({ Name: 'a' })).to.be.rejectedWith(WriteCaptureRequired, unseen('an insert', '"main"."Uow_Tag"'));
+      await expect(driver.del().from('[uow_tag]').where('Id', 1)).to.be.rejectedWith(WriteCaptureRequired, unseen('a delete', '[uow_tag]'));
+      await expect(driver.del().from('uow_tag', 't').where('Id', 1)).to.be.rejectedWith(WriteCaptureRequired, unseen('a delete'));
+      await expect(driver.update().in('uow_tag').database('main').update({ Name: 'b' }).where('Id', 1)).to.be.rejectedWith(WriteCaptureRequired, unseen('an update'));
+    } finally {
+      restore();
+    }
+
+    expect(statements).to.deep.eq([]);
+  });
+
+  it('refuses a write past the model whose table name it cannot read while any table is listed', async () => {
+    await requireTables(['uow_client']);
+    const { statements, restore } = captureStatements();
+    try {
+      await expect(sqlite().insert().into('"uow_tag').values({ Name: 'a' })).to.be.rejectedWith(
+        WriteCaptureRequired,
+        `write capture: an insert of "uow_tag is refused: db.WriteCapture.Required lists tables, and the table of this name cannot be read; name it as table, schema.table or with quoted parts, or write it with raw SQL where it must not be recorded`,
+      );
+    } finally {
+      restore();
+    }
+
+    expect(statements).to.deep.eq([]);
+  });
+
+  it('refuses a write past the model that names no table while any table is listed, and leaves it to the builder under an empty list', async () => {
+    const driver = sqlite();
+    const noTable = (phrase: PastModel): string => `write capture: ${phrase} names no table and is refused: db.WriteCapture.Required lists tables; name its table, or write it with raw SQL where it must not be recorded`;
+    const unnamed = { insert: () => driver.insert().values({ Name: 'a' }), update: () => driver.update().update({ Name: 'b' }).where('Id', 1), del: () => driver.del().where('Id', 1) };
+
+    // What the base gives: the statement is sent and the database names the missing table.
+    for (const write of Object.values(unnamed)) {
+      await expect(write()).to.be.rejectedWith(OrmException, 'no such table: undefined');
+    }
+
+    await requireTables(['uow_client']);
+    const { statements, restore } = captureStatements();
+    try {
+      await expect(unnamed.insert()).to.be.rejectedWith(WriteCaptureRequired, noTable('an insert'));
+      await expect(unnamed.update()).to.be.rejectedWith(WriteCaptureRequired, noTable('an update'));
+      await expect(unnamed.del()).to.be.rejectedWith(WriteCaptureRequired, noTable('a delete'));
+    } finally {
+      restore();
+    }
+
+    expect(statements).to.deep.eq([]);
+  });
+
+  it("refuses a write past the model inside a caller's transaction, and sends nothing", async () => {
+    await requireTables(['uow_tag']);
+    const driver = sqlite();
+    const sent = sinon.spy(driver, 'executeOnDb');
+
+    try {
+      await expect(
+        driver.transaction(async () => {
+          await driver.insert().into('uow_tag').values({ Name: 'bare' });
+        }),
+      ).to.be.rejectedWith(WriteCaptureRequired, unseen('an insert'));
+    } finally {
+      sent.restore();
+    }
+
+    // BEGIN and ROLLBACK bypass executeOnDb; the insert or a savepoint would not.
+    expect(sent.getCalls().map((c) => c.args[0])).to.deep.eq([]);
+    expect(await names('uow_tag')).to.deep.eq([]);
+  });
+
+  it('leaves raw SQL, an unlisted table and a write past the model under an empty list alone', async () => {
+    const driver = sqlite();
+    await driver.insert().into('uow_tag').values({ Name: 'bare' });
+    await requireTables(['uow_tag']);
+    await driver.insert().into('uow_client').values({ Name: 'x' });
+    await driver.schema().raw('DELETE FROM uow_tag', []);
+
+    expect(await names('uow_tag')).to.deep.eq([]);
+    expect(await names('uow_client')).to.deep.eq(['x']);
+  });
+
+  it('reads the list at most once per statement, and not for a select', async () => {
+    const config = await DI.resolve(Configuration);
+    const driver = sqlite();
+    const reads = async (statement: () => Promise<unknown>): Promise<number> => {
+      const get = sinon.spy(config, 'get');
+      try {
+        await statement();
+      } finally {
+        get.restore();
+      }
+      return get.getCalls().filter((c) => c.args[0] === 'db.WriteCapture.Required').length;
+    };
+
+    expect([
+      await reads(async () => driver.select().from('uow_tag')),
+      await reads(async () => UowTag.where('Id', 1)),
+      await reads(async () => driver.insert().into('uow_client').values({ Name: 'x' })),
+      await reads(async () => UowTag.insert({ Name: 'red' })),
+    ]).to.deep.eq([0, 0, 1, 1]);
+  });
+
+  it('runs the migrations with a table listed: the ORM bookkeeping tables are not on the list', async () => {
+    DI.clearCache();
+    await requireTables(['uow_tag']);
+    await bootUow();
+
+    expect(await rows(TEST_MIGRATION_TABLE_NAME)).to.not.be.empty;
   });
 
   it('takes only a list of table names: the configuration refuses anything else and keeps what it had', async () => {
@@ -177,6 +330,16 @@ describe('db.WriteCapture.Required on sqlite', function () {
 
       expect(observed.writes.map((w) => w.kind)).to.deep.eq(['insert', 'update']);
       expect(await names('uow_tag')).to.deep.eq(['green']);
+    });
+
+    it('still refuses a write past the model, which no observer is ever handed', async () => {
+      await requireTables(['uow_tag']);
+
+      await expect(sqlite().insert().into('uow_tag').values({ Name: 'bare' })).to.be.rejectedWith(WriteCaptureRequired, unseen('an insert'));
+      await UowTag.insert({ Name: 'red' });
+
+      expect(observed.writes.map((w) => w.kind)).to.deep.eq(['insert']);
+      expect(await names('uow_tag')).to.deep.eq(['red']);
     });
 
     it('still refuses a statement the observer leaves alone', async () => {

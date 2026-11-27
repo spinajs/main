@@ -2,7 +2,7 @@
 
 The write capture hands the rows an insert, update or delete reaches, as they were before and after the statement, to every `WriteObserver` that asks for them. It is the plumbing under row history (`@spinajs/orm-history`) and the authz column changelog. The capture stores nothing and knows no actor: what to do with the rows is the observer's business.
 
-Without a registered observer that is interested in a statement, the capture adds nothing to it: no read, no transaction. The one exception is a table listed in `db.WriteCapture.Required`: a model write of it that no observer takes is refused ([Tables that must be observed](#tables-that-must-be-observed)).
+Without a registered observer that is interested in a statement, the capture adds nothing to it: no read, no transaction. The one exception is a table listed in `db.WriteCapture.Required`: a write of it that no observer takes, or that goes past its model, is refused ([Tables that must be observed](#tables-that-must-be-observed)).
 
 ## An observer
 
@@ -94,13 +94,13 @@ An upsert is also refused after it ran, when the read after it finds more rows b
 
 ## Tables that must be observed
 
-`db.WriteCapture.Required` lists table names. An insert, update or delete of a model whose table is listed is refused with `WriteCaptureRequired` when no registered observer takes it, that is when every `interest()` answered `undefined`. The list is empty by default, and an empty list refuses nothing.
+`db.WriteCapture.Required` lists table names. An insert, update or delete of a model whose table is listed is refused with `WriteCaptureRequired` when no registered observer takes it, that is when every `interest()` answered `undefined`. A write of a listed table that goes past its model is refused too, because no observer is ever handed it. The list is empty by default, and an empty list refuses nothing.
 
 ```json
 { "db": { "WriteCapture": { "Required": ["invoice", "invoice_line"] } } }
 ```
 
-Use it for a record that must be complete while only some processes load the observer that keeps it: row history registered by an integration package, a changelog. A worker, a command or a migration that shares the configuration and writes the table without that package fails on its first model write, instead of writing rows the record never sees, as long as it writes through the model (writes the capture does not see pass, see below) and no other observer takes the table's writes in that process:
+Use it for a record that must be complete while only some processes load the observer that keeps it: row history registered by an integration package, a changelog. A worker, a command or a migration that shares the configuration and writes the table without that package fails on its first write of the table, instead of writing rows the record never sees, as long as no other observer takes the table's writes in that process (raw SQL passes, see below):
 
 ```text
 write capture: Invoice writes invoice, a table db.WriteCapture.Required lists, and no WriteObserver takes this update; load the package that observes invoice in this process or take the table off the list
@@ -109,20 +109,34 @@ write capture: Invoice writes invoice, a table db.WriteCapture.Required lists, a
 - **Any observer satisfies the list.** An observer that takes the statement satisfies it whatever it keeps: a history that excludes or masks a column, a cache, the application's own observer, or `@spinajs/authz-orm`'s ancestor and changelog observers on an `@AccessResource` model. With `invoice` listed and `Invoice` marked `@AccessResource`, a process that loads `@spinajs/authz-orm` but not `@spinajs/orm-history` writes invoices without refusal and without history. List a table only where the observer the list is meant for is the only one that takes its writes. A follow-up change closes this: then only a full history that states what it leaves `unrecorded` satisfies the list.
 - The write is refused before its statement is sent, so no row changes. Inside a caller's transaction the caller gets the error and decides what happens to the rest of the transaction.
 - `WriteCaptureRequired` extends `InvalidOperation`.
-- A name is compared with the model's table name (`@Model('invoice')`) without case, on every connection: `Invoice` guards `invoice`. On a database that tells two tables apart by case alone (PostgreSQL with quoted names), listing one of them guards both, which is the safe side.
-- At boot the ORM warns about each listed name that no model registered in the process has, so a misspelt name is reported. It is a warning, not a refusal: a process may lack the models of a table that another process writes.
+- A name is compared with the model's table name (`@Model('invoice')`), or with the table a builder writes, without case, on every connection: `Invoice` guards `invoice`. On a database that tells two tables apart by case alone (PostgreSQL with quoted names), listing one of them guards both, which is the safe side.
+- Only the table part of a name is compared, in the list and in the write: `invoice`, `public.invoice`, `"public"."invoice"`, `` `shop`.`invoice` `` and `[dbo].[invoice]` all name `invoice`. The schema is not compared, whether it is in the name or set with `.database('shop')`, and a table alias (`.from('invoice', 'i')`) is not the table. A write past the model whose name has no table part to read (an unclosed quote, an empty part: `"invoice`, `shop.`), or that names no table at all (`driver.insert().values(row)` without `into()`), is refused while the list names any table; under an empty list such a builder fails at the database as before.
+- At boot the ORM warns about each listed name that no model registered in the process has, so a misspelt name is reported. It is a warning, not a refusal: a process may lack the models of a table that another process writes, and there only the table's writes that go past a model are refused.
 - A model class that carries no ORM decorator of its own (a subclass that inherits its table from a decorated parent) is not checked, and its writes pass.
 - The list is one value. When two configuration sources set it (a base file and an environment file, two files of one directory), the later one replaces the earlier and its tables are no longer checked. Write the whole list in one place.
 - The question is asked per statement, and any observer answers it: the list does not know which observer is meant. An observer that leaves some statements of a listed table alone gets those statements refused: the `InvoiceStatusLog` above skips an update that does not write `status`, and `@spinajs/orm-history` in column mode skips an update that writes no tracked column. List a table only when its observer takes every write of it.
-- The list covers what the capture sees. The writes under [What the capture does not see](#what-the-capture-does-not-see) pass, listed or not; `Model.truncate()` is one of them, because its builder carries no model.
+- A write of a listed table that goes past its model is refused before its statement is sent, with the same error class and this message:
+
+  ```text
+  write capture: an insert of invoice, a table db.WriteCapture.Required lists, does not go through the table's model, so no WriteObserver can take it; write it through its model, or with raw SQL where it must not be recorded
+  ```
+
+  Such a write is an insert (an upsert included), update, delete or truncate builder without a model (`driver.insert().into('invoice')`, `driver.update().in('invoice')`, `driver.del().from('invoice')`, `driver.truncate('invoice')`), the helpers built on them (`insertChunked`, `deleteChunked`, `purgeBatch`, `bumpVersionRow`), `Invoice.truncate()`, and a model builder pointed at the table with `into()`, `in()` or `from()`. No observer can take it, so an observer of the table does not let it through. A migration or seed that fills a listed table writes it through its model.
+- Raw SQL (`driver.schema().raw()`, `executeSql()`, `RawQuery`, `driver.executeOnDb()`), a builder handed to `driver.execute()` directly, schema builders (a table clone with its rows included) and cascades or triggers in the database pass, listed or not: raw SQL is the one deliberate way to write a listed table that nobody records. Its table cannot be read from the text, and the check does not try.
+- The framework's own builders without a model are judged like the application's. The ORM's migration table and its lock table pass because no list names them; list them and migrations stop. These framework writes go past a model, so each is refused with the message above (`an insert of …`, `an update of …`, `a delete of …` or `a truncate of …`) once its table is listed:
+  - `RowLease` of `@spinajs/durable` writes its claim columns into the leased table past its model, so a listed table cannot be leased: `claim()`, `renew()` and `release()` throw `WriteCaptureRequired` (`an update of invoice, …`). Do not list a table you lease.
+  - `@spinajs/session-provider-db`: `DbSessionStore.truncate()` calls `DbSession.truncate()`, refused when `user_sessions` is listed (`a truncate of user_sessions, …`). Its other writes go through `DbSession` and are judged as model writes. Delete sessions through the model (`DbSession.destroy().where(...)`) instead of `truncate()`.
+  - `@spinajs/authz-rbac`: `bumpVersion()` writes `authz_version` with bare builders (`an update of authz_version, …`), so every write of its database assignment, link and rule stores fails. Do not list `authz_version`.
+  - `@spinajs/email-verification-orm`: its store writes `email_verification_verdicts`, `email_verification_sources`, `email_verification_entries` and `email_verification_meta` past a model. Do not list them.
+  - The audit trail tables of `@spinajs/audit-orm`, the queue outbox of `@spinajs/queue`, the upload store of `@spinajs/upload`, `fs_acl` of `@spinajs/authz-fs`, and some updates and deletes of `users` and user metadata by `@spinajs/users`: list such a table only once its writes go through its model.
 - A value that is not a list is refused by the configuration check at boot and by `Configuration.set()`, and so is an empty name in it. So is any key under `db.WriteCapture` other than `MaxRows` and `Required`, so a misspelt `Required` does not switch the check off. A misspelt section name (`db.WriteCaptur`) is not refused: the `db` section holds keys of many packages. A number in the list is read as its text: `[7]` becomes `["7"]`.
 
 ## What the capture does not see
 
 Only statements built on a model reach the capture. It does not see:
 
-- builders without a model: `driver.insert()`, `driver.update()`, `driver.del()`, `insertChunked`;
-- `RawQuery` statements, `driver.execute()` with a compiled expression, `driver.executeOnDb()`, raw SQL and `TRUNCATE`;
+- builders without a model: `driver.insert()`, `driver.update()`, `driver.del()`, `driver.truncate()`, `insertChunked`, `Model.truncate()` (a write of a table `db.WriteCapture.Required` lists is refused, see above);
+- `RawQuery` statements, `driver.execute()` with a compiled expression, `driver.executeOnDb()` and raw SQL;
 - schema builders;
 - rows the database changes by itself: foreign-key `ON DELETE CASCADE` or `SET NULL`, and triggers;
 - writes of other services to the same database.
