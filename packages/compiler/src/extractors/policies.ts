@@ -1,9 +1,10 @@
 import ts from 'typescript';
 import type { GlobalMiddlewareRef, MiddlewareRef, PolicyRef } from '@spinajs/manifest';
 import type { ExtractorContext } from '../context.js';
-import { decoratorsOf, identifierName, literalValue, type DecoratorInfo, type LiteralContext } from '../decorators.js';
+import { decoratorsOf, identifierName, literalValue, type DecoratorInfo } from '../decorators.js';
 import { decoratorOrigin, originOf } from './decorator-origin.js';
-import { initializerOf, isPlainJson, objectLiteralOf } from './object-literals.js';
+import { fieldsOf } from './fields-read.js';
+import { isPlainJson } from './object-literals.js';
 
 const refOf = (expr: ts.Expression | undefined, ctx: ExtractorContext): string => {
   const value = identifierName(expr) ?? literalValue(expr, ctx);
@@ -17,36 +18,6 @@ interface AccessInfo {
   fieldsFilter: boolean;
   /** The options whose `fields` the build cannot read. */
   unreadFields: ts.Expression | undefined;
-}
-
-/** What `@Access` options do with `fields`; a value the build cannot read is `undefined`. */
-type FieldsRead = { set: false } | { set: true; value: unknown };
-
-const FIELDS_UNSET: FieldsRead = { set: false };
-const FIELDS_UNREAD: FieldsRead = { set: true, value: undefined };
-
-function memberFields(member: ts.ObjectLiteralElementLike, ctx: LiteralContext): FieldsRead {
-  if (ts.isSpreadAssignment(member)) return fieldsOf(member.expression, ctx);
-  const key = ts.isComputedPropertyName(member.name) ? literalValue(member.name.expression, ctx) : member.name.text;
-  if (key !== 'fields') return typeof key === 'string' || typeof key === 'number' ? FIELDS_UNSET : FIELDS_UNREAD;
-  if (ts.isPropertyAssignment(member)) return { set: true, value: literalValue(member.initializer, ctx) };
-  // literalValue resolves a shorthand name to the property itself, not to the variable it copies
-  if (ts.isShorthandPropertyAssignment(member)) {
-    const initializer = initializerOf(ctx.checker.getShorthandAssignmentValueSymbol(member), ctx);
-    return initializer ? { set: true, value: literalValue(initializer, ctx) } : FIELDS_UNREAD;
-  }
-  return FIELDS_UNREAD;
-}
-
-/** The last member that may set `fields` decides, as in the object the runtime receives; options the build cannot follow may set it. */
-function fieldsOf(options: ts.Expression, ctx: LiteralContext): FieldsRead {
-  const literal = objectLiteralOf(options, ctx);
-  if (!literal) return FIELDS_UNREAD;
-  for (const member of [...literal.properties].reverse()) {
-    const read = memberFields(member, ctx);
-    if (read.set) return read;
-  }
-  return FIELDS_UNSET;
 }
 
 type FieldsFilter = Pick<AccessInfo, 'fieldsFilter' | 'unreadFields'>;

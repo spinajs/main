@@ -27,3 +27,27 @@ describe('socket extractors', () => {
     });
   });
 });
+
+describe('the fields option of @SocketAccess', () => {
+  const unit = createProgramFromTsconfig('test/fixtures/unit/tsconfig.json');
+  const ctx = createContext(unit, 'unit', 'test/fixtures/unit');
+  const [socket] = extractSocketControllers(ctx, unit.sourceFiles.find((f) => f.fileName.endsWith('socket-fields.ts'))!);
+  const fields = (handlers: string[]) => handlers.map((h) => socket.commands.find((c) => c.handler === h)!.fields);
+
+  it('records a fields the build cannot read as filter', () => {
+    expect(fields(['unreadable', 'letOptions'])).to.deep.equal(['filter', 'filter']);
+  });
+
+  it('reads literals and constants as before', () => {
+    expect(fields(['filter', 'filterRows', 'constant', 'constOptions', 'none', 'plain'])).to.deep.equal(['filter', 'filter-rows', 'filter', 'filter', undefined, undefined]);
+  });
+
+  it('notes each fields it cannot read once, at the options', () => {
+    const notes = ctx.diagnostics.filter((d) => d.code === 'CMP001' && d.message.startsWith('the fields option of @SocketAccess')).map((d) => [d.message, d.source?.line]);
+    const note = (options: string) => `the fields option of @SocketAccess cannot be read (${options}): recorded as filtering, the generated client types the result as Redacted<T>`;
+    expect(notes).to.deep.equal([
+      [note('{ fields: MODE }'), 18],
+      [note('OPTIONS'), 19],
+    ]);
+  });
+});

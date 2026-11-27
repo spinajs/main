@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import type { PolicyRef, SocketCommandEntry, SocketContractEntry, SocketControllerEntry, SocketEventEntry, TypeRef } from '@spinajs/manifest';
 import type { Extractor, ExtractorContext } from '../context.js';
 import { findDecorator, identifierName, literalValue, type DecoratorInfo } from '../decorators.js';
+import { fieldsOf } from './fields-read.js';
 import { policyGroupsOf } from './policies.js';
 import { owningPackage } from '../owning-package.js';
 
@@ -18,9 +19,18 @@ function socketAccessOf(m: ts.HasDecorators, ctx: ExtractorContext): string[] | 
   return Array.isArray(v) ? v.map(String) : [String(v)];
 }
 
+/** A `fields` the build cannot read counts as `'filter'`: the client must not type a result the server may redact as complete. */
 function socketFieldsOf(m: ts.MethodDeclaration, ctx: ExtractorContext): SocketCommandEntry['fields'] {
-  const fields = (literalValue(findDecorator(m, 'SocketAccess')?.args[1], ctx) as { fields?: unknown } | undefined)?.fields;
-  return fields === 'filter' || fields === 'filter-rows' ? fields : undefined;
+  const options = findDecorator(m, 'SocketAccess')?.args[1];
+  if (!options) return undefined;
+  // read once with notes, as before: fieldsOf reads quietly so that nothing is noted twice
+  literalValue(options, ctx);
+  const fields = fieldsOf(options, { checker: ctx.checker, info: () => undefined });
+  if (fields.set && fields.value === undefined) {
+    ctx.info('CMP001', `the fields option of @SocketAccess cannot be read (${options.getText()}): recorded as filtering, the generated client types the result as Redacted<T>`, options);
+    return 'filter';
+  }
+  return fields.set && (fields.value === 'filter' || fields.value === 'filter-rows') ? fields.value : undefined;
 }
 
 function payloadOf(m: NamedMethod, className: string, ctx: ExtractorContext): { payload: TypeRef; payloadIndex?: number } {
@@ -91,6 +101,7 @@ function eventOf(m: NamedMethod, className: string, ev: DecoratorInfo, ctx: Extr
 
 function commandOf(m: NamedMethod, className: string, cmd: DecoratorInfo, ctx: ExtractorContext): SocketCommandEntry {
   const { access, policies } = guardsOf(m, 'handler', ctx);
+  const fields = access ? socketFieldsOf(m, ctx) : undefined;
   return {
     name: (literalValue(cmd.args[0], ctx) as string | undefined) ?? m.name.text,
     handler: m.name.text,
@@ -98,7 +109,7 @@ function commandOf(m: NamedMethod, className: string, cmd: DecoratorInfo, ctx: E
     ...resultOf(m, className, ctx),
     options: (literalValue(cmd.args[1], ctx) as SocketCommandEntry['options'] | undefined) ?? {},
     ...(access ? { access } : {}),
-    ...(access && socketFieldsOf(m, ctx) ? { fields: socketFieldsOf(m, ctx) } : {}),
+    ...(fields ? { fields } : {}),
     policies,
     source: ctx.sourceRef(m),
   };
