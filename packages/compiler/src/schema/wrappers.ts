@@ -1,25 +1,11 @@
 import ts from 'typescript';
 import { baseClassOf, extendsFrameworkClass, isDeclaredIn } from './framework-members.js';
 
-/** Wrapper types unwrapped to their first type argument. Subclasses of the `@spinajs/http` `Response` are wrappers too. */
-export const TRANSPARENT_WRAPPERS: ReadonlySet<string> = new Set([
-  'Promise',
-  'Ok',
-  'Json',
-  'Created',
-  'BadRequest',
-  'NotFound',
-  'ServerError',
-  'Unauthorized',
-  'Forbidden',
-  'Conflict',
-  'NoContent',
-  'ValidationError',
-  'NotAllowed',
-  'EntityTooLarge',
-  'ModelDataWithRelationData',
-  'ModelData',
-]);
+/**
+ * Wrapper types unwrapped to their first type argument, by name. The reply classes of `@spinajs/http` are not listed:
+ * a subclass of its `Response` is a wrapper by its declaring package (`isHttpResponse`).
+ */
+export const TRANSPARENT_WRAPPERS: ReadonlySet<string> = new Set(['Promise', 'ModelDataWithRelationData', 'ModelData']);
 
 const HTTP = '@spinajs/http';
 const isHttpResponse = (checker: ts.TypeChecker, type: ts.Type): boolean => extendsFrameworkClass(checker, type, 'Response', HTTP);

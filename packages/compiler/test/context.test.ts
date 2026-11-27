@@ -35,6 +35,10 @@ describe('ExtractorContext', () => {
     expect(ctx.typeRef(returnOf(method(svc, 'two')), svc).text).to.equal('Dto[]');
     expect(ctx.typeRef(returnOf(method(svc, 'three')), svc).text).to.equal('void');
   });
+  it('does not unwrap a class that only shares the name of an http response', () => {
+    const lookalike = cls('Lookalike');
+    expect(ctx.typeRef(returnOf(method(lookalike, 'made')), lookalike).text).to.equal('Created<Dto>');
+  });
   it('diagnostics carry severity and source', () => {
     ctx.warn('X001', 'hello', cls('Base'));
     expect(ctx.diagnostics.at(-1)).to.deep.equal({ code: 'X001', severity: 'warning', message: 'hello', source: { file: 'context.ts', line: 1, col: 1, package: 'unit' } });
