@@ -42,7 +42,7 @@ Migration `AuthzFsAcl_2026_10_17_00_00_00`, run on `authz.fsAcl.connection`. The
 }
 ```
 
-An app may set `db.Aliases['authz-fs-acl']` itself; it must then name the same connection as `authz.fsAcl.connection`. When the two differ, the store throws `AuthzConfigError` on its first call and changes nothing. The key is read once, at the ORM's boot: a later change of it is refused the same way.
+An app may set `db.Aliases['authz-fs-acl']` itself; it must then name the same connection as `authz.fsAcl.connection`. When the two differ, the store throws `AuthzConfigError` on its first call and changes nothing. A key that names a connection the ORM does not have fails the same way at the first ACL call, not at boot: the ORM skips the alias with a warning. The key is read once per process, at the first boot of the ORM: a later change of it, also in a second ORM boot of the same process, is refused the same way.
 
 ## Services and extension points
 
