@@ -21,7 +21,9 @@ Then `forget` records an `erasure` event (`kind: 'custom'`, `action: 'erasure'`,
 
 `subject` and `dataSubject` are not touched, so a subject key must not itself be personal data you have to erase.
 
-A subject is matched by its exact spelling: the trail's text columns compare byte for byte ([Tables](01-trails-and-guarantees.md#tables)), so `forget({ type: 'user', id: 'abc' })` leaves the events of `ABC` alone, and of `'abc '` too: reads and `forget` compare the subject id with `SqlExpressions.equalsExactly()` beside the indexed equality, because MySQL's `utf8mb4_bin` and MSSQL's `=` ignore trailing spaces. Before 4.0 they did not, and there `forget('abc')` also blanked the events of `'abc '` (and `forget('abc ')` those of `'abc'`), which cannot be undone. An id is matched as given: `forget` of a `char(n)` key read back with its padding does not match events recorded under the unpadded text.
+A subject is matched by its exact spelling, type and id alike: the trail's text columns compare byte for byte ([Tables](01-trails-and-guarantees.md#tables)), so `forget({ type: 'user', id: 'abc' })` leaves the events of `ABC`, of `'abc '` and of the type `'user '` alone. Reads and `forget` add `SqlExpressions.equalsExactly()` beside the indexed equality, because MySQL's `utf8mb4_bin` and MSSQL's `=` ignore trailing spaces.
+
+Pass an id as the database returns it. A `char(n)` key is recorded padded to `n` on PostgreSQL and SQL Server, every entry of the row, its insert included: give `Model.history().of`, `asOf` and `forget` that padded spelling, or use `row.history()`. `Model.history().forget('AB')` of a `char(5)` key erases nothing, returns 0 and still records an `erasure` event.
 
 ## Which connections
 

@@ -48,6 +48,8 @@ Every other error rejects as `OrmException` with the client's error as `inner`.
 | `contains(haystack, needle)` | `SqlFragment`, true where `needle` occurs in `haystack` | `instr(h, n) > 0` | `strpos(h, n) > 0` | `LOCATE(n, h) > 0` | `CHARINDEX(n, h) > 0` |
 | `equalsExactly(left, right)` | `SqlFragment`, `left = right` byte for byte, whatever the column collation | `l = r` | `l = r` | `CAST(l AS BINARY) = CAST(r AS BINARY)`, which still holds beside a plain `l = r` (MySQL folds a bare `l` to that constant) | `l = r COLLATE Latin1_General_BIN2` plus a `LEN(… + 'x')` check for trailing spaces; binds `right` twice |
 
+`equalsExactly` alone does not seek an index on `left`: the MySQL cast and the MSSQL `COLLATE` hide the column from it. Beside an indexed column, keep the plain `where(column, value)` too: the plain equality seeks, `equalsExactly` decides.
+
 The base `SqlExpressions` throws `NotSupported` from every method, so a driver that registers none fails loudly instead of emitting another dialect's SQL. To add or fix one, subclass a shipped implementation and register it `.as(SqlExpressions)` in the driver's `resolve()`; see [Adding a new SQL dialect](../orm-sql/07-adding-a-sql-dialect.md).
 
 Every shipped driver reads datetime columns as UTC instants, so a model column or a plain select needs no `datetimeText()`. Because its text differs by dialect, do not compare or parse it across connections. Use `equalsExactly()` where a match must not fold case, such as a secret or a token, on a column declared without [`exact()`](09-schema-builder.md#exact-columns).
