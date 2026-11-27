@@ -16,8 +16,14 @@ export function readableExpiry(q: IQueryBuilder, column: string): RawQuery | und
       // isfinite misses dates past JavaScript's range (275760-09-13), which pg hands back as an invalid Date.
       return RawQuery.create(`(isfinite(${column}) AND ${column} <= '275760-09-13T00:00:00Z')`);
     case 'Sqlite':
-      // julianday also reads 'now', normalises an impossible day and skips trailing whitespace; the converter reads none of them.
-      return RawQuery.create(`(julianday(${column}) IS NOT NULL AND date(substr(${column}, 1, 10), '+0 days') = substr(${column}, 1, 10) AND trim(${column}, char(32, 9, 10, 11, 12, 13)) = ${column})`);
+      // julianday also reads 'now', normalises an impossible day or hour 24, and skips whitespace, a doubled 'T', a NUL and
+      // a space before the zone; the converter reads none of them.
+      return RawQuery.create(
+        `(julianday(${column}) IS NOT NULL AND date(substr(${column}, 1, 10), '+0 days') = substr(${column}, 1, 10) AND trim(${column}, char(32, 9, 10, 11, 12, 13)) = ${column}` +
+          ` AND (length(${column}) = 10 OR ${column} GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9][T ][0-9][0-9]:[0-9][0-9]*')` +
+          ` AND substr(${column}, 12, 2) <> '24' AND NOT (substr(${column}, 11, 1) = 'T' AND instr(${column}, ' ') > 0) AND instr(${column}, '  ') = 0` +
+          ` AND length(CAST(${column} AS BLOB)) = length(${column}))`,
+      );
     case 'MySQL':
       return RawQuery.create(`(DAYOFMONTH(${column}) <> 0 AND MONTH(${column}) <> 0)`);
     default:

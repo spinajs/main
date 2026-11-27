@@ -20,7 +20,7 @@ const expect = chai.expect;
 type Kind = 'sqlite' | 'postgres' | 'mysql';
 /** Unreadable values: `low` sorts before now in the database's order, `high` after it; a SQLite column keeps any text. */
 const DIALECTS: readonly { kind: Kind; low: readonly string[]; high: readonly string[] }[] = [
-  { kind: 'sqlite', low: ["''", "'0garbage'"], high: ["'not a date'"] },
+  { kind: 'sqlite', low: ["''", "'0garbage'", "'2020-01-01  00:00:00'", "'2020-01-01T'"], high: ["'not a date'", "'2099-01-01T00:00:00 Z'"] },
   { kind: 'postgres', low: ["'-infinity'"], high: ["'infinity'", "'294276-12-31 00:00:00+00'"] },
   { kind: 'mysql', low: ["'0000-00-00 00:00:00'", "'2026-00-10 00:00:00'"], high: ["'2099-12-00 00:00:00'"] },
 ];
@@ -145,11 +145,13 @@ for (const { kind, low, high } of DIALECTS) {
       if (kind !== 'mysql') return (await query.asRaw<{ id: string }[]>()).map((r) => r.id);
       // CAST(id AS CHAR) takes the connection's collation, which MySQL refuses to compare with the tables' (the SX-26 family's issue)
       return db.driver.transaction(async () => {
+        // DEFAULT would be the server's collation, not the handshake's the pooled connection had
+        await rawQuery(db.driver, 'SET @sx19b_collation = @@collation_connection', [], QueryContext.Update);
         await rawQuery(db.driver, "SET SESSION collation_connection = (SELECT TABLE_COLLATION FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'authz_assignment')", [], QueryContext.Update);
         try {
           return (await query.asRaw<{ id: string }[]>()).map((r) => r.id);
         } finally {
-          await rawQuery(db.driver, 'SET SESSION collation_connection = DEFAULT', [], QueryContext.Update);
+          await rawQuery(db.driver, 'SET SESSION collation_connection = @sx19b_collation', [], QueryContext.Update);
         }
       });
     };
@@ -240,7 +242,7 @@ for (const { kind, low, high } of DIALECTS) {
     it('classifies every value alike in SQL and in expiryOf, and the stores filter keeps each value the model refuses', async () => {
       // SQLite values the converter reads as epoch seconds, an ISO basic date or a bare year, which SQL calls unreadable: a list counts no grant and keeps every deny holding one
       const overListed = kind === 'sqlite' ? ["'1798761600'", '1798761600', "'20261019'", "'2026'"] : [];
-      const spellings = kind === 'sqlite' ? ["'2027-01-01T00:00:00.000Z'", "'2027-01-01 00:00:00'", "'2027-01-01T00:00:00Z '"] : ["'2027-01-01 00:00:00'"];
+      const spellings = kind === 'sqlite' ? ["'2027-01-01T00:00:00.000Z'", "'2027-01-01 00:00:00'", "'2027-01-01T00:00:00Z '", "'2027-01-01  00:00:00'", "'2027-01-01T24:30:00Z'", "'2027-01-01T00:00:00 +02:00'"] : ["'2027-01-01 00:00:00'"];
       const values = [...low, ...high, EXPIRED, NONE, ...spellings, ...overListed];
       const at = new Date();
       await db.driver.del().from('authz_assignment');
