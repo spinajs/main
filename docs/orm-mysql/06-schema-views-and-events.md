@@ -86,6 +86,18 @@ MySQL commits implicitly before and after `CREATE`, `ALTER`, `DROP`, `TRUNCATE` 
 - `Migration.Transaction.Mode = PerMigration` or `PerRun` opens a transaction, but a migration that fails after its third `CREATE TABLE` leaves all three applied.
 - A data change made before DDL in the same transaction is committed by that DDL.
 - A data change made after the DDL stays in the transaction. The driver runs a transaction with `autocommit = 0`, so the transaction's `COMMIT` or rollback decides it (see [Transactions](03-transactions.md#important-behaviour)).
+- Under `PerRun` this includes the tracking rows: when a later migration of the same run fails, the "finished" rows of the migrations since the last DDL are rolled back while their DDL stays, so the next run sees them as interrupted and runs them again. On MySQL prefer `PerMigration`, where each migration's tracking row commits with it. The default, `None`, is not affected.
+
+#### Repairing a `PerRun` run that hit this
+
+Example: migration `A` created a table, then `B` failed in the same run. `A`'s table exists, but its tracking row says started, not finished. The next `migrate-up` would run `A` again, its `CREATE TABLE` would fail, and the run would stay blocked on `A`. Before you run `migrate-up` again:
+
+1. Run `npx spinajs migrate-status`. `B` shows as failed. Each migration whose DDL stayed shows as interrupted.
+2. For each interrupted migration, compare its `up()` with the database. Its DDL is applied. A data change it made after its last DDL was rolled back.
+3. If nothing of it is missing, or you applied the missing data change by hand, record it as applied: `npx spinajs migrate-resolve --name A_2026_11_01_00_00_00 --applied`. Otherwise undo its DDL by hand and record `--rolled-back`, so that the next run applies it whole.
+4. Fix `B`, record its outcome with `migrate-resolve` as [Resolving failed migrations](../orm-cli/04-resolving-failed-migrations.md) describes, set `Migration.Transaction.Mode` to `PerMigration`, and run `migrate-up`.
+
+These steps were not run against this branch.
 - `down()` may run against a half-applied `up()`.
 
 ### Migrations
