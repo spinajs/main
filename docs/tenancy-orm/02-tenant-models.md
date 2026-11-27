@@ -28,7 +28,7 @@ On a connection with tenant settings, step 4 also applies the [one scope per tra
 ## Sub-queries
 
 A select compiled into another statement runs no query middleware of its own, so the middleware takes each one the
-statement holds through steps 3 to 7 as if it were a statement, depth first, after the statement itself. It finds them
+statement holds through steps 3 to 8 as if it were a statement, depth first, after the statement itself. It finds them
 in `whereIn(column, query)`, `whereNotIn`, `whereExist(query)`, `whereNotExists`, `whereExist('relation')` of every
 relation kind (for a many-to-many relation that is the junction select), nested groups, join callbacks,
 `selectCondition()` columns, the callback of a to-one `populate()`, and inside other sub-queries. It does this for
@@ -164,6 +164,12 @@ database's collation treats as the tenant column is not caught there.
 
 - The caller's conditions are grouped before the tenant predicate is added, so an `orWhere` cannot leave the tenant.
 - A hasMany populate and every page of `stream()` are statements of their own and are confined the same way.
+- A statement is confined when it executes, and a `clone()` taken afterwards keeps that tenant's condition, in its
+  sub-queries too. Run in another tenant it returns no row; run in the all-tenants scope it returns the first tenant's
+  rows only. Nothing leaks, but the answer is short. Build the query inside the scope it runs in, or clone a builder
+  before its first run when it runs in more than one scope.
+- A builder executes once: awaiting it again returns the first result, in whatever scope, with no query and no
+  middleware.
 - The model instance does not get the tenant written back after an insert; read it again when you need the value.
 - Only a plain-object insert (`Model.insert({...})`) gets the tenant column from the middleware. A model instance
   (`new Model(...).insert()`, `Model.create()`, `getOrCreate()`, `Model.insert(instance)`) needs the tenant column set on
