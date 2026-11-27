@@ -259,7 +259,7 @@ export class FrameworkConfiguration extends Configuration {
   private parsedPath(path: string): readonly string[] {
     let segments = this.ParsedPaths.get(path);
     if (segments === undefined) {
-      segments = _.toPath(path);
+      segments = Object.freeze(_.toPath(path));
       if (this.ParsedPaths.size < MAX_PARSED_PATHS) this.ParsedPaths.set(path, segments);
     }
     return segments;
