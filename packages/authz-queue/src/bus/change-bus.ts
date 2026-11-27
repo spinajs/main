@@ -113,6 +113,7 @@ export class QueueChangeBus extends ChangeBus {
 
   async dispose(): Promise<void> {
     this.disposed = true;
+    this.Container?.removeListener('di.dispose', this.onContainerDispose);
     if (this.timer) clearTimeout(this.timer);
     this.timer = undefined;
     this.subscribers.clear();

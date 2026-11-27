@@ -335,16 +335,83 @@ async function unhandledRejectionsDuring(run: () => Promise<void>): Promise<unkn
 
 // Last in the file: DI.dispose() clears the root container's cache.
 describe('QueueChangeBus in a container', () => {
+  const DISPOSE = 'di.dispose';
+  let broker: string;
+  let clients: MemoryQueueClient[];
+
+  /** A child whose SubscribingBus and PublishOnlyBus each talk to a client of their own. */
+  async function app() {
+    const own = [await memoryClient(broker), await memoryClient(broker)];
+    clients.push(...own);
+    [SubscribingBus.service, PublishOnlyBus.service] = own.map((c) => new PeerQueueService(c));
+    return DI.child();
+  }
+
+  beforeEach(() => {
+    broker = `bus-${++seq}`;
+    clients = [];
+  });
+
+  afterEach(async () => {
+    for (const c of clients) await c.dispose();
+    MemoryBroker.drop(broker);
+  });
+
+  it('listens on its container once, however often it publishes and subscribes', async () => {
+    const child = await app();
+    const before = child.listenerCount(DISPOSE);
+    const bus = child.resolve(SubscribingBus);
+
+    for (let i = 0; i < 5; i++) {
+      bus.subscribe(() => undefined);
+      await bus.publish(change());
+    }
+
+    expect(child.listenerCount(DISPOSE)).to.eq(before + 1);
+    await child.dispose();
+  });
+
+  it('a dispose of its own takes its listener off the container, also off a root that drops its cache after each bus', async () => {
+    const child = await app();
+    const before = child.listenerCount(DISPOSE);
+    const bus = child.resolve(PublishOnlyBus);
+    await bus.publish(change());
+
+    await bus.dispose();
+
+    expect(child.listenerCount(DISPOSE)).to.eq(before);
+    await child.dispose();
+
+    const atRoot = DI.RootContainer.listenerCount(DISPOSE);
+    for (let i = 0; i < 15; i++) {
+      const rootBus = DI.resolve(PublishOnlyBus);
+      await rootBus.publish(change());
+      await rootBus.dispose();
+      DI.uncache(PublishOnlyBus);
+    }
+    expect(DI.RootContainer.listenerCount(DISPOSE)).to.eq(atRoot);
+  });
+
+  it('containers made and disposed again and again leave no listener behind', async () => {
+    const before = DI.RootContainer.listenerCount(DISPOSE);
+
+    for (let i = 0; i < 15; i++) {
+      const child = await app();
+      await child.resolve(PublishOnlyBus).publish(change());
+      await child.dispose();
+      expect(child.listenerCount(DISPOSE)).to.eq(0);
+    }
+
+    expect(DI.RootContainer.listenerCount(DISPOSE)).to.eq(before);
+  });
+
   it('ends with the container that resolved it, also when it only published: DI.dispose() stops consuming and the retry', async () => {
     const uninstallLog = captureLog();
-    const broker = `bus-${++seq}`;
-    const clients = [await memoryClient(broker), await memoryClient(broker)];
-    [SubscribingBus.service, PublishOnlyBus.service] = clients.map((c) => new PeerQueueService(c));
     try {
-      const app = DI.child();
-      app.resolve(SubscribingBus).subscribe(() => undefined);
-      await app.resolve(PublishOnlyBus).publish(change());
-      app.resolve(UnreachableBus).subscribe(() => undefined);
+      const child = await app();
+      child.resolve(SubscribingBus).subscribe(() => undefined);
+      await child.resolve(PublishOnlyBus).publish(change());
+      child.resolve(UnreachableBus).subscribe(() => undefined);
       await until('both buses consume and the unreachable one retried', () => clients.every((c) => consumers(c) === 1) && UnreachableBus.attempts >= 2);
 
       await DI.dispose();
@@ -354,8 +421,6 @@ describe('QueueChangeBus in a container', () => {
 
       expect(UnreachableBus.attempts).to.eq(attempts);
     } finally {
-      for (const c of clients) await c.dispose();
-      MemoryBroker.drop(broker);
       uninstallLog();
     }
   });
@@ -363,7 +428,6 @@ describe('QueueChangeBus in a container', () => {
   it('a DI.dispose() that disposed the DefaultQueueService first ends in one warn, not in an unhandled rejection', async () => {
     const config = await testHost.installHost();
     const uninstallLog = captureLog();
-    const broker = `bus-${++seq}`;
     config.set(['queue'], {
       default: broker,
       routing: {},
@@ -384,7 +448,6 @@ describe('QueueChangeBus in a container', () => {
       expect(TestLog.messages('warn').filter((m) => m.includes('at container dispose'))).to.have.length(1);
       expect(DI.RootContainer.Cache.has(DefaultQueueService), 'nothing resolved a QueueService again').to.eq(false);
     } finally {
-      MemoryBroker.drop(broker);
       uninstallLog();
       await testHost.uninstallHost();
     }
