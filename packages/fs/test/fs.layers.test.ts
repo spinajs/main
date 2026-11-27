@@ -81,6 +81,14 @@ class SlowLayer extends FsProviderLayer {
   }
 }
 
+class PromiseWrap extends FsProviderLayer {
+  public wrap(found: fs): fs {
+    return found;
+  }
+}
+// What a plain JavaScript or an any-typed layer can do, which the declared type rejects.
+Object.defineProperty(PromiseWrap.prototype, 'wrap', { value: (found: fs) => Promise.resolve(found) });
+
 describe('fs provider layers', function () {
   this.timeout(15000);
   let app: TestApp;
@@ -216,5 +224,13 @@ describe('fs provider layers', function () {
     container.register(new Redirect()).asValue('FsProviderLayer');
 
     expect(() => layeredFs(publishedFs('layer-a')!, container)).to.throw(InvalidOperation, /asValue\(\) cannot run/);
+  });
+
+  it('a wrap that returns a promise throws instead of passing the next layer, which an awaiting caller would skip', () => {
+    const container = DI.child();
+    container.register(PromiseWrap).as(FsProviderLayer);
+    container.register(AToB).as(FsProviderLayer);
+
+    expect(() => layeredFs(publishedFs('layer-a')!, container)).to.throw(InvalidOperation, /PromiseWrap returned a promise from wrap\(\)/);
   });
 });

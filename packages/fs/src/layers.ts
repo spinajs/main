@@ -22,7 +22,11 @@ export function layeredFs(provider: fs, container: IContainer = DI.RootContainer
   }
   if (!container.hasRegistered(FsProviderLayer)) return provider;
   let layered = provider;
-  for (const layer of layersOf(container)) layered = layer.wrap(layered);
+  for (const layer of layersOf(container)) {
+    layered = layer.wrap(layered);
+    // The next layer would pass a promise through unchanged, and a caller that awaits the lookup would get the raw provider.
+    if (isPromise(layered)) throw new InvalidOperation(`FsProviderLayer ${getTypeName(layer)} returned a promise from wrap(): a layer must hand out a provider synchronously`);
+  }
   return layered;
 }
 
