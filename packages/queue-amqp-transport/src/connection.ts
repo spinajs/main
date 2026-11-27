@@ -21,11 +21,48 @@ const RETRY_COUNT_HEADER = QueueHeaders.RetryCount;
 /** Connection tuning keys that amqplib reads only from the connect target, never from socket options. */
 const CONNECT_TUNING_OPTIONS = ['heartbeat', 'frameMax', 'locale'];
 
+function parsedUrl(text: string): URL | undefined {
+  try {
+    return new URL(text);
+  } catch {
+    return undefined;
+  }
+}
+
+// an '@' past the host means the userinfo held an unencoded '/', '?' or '#': host, port and path are pieces of it
+const isBrokenUserinfo = (url: URL): boolean => `${url.pathname}${url.search}${url.hash}`.includes('@');
+
+/** For AMQP the url path is the vhost, a broker setting rather than a token, so it is printed as written. */
+function loggableBroker(target: string): string {
+  const url = parsedUrl(target);
+  if (url === undefined) return loggableEndpoint(target);
+  if (isBrokenUserinfo(url)) return '<not a URL>';
+  return `${loggableEndpoint(`${url.protocol}//${url.host}`)}${url.pathname}`;
+}
+
+/** A name with several addresses (the default `localhost`) fails with an AggregateError whose own message is empty. */
+function connectFailureText(err: unknown): unknown {
+  if (err instanceof AggregateError && err.message === '') {
+    const inner: unknown[] = err.errors;
+    return inner.map((e) => (e instanceof Error ? e.message : String(e))).join('; ');
+  }
+  return err instanceof Error ? err.message : err;
+}
+
+/** Text the helper cannot tell from the url: the password sent from the fields, the pieces of a broken-up userinfo. */
+function connectSecrets(endpoint: string, password: string | undefined): string[] {
+  const url = parsedUrl(endpoint);
+  const pieces = url !== undefined && isBrokenUserinfo(url) ? [url.hostname, url.port] : [];
+  return [password ?? '', ...pieces].filter((secret) => secret.length >= 4);
+}
+
 /** A connect failure with only its class, code and a message that cannot repeat the credentials of a url host. */
-function loggableConnectError(err: unknown, host: string | undefined): Error {
+function loggableConnectError(err: unknown, host: string | undefined, password: string | undefined): Error {
   // a bare host name given as the endpoint would have every mention of it replaced by '<not a URL>'
   const endpoint = host?.includes('://') ? host : '';
-  const error = new Error(loggableReason(err instanceof Error ? err.message : err, endpoint));
+  let reason = loggableReason(connectFailureText(err), endpoint);
+  for (const secret of connectSecrets(endpoint, password)) reason = reason.split(secret).join('***');
+  const error = new Error(reason);
   error.name = err instanceof Error ? err.name : 'Error';
   const code = err instanceof Error && 'code' in err ? err.code : undefined;
   return typeof code === 'string' || typeof code === 'number' ? Object.assign(error, { code }) : error;
@@ -108,11 +145,11 @@ export class AmqpQueueClient extends QueueClient {
   /** The broker as logs and errors print it: scheme, host, port and vhost, never the userinfo or the query of a url host. */
   protected get LoggableBroker(): string {
     const host = this.Options.host ?? 'localhost';
-    if (host.includes('://')) return loggableEndpoint(host);
+    if (host.includes('://')) return loggableBroker(host);
     // read from the options, not from connectOptionsFromFields(): a subclass may look a secret up there
     const vhost: unknown = _.get(this.Options.options, 'vhost');
     const path = typeof vhost === 'string' && vhost !== '/' ? `/${encodeURIComponent(vhost)}` : '';
-    return loggableEndpoint(`amqp://${isIPv6(host) ? `[${host}]` : host}:${this.Options.port ?? 5672}${path}`);
+    return loggableBroker(`amqp://${isIPv6(host) ? `[${host}]` : host}:${this.Options.port ?? 5672}${path}`);
   }
 
   public get IsConnected() {
@@ -252,18 +289,20 @@ export class AmqpQueueClient extends QueueClient {
     this.AssertedExchanges.clear();
     this.AssertedRetryQueues.clear();
 
+    // declared outside the try so the error can mask the password actually sent, a subclass's secret lookup included
+    let target: Options.Connect | undefined;
     try {
       // resolve the connection target from config. A url-style host is parsed into an explicit
       // Options.Connect object ( see buildConnectionTarget ) so the credentials and every other
       // setting are clear fields instead of being hidden inside a url string.
-      const url = this.buildConnectionTarget();
+      target = this.buildConnectionTarget();
 
-      this.Connection = await this.createConnection(url, {
+      this.Connection = await this.createConnection(target, {
         clientProperties: { connection_name: this.ClientId },
         ...this.Options.options,
       });
     } catch (err) {
-      throw new UnexpectedServerError(`Cannot connect to AMQP queue server at ${this.LoggableBroker}`, loggableConnectError(err, this.Options.host));
+      throw new UnexpectedServerError(`Cannot connect to AMQP queue server at ${this.LoggableBroker}`, loggableConnectError(err, this.Options.host, target?.password));
     }
 
     this.Connection.on('error', (err) => {
