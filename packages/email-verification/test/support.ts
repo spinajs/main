@@ -1,3 +1,6 @@
+import { randomBytes } from 'node:crypto';
+import dns from 'node:dns';
+import { inspect } from 'node:util';
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
 import type { Class } from '@spinajs/di';
@@ -62,6 +65,38 @@ export function stubFetch(handler: (url: string, init: RequestInit) => Response 
     return handler(url, init ?? {});
   };
   return { calls, restore: () => (globalThis.fetch = original) };
+}
+
+/** Makes every DNS lookup and resolve call record its name and throw, so a test can prove nothing was resolved. */
+export function dnsTripwire(): { calls: string[]; restore(): void } {
+  const calls: string[] = [];
+  const names = ['lookup', 'lookupService', 'resolve', 'resolve4', 'resolve6', 'resolveAny', 'resolveCname', 'resolveMx', 'resolveTxt'];
+  const targets = [dns, dns.promises].flatMap((owner) => names.map((name) => ({ owner, name, original: Reflect.get(owner, name) as unknown })));
+  for (const t of targets) {
+    Reflect.set(t.owner, t.name, () => {
+      calls.push(t.name);
+      throw new Error(`a test called dns.${t.name}`);
+    });
+  }
+  return { calls, restore: () => targets.forEach((t) => Reflect.set(t.owner, t.name, t.original)) };
+}
+
+/** Made-up credentials and a query token in a URL on a host that must never be resolved. */
+export function credentialUrl(parts: { user?: boolean; password?: boolean } = { user: true, password: true }, scheme = 'https://') {
+  const user = randomBytes(12).toString('hex');
+  const password = randomBytes(12).toString('hex');
+  const token = randomBytes(12).toString('hex');
+  const userinfo = `${parts.user ? user : ''}${parts.password ? `:${password}` : ''}@`;
+  return { url: `${scheme}${userinfo}lists.invalid/x?token=${token}`, secrets: [...(parts.user ? [user] : []), ...(parts.password ? [password] : []), token] };
+}
+
+/** Every 8-character run of a secret that appears in `text`. */
+export function leakedRuns(text: string, secrets: string[]): string[] {
+  return secrets.flatMap((s) => Array.from({ length: s.length - 7 }, (_, i) => s.slice(i, i + 8))).filter((run) => text.includes(run));
+}
+
+export function errorText(err: Error): string {
+  return [err.message, err.stack, inspect(err, { depth: null, showHidden: true }), inspect(err.cause, { depth: null, showHidden: true })].join('\n');
 }
 
 export const json = (status: number, body: unknown, headers: Record<string, string> = {}) =>

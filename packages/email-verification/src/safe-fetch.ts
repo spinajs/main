@@ -21,14 +21,18 @@ export class ResponseTooLarge extends Error {
 @Injectable()
 export class SafeFetch {
   public async get(url: string, options: SafeFetchOptions): Promise<FetchedText> {
-    let protocol: string;
+    let parsed: URL;
     try {
-      protocol = new URL(url).protocol;
+      parsed = new URL(url);
     } catch {
       throw new InvalidArgument('invalid URL');
     }
-    if (protocol !== 'https:') {
+    if (parsed.protocol !== 'https:') {
       throw new InvalidArgument('only https URLs are fetched');
+    }
+    // fetch refuses userinfo with a TypeError that quotes the whole URL, credentials included.
+    if (parsed.username !== '' || parsed.password !== '') {
+      throw new InvalidArgument('URLs with a user name or password are not fetched');
     }
     let res: Response;
     try {

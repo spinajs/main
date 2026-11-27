@@ -1,3 +1,4 @@
+import { inspect } from 'node:util';
 import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 import { DI } from '@spinajs/di';
@@ -5,10 +6,12 @@ import { EmailVerificationStore } from '../src/contracts.js';
 import { SafeFetch } from '../src/safe-fetch.js';
 import { MemoryEmailVerificationStore } from '../src/stores/memory.js';
 import { DomainListSync, parseList } from '../src/sync.js';
-import { boot, json, shutdown, stubFetch, text } from './support.js';
+import { boot, credentialUrl, dnsTripwire, json, leakedRuns, shutdown, stubFetch, text } from './support.js';
 
 chai.use(chaiAsPromised);
 const expect = chai.expect;
+
+const LOG_LEVELS = ['trace', 'debug', 'info', 'warn', 'error', 'fatal', 'security', 'success'] as const;
 
 const URL_A = 'https://lists.example/a.txt';
 const URL_B = 'https://lists.example/b.json';
@@ -226,6 +229,29 @@ describe('DomainListSync', () => {
     stub = stubFetch((url) => (url === URL_A ? text(500, '') : json(200, ['ok.com'])));
     const outcomes = await (await sync()).run();
     expect(outcomes.map((o) => o.status)).to.deep.eq(['failed', 'updated']);
+  });
+
+  it('fails a source whose URL has a user name or password, and neither fetches nor logs it', async () => {
+    const { url, secrets } = credentialUrl();
+    stub = stubFetch(() => text(200, 'x.com'));
+    const s = await boot(DomainListSync, { lists: { sources: [{ ...SOURCES[0], url }] } }, [SafeFetch, EmailVerificationStore, MemoryEmailVerificationStore]);
+    const log = (s as unknown as { Log: object }).Log;
+    const originals = LOG_LEVELS.map((level) => ({ level, write: Reflect.get(log, level) as unknown }));
+    const logged: unknown[][] = [];
+    for (const level of LOG_LEVELS) Reflect.set(log, level, (...args: unknown[]) => logged.push(args));
+    const dnsCalls = dnsTripwire();
+    let outcomes: Awaited<ReturnType<DomainListSync['run']>>;
+    try {
+      outcomes = await s.run('a');
+    } finally {
+      dnsCalls.restore();
+      originals.forEach(({ level, write }) => Reflect.set(log, level, write));
+    }
+    expect(outcomes).to.deep.eq([{ source: 'a', status: 'failed', error: 'URLs with a user name or password are not fetched' }]);
+    expect(logged).to.have.length(1);
+    expect(leakedRuns(inspect(logged, { depth: null, showHidden: true }), secrets)).to.deep.eq([]);
+    expect(stub.calls).to.have.length(0);
+    expect(dnsCalls.calls).to.deep.eq([]);
   });
 
   it('rejects duplicate source names', async () => {
