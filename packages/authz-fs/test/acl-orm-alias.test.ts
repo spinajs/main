@@ -33,7 +33,7 @@ describe('authz-fs: the alias authz-fs-acl follows authz.fsAcl.connection', func
     undoLog = installQuietLog();
     // A read before the root Configuration is cached, as a configuration source that spreads db.Aliases in its own
     // resolve() makes one. Skipped when an earlier file of the suite left a Configuration cached.
-    if (DI.get(Configuration) === undefined) early = fsAclConnection.db.Aliases[FS_ACL_CONNECTION].get();
+    if (DI.get(Configuration) === undefined) early = fsAclConnection.db.Aliases['authz-fs-acl'].get();
     DI.register(PackageLayer).as(ConfigurationSource);
     DI.register(AppLayer).as(ConfigurationSource);
     DI.register(AppConfiguration).as(Configuration);
