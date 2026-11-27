@@ -545,20 +545,21 @@ describe('B14: decision caches (L1 per request, L2 across requests)', () => {
       const carol = principal('user', 'carol');
       const T0 = fakeClock().now.getTime();
       const expiry = new Date(T0 + 5_000);
-      type Grants = Readonly<Record<string, { readonly until: Date; readonly effect?: 'deny' }>>;
-      /** Each grantee may write until its grant ends (or, for 'deny', is refused until then); alice may read when every grantee `asks` names may write, and memoises each answer under the grantee's id. */
+      type Grants = Readonly<Record<string, { readonly until: Date; readonly effect?: 'deny'; readonly after?: Promise<void> }>>;
+      /** Each grantee may write until its grant ends (or, for 'deny', is refused until then); alice may read when every grantee `asks` names may write, and memoises each settled answer under the grantee's id. */
       const memoising = (clock: FakeClock, grants: Grants, asks: (req: DecisionRequest) => readonly Principal[], checks: string[]) => {
-        const answerOf = (ctx: EvaluationContext, grantee: Principal): Promise<boolean> => {
+        const answerOf = async (ctx: EvaluationContext, grantee: Principal): Promise<boolean> => {
           const hit = ctx.cache.get(grantee.id);
-          if (hit instanceof Promise) return hit.then((v: unknown) => v === true);
+          if (typeof hit === 'boolean') return hit;
           checks.push(grantee.id);
-          const answer = ctx.check({ principal: grantee, permission: 'doc:write', resource: D1, env: {} }).then((d) => d.allowed);
-          ctx.cache.set(grantee.id, answer);
-          return answer;
+          const allowed = (await ctx.check({ principal: grantee, permission: 'doc:write', resource: D1, env: {} })).allowed;
+          ctx.cache.set(grantee.id, allowed);
+          return allowed;
         };
         const vote = async (req: DecisionRequest, ctx: EvaluationContext): Promise<Vote> => {
           const grant = grants[req.principal.id];
           if (grant) {
+            if (grant.after) await grant.after;
             const live = clock.now.getTime() < grant.until.getTime();
             if (grant.effect === 'deny') return live ? pass('m', FALSE, { denyWhen: TRUE, validUntil: grant.until }) : pass('m', TRUE);
             return live ? pass('m', TRUE, { validUntil: grant.until }) : pass('m', FALSE);
@@ -622,13 +623,43 @@ describe('B14: decision caches (L1 per request, L2 across requests)', () => {
         expect(stored(cache, F1)?.tags).to.include.members(['subject:user:bob', 'subject:user:carol']);
       });
 
-      it('B14: a decision that read the memo while the nested check was still running is bounded too', async () => {
+      it('B14: two overlapping decisions that found no settled answer each check for themselves and are both bounded', async () => {
         const { a, cache, checks } = built({ bob: { until: expiry } });
         const scope = fresh();
         const [d1, d2] = await Promise.all([a.check(read(alice, D1), scope), a.check(read(alice, D2), scope)]);
-        expect(checks).to.deep.equal(['bob']);
+        expect(checks).to.deep.equal(['bob', 'bob']);
         expect([d1.validUntil?.getTime(), d2.validUntil?.getTime()]).to.deep.equal([expiry.getTime(), expiry.getTime()]);
         expect([stored(cache, D1)?.ttlMs, stored(cache, D2)?.ttlMs]).to.deep.equal([5_000, 5_000]);
+      });
+
+      it('B14: a decision that read a settled answer while its writer still ran another nested check rests on that check too', async () => {
+        let openCarol!: () => void;
+        let openDave!: () => void;
+        const dave = principal('user', 'dave');
+        const asks = (req: DecisionRequest) => (req.resource.id === 'd1' ? [bob, carol] : [bob, dave]);
+        const { a, cache, checks } = built(
+          {
+            bob: { until: expiry },
+            carol: { until: new Date(T0 + 3_000), after: new Promise<void>((resolve) => (openCarol = resolve)) },
+            dave: { until: new Date(T0 + 10_000), after: new Promise<void>((resolve) => (openDave = resolve)) },
+          },
+          asks,
+        );
+        const scope = fresh();
+        const turn = () => new Promise<void>((resolve) => setImmediate(resolve));
+        const first = a.check(read(alice, D1), scope);
+        await turn();
+        // The second decision reads bob's answer while the first still waits on carol, and ends after the first.
+        const second = a.check(read(alice, D2), scope);
+        await turn();
+        openCarol();
+        await first;
+        openDave();
+        const d2 = await second;
+        expect(checks).to.deep.equal(['bob', 'carol', 'dave']);
+        expect(d2.validUntil?.getTime()).to.equal(T0 + 3_000);
+        expect(stored(cache, D2)?.ttlMs).to.equal(3_000);
+        expect(stored(cache, D2)?.tags).to.include('subject:user:carol');
       });
 
       it('B14: a nested answer a preload memoised bounds the decisions that read it', async () => {
