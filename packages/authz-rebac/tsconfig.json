@@ -30,6 +30,9 @@
       "path": "../di/tsconfig.json"
     },
     {
+      "path": "../exceptions/tsconfig.json"
+    },
+    {
       "path": "../orm/tsconfig.json"
     },
     {

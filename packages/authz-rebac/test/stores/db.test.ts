@@ -4,6 +4,7 @@ import { AsyncResource } from 'node:async_hooks';
 import { AUTHZ_CONNECTION, AuthzAdminFailure, AuthzConfigError, SYSTEM } from '@spinajs/authz';
 import type { AdminCallContext, AuthzCommand, AuthzService } from '@spinajs/authz';
 import { DI } from '@spinajs/di';
+import { ConcurrencyConflict } from '@spinajs/exceptions';
 import { MIGRATION_DESCRIPTION_SYMBOL } from '@spinajs/orm';
 import type { OrmDriver, QueryContext } from '@spinajs/orm';
 
@@ -12,7 +13,7 @@ import { fakeModelInitContext } from '@spinajs/authz-testing';
 import { AUTHZ_REBAC_TUPLE_TABLE, AuthzRebacCaveats_2026_11_06_00_00_00, AuthzRebac_2026_10_21_00_00_00, CAVEAT_CONTEXT_MAX, DbTupleStore, RebacModel, RebacTupleHandler, TupleCaveatConflict, TupleStore, caveatKey } from '../../src/index.js';
 import type { Tuple } from '../../src/index.js';
 import { bootDb, rawQuery } from '../support/db.js';
-import type { TestDb } from '../support/db.js';
+import type { Dialect, TestDb } from '../support/db.js';
 import { tupleStoreContract } from '../support/store-contract.js';
 import { NAMESPACES, PERMISSIONS, PERMISSION_INPUTS, d1, d2, ref, set, tuple, user } from '../support/world.js';
 
@@ -191,28 +192,29 @@ describe('authz-rebac: DbTupleStore (sqlite)', function () {
   });
 });
 
-for (const pg of [false, true]) {
-  describe(`authz-rebac: DbTupleStore insert race (${pg ? 'postgres' : 'sqlite'})`, function () {
-    this.timeout(60_000);
+for (const dialect of ['sqlite', 'postgres', 'mysql'] as const satisfies readonly Dialect[]) {
+  describe(`authz-rebac: DbTupleStore insert race (${dialect})`, function () {
+    this.timeout(300_000);
     let db: TestDb;
     const store = new DbTupleStore();
     const bob = tuple(d1, 'viewer', user('bob'));
+    const own = dialect !== 'sqlite';
     before(async function () {
-      db = await bootDb('tuple_race', pg ? this : undefined);
+      db = await bootDb('tuple_race', this, dialect);
     });
     after(async () => {
       await db?.dispose();
     });
-    /** writeIn of `adds`, with `rival` stored after writeIn read the stored keys: on Postgres in a committed transaction of its own; SQLite runs one transaction at a time, so there the rival joins it before the savepoint. */
+    /** writeIn of `adds`, with `rival` stored after writeIn read the stored keys: on Postgres and MySQL in a committed transaction of its own; SQLite runs one transaction at a time, so there the rival joins it before the savepoint. */
     async function race(rival: Tuple, adds: readonly Tuple[]): Promise<unknown> {
       const outside = AsyncResource.bind(() => store.write([rival], [], user('rival')));
       const target = db.driver as unknown as Executor;
       const original = target.executeOnDb.bind(target);
       let fired = false;
       target.executeOnDb = async (stmt, params, context) => {
-        if (!fired && (pg ? /^\s*insert\b/i : /^\s*savepoint\b/i).test(stmt)) {
+        if (!fired && (own ? /^\s*insert\b/i : /^\s*savepoint\b/i).test(stmt)) {
           fired = true;
-          await (pg ? outside() : store.writeIn({ driver: db.driver }, [rival], [], user('rival')));
+          await (own ? outside() : store.writeIn({ driver: db.driver }, [rival], [], user('rival')));
         }
         return original(stmt, params, context);
       };
@@ -233,8 +235,28 @@ for (const pg of [false, true]) {
       const t = tuple(d2, 'viewer', user('bob'));
       expect(await race({ ...t, caveat: { name: 'a' } }, [{ ...t, caveat: { name: 'b' } }])).to.be.instanceOf(TupleCaveatConflict);
       // On SQLite the rival wrote inside the transaction the conflict rolled back.
-      expect(await store.read(d2, 'viewer')).to.deep.equal(pg ? [{ ...t, caveat: { name: 'a' } }] : []);
+      expect(await store.read(d2, 'viewer')).to.deep.equal(own ? [{ ...t, caveat: { name: 'a' } }] : []);
     });
+    if (dialect === 'postgres') {
+      it('a tuple another writer stored after the snapshot of a REPEATABLE READ transaction fails the write with a request to retry', async () => {
+        const fresh = ['rr0', 'rr1', 'rr2'].map((id) => tuple(d1, 'viewer', user(id)));
+        const outside = AsyncResource.bind(() => store.write([fresh[1]], [], user('rival')));
+        let error: unknown;
+        await db.driver
+          .transaction(
+            async (tx) => {
+              // The first read fixes the snapshot; the rival commits after it.
+              await store.read(d1, 'viewer');
+              await outside();
+              error = await store.writeIn({ driver: tx }, fresh, [], user('admin')).catch((e: unknown) => e);
+            },
+            { isolation: 'REPEATABLE READ' },
+          )
+          .catch(() => undefined);
+        expect(error).to.be.instanceOf(ConcurrencyConflict).with.property('message').that.matches(/stored by another transaction meanwhile .* retry the write$/);
+        expect(error).not.to.be.instanceOf(TupleCaveatConflict);
+      });
+    }
   });
 }
 

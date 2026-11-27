@@ -4,7 +4,8 @@ import type { AuthzTx, ChangeEntry, PrincipalRef, ResourceRef, ResourceType } fr
 // Registers DbChangeLog and its migration: the tuple writes below append to it.
 import '@spinajs/authz-orm/changelog';
 import { stableStringify } from '@spinajs/authz-ir';
-import { Connection, ConnectionMismatch, DateTime as DateTimeColumn, Model, ModelBase, NotAnOrmDriver, OrmConnectionMissing, OrmNotResolved, Primary, TransactionRequired, UniqueViolation, modelDriver, requireModelTransaction } from '@spinajs/orm';
+import { ConcurrencyConflict } from '@spinajs/exceptions';
+import { Connection, ConnectionMismatch, DateTime as DateTimeColumn, Model, ModelBase, NotAnOrmDriver, OrmConnectionMissing, OrmNotResolved, Primary, TransactionRequired, UniqueViolation, modelDriver, requireModelTransaction, supportsRowLocks } from '@spinajs/orm';
 import type { OrmDriver } from '@spinajs/orm';
 // A value import: @DateTime() reads the property's design type.
 import { DateTime } from 'luxon';
@@ -120,12 +121,13 @@ function chunks<T>(list: readonly T[]): T[][] {
   return out;
 }
 
-/** The rows among `keys` that authz_rebac_tuple holds, by tuple_key. */
-async function storedRows(keys: readonly string[]): Promise<Map<string, TupleRecord>> {
+/** The rows among `keys` that authz_rebac_tuple holds, by tuple_key; with `shared`, read under a shared row lock. */
+async function storedRows(keys: readonly string[], shared = false): Promise<Map<string, TupleRecord>> {
   const stored = new Map<string, TupleRecord>();
   // spinajs-orm-ignore ORM102: deliberate batching, one query per IN_CHUNK tuple keys
   for (const part of chunks([...new Set(keys)])) {
-    const rows = await TupleRecord.query().whereIn('tuple_key', part);
+    const query = TupleRecord.query().whereIn('tuple_key', part);
+    const rows = await (shared ? query.forShare() : query);
     for (const r of rows) stored.set(r.tuple_key, r);
   }
   return stored;
@@ -169,7 +171,7 @@ async function insertRows(driver: OrmDriver, adds: readonly Tuple[], actor: Prin
     out.push(t);
     added(t, row.tuple_key);
   }
-  await refuseRacedConflicts(raced);
+  await refuseRacedConflicts(driver, raced);
   return out;
 }
 
@@ -188,13 +190,15 @@ async function insertOnce(driver: OrmDriver, row: TupleRow): Promise<boolean> {
 }
 
 /** Tuples another transaction stored meanwhile: with the same caveat that is what was asked, with another a conflict. */
-async function refuseRacedConflicts(raced: readonly Tuple[]): Promise<void> {
+async function refuseRacedConflicts(driver: OrmDriver, raced: readonly Tuple[]): Promise<void> {
   if (raced.length === 0) return;
-  const stored = await storedRows(raced.map(hashOf));
+  // A plain read on MySQL keeps the transaction's snapshot, which does not hold a row committed after it.
+  const stored = await storedRows(raced.map(hashOf), supportsRowLocks(driver));
   for (const t of raced) {
     const r = stored.get(hashOf(t));
-    const held = r === undefined ? undefined : tupleOf(r);
-    if (held !== undefined && !sameCaveat(held.caveat, t.caveat)) throw new TupleCaveatConflict(held, t);
+    if (r === undefined) throw new ConcurrencyConflict(`DbTupleStore: ${tupleKey(t)} was stored by another transaction meanwhile and this transaction cannot read it to compare its caveat; retry the write`);
+    const held = tupleOf(r);
+    if (!sameCaveat(held.caveat, t.caveat)) throw new TupleCaveatConflict(held, t);
   }
 }
 
@@ -261,7 +265,8 @@ export class DbTupleStore extends TupleStore {
 
   /**
    * `write` inside the caller's transaction. Returns the tuples it changed: on `removed` as they were stored, caveat
-   * included, whatever caveat the request carried. @throws TupleCaveatConflict for a stored tuple with another caveat
+   * included, whatever caveat the request carried. @throws TupleCaveatConflict for a stored tuple with another caveat;
+   * ConcurrencyConflict for a tuple another transaction stored that this one's snapshot cannot read (retry the write)
    */
   async writeIn(tx: AuthzTx, add: readonly Tuple[], remove: readonly Tuple[], actor: PrincipalRef, now: Date = new Date()): Promise<{ readonly added: readonly Tuple[]; readonly removed: readonly Tuple[] }> {
     const adds = add.map((t, i) => checked(t, `add[${i}]`, actor));
