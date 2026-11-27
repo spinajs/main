@@ -212,7 +212,7 @@ describe('authz-orm: a subclass of a resource that adds a key column', function 
       });
 
       describe('a composite-key class registered after the boot under a type the domain booted with', () => {
-        it("authz.check refuses a row of it, and denies a ref of its key with model_error: alice's grant on doc:o1 would cover bob's line", async () => {
+        it("authz.check refuses a row of it and a ref of its key: alice's grant on doc:o1 would cover bob's line", async () => {
           const ds = await testHost.domains();
           const cfg = testHost.config();
           cfg.set(['authz', 'domains', 'point'], { combine: { default: { algorithm: 'deny-overrides', models: ['grants'] } }, cache: { maxEntries: 0 } });
@@ -227,7 +227,7 @@ describe('authz-orm: a subclass of a resource that adds a key column', function 
             registerAccessResource(LateDoc, 'doc');
             const l2 = await lineOf(LateDoc, 'l2');
             expect(await settle(() => service.check({ principal: alice, permission: 'doc:update', resource: l2 }))).to.be.instanceOf(AuthzConfigError).with.property('message', compositeRefusal(LateDoc, 'doc'));
-            expect(await settle(() => service.check({ principal: alice, permission: 'doc:update', resource: { type: 'doc', id: 'o1' } }))).to.deep.include({ allowed: false, reason: { code: 'model_error' } });
+            expect(await settle(() => service.check({ principal: alice, permission: 'doc:update', resource: { type: 'doc', id: 'o1' } }))).to.be.instanceOf(AuthzConfigError).with.property('message', compositeRefusal(LateDoc, 'doc'));
           } finally {
             await container.dispose();
             db.orm.Connections.set('authz', authz);

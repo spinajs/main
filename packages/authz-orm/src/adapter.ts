@@ -5,7 +5,7 @@ import { ModelBase } from '@spinajs/orm';
 
 import { readAncestors } from './ancestors/read.js';
 import { idText } from './ids.js';
-import { classesOf, entryOf, registeredTypes } from './registry.js';
+import { classesOf, entryOf, registeredTypes, requireSingleKey } from './registry.js';
 import { ormRelations } from './relations.js';
 import { findRows } from './rows.js';
 
@@ -54,6 +54,7 @@ export class OrmResourceAdapter extends ResourceAdapter<ModelBase> {
   refOf(target: ModelBase): ResourceRef {
     const entry = entryOf(target.constructor);
     if (!entry) throw new AuthzConfigError(`authz-orm: ${target?.constructor?.name} is not an @AccessResource model`);
+    requireSingleKey(target.constructor, entry);
     const id = idText((target as unknown as Record<string, unknown>)[entry.idColumn]);
     if (id === undefined) throw new AuthzConfigError(`authz-orm: a ${entry.type} row without a primary key value has no ref`);
     return { type: entry.type, id };
