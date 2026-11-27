@@ -54,7 +54,7 @@ An upsert may conflict on other columns than the primary key: `onDuplicate()` wi
 
 The before and after reads are raw selects on the statement's own connection, so converters and select middlewares never touch the rows, and the values are what the driver returned. Keys are read in chunks of 500.
 
-The key select runs through `CaptureReadScope`. By default it runs as it is; `@spinajs/authz-orm` registers a scope that runs it as `SYSTEM`, so row-level filters do not hide rows the write reaches. `captureReadScope()` returns the registered scope.
+The key select runs on the connection that runs the write, in the write's database, as the before and after reads do: in a unit of work on a shared server (`SharedServer`) that is the save's connection, inside its transaction, so it sees and locks the rows that transaction wrote; a statement that names another database with `.database(x)` is keyed, read and confined in `x`. The key select runs through `CaptureReadScope`. By default it runs as it is; `@spinajs/authz-orm` registers a scope that runs it as `SYSTEM`, so row-level filters do not hide rows the write reaches. `captureReadScope()` returns the registered scope.
 
 The helpers the middleware uses are exported for observers and tests: `writeTargetKeys(query, pk)`, `upsertKeys(query, pk)`, `insertedKeys(query, result, pk)` and `captureKeyText(value)`, which turns a key into the text `RowChange.id` holds (strings, safe integers and bigints; anything else has no key text, and a row with such a key counts in `keylessRows` instead).
 
