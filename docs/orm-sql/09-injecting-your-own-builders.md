@@ -1,6 +1,6 @@
 # Injecting your own builders
 
-Query builders are DI services too. Register a subclass of `SelectQueryBuilder` (or `InsertQueryBuilder`, `UpdateQueryBuilder`, `DeleteQueryBuilder`, ...) under the base class, and drivers, model statics and relations hand out your class instead. Use it when a method needs builder state; for a stateless method, a [prototype extension](../orm/16-scopes-and-builder-extensions.md#prototype-extensions) is simpler.
+Query builders are DI services too. Register a subclass of `SelectQueryBuilder` (or `InsertQueryBuilder`, `UpdateQueryBuilder`, `DeleteQueryBuilder`, ...) under the base class, and drivers, model statics and relations hand out your class instead. Use it when a method needs builder state; for a stateless method, a [query extension](../orm/16-scopes-and-builder-extensions.md#query-extensions) is simpler.
 
 ## How it works
 

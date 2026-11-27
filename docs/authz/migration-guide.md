@@ -1217,8 +1217,7 @@ The flow is in the [authentication flow](../authn/01-authentication-flow.md). Wh
 
 - Tables: `authn_identity`, `authn_throttle`, `authn_secret`, `authn_mfa`, `authn_recovery_code`,
   `authn_nonce`, created by `AuthnInitial_2026_10_02_00_00_00`, the only authn-orm migration. No migration
-  carries 2.x `users_metadata` secrets ([section 7](#7-data-migration)). 4.0 no longer creates `authn_audit`
-  ([upgrade note](../upgrading/4.0.md#removed-the-authn_audit-table-of-spinajsauthn-orm)).
+  carries 2.x `users_metadata` secrets ([section 7](#7-data-migration)). 4.0 no longer creates `authn_audit`.
 - Throttle keys are an HMAC under `authn.audit.hashKey.secret`. Time always comes from Node, never SQL
   `now()`.
 - Reads check identity, step, purpose, provider and subject for exact equality in Node, because MySQL
