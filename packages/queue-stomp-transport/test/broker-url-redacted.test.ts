@@ -103,7 +103,7 @@ async function closedPort(): Promise<number> {
 }
 
 /** A broker of a few lines: answers every CONNECT frame with `reply`. */
-async function stompListener(reply: string): Promise<{ port: number; close: (reason?: string) => Promise<void> }> {
+async function stompListener(reply: string): Promise<{ port: number; drop: () => void; close: (reason?: string) => Promise<void> }> {
   const server = new WebSocketServer({ host: '127.0.0.1', port: 0 });
   await new Promise<void>((resolve) => server.once('listening', () => resolve()));
   server.on('connection', (socket) => {
@@ -113,6 +113,9 @@ async function stompListener(reply: string): Promise<{ port: number; close: (rea
   });
   return {
     port: portOf(server),
+    drop: () => {
+      for (const socket of server.clients) socket.terminate();
+    },
     close: (reason) => {
       for (const socket of server.clients) {
         if (reason === undefined) socket.terminate();
@@ -157,6 +160,9 @@ describe('stomp transport - broker URL and passcode stay out of logs and errors'
     const client = probe(brokerUrl(broker.port));
     try {
       await client.resolve();
+      // a dropped socket while the broker is still up: the reconnect sends a second CONNECT frame
+      broker.drop();
+      await until(() => client.calls.filter(([level, line]) => level === 'trace' && String(line).startsWith('>>> CONNECT')).length >= 2);
       // the broker goes away with a close reason that repeats the query: every reconnect is refused
       await broker.close(`going away from /stomp?token=${TOKEN}`);
       await until(() => client.calls.filter(([level, vars]) => level === 'error' && deepText(vars).includes('ECONNREFUSED')).length >= 2);
@@ -169,6 +175,20 @@ describe('stomp transport - broker URL and passcode stay out of logs and errors'
       expect(linesAt(client, 'error')).to.contain(`127.0.0.1:${broker.port}`);
       expect(linesAt(client, 'warn')).to.contain('4000').and.to.contain('going away from /stomp?');
     } finally {
+      await client.dispose();
+    }
+  });
+
+  it('masks a passcode with a carriage return whole in the CONNECT frame line', async () => {
+    const broker = await stompListener('CONNECTED\nversion:1.2\n\n');
+    const client = probe(brokerUrl(broker.port), { password: 'planted-pa\rssword-tail' });
+    try {
+      await client.resolve();
+
+      expect(linesAt(client, 'trace')).to.contain('passcode:***').and.to.not.contain('ssword-tail');
+    } finally {
+      // deactivate() waits for the socket to close, and this listener never answers DISCONNECT
+      await broker.close();
       await client.dispose();
     }
   });
@@ -235,8 +255,9 @@ describe('stomp transport - broker URL and passcode stay out of logs and errors'
   });
 
   it('rejects an ERROR frame as the broker reported it, without the URL credentials or the passcode', async () => {
-    const broker = await stompListener('ERROR\nmessage:Authentication failed\ncontent-type:text/plain\n\nUser name [stomp-user] or password is invalid.');
-    const client = probe(brokerUrl(broker.port));
+    // a broker that echoes the passcode header twice: the raw frame line then holds two passcode lines
+    const broker = await stompListener(`ERROR\nmessage:Authentication failed\npasscode:${PASSCODE}\npasscode:${PASSCODE}\ncontent-type:text/plain\n\nUser name [stomp-user] or password is invalid.`);
+    const client = probe(brokerUrl(broker.port), { options: { logRawCommunication: true } });
     try {
       const error = await failedConnect(client);
 
