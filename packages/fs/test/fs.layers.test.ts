@@ -171,6 +171,28 @@ describe('fs provider layers', function () {
       register(container);
       expect(() => layeredFs(published, container)).to.throw(InvalidOperation, /cannot run/);
     }
+
+    const factory = DI.child();
+    factory.register(() => new Redirect()).as(FsProviderLayer);
+    expect(() => layeredFs(published, factory)).to.throw(InvalidOperation, /^FsProviderLayer a factory cannot run/);
+  });
+
+  it('a layer class that replaced one of the same name without DI.uncache is refused with that cause', () => {
+    const published = publishedFs('layer-a')!;
+    const named = () =>
+      class Named extends FsProviderLayer {
+        public wrap(found: fs): fs {
+          return found;
+        }
+      };
+    const first = named();
+    const container = DI.child();
+    container.register(first).as(FsProviderLayer);
+    expect(layeredFs(published, container)).to.equal(published);
+
+    container.unregister(first);
+    container.register(named()).as(FsProviderLayer);
+    expect(() => layeredFs(published, container)).to.throw(InvalidOperation, /same name without DI\.uncache/);
   });
 
   it('layers apply in registration order, each to what the one before handed out', () => {

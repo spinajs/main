@@ -1,4 +1,4 @@
-import { DI, getTypeName, isConstructor, isPromise } from '@spinajs/di';
+import { DI, getTypeName, isConstructor, isFactory, isPromise } from '@spinajs/di';
 import type { Class, Factory, IContainer } from '@spinajs/di';
 import { InvalidOperation } from '@spinajs/exceptions';
 import type { fs } from './interfaces.js';
@@ -77,7 +77,7 @@ function layersIn(container: IContainer): FsProviderLayer[] {
   const skipped = registered.filter((chain) => !layers.some((layer) => chain.some((type) => type === layer.constructor)));
   if (skipped.length > 0) {
     throw new InvalidOperation(
-      `FsProviderLayer ${skipped.map((chain) => getTypeName(chain[0])).join(', ')} cannot run: DI does not hand it out as a singleton instance (a factory, an instance or a @NewInstance() class, also as a replacement); register the layer class as a singleton (@Injectable(FsProviderLayer))`,
+      `FsProviderLayer ${skipped.map((chain) => (isFactory(chain[0]) ? 'a factory' : getTypeName(chain[0]))).join(', ')} cannot run: DI does not hand it out as a singleton instance (a factory, an instance or a @NewInstance() class, also as a replacement, or a class that replaced one of the same name without DI.uncache); register the layer class as a singleton (@Injectable(FsProviderLayer))`,
     );
   }
   return layers;
