@@ -1,3 +1,5 @@
+import { createHash } from 'crypto';
+import { inspect } from 'util';
 import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 import { UserSession as Session, decodeSessionData } from '@spinajs/authn-session';
@@ -160,6 +162,63 @@ describe('dynamodb session provider', function () {
         expect(lines, attribute).to.have.length(1);
         expect(lines[0]).to.contain('user:u-42').and.to.contain(attribute).and.to.not.contain(id);
       }
+    });
+
+    /** The storage key of a session id, as the issuer derives it, saved with undecodable Data. */
+    async function undecodable(store: DynamoDbSessionProvider, raw: string): Promise<string> {
+      const key = createHash('sha256').update(raw).digest('hex');
+      await store.save(session({ SessionId: key, Subject: user('u-42') }));
+      item(key).Data = { S: '{bad' };
+      return key;
+    }
+
+    async function warnings<T>(run: () => Promise<T>): Promise<[T, string[]]> {
+      const log = DI.resolve(Log, ['dynamo-session-store']);
+      const calls: unknown[][] = [];
+      log.warn = (...args: unknown[]) => {
+        calls.push(args);
+      };
+      try {
+        return [await run(), calls.map((args) => [...args.map(String), ...args.map((a) => inspect(a, { depth: null }))].join(' '))];
+      } finally {
+        Reflect.deleteProperty(log, 'warn');
+      }
+    }
+
+    const runsOf = (secret: string) => Array.from({ length: secret.length - 15 }, (_, i) => secret.slice(i, i + 16));
+
+    function expectNamesSubjectOnly(lines: string[], secrets: string[]) {
+      expect(lines).to.have.length(1);
+      expect(secrets.flatMap(runsOf).filter((run) => lines[0].includes(run)), 'runs of the session id or its storage key').to.deep.equal([]);
+      expect(lines[0]).to.contain('user:u-42').and.to.contain('Data');
+    }
+
+    it('restore of an item whose Data does not decode answers null and logs the subject and Data, never the session id or its storage key', async () => {
+      const store = await makeProvider(SLIDING);
+      await store.truncate();
+      const raw = 'raw-session-id-of-the-cookie-restore';
+      const key = await undecodable(store, raw);
+
+      const [restored, lines] = await warnings(() => store.restore(key));
+      expect(restored).to.equal(null);
+      expectNamesSubjectOnly(lines, [raw, key]);
+
+      item(key).Subject = { N: '0' };
+      const [unowned, none] = await warnings(() => store.restore(key));
+      expect(unowned, 'an unreadable Subject reads as absent').to.equal(null);
+      expect(none, 'and is not logged, as everywhere in this store').to.deep.equal([]);
+    });
+
+    it('a listing reads an item whose Data does not decode with an empty Data and logs the subject and Data, never the session id or its storage key', async () => {
+      const store = await makeProvider(SLIDING);
+      await store.truncate();
+      const raw = 'raw-session-id-of-the-cookie-listing';
+      const key = await undecodable(store, raw);
+
+      const [listed, lines] = await warnings(() => store.listBySubject(user('u-42')));
+      expect(ids(listed)).to.deep.equal([key]);
+      expect(listed[0].Data.size).to.equal(0);
+      expectNamesSubjectOnly(lines, [raw, key]);
     });
   });
 
