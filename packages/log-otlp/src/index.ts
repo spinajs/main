@@ -6,7 +6,8 @@ import { Log, ILogEntry, LogTarget, ICommonTargetOptions, Logger, BatchQueue, Lo
 import axios, { AxiosError, AxiosInstance } from "axios";
 import { BackoffType, ResiliencePipeline, ResiliencePipelineBuilder, TimeSpan } from "@spinajs/util";
 
-import { loggableEndpoint, loggableExportError } from "./loggable-endpoint.js";
+import { loggableExportError } from "./export-error.js";
+import { loggableEndpoint } from "./loggable-endpoint.js";
 
 /**
  * HTTP status codes worth retrying against an OTLP endpoint: rate limiting and

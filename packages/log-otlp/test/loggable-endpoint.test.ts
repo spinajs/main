@@ -1,7 +1,8 @@
 import "mocha";
 import { expect } from "chai";
 
-import { loggableEndpoint, loggableExportError } from "../src/loggable-endpoint.js";
+import { loggableExportError } from "../src/export-error.js";
+import { loggableEndpoint } from "../src/loggable-endpoint.js";
 
 describe("loggableEndpoint", () => {
   it("keeps the scheme, the host, the port and the path", () => {
