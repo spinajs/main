@@ -5,7 +5,7 @@ import sinon from 'sinon';
 
 import { DecisionLogTap, FALSE, GLOBAL, PermissionRegistryImpl, TRUE, changeLog } from '@spinajs/authz';
 import type { AuthzTx, ChangeRecord, DecisionLog, DecisionReadSet, DecisionRecord, PrincipalRef } from '@spinajs/authz';
-import { GLOBAL_OBJECT, GLOBAL_TYPE, HistoricalTupleSource, HistoryContributors, ReplayHistory, StoreUnreadable, StoredPolicySplicers, canonicalize, mergeFragments, policyHash, replayDecision, storedPolicyName } from '@spinajs/authz-ir';
+import { GLOBAL_OBJECT, GLOBAL_TYPE, HistoricalTupleSource, HistoryContributors, ReplayHistory, StoreUnreadable, StoredPolicySplicers, canonicalize, changeLogKeyState, changeLogReplay, mergeFragments, policyHash, replayDecision, storedPolicyName } from '@spinajs/authz-ir';
 import type { ObjectRef, PolicyIR, ReplayDeps, Rewrite, TupleSubjectRef } from '@spinajs/authz-ir';
 import { CHANGE_LOG_TABLE, recordCoverage } from '@spinajs/authz-orm/changelog';
 import { DI } from '@spinajs/di';
@@ -111,7 +111,7 @@ describe('AssignmentHistoryContributor', function () {
 
           const reads = async () => {
             const history = await ReplayHistory.load(changeLog(), T, ['assignment'], { maxChanges: 1000, maxKeys: 1000, window: { beforeMs: WINDOW, afterMs: WINDOW } });
-            const s = new HistoricalTupleSource(irOf(), T, [new AssignmentHistoryContributor()], history);
+            const s = new HistoricalTupleSource(irOf(), T, [new AssignmentHistoryContributor()], history, changeLogKeyState);
             const out = {
               p1: await collect(s.read({ type: 'project', id: 'p1' }, 'editor')),
               numeric: await collect(s.read({ type: 'project', id: numeric }, 'editor')),
@@ -175,7 +175,7 @@ describe('replay of RBAC decisions end to end (scenarios 3 and 9)', function () 
 
       const ir = irOf({ edit: { computed: 'editor' }, publish: { caveat: 'published', of: { computed: 'editor' } } }, { published: { params: {}, expr: { attr: 'scope.project.status', eq: 'published' } } });
       const deps = (): ReplayDeps => ({
-        log: changeLog(),
+        ...changeLogReplay(changeLog()),
         loadPolicy: (h) => Promise.resolve(h === policyHash(ir) ? canonicalize(ir) : undefined),
         contributors: [new AssignmentHistoryContributor()],
         splicers: [],
@@ -297,7 +297,7 @@ describe('RuleSplicer', function () {
       const inTx = <R>(fn: (tx: AuthzTx) => Promise<R>): Promise<R> => db.driver.transaction((driver: OrmDriver) => fn({ driver }));
       const grant = (u: string, id: string) => inTx((tx) => assignments.assign({ subject: user(u), role: 'editor', scope: { type: 'project', id } }, user('root'), tx));
       const deps = (): ReplayDeps => ({
-        log: changeLog(),
+        ...changeLogReplay(changeLog()),
         loadPolicy: (h) => Promise.resolve(h === policyHash(ir) ? canonicalize(ir) : undefined),
         contributors: [new AssignmentHistoryContributor()],
         splicers: [new RuleSplicer()],

@@ -14,7 +14,7 @@ import '@spinajs/authz-orm';   // registers the adapter, the write middleware an
 ```
 
 Migrations: `AuthzResourceAncestor_2026_10_14_00_00_00` (`authz_resource_ancestor`),
-`AuthzScopeAttribute_2026_10_02_00_00_00` (`authz_scope_attribute`), `AuthzChangeLog_2026_11_04_00_00_00`
+`AuthzScopeAttribute_2026_10_02_00_00_00` and `AuthzScopeAttributeKey_2026_11_25_00_00_00` (`authz_scope_attribute`), `AuthzChangeLog_2026_11_04_00_00_00`
 (`authz_change_log`, `authz_policy_version`), `AuthzAudit_2026_10_01_00_00_00`
 (`authz_audit`). The ancestor, scope-attribute and changelog tables live on the connection of the authz stores, the
 ORM alias `authz` (`db.Aliases.authz`, which this package's config maps to `default`), which must be the database

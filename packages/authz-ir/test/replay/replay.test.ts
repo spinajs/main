@@ -2,7 +2,7 @@ import 'mocha';
 import { expect } from 'chai';
 import type { ChangeRecord, Condition, DecisionRecord, Principal } from '@spinajs/authz';
 
-import { MemoryChangeLog, StoreUnreadable, canonicalize, policyHash, replayContext, replayDecision } from '../../src/index.js';
+import { MemoryChangeLog, StoreUnreadable, canonicalize, changeLogReplay, policyHash, replayContext, replayDecision } from '../../src/index.js';
 import type { KeyState, PolicyIR, ReplayDeps, Rewrite, StoredEdge, StoredPlaceholder, StoredPolicySplicer } from '../../src/index.js';
 import { Switches, TupleStore } from '../fixtures/history-store.js';
 import { tapped } from '../fixtures/tap.js';
@@ -60,7 +60,7 @@ async function world(ir = irOf(), at = T): Promise<World> {
   const rules = new Rules();
   const policies = new Map([[policyHash(ir), canonicalize(ir)]]);
   const limits = { maxChanges: 1000, maxKeys: 1000, maxDepth: 8, maxCalls: 10_000, clockSkewMs: 1000, commitLagMs: 5000, timeoutMs: 15_000 };
-  const deps: ReplayDeps = { log, loadPolicy: (h) => Promise.resolve(policies.get(h)), contributors: [tuples], splicers: [rules], limits, now: () => at.getTime() + HOUR };
+  const deps: ReplayDeps = { ...changeLogReplay(log), loadPolicy: (h) => Promise.resolve(policies.get(h)), contributors: [tuples], splicers: [rules], limits, now: () => at.getTime() + HOUR };
   const base: DecisionRecord = { id: '0190c5f0-0000-7000-8000-000000000001', at: at.toISOString(), loggedAt: at.toISOString(), durationMs: 5, domain: 'default', principal: 'user:u1', permission: 'doc:edit', resource: { type: 'doc', id: 'd1' }, allowed: true, cached: false, policyHash: policyHash(ir), modelVersions: {}, inputsHash: 'h', facts: { principal: { type: 'user', id: 'u1' } } };
   return { log, tuples, rules, ir, deps, record: (over = {}) => ({ ...base, ...over }) };
 }

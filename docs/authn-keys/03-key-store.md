@@ -86,7 +86,7 @@ DI.register(MemoryKeyStore).as(KeyStore);
 
 ## Important behaviour
 
-- Datetimes are stored and read as UTC instants. The process time zone does not change a stored `expires_at` or `revoked_at`.
+- Datetimes are stored and read as UTC instants, so the process time zone does not change a stored `expires_at` or `revoked_at`. On MySQL this holds unless the connection sets `TimeZone: 'SYSTEM'`.
 - `OrmKeyStore.revoke` is a conditional update (`revoked_at IS NULL`), so two parallel revocations keep the first time. When the driver reports no affected-row count, the call answers `'revoked'`.
 - On a case-insensitive collation (the MySQL default), `get` still returns only the exact `kid`. `insert` treats a `kid` that differs only in case as taken.
 - `MemoryKeyStore` loses every key when the process ends, and each process has its own. Never use it in an app with several instances.
