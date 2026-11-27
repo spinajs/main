@@ -83,7 +83,7 @@ export function registerProviderAliases(): void {
 
 ### Reading a published provider
 
-`FILE_PROVIDER_INSTANCES` is the provider map key (`'__file_provider_instance__'`). `publishedFs(name, container = DI.RootContainer)` returns the provider published under `name`, or `undefined` when there is none or `fsService` has not resolved. Unlike `getFs()`, it does not go through the `'__file_provider__'` factory and never throws. It also skips the [provider layers](#provider-layers): with `@spinajs/tenancy/fs` it answers the shared provider, not the current tenant's view. Use it where the raw provider is what you want, such as an operator task or a check that compares a provider with its layered view; code that reads or writes an application's files uses `getFs()`.
+`FILE_PROVIDER_INSTANCES` is the provider map key (`'__file_provider_instance__'`). `publishedFs(name, container = DI.RootContainer)` returns the provider published under `name`, or `undefined` when there is none or `fsService` has not resolved. Unlike `getFs()`, it does not go through the `'__file_provider__'` factory and never throws. It also skips the [provider layers](#provider-layers): with `@spinajs/tenancy/fs` it answers the shared provider, not the current tenant's view, and an action on a listed one inside a tenant scope is refused. Use it where the raw provider is what you want, such as an operator task or a check that compares a provider with its layered view; code that reads or writes an application's files uses `getFs()`.
 
 ```ts sample
 import { DI } from '@spinajs/di';
@@ -103,7 +103,7 @@ const all = DI.get<Map<string, fs>>(FILE_PROVIDER_INSTANCES);
 
 ## Provider layers
 
-A class registered as `FsProviderLayer` decides what a lookup by name hands out: `getFs(name)`, `provider(name)`, `@FileSystem(name)`, `fs://` URIs and every helper that takes a provider name get `layer.wrap(provider)` instead of the published provider. `@spinajs/tenancy/fs` registers one that hands out a tenant's view of the providers listed in `tenancy.fs.prefixed`. With no layer registered a lookup answers the published provider. `publishedFs(name)` always answers the published provider, and so does the provider map.
+A class registered as `FsProviderLayer` decides what a lookup by name hands out: `getFs(name)`, `provider(name)`, `@FileSystem(name)`, `fs://` URIs and every helper that takes a provider name get `layer.wrap(provider)` instead of the published provider. [`@spinajs/tenancy/fs`](../tenancy/08-files-per-tenant.md) registers one that hands out a tenant's view of the providers listed in `tenancy.fs.prefixed`. With no layer registered a lookup answers the published provider. `publishedFs(name)` always answers the published provider, and so does the provider map.
 
 ```ts
 @Injectable(FsProviderLayer)
