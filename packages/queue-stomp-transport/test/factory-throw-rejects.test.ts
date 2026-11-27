@@ -133,7 +133,10 @@ async function stompListener(): Promise<{ port: number; drop: () => void; close:
   await new Promise<void>((resolve) => server.once('listening', () => resolve()));
   server.on('connection', (socket) => {
     socket.on('message', (data: Buffer) => {
-      if (data.toString().startsWith('CONNECT')) socket.send('CONNECTED\nversion:1.2\n\n\0');
+      const frame = data.toString();
+      if (frame.startsWith('CONNECT')) socket.send('CONNECTED\nversion:1.2\n\n\0');
+      const receipt = /^receipt:(.*)$/m.exec(frame)?.[1];
+      if (frame.startsWith('DISCONNECT') && receipt !== undefined) socket.send(`RECEIPT\nreceipt-id:${receipt}\n\n\0`);
     });
   });
   const address = server.address();
@@ -254,8 +257,9 @@ describe('stomp transport - a websocket factory that throws rejects resolve()', 
       expect(attempts).to.equal(3);
       expect(client.Connected).to.equal(true);
       expect(unhandled.map(deepText)).to.deep.equal([]);
-      const errors = client.calls.filter(([level]) => level === 'error');
-      expect(deepText(errors)).to.contain(`cannot open a websocket to ws://127.0.0.1:${listener.port}/stomp`);
+      const failures = client.calls.filter(([level, , template]) => level === 'error' && typeof template === 'string' && template.startsWith('Cannot open a websocket'));
+      expect(failures).to.have.length(1);
+      expect(deepText(failures)).to.contain(`ws://127.0.0.1:${listener.port}/stomp`).and.to.contain('the factory cannot dial');
       for (const planted of PLANTED) expect(deepText(client.calls)).to.not.contain(planted);
     } finally {
       await settledWithin(client.dispose(), 2000);
