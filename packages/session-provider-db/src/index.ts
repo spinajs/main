@@ -5,7 +5,7 @@ import { Injectable } from '@spinajs/di';
 import { Logger, Log } from '@spinajs/log';
 import { DbSession } from './models/DbSession.js';
 import { InsertBehaviour } from '@spinajs/orm';
-import type { IUpdateResult } from '@spinajs/orm';
+import type { ISelectQueryBuilder, IUpdateResult } from '@spinajs/orm';
 import { Config } from '@spinajs/configuration';
 import '@spinajs/authn-session/register-schema';
 import { DateTime } from 'luxon';
@@ -21,6 +21,13 @@ const sameRef = (a: IdentityRef | undefined, b: IdentityRef) => !!a && a.type ==
 const belongsTo = (s: ISession, subject: IdentityRef, includeImpersonations?: boolean) => sameRef(s.Subject, subject) || (includeImpersonations === true && sameRef(s.Impersonator, subject));
 
 const rowsAffected = (result: unknown) => (result as IUpdateResult | undefined)?.RowsAffected ?? 0;
+
+/** The datetime converter reads a stored value it cannot parse as null, as it reads NULL; the flag tells the two apart. */
+function withExpirationSet(query: ISelectQueryBuilder<DbSession[]>): ISelectQueryBuilder<DbSession[]> {
+  return query.select('*').selectCondition('ExpirationSet', function () {
+    this.whereNotNull('Expiration');
+  });
+}
 
 /**
  * Relational-db backed session store. Subject, Impersonator and State live in
@@ -94,9 +101,7 @@ export class DbSessionStore extends SessionProvider {
   }
 
   public async restore(sessionId: string): Promise<ISession | null> {
-    const row = await DbSession.where({
-      SessionId: sessionId,
-    }).first();
+    const row = await withExpirationSet(DbSession.query().where({ SessionId: sessionId })).first();
 
     if (!row) {
       return null;
@@ -197,7 +202,7 @@ export class DbSessionStore extends SessionProvider {
 
   /** As deleteBySubject: live rows by key for an exact count, then a DELETE by ExternalKey for rows saved since the read. */
   public async deleteByExternalKey(externalKey: string): Promise<number> {
-    const rows = (await DbSession.where('ExternalKey', externalKey)).map((r) => this.toSession(r, true)).filter((s): s is ISession => !!s);
+    const rows = (await withExpirationSet(DbSession.query().where('ExternalKey', externalKey))).map((r) => this.toSession(r, true)).filter((s): s is ISession => !!s);
     const live = rows.filter((s) => !this.isExpired(s)).map((s) => s.SessionId);
     const count = live.length > 0 ? rowsAffected(await DbSession.destroy(live)) : 0;
     await DbSession.destroy().where('ExternalKey', externalKey);
@@ -211,12 +216,14 @@ export class DbSessionStore extends SessionProvider {
   /** Rows of the subject, expired ones included. */
   protected async matching(subject: IdentityRef, includeImpersonations?: boolean): Promise<ISession[]> {
     const key = refKey(subject);
-    const rows = await DbSession.where(function () {
-      this.where('Subject', key);
-      if (includeImpersonations === true) {
-        this.orWhere('ImpersonatorId', key);
-      }
-    });
+    const rows = await withExpirationSet(
+      DbSession.query().where(function () {
+        this.where('Subject', key);
+        if (includeImpersonations === true) {
+          this.orWhere('ImpersonatorId', key);
+        }
+      }),
+    );
 
     return rows.map((r) => this.toSession(r, true)).filter((s): s is ISession => !!s && belongsTo(s, subject, includeImpersonations));
   }
@@ -250,10 +257,20 @@ export class DbSessionStore extends SessionProvider {
       Impersonator: refOf(row.ImpersonatorId),
       State: row.State === 'active' ? 'active' : 'pending',
       Creation: row.CreatedAt,
-      Expiration: row.Expiration ?? undefined,
+      Expiration: this.expirationOf(row),
       Data: data,
       ExternalKey: row.ExternalKey ?? undefined,
     });
+  }
+
+  /** Only NULL means "never": an Expiration no converter reads counts as passed. */
+  private expirationOf(row: DbSession): DateTime | undefined {
+    if (row.ExpirationSet !== true || row.Expiration != null) {
+      return row.Expiration ?? undefined;
+    }
+    // The session id is the storage key of a bearer credential: the warning names the subject only.
+    this.Log.warn(`A session of ${row.Subject} has an Expiration that is not a datetime the store can read; it is treated as expired`);
+    return DateTime.fromMillis(0, { zone: 'utc' });
   }
 
   private expirationEquals(a: DateTime | undefined, b: DateTime | undefined): boolean {

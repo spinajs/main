@@ -62,7 +62,7 @@ this.Config = _.merge(this.Config, {
 | --- | --- | --- |
 | `SessionId` | `VARCHAR(64)`, primary key, unique index `session_id_user_session_idx` | Storage key: `sha256(rawId)` as 64 hex characters. |
 | `CreatedAt` | `NOT NULL`; the driver's datetime type: `DATETIME(3)` on MySQL, `TIMESTAMPTZ(3)` on PostgreSQL, `TEXT` on SQLite | Creation time. |
-| `Expiration` | same type as `CreatedAt`, nullable | Absolute expiration; `NULL` means never. |
+| `Expiration` | same type as `CreatedAt`, nullable | Absolute expiration; `NULL` means never. A value no datetime converter reads [counts as passed](01-db-session-store.md#unreadable-expiration). |
 | `Data` | `NOT NULL`; `JSON` on MySQL, `JSONB` on PostgreSQL, no declared type on SQLite | Session data encoded by `encodeSessionData()`. |
 | `Subject` | `VARCHAR(100)`, nullable, index `user_sessions_subject_idx` | Principal key of the owner. The store reads a row without one as absent. |
 | `ImpersonatorId` | `VARCHAR(100)`, nullable, index `user_sessions_impersonator_idx` | Principal key of the impersonator; `NULL` when nobody impersonates. |
@@ -75,7 +75,8 @@ this.Config = _.merge(this.Config, {
 | --- | --- | --- |
 | `SessionId` | `string` | `SessionId` |
 | `CreatedAt` | `DateTime` | `CreatedAt` |
-| `Expiration` | `DateTime` | `Expiration` (`null` when the column is `NULL`) |
+| `Expiration` | `DateTime` | `Expiration` (`null` when the column is `NULL` or holds no readable datetime) |
+| `ExpirationSet` | `boolean \| undefined` | none: on the rows the store reads, whether `Expiration` is not `NULL` |
 | `Data` | `string` | `Data`. A MySQL `json` column reads back as a parsed object, SQLite as text. |
 | `Subject` | `string \| null` | `Subject` |
 | `ImpersonatorId` | `string \| null` | `ImpersonatorId` |

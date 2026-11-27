@@ -20,10 +20,10 @@
 
 ### Restore, `restore(sessionId)`
 
-1. `DbSession.where({ SessionId }).first()` reads the row. No row returns `null`.
+1. `DbSession.query().where({ SessionId })` reads the row with a flag that tells a `NULL` `Expiration` from an unreadable one. No row returns `null`.
 2. `toSession()` reads `Subject`, `Impersonator` and `State` from their columns. A row without a readable `Subject` returns `null`.
 3. It decodes `Data` (a `Buffer` is read as UTF-8 text first). A row whose `Data` does not decode throws.
-4. An expired session returns `null`. The row stays until the sweep deletes it.
+4. An expired session returns `null`. The row stays until the sweep deletes it. An [unreadable `Expiration`](#unreadable-expiration) counts as passed.
 
 ### Touch, `touch(session)`
 
@@ -133,8 +133,29 @@ this.Config = _.merge(this.Config, {
 - The store does not hash ids. It keys rows by whatever `SessionId` it gets; the issuer passes `sha256(rawId)`.
 - `user_sessions` has no foreign key to `users`, so deleting a user does not end the user's sessions; call `SessionIssuer.revokeAll()` first.
 - A session with `Expiration` `NULL` never expires and the sweep never deletes it.
+- An `Expiration` that holds no readable datetime counts as passed: see [Unreadable `Expiration`](#unreadable-expiration).
 - `cleanupExpired()` holds at most `cleanupBatch` keys at a time and reads them through the `user_sessions_expiration_idx` index, so a large backlog costs neither memory nor a table scan, and no single `DELETE` locks the table for long.
 - Each `DbSessionStore` instance runs its own sweep. With several application instances, each sweeps the same table; the deletes are conditional on `Expiration`, so the overlap is harmless.
+
+### Unreadable `Expiration`
+
+An `Expiration` that holds a value no datetime converter reads (text written by hand on SQLite, a MySQL zero date, a PostgreSQL `infinity` or `-infinity`) counts as passed: `restore` answers `null`, listings leave it out, and the store logs a warning that names the subject, never the session id. Only `NULL` means never. The sweep compares in SQL and does not remove such a row on SQLite when the text sorts after the current date (`not a date`), or for a PostgreSQL `infinity` or a date after the year 275760; revoking the subject's sessions (`deleteBySubject`) deletes it. The store never writes such a value. To find and delete these rows on the session connection:
+
+```sql
+-- PostgreSQL
+SELECT "Subject", "Expiration" FROM user_sessions WHERE NOT isfinite("Expiration") OR "Expiration" > '275760-09-13 00:00:00+00';
+DELETE FROM user_sessions WHERE NOT isfinite("Expiration") OR "Expiration" > '275760-09-13 00:00:00+00';
+-- MySQL
+SELECT Subject, CAST(Expiration AS CHAR) FROM user_sessions WHERE CAST(Expiration AS CHAR) LIKE '____-00-%' OR CAST(Expiration AS CHAR) LIKE '____-__-00%';
+DELETE FROM user_sessions WHERE CAST(Expiration AS CHAR) LIKE '____-00-%' OR CAST(Expiration AS CHAR) LIKE '____-__-00%';
+-- SQLite (the SELECT; the DELETE takes the same WHERE)
+SELECT Subject, Expiration FROM user_sessions WHERE Expiration IS NOT NULL
+  AND NOT (typeof(Expiration) IN ('integer', 'real') AND abs(Expiration) <= 8640000000000)
+  AND NOT (julianday(Expiration) IS NOT NULL AND date(substr(Expiration, 1, 10), '+0 days') = substr(Expiration, 1, 10))
+  AND NOT (ltrim(Expiration, '-') GLOB '[0-9]*' AND ltrim(Expiration, '-') NOT GLOB '*[^0-9.]*' AND Expiration NOT GLOB '*.*.*' AND abs(CAST(Expiration AS REAL)) <= 8640000000000);
+```
+
+MSSQL's datetime types hold no such value. Setting `Expiration = NULL` instead of deleting makes the session never expire.
 
 ## Best practices
 

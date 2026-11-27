@@ -4,7 +4,13 @@ import { DbSession } from '../src/models/DbSession.js';
 import { UserSession as Session, encodeSessionData, decodeSessionData } from '@spinajs/authn-session';
 import type { ISession } from '@spinajs/authn-session';
 import { DateTime } from 'luxon';
+import sinon from 'sinon';
+import { DI } from '@spinajs/di';
+import { Log } from '@spinajs/log';
+import { QueryContext } from '@spinajs/orm';
+import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 import { runSessionProviderConformance, IConformanceExpiration, SessionProviderFactory } from '../../authn-session/test/conformance/session-provider-conformance.js';
+import type { DbSessionStore } from '../src/index.js';
 import { bootStore, disposeStore, sessionConnection } from './support.js';
 
 chai.use(chaiAsPromised);
@@ -196,6 +202,88 @@ describe('db session provider', function () {
 
       expect(await store.touch(view)).to.be.false;
       expect(await store.restore('k-expired')).to.be.null;
+    });
+  });
+
+  describe('an Expiration no datetime converter reads', () => {
+    // The SQLite column is TEXT and keeps what an operator writes; the converter reads each of these as null.
+    const UNREADABLE = ["'not a date'", "''", "'0000-00-00 00:00:00'", "'1e300'"];
+
+    async function sqlite(): Promise<SqliteOrmDriver> {
+      const conn = await sessionConnection();
+      if (!(conn instanceof SqliteOrmDriver)) throw new Error('the session connection is not SQLite');
+      return conn;
+    }
+
+    async function writeExpiration(sessionId: string, sql: string): Promise<void> {
+      const db = await sqlite();
+      await db.executeOnDb(`UPDATE user_sessions SET Expiration = ${sql} WHERE SessionId = ?`, [sessionId], QueryContext.Update);
+      const [stored] = (await db.executeOnDb('SELECT quote(Expiration) AS v FROM user_sessions WHERE SessionId = ?', [sessionId], QueryContext.Select)) as { v: string }[];
+      expect(stored.v, 'the value the test meant to store').to.equal(sql);
+    }
+
+    const save = (store: DbSessionStore, sessionId: string, subject: string, extra: Partial<ISession> = {}) =>
+      store.save(new Session({ SessionId: sessionId, Subject: user(subject), State: 'active', Expiration: DateTime.now().plus({ hours: 1 }), Data: new Map(), ...extra }));
+
+    function warnings(): sinon.SinonSpy {
+      return sinon.spy(DI.resolve(Log, ['db-session-store']), 'warn');
+    }
+
+    afterEach(() => sinon.restore());
+
+    it('treats such a session as expired, not as never expiring, and leaves the good rows alone', async () => {
+      const store = await makeProvider({ service: 'SlidingExpiration', ttl: 60 });
+      for (const value of UNREADABLE) {
+        await store.truncate();
+        await save(store, 'sx21-bad', 'u-21');
+        await save(store, 'sx21-good', 'u-21');
+        await save(store, 'sx21-never', 'u-21', { Expiration: undefined });
+        await writeExpiration('sx21-never', 'NULL');
+        await writeExpiration('sx21-bad', value);
+        const warn = warnings();
+
+        expect(await store.restore('sx21-bad'), value).to.equal(null);
+        expect(await store.restore('sx21-good'), value).to.not.equal(null);
+        expect((await store.restore('sx21-never'))?.Expiration, `${value}: NULL still never expires`).to.equal(undefined);
+        expect((await store.listBySubject(user('u-21'))).map((s) => s.SessionId).sort(), value).to.deep.equal(['sx21-good', 'sx21-never']);
+
+        const messages = warn.getCalls().map((c) => String(c.lastArg));
+        expect(messages.some((m) => m.includes('user:u-21')), `${value}: the warning names the subject`).to.equal(true);
+        expect(messages.some((m) => m.includes('sx21-bad')), `${value}: the warning never names the session id`).to.equal(false);
+        sinon.restore();
+      }
+    });
+
+    it('revoking the subject or the external key deletes such a session without counting it as live', async () => {
+      const store = await makeProvider({ service: 'SlidingExpiration', ttl: 60 });
+      await store.truncate();
+      await save(store, 'sx21-bad', 'u-21');
+      await save(store, 'sx21-good', 'u-21');
+      await save(store, 'sx21-ext', 'u-22', { ExternalKey: 'ek-21' });
+      await writeExpiration('sx21-bad', "'not a date'");
+      await writeExpiration('sx21-ext', "'not a date'");
+
+      expect(await store.deleteBySubject(user('u-21'))).to.equal(1);
+      expect(await store.deleteByExternalKey('ek-21')).to.equal(0);
+      expect(await DbSession.all()).to.deep.equal([]);
+    });
+
+    it('still reads a past, a future, a pre-1970 and a zone-less Expiration as datetimes', async () => {
+      const store = await makeProvider({ service: 'SlidingExpiration', ttl: 60 });
+      await store.truncate();
+      const values = { past: "'2020-01-01T00:00:00.000Z'", future: "'2099-01-01T00:00:00.000Z'", pre1970: "'1969-07-20T20:17:40.000Z'", zoneless: "'2099-06-01 12:00:00'" };
+      for (const [id, sql] of Object.entries(values)) {
+        await save(store, id, 'u-23');
+        await writeExpiration(id, sql);
+      }
+      const warn = warnings();
+
+      expect(await store.restore('past')).to.equal(null);
+      expect(await store.restore('pre1970')).to.equal(null);
+      expect((await store.restore('future'))?.Expiration?.toISO()).to.equal('2099-01-01T00:00:00.000Z');
+      expect((await store.restore('zoneless'))?.Expiration?.toISO()).to.equal('2099-06-01T12:00:00.000Z');
+      expect((await store.listBySubject(user('u-23'))).map((s) => s.SessionId).sort()).to.deep.equal(['future', 'zoneless']);
+      expect(warn.callCount, 'a readable Expiration logs nothing').to.equal(0);
     });
   });
 
