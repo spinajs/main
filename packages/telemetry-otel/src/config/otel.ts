@@ -13,6 +13,15 @@ const config = {
       /** Orphan sweep cadence. */
       sweepIntervalMs: 60_000,
     },
+
+    metrics: {
+      /** OtelPerfSink: every Perf measurement as an OpenTelemetry metric over OTLP/HTTP. Off by default. */
+      enabled: false,
+
+      endpoint: 'https://otel.highlight.io:4318/v1/metrics',
+
+      exportIntervalMs: 60_000,
+    },
   },
 };
 
