@@ -150,6 +150,7 @@ export function registerFilePolicies(policies: readonly Policy[]): void {
 ## Important behaviour
 
 - **Reloads.** `invalidate(tags)` starts a reload on `*`, `policy`, `policy:<id>` or `model:<name>`. The host calls it for every `AuthzChange` on the `ChangeBus`; `AuthzAdmin` publishes `policy` and `policy:<id>` after a policy write.
+- **An invalidation inside a transaction starts no reload.** An `invalidate()` made inside a transaction (a store answers `inTransaction()` with `true`) starts no reload: the next check outside a transaction starts it. Until then every pair routes to the model and checks inside a transaction read for themselves. A load started there would read that transaction (rows it may roll back, an older snapshot) and be kept. A store without `inTransaction()` still starts the reload at once, so the model catches up without a check; when such a store's reads can join an ORM transaction, implement the member.
 - **Config-only models never reload.** A model whose stores are all `ConfigPolicyStore` ignores invalidations.
 - **While a reload is pending**, `applies()` answers `true` for every pair, so a new policy on a pair the model did not route yet applies at once. `version()` changes, so the host rebuilds the routes.
 - **One background load at a time.** Invalidations during a load start the next load when it lands.
