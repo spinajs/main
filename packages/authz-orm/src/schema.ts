@@ -13,6 +13,9 @@ export const AUTHZ_ORM_CONFIGURATION_SCHEMA = {
     domain: { type: 'string', minLength: 1, default: 'root' },
     // The model property that carries `.withAccess()` answers (design §10.3).
     accessField: { type: 'string', minLength: 1, default: '$access' },
+    // Refuse a write of an @AccessResource model that no history-keeping WriteObserver records in full.
+    // null is allowed so that the validator does not coerce it to false: the guard refuses it.
+    requireHistory: { type: ['boolean', 'null'], default: false },
     // Row level security (`authz:rls`, Postgres): `session` sets the spina.* settings on every transaction; `bypassRole` is the role SYSTEM connects as.
     rls: {
       type: 'object',
@@ -23,6 +26,9 @@ export const AUTHZ_ORM_CONFIGURATION_SCHEMA = {
       additionalProperties: false,
     },
   },
+  // A key this schema does not declare is removed at boot, so a misspelt key is never read; until the configuration
+  // logs removed keys, a misspelt requireHistory leaves the check off in silence.
+  additionalProperties: false,
 };
 
 registerConfigurationSchemaAtImport(AUTHZ_ORM_CONFIGURATION_SCHEMA);

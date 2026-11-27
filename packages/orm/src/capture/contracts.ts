@@ -18,6 +18,12 @@ export interface CaptureInterest {
   readonly columns: readonly string[] | '*';
   /** Asks for one transaction around the statement and every observer. */
   readonly transactional: boolean;
+  /**
+   * Columns a history-keeping observer reads but does not keep the values of (excluded or masked); `[]` when it keeps
+   * every column of the interest. Absent, the observer makes no claim about which columns it records, and a package
+   * that refuses unrecorded writes counts it as recording none. The capture ignores it.
+   */
+  readonly unrecorded?: readonly string[];
 }
 
 export interface RowChange {
@@ -39,6 +45,14 @@ export type CapturedWrite = WriteStatement & {
 };
 
 export abstract class WriteObserver {
+  /**
+   * True for an observer that keeps a durable history of the rows it takes, so a package that refuses unrecorded writes
+   * can find one. Such an observer's interest() may be asked more than once for a statement and sets `unrecorded`;
+   * its `columns` minus its `unrecorded` are the columns it records. Outside a transaction the capture asks it before any beforeQueryExecution
+   * hook runs, so a history registered in such a hook comes too late for that statement.
+   */
+  readonly keepsHistory?: boolean;
+
   /** Synchronous; undefined when the statement does not concern this observer. */
   abstract interest(statement: WriteStatement): CaptureInterest | undefined;
   /** Before any capture read, inside the transaction; throwing aborts the statement. */

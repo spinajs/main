@@ -294,12 +294,24 @@ instant kept, text verbatim), `readPolicyVersion(policyHash)` reads it back. Imp
 (with `@spinajs/scheduler` installed) to prune the changelog daily: schedule `authz.changelog.retention` deletes the
 changes older than `authz.changelog.retentionDays` (default 400); `pruneChangeLog()` does it on demand.
 
+## Writes that must reach the history
+
+With `authz.orm.requireHistory: true` an insert, a delete, or an update of a relation column, a type column or the
+primary key of an `@AccessResource` model that no history observer records (`WriteObserver.keepsHistory`, set by
+`@spinajs/orm-history`) fails with `UnrecordedResourceWrite` before it runs. A history that does not record every relation
+and type column (column mode that leaves one out, `exclude`, a masked `@Hidden()` relation column), or whose interest does not
+state `unrecorded`, does not count. Off by default. Set it in the configuration
+every process shares, so that a process writing resource rows without `@spinajs/authz-replay` cannot leave holes in the
+history replay reads. Writes the capture does not see (a builder without a model, raw SQL, `Model.truncate()`) are not
+checked ([docs/authz-orm/04-access-resources.md](../../docs/authz-orm/04-access-resources.md#writes-that-must-reach-the-history)).
+
 ## Config
 
 | Key | Default | Meaning |
 |---|---|---|
 | `authz.orm.domain` | `'root'` | the domain whose service plans lists and whose stores a delete cleans up |
 | `authz.orm.accessField` | `'$access'` | the per-row access key of `.withAccess()` |
+| `authz.orm.requireHistory` | `false` | refuse a resource write no history observer records |
 | `authz.changelog.retentionDays` | `400` | how long the retention job keeps changelog rows |
 
 ## From 3.0.0-rc.1

@@ -32,6 +32,8 @@ function record(spec: HistorySpec, write: CapturedWrite, inputs: readonly AuditI
 
 @Injectable(WriteObserver)
 export class HistoryObserver extends WriteObserver {
+  public readonly keepsHistory = true;
+
   @Autoinject(HistorySpecs)
   protected Specs: HistorySpecs;
 
@@ -48,7 +50,8 @@ export class HistoryObserver extends WriteObserver {
     const spec = this.Specs.of(statement.model);
     if (!spec) return undefined;
     if (spec.columns !== '*' && statement.kind === 'update' && !writesAny(statement.query, [spec.pk, ...spec.columns])) return undefined;
-    return { columns: spec.columns, transactional: true };
+    // Masked columns stay in `columns`: an update lists them in `changed` without their values.
+    return { columns: spec.columns, transactional: true, unrecorded: [...spec.exclude, ...spec.masked] };
   }
 
   public async observe(write: CapturedWrite): Promise<void> {
