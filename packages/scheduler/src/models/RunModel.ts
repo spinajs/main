@@ -10,6 +10,9 @@ export class RunModel extends ModelBase {
 
   public Schedule: string;
 
+  /** The tenant of the schedule instance the run belongs to; null for the global instance. */
+  public Tenant: string | null;
+
   public Trigger: RunTrigger;
 
   @Json()
