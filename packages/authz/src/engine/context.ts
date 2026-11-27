@@ -9,6 +9,9 @@ import { swallow } from './run.js';
 import { MAX_DATA_VALUES, MAX_TRACE_STEPS, budget, traceStep, copyRef } from './vote.js';
 import type { Budget } from './vote.js';
 import type { ReadRecorder } from './support/reads.js';
+import type { Nested } from './types.js';
+import { ModelMemo } from './context/memo.js';
+import type { MemoEntry } from './context/memo.js';
 
 /** Nested `ctx.check` levels below a top-level call. */
 export const MAX_CHECK_DEPTH = 8;
@@ -20,6 +23,8 @@ export interface ContextHost {
   readonly domain: string;
   readonly permissions: PermissionRegistry;
   readonly conditions: ConditionCompiler;
+  /** The call tree's record: what its decisions rest on, ctx.cache values included. */
+  readonly nested: Nested;
   ancestors(ref: ResourceRef, scope: Map<string, unknown>): MaybePromise<readonly ResourceRef[] | null>;
   attributes(ref: ResourceRef, scope: Map<string, unknown>): Promise<Readonly<Record<string, unknown>> | null>;
   relation(type: ResourceType, name: string): RelationResolver | undefined;
@@ -49,8 +54,9 @@ export class ModelContext implements EvaluationContext {
   readonly permissions: PermissionRegistry;
   readonly conditions: ConditionCompiler;
   readonly now: Date;
-  readonly cache: Map<string, unknown>;
   readonly #memoKey: string;
+  readonly #entries: Map<string, MemoEntry>;
+  #cache: ModelMemo | undefined;
   // Private, so the model cannot clear it: set when the model broke a rule its vote cannot show (nested depth).
   #fault: string | undefined;
   // One trace budget per model per check: repeated steps sharing one object must not multiply the copy.
@@ -65,7 +71,7 @@ export class ModelContext implements EvaluationContext {
     // Own copy: a Date stays mutable when frozen, and models must not move each other's clock.
     this.now = new Date(instant.getTime());
     this.#memoKey = l1Key('model', host.domain, cacheKey);
-    this.cache = memo(scope, this.#memoKey, () => new Map<string, unknown>());
+    this.#entries = memo(scope, this.#memoKey, () => new Map<string, MemoEntry>());
     this.#reads = reads;
     Object.freeze(this);
   }
@@ -75,9 +81,14 @@ export class ModelContext implements EvaluationContext {
     return this.#fault;
   }
 
+  /** Made on first use: most votes never touch it. */
+  get cache(): Map<string, unknown> {
+    return (this.#cache ??= new ModelMemo(this.#entries, this.host.nested, this.instant.getTime()));
+  }
+
   /** Later contexts of this owner start with an empty memo; late writes of this one land in the detached map. */
   detachMemo(): void {
-    if (this.scope.get(this.#memoKey) === this.cache) this.scope.delete(this.#memoKey);
+    if (this.scope.get(this.#memoKey) === this.#entries) this.scope.delete(this.#memoKey);
   }
 
   ancestors(ref: ResourceRef): Promise<readonly ResourceRef[] | null> {

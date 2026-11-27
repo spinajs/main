@@ -206,10 +206,11 @@ describe('B08: onBehalfOf with intersect delegation', () => {
     await a.check({ principal: odd, permission: 'doc:read' }, scope);
     await a.check({ principal: principal('user', 'bob', { attributes: { live: new Map() } }), permission: 'doc:read' }, scope);
     await a.check({ principal: bob, permission: 'doc:read' }, scope);
-    expect(seen[0]).to.equal(seen[1]);
-    expect(seen[2]).to.not.equal(seen[0]);
-    expect(seen[3]).to.not.equal(seen[0]);
-    expect(seen[3]).to.not.equal(seen[2]);
+    // Each context gets a view of its own, so the memo is compared by what it holds.
+    seen[0].set('first', true);
+    seen[2].set('third', true);
+    expect(seen[1].has('first')).to.equal(true);
+    expect([seen[2].has('first'), seen[3].has('first'), seen[3].has('third')]).to.deep.equal([false, false, false]);
   });
 
   it('B08: preload walks the whole chain', async () => {

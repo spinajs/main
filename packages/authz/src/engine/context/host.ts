@@ -4,25 +4,28 @@ import type { ContextHost, MaybePromise } from '../context.js';
 import { isThenable, runAsync } from '../run.js';
 import { markFault, marking } from '../cache/store.js';
 import { pipeline } from '../pipeline/index.js';
+import { newNested } from '../support/misc.js';
 import { topRun } from '../support/plumbing.js';
 import type { Attributes, Engine, Run } from '../types.js';
 import { requireRef } from './late-type.js';
 import { relation } from './request.js';
 import { ancestorsOf, attributesOf, nodeLoad } from './scope.js';
 
-/** The host of contexts outside a check (preload); a check's own contexts use hostFor(run). */
+/** The host of contexts outside a check (preload); a check's own contexts use hostFor(run). Its checks share one nested record, which its ctx.cache values carry. */
 export function baseHost(engine: Engine): ContextHost {
+  const nested = newNested();
   return Object.freeze({
     domain: engine.domain,
     permissions: engine.registry,
     conditions: engine.conditions,
+    nested,
     ancestors: (ref: ResourceRef, scope: Map<string, unknown>) => marking(engine, scope, () => ancestorsOf(engine, requireRef(engine, ref), scope)),
     attributes: (ref: ResourceRef, scope: Map<string, unknown>) => attributesOf(engine, requireRef(engine, ref), scope),
     relation: (type: ResourceType, name: string) => relation(engine, type, name),
     nestedCheck: (req: Omit<DecisionRequest, 'explain'>, scope: Map<string, unknown>, instant: Date, depth: number): Promise<Decision> =>
       Promise.resolve(
         marking(engine, scope, () =>
-          runAsync(pipeline(engine, req, topRun(engine, false, scope, instant, depth))).then((r) => {
+          runAsync(pipeline(engine, req, { ...topRun(engine, false, scope, instant, depth), nested })).then((r) => {
             if (r.faulted) markFault(engine, scope);
             return r.decision;
           }),
@@ -56,6 +59,7 @@ export function hostFor(engine: Engine, run: Run): ContextHost {
     domain: engine.domain,
     permissions: engine.registry,
     conditions: engine.conditions,
+    nested: run.nested,
     ancestors: (ref: ResourceRef, scope: Map<string, unknown>) => watched(() => ancestorsOf(engine, requireRef(engine, ref), scope)),
     attributes: (ref: ResourceRef, scope: Map<string, unknown>) =>
       watched(() =>

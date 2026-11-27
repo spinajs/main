@@ -13,7 +13,7 @@ import type { Nested, RequestScope, Run } from '../types.js';
 
 export const scopeMap = (scope: RequestScope | undefined): Map<string, unknown> => (scope?.cache instanceof Map ? scope.cache : new Map<string, unknown>());
 
-export const newNested = (): Nested => ({ uncacheable: false, untagged: false, faulted: false, tags: new Set(), until: undefined });
+export const newNested = (): Nested => ({ uncacheable: false, untagged: false, faulted: false, tags: new Set(), until: undefined, memos: undefined });
 
 /** Only a top-level check outside summary/covers is an access attempt. */
 export const audits = (run: Run): boolean => run.depth === 0 && run.quiet !== true;
