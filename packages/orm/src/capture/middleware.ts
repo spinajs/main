@@ -147,7 +147,7 @@ async function conflictColumns(query: InsertQueryBuilder, plan: Plan): Promise<s
 /** The rows holding a value the upsert supplies for one of its conflict columns: the rows it may update or replace. */
 async function conflictingRows(query: InsertQueryBuilder, plan: Plan, columns: readonly string[]): Promise<Reads> {
   const reads: Reads[] = [];
-  for (const column of columns) reads.push(await readRows(query.Driver, plan.statement.model, plan.table, plan.pk, plan.columns, upsertKeys(query, column), column));
+  for (const column of columns) reads.push(await readRows(query.Driver, plan.statement.model, plan.table, plan.pk, plan.columns, upsertKeys(query, column), column, false, query.Database));
   const out = mergeReads(reads);
   refuseAbove(plan, out.rows.size + countKeyless(out.keyless), maxRows());
   return out;
@@ -176,7 +176,7 @@ async function targetRows(query: QueryBuilder, plan: Plan, conflict: readonly st
   const target = await writeTargetKeyTexts(query, plan.pk, max === Infinity ? undefined : max + 1);
   refuseAbove(plan, target.keys.length + target.keyless.length, max);
   confinedKeys.set(query, { pk: plan.pk, values: keyValues(query, plan, target) });
-  const rows = await readRows(query.Driver, plan.statement.model, plan.table, plan.pk, plan.columns, target.keys, plan.pk, lockedReads(query.Driver));
+  const rows = await readRows(query.Driver, plan.statement.model, plan.table, plan.pk, plan.columns, target.keys, plan.pk, lockedReads(query.Driver), query.Database);
   return mergeReads([keylessRead(target.keyless), rows]);
 }
 
@@ -205,7 +205,7 @@ function keyValues(query: UpdateQueryBuilder<unknown> | DeleteQueryBuilder<unkno
 
 /** Undefined when the rows an insert wrote cannot be known. */
 async function rowsAfter(query: QueryBuilder, { plan, before, conflict }: Pending, result: unknown): Promise<Reads | undefined> {
-  const byBeforeKeys = () => readRows(query.Driver, plan.statement.model, plan.table, plan.pk, plan.columns, [...before.rows.keys()]);
+  const byBeforeKeys = () => readRows(query.Driver, plan.statement.model, plan.table, plan.pk, plan.columns, [...before.rows.keys()], plan.pk, false, query.Database);
   if (!(query instanceof InsertQueryBuilder)) return allDeleted(plan, before.rows, result) ? noReads() : byBeforeKeys();
   if (conflict === undefined) return undefined;
   const upsert = conflict.length > 0;
@@ -214,7 +214,7 @@ async function rowsAfter(query: QueryBuilder, { plan, before, conflict }: Pendin
   if (upsert && everyRowConflicts(query, conflict)) return conflicting;
   const keys = insertedKeyTexts(query, result, plan.pk);
   if (keys === undefined) return undefined;
-  const inserted = await readRows(query.Driver, plan.statement.model, plan.table, plan.pk, plan.columns, keys.keys.filter((k) => !conflicting.rows.has(k)));
+  const inserted = await readRows(query.Driver, plan.statement.model, plan.table, plan.pk, plan.columns, keys.keys.filter((k) => !conflicting.rows.has(k)), plan.pk, false, query.Database);
   return mergeReads([conflicting, keylessRead(keys.keyless), inserted]);
 }
 

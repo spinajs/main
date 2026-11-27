@@ -114,8 +114,10 @@ export async function writeTargetKeyTexts(query: UpdateQueryBuilder<unknown> | D
   const model = query.Model;
   if (!model) throw new InvalidArgument('write capture: the keys of a write are read through its model, and this query has none');
   return captureReadScope().run(async () => {
-    const { query: select } = createQuery(model, SelectQueryBuilder);
-    // A model select may be routed to a replica; the rows a write is about to change are read where it runs.
+    // On the write's connection: in a shared-server unit of work that is the root, whose transaction holds the rows the
+    // write reaches. A model select may be routed to a replica; the rows a write is about to change are read where it runs.
+    const { query: select } = createQuery(model, SelectQueryBuilder, true, query.Driver);
+    if (query.Database) select.database(query.Database);
     select.withDeleted().withArchived().onPrimary();
     if (lockedReads(query.Driver)) select.forUpdate();
     const clones = query.Statements.map((s) => {
