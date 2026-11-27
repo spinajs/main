@@ -5,14 +5,14 @@
  */
 import { DI } from '@spinajs/di';
 import '@spinajs/log';
-import { ITransactionContext, QueryContext, TransactionAborted } from '@spinajs/orm';
+import { QueryContext, TransactionAborted } from '@spinajs/orm';
 import * as chai from 'chai';
 import 'mocha';
 import { randomBytes } from 'node:crypto';
 import { createConnection, type Connection } from 'mysql2/promise';
-import type { PoolConnection } from 'mysql2';
+import type { PoolConnection, QueryError } from 'mysql2';
 
-import { MySqlOrmDriver } from '../../src/index.js';
+import { IMySqlTransactionContext, MySqlOrmDriver } from '../../src/index.js';
 
 const expect = chai.expect;
 
@@ -42,18 +42,31 @@ function signal() {
   return { open: () => open(), opened };
 }
 
-/** The ways a test makes the driver's own step fail on a live connection: the step is not sent, the session stays as it was. */
-type Fault = 'commit' | 'rollback' | 'restore' | undefined;
+/**
+ * The ways a test makes a step fail on a live connection: the step is not sent, the session stays as it was. `replies`
+ * fails mysql2's own `commit()` and `rollback()` under the driver's `_commit` and `_rollback`, so the driver's handling
+ * of their answer is what runs.
+ */
+type Fault = 'commit' | 'rollback' | 'restore' | 'replies' | undefined;
+
+const refuse = (cb?: (err: QueryError | null) => void) => cb?.(Object.assign(new Error('injected failure, the statement was not sent'), { code: 'INJECTED', fatal: false }));
 
 class FaultyDriver extends MySqlOrmDriver {
   public fault: Fault;
 
-  protected _commit(ctx: ITransactionContext): Promise<void> {
+  protected _commit(ctx: IMySqlTransactionContext): Promise<void> {
+    if (this.fault === 'replies') this.refuseEnding(ctx);
     return this.fault === 'commit' ? Promise.reject(new Error('injected COMMIT failure')) : super._commit(ctx);
   }
 
-  protected _rollback(ctx: ITransactionContext): Promise<void> {
+  protected _rollback(ctx: IMySqlTransactionContext): Promise<void> {
+    if (this.fault === 'replies') this.refuseEnding(ctx);
     return this.fault === 'rollback' ? Promise.reject(new Error('injected ROLLBACK failure')) : super._rollback(ctx);
+  }
+
+  private refuseEnding(ctx: IMySqlTransactionContext): void {
+    ctx.connection.commit = refuse;
+    ctx.connection.rollback = refuse;
   }
 
   protected restoreAutocommit(connection: PoolConnection): Promise<void> {
@@ -246,6 +259,39 @@ describe('MySQL transaction autocommit (live server, pool of one)', function () 
       driver.transaction(async () => {
         inside = await session();
         await run("INSERT INTO `log` (`who`) VALUES ('rollback-failed')");
+        throw new Error('boom');
+      }),
+    );
+
+    expect(outcome).to.have.property('message', 'boom');
+    driver.fault = undefined;
+    await expectClean(inside!, true);
+    expect(await logged()).to.deep.equal([]);
+  });
+
+  it('mysql2 reports a failed COMMIT and a failed ROLLBACK: no restore over the open transaction, the connection is destroyed', async () => {
+    let inside: Session | undefined;
+    driver.fault = 'replies';
+    const outcome = await settle(
+      driver.transaction(async () => {
+        inside = await session();
+        await run("INSERT INTO `log` (`who`) VALUES ('commit-reply-failed')");
+      }),
+    );
+
+    expect(outcome).to.have.property('code', 'INJECTED');
+    driver.fault = undefined;
+    await expectClean(inside!, true);
+    expect(await logged()).to.deep.equal([]);
+  });
+
+  it('mysql2 reports a failed ROLLBACK after a thrown error: no restore over the open transaction, the connection is destroyed', async () => {
+    let inside: Session | undefined;
+    driver.fault = 'replies';
+    const outcome = await settle(
+      driver.transaction(async () => {
+        inside = await session();
+        await run("INSERT INTO `log` (`who`) VALUES ('rollback-reply-failed')");
         throw new Error('boom');
       }),
     );
