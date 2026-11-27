@@ -75,6 +75,18 @@ function unopenableHost(host: string): string | undefined {
   return undefined;
 }
 
+/** Why stompjs cannot drive what a websocket factory returned, or `undefined` when it can. */
+function notASocket(value: unknown): string | undefined {
+  if (typeof value !== 'object' || value === null) return 'the websocket factory returned no socket';
+  if ('then' in value && typeof value.then === 'function') return 'the websocket factory returned a promise; it must return the socket itself';
+  if (!('close' in value) || typeof value.close !== 'function' || !('send' in value) || typeof value.send !== 'function') return 'the websocket factory returned an object that is not a websocket';
+  return undefined;
+}
+
+function isSocket(value: unknown): value is Stomp.IStompSocket {
+  return notASocket(value) === undefined;
+}
+
 /** Stands in for a socket the factory could not create: stompjs sees it close, and reconnects while it is active. */
 function closedSocket(): Stomp.IStompSocket {
   const socket: Stomp.IStompSocket = {
@@ -372,13 +384,31 @@ export class StompQueueClient extends QueueClient {
       // stompjs's un-awaited connect loop, where a throw is an unhandled rejection with no socket close, so resolve()
       // would never settle and no reconnect would be scheduled.
       webSocketFactory: () => {
+        let socket: unknown;
         try {
           // stompjs calls an application's factory with its client as `this`
-          return typeof appFactory === 'function' ? appFactory.call(this.Client) : this.createWebSocket();
+          socket = typeof appFactory === 'function' ? appFactory.call(this.Client) : this.createWebSocket();
         } catch (err) {
           socketFailed(err);
           return closedSocket();
         }
+        if (isSocket(socket)) return socket;
+
+        // an async factory: its rejection would be unhandled, and a socket it resolves to late would stay open
+        if (socket instanceof Promise) {
+          socket
+            .then((late: unknown) => {
+              if (isSocket(late)) {
+                // `ws` reports closing a socket that is still connecting as an error event: unheard, it is an uncaught exception
+                late.onerror = () => undefined;
+                late.close();
+              }
+              return undefined;
+            })
+            .catch(() => undefined);
+        }
+        socketFailed(new Error(notASocket(socket)));
+        return closedSocket();
       },
     });
 

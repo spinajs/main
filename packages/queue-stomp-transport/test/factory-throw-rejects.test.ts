@@ -86,7 +86,7 @@ const deepText = (value: unknown): string => inspect(value, { depth: 6, showHidd
 const fullText = (value: unknown): string => inspect(value, { depth: null, showHidden: true });
 
 function captureStderr(): { text: () => string; stop: () => void } {
-  const write = process.stderr.write;
+  const write = process.stderr.write.bind(process.stderr);
   const chunks: string[] = [];
   process.stderr.write = (chunk: string | Uint8Array): boolean => {
     chunks.push(typeof chunk === 'string' ? chunk : Buffer.from(chunk).toString());
