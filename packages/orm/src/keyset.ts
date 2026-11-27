@@ -108,6 +108,8 @@ const INT32 = 2 ** 31;
 const INT64 = 2n ** 63n;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const DECIMAL = /^-?\d+(\.\d+)?$/;
+// SQL Server's time(7): the database refuses a string outside a day when it converts it (error 241)
+const TIME_OF_DAY = /^([01]?\d|2[0-3]):[0-5]\d(:[0-5]\d(\.\d{1,7})?)?$/;
 
 const inInt64 = (value: bigint): boolean => value >= -INT64 && value < INT64;
 const isString = (value: unknown): boolean => typeof value === 'string';
@@ -126,19 +128,25 @@ const FAMILY_VALUES: Partial<Record<ColumnFamily, (value: unknown, families: rea
   float: (value) => typeof value === 'number' && Number.isFinite(value),
   text: isString,
   enum: isString,
-  time: (value) => typeof value === 'string' && /^\d{1,2}:\d{2}(:\d{2}(\.\d+)?)?$/.test(value),
+  time: (value) => typeof value === 'string' && TIME_OF_DAY.test(value),
   boolean: (value) => typeof value === 'boolean' || value === 0 || value === 1,
   date: isDateTime,
   datetime: isDateTime,
   uuid: (value) => typeof value === 'string' && UUID.test(value),
 };
 
-/** The families of each keyset column from the driver's dialect profile; undefined where the type is unknown. */
+/**
+ * The families of each keyset column from the driver's dialect profile; undefined where the type is unknown. Where the
+ * driver reads a decimal back as a number, the server's own cursor holds a number, so a decimal column is checked as
+ * `float`: a numeric string would reach SQL Server as nvarchar and overflow the column's precision (8115).
+ */
 export function keysetFamilies(columns: KeysetColumn[], descriptor: IModelDescriptor | undefined, dialect: SqlDialectProfile | undefined): Array<ColumnFamily[] | undefined> {
+  const decimalAsNumber = dialect?.families.decimal === 'number';
   return columns.map(({ column }) => {
     const described = descriptor?.Columns?.find((c) => c.Name === column);
     const native = described?.NativeType || described?.Type;
-    return native ? familiesOf(native, dialect) : undefined;
+    const families = native ? familiesOf(native, dialect) : undefined;
+    return decimalAsNumber ? families?.map((f) => (f === 'decimal' ? 'float' : f)) : families;
   });
 }
 

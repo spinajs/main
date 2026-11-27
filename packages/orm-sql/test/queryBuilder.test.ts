@@ -1324,7 +1324,7 @@ describe('whereOnJoin', () => {
       .toDB() as ICompilerOutput;
 
     expect(result.expression).to.equal(
-      'SELECT `$RelationModel$`.*,`$Relation$`.`Id` as `$Relation$.Id`,`$Relation$`.`RelationProperty` as `$Relation$.RelationProperty` FROM `RelationTable` as `$RelationModel$` LEFT JOIN `RelationTable2` as `$Relation$` ON `$RelationModel$`.`relation_id` = `$Relation$`.`Id` AND ( `$Relation$`.`RelationProperty` = ? ) WHERE `$RelationModel$`.`Id` = ? AND `$Relation$`.`Id` = ?',
+      'SELECT `$RelationModel$`.*,`$Relation$`.`Id` as `$Relation$.Id`,`$Relation$`.`RelationProperty` as `$Relation$.RelationProperty` FROM `RelationTable` as `$RelationModel$` LEFT JOIN `RelationTable2` as `$Relation$` ON `$RelationModel$`.`relation_id` = `$Relation$`.`Id` AND ( `$Relation$`.`RelationProperty` = ? ) WHERE `$RelationModel$`.`Id` = ? AND ( `$Relation$`.`Id` = ? )',
     );
     expect(result.bindings).to.deep.equal(['foo', 1, 99]);
   });

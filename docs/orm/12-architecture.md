@@ -93,6 +93,7 @@ Every statement extends `QueryStatement` (`IQueryStatement`): `TableAlias`, `Boo
 | `BetweenStatement` | `whereBetween` / `whereNotBetween` | `column`, `values`, `not`, `tableAlias` |
 | `InSetStatement` | `whereInSet` / `whereNotInSet` | `column`, `values`, `not`, `tableAlias` |
 | `StartsWithStatement` | `whereStartsWith(column, prefix)` | `column`, `prefix`, `tableAlias` |
+| `ExactlyStatement` | `whereExactly(column, value)` | `column`, `value`, `tableAlias` |
 | `ColumnStatement` | `select(column)`, `columns()` | `column`, `alias`, `tableAlias`, column descriptor |
 | `ColumnRawStatement` | `select(RawQuery)` | `RawQuery` |
 | `ColumnMethodStatement` | `min`, `max`, `sum`, `avg`, `count` | `column`, `ColumnMethods`, `alias`, `tableAlias` |
