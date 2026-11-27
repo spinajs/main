@@ -1,12 +1,13 @@
 /**
  * A transaction InnoDB rolled back after a deadlock, against a live MySQL (the integration server, ORM_TEST_MYSQL_*), in
- * a database of its own. Without a server it skips with a printed line, or fails when ORM_TEST_REQUIRE_MYSQL=1.
+ * a database of its own per run. Without a server it fails, as the package's other live files do.
  */
 import { DI } from '@spinajs/di';
 import '@spinajs/log';
 import { QueryContext, TransactionAborted } from '@spinajs/orm';
 import * as chai from 'chai';
 import 'mocha';
+import { randomBytes } from 'node:crypto';
 import { createConnection, type Connection } from 'mysql2/promise';
 
 import { MySqlOrmDriver } from '../../src/index.js';
@@ -19,7 +20,7 @@ const SERVER = {
   user: process.env.ORM_TEST_MYSQL_USER ?? 'root',
   password: process.env.ORM_TEST_MYSQL_PASSWORD ?? 'root',
 };
-const DATABASE = 'spinajs_sx18';
+const DATABASE = `spinajs_sx18_${randomBytes(4).toString('hex')}`;
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 const settle = (p: Promise<unknown>): Promise<unknown> => p.then((value) => value, (err: unknown) => err);
@@ -31,10 +32,10 @@ function signal() {
   return { open: () => open(), opened };
 }
 
-/** Resolves once the server's connection `thread` waits for a row lock. */
+/** Resolves once the server's connection `thread` waits for a row lock (performance_schema; `INNODB_TRX` is a cache that stays frozen while it is polled faster than every 100 ms). */
 async function lockWaitOf(admin: Connection, thread: number): Promise<void> {
   for (let i = 0; i < 200; i++) {
-    const [rows] = await admin.query('SELECT COUNT(*) AS n FROM information_schema.INNODB_TRX WHERE trx_mysql_thread_id = ? AND trx_state = ?', [thread, 'LOCK WAIT']);
+    const [rows] = await admin.query('SELECT COUNT(*) AS n FROM performance_schema.data_lock_waits w JOIN performance_schema.threads t ON t.THREAD_ID = w.REQUESTING_THREAD_ID WHERE t.PROCESSLIST_ID = ?', [thread]);
     if (Number((rows as Array<{ n: unknown }>)[0]?.n) > 0) return;
     await sleep(50);
   }
@@ -78,17 +79,8 @@ describe('MySQL transaction rolled back by a deadlock (live server)', function (
     });
   }
 
-  before(async function () {
-    let why = '';
-    admin = await createConnection({ ...SERVER, connectTimeout: 3000 }).catch((err: unknown) => {
-      why = `no MySQL server at ${SERVER.host}:${SERVER.port} (${err instanceof Error ? err.message : String(err)})`;
-      return undefined;
-    });
-    if (admin === undefined) {
-      if (process.env.ORM_TEST_REQUIRE_MYSQL === '1') throw new Error(`${why} and ORM_TEST_REQUIRE_MYSQL=1`);
-      console.log(`      skipped: ${why}`);
-      return this.skip();
-    }
+  before(async () => {
+    admin = await createConnection({ ...SERVER, connectTimeout: 3000 });
     const [detect] = await admin.query('SELECT @@innodb_deadlock_detect AS on_detect');
     if (Number((detect as Array<{ on_detect: unknown }>)[0]?.on_detect) !== 1) throw new Error('the server runs with innodb_deadlock_detect off; this test needs deadlock detection');
     await admin.query(`CREATE DATABASE IF NOT EXISTS \`${DATABASE}\``);
@@ -104,9 +96,12 @@ describe('MySQL transaction rolled back by a deadlock (live server)', function (
   });
 
   after(async () => {
-    await driver?.disconnect();
-    await admin?.query(`DROP DATABASE IF EXISTS \`${DATABASE}\``);
-    await admin?.end();
+    try {
+      await driver?.disconnect();
+    } finally {
+      await admin?.query(`DROP DATABASE IF EXISTS \`${DATABASE}\``);
+      await admin?.end();
+    }
   });
 
   it('refuses the rest of the victim transaction, writes none of it and runs none of its afterCommit callbacks', async () => {
