@@ -347,5 +347,14 @@ describe('TenantScopeMiddleware, a tenant select inside another statement', func
       expect(await compiled('t1', sub)).to.eq('SELECT `code` FROM `invoice` WHERE `tenant_id` = ? [t1]');
       expect(codes(await inTenant('t1', () => sub))).to.deep.eq(['A-1']);
     });
+
+    it('confines again, in another tenant, a builder that was confined in t1', async () => {
+      const outer = Carrier.query().whereIn('name', invoiceCodes());
+      expect(names(await inTenant('t1', () => outer))).to.deep.eq(['A-1']);
+      expect(names(await inTenant('t2', () => outer.clone()))).to.not.include('A-1');
+      const top = Invoice.query();
+      expect(codes(await inTenant('t1', () => top))).to.deep.eq(['A-1']);
+      expect(codes(await inTenant('t2', () => top.clone()))).to.not.include('A-1');
+    });
   });
 });
