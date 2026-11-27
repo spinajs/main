@@ -110,6 +110,29 @@ describe('authz:ancestors-rebuild writes what the write observer wrote, for one 
         await verify();
         expect(out).to.deep.equal(['org: ok', 'project: ok', 'folder: ok', 'document: ok']);
       });
+
+      it('agrees for a type whose first class on a table declares no @Parent', async () => {
+        const Org = (await db.define({ name: 'Org', columns: {}, decorate: (c) => AccessResource('org')(c) }, dialect)) as M;
+        const Project = (await db.define({ name: 'Project', columns: { org_id: 'TEXT' }, decorate: (c, p) => { AccessResource('project')(c); Parent('org')(p, 'org_id'); } }, dialect)) as M;
+        const Doc = (await db.define({ name: 'Doc', columns: { project_id: 'TEXT' }, decorate: (c) => AccessResource('doc')(c) }, dialect)) as M;
+        const DocInProject = (await db.define({ name: 'DocInProject', columns: {}, table: db.table(Doc), decorate: (c, p) => { AccessResource('doc')(c); Parent('project')(p, 'project_id'); } }, dialect)) as M;
+
+        await Org.insert([{ id: 'o1' }, { id: 'o2' }]);
+        await Project.insert([{ id: 'p1', org_id: 'o1' }, { id: 'p2', org_id: 'o2' }]);
+        await DocInProject.insert({ id: 'd1', project_id: 'p1' });
+        await DocInProject.insert({ id: 'd2', project_id: 'p1' });
+        await DocInProject.update({ project_id: 'p2' }).where('id', 'd2');
+
+        const driver = db.driver(dialect);
+        const written = await ancestorLinks(driver);
+        expect(written).to.include.members(['doc:d1>project:p1@1', 'doc:d1>org:o1@2', 'doc:d2>project:p2@1', 'doc:d2>org:o2@2']);
+
+        await rebuild();
+        expect(await ancestorLinks(driver)).to.deep.equal(written);
+        out.length = 0;
+        await verify();
+        expect(out).to.deep.equal(['org: ok', 'project: ok', 'doc: ok']);
+      });
     });
   }
 });
