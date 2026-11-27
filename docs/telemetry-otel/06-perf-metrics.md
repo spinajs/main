@@ -42,7 +42,9 @@ Only the name, the value and the `labels` of a measurement. Its `fields` (SQL te
 `requestId` and its `error` stay in the logs, and the per-request rollup (`onScopeEnd`, labelled by route) is not
 exported at all.
 
-`labels` are meant to be low-cardinality: a driver, a cache name, a domain, never an id. The sink bounds them anyway:
+`labels` are meant to be low-cardinality: a driver, a cache name, a domain, never an id. The sink bounds labels, it
+does not redact them: a label value is exported as given, cut at 128 characters. Never put request data, ids, keys or
+tokens in `labels`. The bounds:
 
 | Bound | Limit | Past it |
 | --- | --- | --- |
