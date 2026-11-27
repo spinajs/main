@@ -182,7 +182,7 @@ export const config = {
 - The default heartbeats (4 s both ways) suit ActiveMQ. RabbitMQ Web-STOMP does not support heartbeats over WebSocket; set `heartbeatIncoming` and `heartbeatOutgoing` to `0` there, or the broker drops the connection.
 - `@PerInstanceCheck()` matches instances by `name`. Two entries with the same `name` share one instance when built without the factory.
 - The shipped factory creates a new client on every resolve. `DI.get(StompQueueClient)` does not return it; get a connection with `QueueService.get(name)`.
-- A broker `ERROR` frame at boot rejects `resolve()` with the broker's message. When ActiveMQ refuses a `client-id` already in use, the error says to give each replica a unique `QUEUE_INSTANCE_ID` or `options.clientIdSuffix`.
+- A broker `ERROR` frame at boot rejects `resolve()` with the broker's message. When ActiveMQ refuses a `client-id` already in use, the error says to give each replica a unique `QUEUE_INSTANCE_ID` or `options.clientIdSuffix`. A websocket failure at boot rejects with the `ws` reason and code (`ECONNREFUSED`, `ECONNRESET`, or a connection timeout); the error's cause is an `Error` with that `name`, message and `code`, not the socket event. The cause of an `ERROR`-frame rejection is an `Error` with the broker's message and the frame's text in `body`.
 - An entry without `host`, an invalid `options.prefetch`, or a credential provider that throws or is not registered at boot, rejects `resolve()`. A `createWebSocket()` override that throws still runs inside the un-awaited `stompjs` connect loop: the error is an unhandled promise rejection and `resolve()` never settles.
 - `stompjs` frames log at `trace` with the `client-id` and connection name; `debug: true` lifts them to `debug` so they show under a typical logger config.
 
@@ -190,6 +190,7 @@ export const config = {
 
 - Give every connection an explicit `connectionTimeout` that fits your network, and run a broker health check before deploys: a broker that is down at boot stops the app.
 - Use `wss://` outside a trusted network: `login` and `passcode` travel in the `CONNECT` frame.
+- Put credentials in `login` / `password` (or a `credentialProvider`), not in the `host` URL: the log lines and errors print the broker URL without userinfo, query and fragment (`ws://broker:61614/stomp`, a path segment that may be a token as `***`, a value that does not parse as `<not a URL>`), and the `stompjs` frame lines print the `CONNECT` frame with `passcode:***`.
 - Await `(queue.get(name) as StompQueueClient).whenReady(timeout)` in readiness probes, not `Connected`, when you need to wait for a reconnect.
 - Put broker-specific `stompjs` settings (`splitLargeFrames`, `maxWebSocketChunkSize`, `stompVersions`) in `options`, not in a subclass.
 
