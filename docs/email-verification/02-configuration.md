@@ -28,7 +28,7 @@ Two rules of `@spinajs/configuration` apply here:
 | `emailVerification.lists.minKeepRatio` | `number` | `0.5` | `0` to `1` | A sync that returns fewer domains than this share of the stored count is refused |
 | `emailVerification.lists.sources` | `object[]` | one source, `disposable-email-domains` | Names must be unique | The lists to download |
 | `emailVerification.lists.sources[].name` | `string` | required | `^[a-z0-9][a-z0-9_.-]{0,62}$`, not `admin` | Source name; also the `list:<name>` result source |
-| `emailVerification.lists.sources[].url` | `string` | required | `https://` only | Where to download the list |
+| `emailVerification.lists.sources[].url` | `string` | required | `https://` only | Where to download the list. No user name or password in the URL: such a URL is refused, because `fetch` quotes it in its error. A source has no `headers` option; a token in the query string still works |
 | `emailVerification.lists.sources[].kind` | `string` | required | `'block'`, `'allow'`, `'block-mx'` | What the list means |
 | `emailVerification.lists.sources[].format` | `string` | `'lines'` | `'lines'`, `'json'` | One domain per line, or a JSON array of strings |
 
@@ -63,7 +63,7 @@ The default source is the `disposable_email_blocklist.conf` file of the `disposa
 | Key | Type | Default | Allowed values | Meaning |
 | --- | --- | --- | --- | --- |
 | `...providers[].name` | `string` | required | `^[a-z0-9][a-z0-9_.-]{0,62}$` | Provider name; the result source is `http:<name>` |
-| `...providers[].url` | `string` | required | `https://` and contains `{domain}` | URL template; `{domain}` becomes the percent-encoded domain |
+| `...providers[].url` | `string` | required | `https://` and contains `{domain}` | URL template; `{domain}` becomes the percent-encoded domain. No user name or password in the URL: such a URL is refused, because `fetch` quotes it in its error. Put an API key in `headers` |
 | `...providers[].headers` | `Record<string,string>` | `{}` | Names are HTTP field-name tokens (RFC 9110); values hold no control character (CR, LF, NUL, tab, DEL) | Request headers, for example an API key. Never logged |
 | `...providers[].resultPath` | `string` | required | Dot path into the JSON answer | Where the value to test sits |
 | `...providers[].refuseWhen` | `(boolean \| string \| number)[]` | `[true]` | At least one scalar | Values at `resultPath` that mean refuse |
@@ -114,5 +114,6 @@ export default {
 ## Important behaviour
 
 - Every outbound URL (list sources, RDAP, HTTP providers) is `https://` only. Redirects are not followed, and each response has a size cap.
+- A URL with a user name or password (`https://user:secret@host/...`) is never fetched: the request fails with `URLs with a user name or password are not fetched`, which quotes nothing of the URL. A list source with such a URL syncs as `failed` with that error.
 - `store` and `verifiers[].service` are **class names** (`DnsVerifier`), while results, cache keys and logs use the short verifier `name` (`dns`).
 - `RdapVerifier` and `HttpDomainVerifier` run only when listed in `verifiers`.
