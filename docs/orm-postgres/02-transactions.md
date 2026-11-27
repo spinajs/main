@@ -9,7 +9,7 @@
 3. **Run.** `OrmDriver` stores the context in `TransactionStorage` (an `AsyncLocalStorage`) and calls `cb(driver)`. `_executeOnDbOnce()` reads the store and sends every statement through `context.connection`, never through another pooled client.
 4. **Nest.** A `transaction()` call inside the callback does not open a second transaction. It calls `_savepoint(ctx, 'sp_<n>')`, which runs `SAVEPOINT "sp_<n>"`. On success it runs `RELEASE SAVEPOINT "sp_<n>"`; on a throw it runs `ROLLBACK TO SAVEPOINT "sp_<n>"` and re-throws.
 5. **Finish.** `_commit(ctx)` runs `COMMIT`. If the callback or the commit throws, `_rollback(ctx)` runs `ROLLBACK`; a rollback failure is swallowed so the original error surfaces.
-6. **Release.** `_dispose(ctx)` releases the client to the pool, in every case. `afterCommit()` callbacks then run.
+6. **Release.** `_dispose(ctx)` releases the client to the pool, or destroys it when `ROLLBACK` failed (the session may still be inside the transaction). `afterCommit()` callbacks then run.
 
 ```mermaid
 sequenceDiagram
@@ -44,7 +44,7 @@ sequenceDiagram
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
 | Transaction primitives | protected methods `_begin`, `_commit`, `_rollback`, `_savepoint`, `_releaseSavepoint`, `_rollbackToSavepoint`, `_dispose` of the driver | `PostgresOrmDriver` | | Override in a [driver subclass](06-extending-the-driver.md); call `super` to keep the client handling. |
-| `IPostgresTransactionContext` | exported interface: `ITransactionContext` plus `connection: pg.PoolClient` | | | Read `connection` in a subclass to send statements on the transaction's client. |
+| `IPostgresTransactionContext` | exported interface: `ITransactionContext` plus `connection: pg.PoolClient` and `rollbackFailed?: boolean`, set by `_rollback` when `ROLLBACK` failed | | | Read `connection` in a subclass to send statements on the transaction's client. |
 | `SupportedIsolationLevels` | public readonly field of the driver | all four levels | | Redeclare in a subclass to forbid a level. |
 
 ### Transaction primitives: custom implementation
@@ -67,8 +67,7 @@ export class BoundedTransactionsPostgresDriver extends PostgresOrmDriver {
       await ctx.connection.query(`SET LOCAL statement_timeout = '5s'`);
       await ctx.connection.query(`SET LOCAL lock_timeout = '2s'`);
     } catch (err) {
-      await ctx.connection.query('ROLLBACK').catch(() => undefined);
-      ctx.connection.release();
+      ctx.connection.release(true);
       throw err;
     }
 
