@@ -31,7 +31,7 @@
 1. `GET session:<sessionId>`. No key returns `null`.
 2. `toSession()` parses the JSON. A value that is not a JSON object **throws**.
 3. `Subject`, `Impersonator` and `State` come from their fields. A value without a readable `Subject` returns `null`. `Data` is decoded with `decodeSessionData()`; `Data` that does not decode **throws**.
-4. An expired session (`Expiration <= now`) is deleted with `delete()` and returns `null`.
+4. An expired session (`Expiration <= now`) is deleted with `delete()` and returns `null`. An `Expiration` that is present but [unreadable](#session-key) counts as passed.
 
 ### Touch, `touch(session)`
 
@@ -142,7 +142,7 @@ Every key is written under `authn.session.redis.keyPrefix`; ioredis adds the pre
 | `Impersonator` | `string`, optional | The impersonating principal key |
 | `State` | `'active' \| 'pending'` | Any other stored value reads as `'pending'` |
 | `Creation` | ISO 8601 string | Issue time |
-| `Expiration` | ISO 8601 string, optional | Absent: never expires. A value that does not parse counts as already passed |
+| `Expiration` | ISO 8601 string, optional | Only an absent field means never expires. Any other value that is not an ISO 8601 instant (an empty string, `null`, a number, `false`) counts as already passed |
 | `Data` | `string` | `encodeSessionData(session.Data)`: JSON that keeps `Map`, `Set` and luxon `DateTime` values |
 
 ## Services and extension points
