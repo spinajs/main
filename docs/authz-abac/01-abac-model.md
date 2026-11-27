@@ -24,7 +24,7 @@ The engine, the combination of votes and the decision are core concepts: see [`@
 ### A check
 
 1. `AuthzService.check` (or `can`, `assert`) runs the engine pipeline. The route plan of `(permission, type)` contains the model when `applies()` answered `true`: some policy can match that pair.
-2. `AbacModel.evaluate(req, ctx)`, while a reload is pending, reads every store itself and evaluates on what it read, so a request sees every policy change published before it arrived. It never waits for the reload `invalidate()` started.
+2. `AbacModel.evaluate(req, ctx)` waits for a pending reload first, so a request sees every policy change published before it arrived. A check inside an ORM transaction does not wait: it reads the stores itself, evaluates on what it read, and the model keeps nothing it read there.
 3. `PolicyIndex.candidates(permission, type)` returns the policies that name the permission and whose `resourceTypes` admit the type, in load order.
 4. `targets()` drops a policy that has expired (`expiresAt <= now`), whose `principalTypes` match neither the principal's type nor a companion's, or whose `actorTypes` miss the actor (the principal when the request has no actor).
 5. No policy left: the vote is `permitWhen: FALSE`, `denyWhen: FALSE`. The model has no opinion.
@@ -52,7 +52,7 @@ sequenceDiagram
   App->>E: check({ principal, permission, resource, subject? })
   E->>M: evaluate(req, ctx)
   opt a reload is pending
-    M->>M: read every PolicyStore for this check, build its index
+    M->>M: outside a transaction: wait for the reload of every PolicyStore; inside one: read them for this check only
   end
   M->>I: candidates(permission, resource.type)
   I-->>M: policies in load order
@@ -153,8 +153,8 @@ export function registerFilePolicies(policies: readonly Policy[]): void {
 - **Config-only models never reload.** A model whose stores are all `ConfigPolicyStore` ignores invalidations.
 - **While a reload is pending**, `applies()` answers `true` for every pair, so a new policy on a pair the model did not route yet applies at once. `version()` changes, so the host rebuilds the routes.
 - **One background load at a time.** Invalidations during a load start the next load when it lands.
-- **A check never waits for a load another caller started.** Until the background reload lands, each check (and `preload`, `listPlan`, `summarize`) reads the stores itself and evaluates on its own read. A load started elsewhere can be queued on an ORM transaction behind the savepoint of a nested `transaction()` the check runs in: waiting for it would hang a direct caller and deny through the engine at `modelTimeoutMs`. The model keeps a check's read as its current policies only when no invalidation came after the read started; otherwise the next check reads again.
-- **Cost.** A check of a current model reads no store. The checks that run between an invalidation and the landing of its reload read the stores once each (one `SELECT` on `authz_policy` each for `DbPolicyStore`), not once together. The first of them whose read lands makes the model current, so later checks read nothing.
+- **A check inside a transaction never waits for a load.** A load another caller started can be queued on that transaction behind the savepoint of a nested `transaction()` the check runs in, so the check reads the stores itself. Its read sees the transaction (rows it may roll back, the snapshot of a `REPEATABLE READ` transaction), so the model never keeps it. The same holds for `preload`, `listPlan` and `summarize`. Each store says whether a read now would run inside a transaction (`PolicyStore.inTransaction()`); a store without that member counts as inside.
+- **Cost.** A check of a current model reads no store. While a reload is pending, checks outside a transaction share it (one `SELECT` on `authz_policy` per invalidation for `DbPolicyStore`); each check inside a transaction reads once more.
 - **A failed read** fails the check that made it, never an empty policy set: the model is indeterminate for that check (`model_error`), as a read that outlasts `modelTimeoutMs` is. A failed background reload leaves routing on the last good index, so only this model's pairs are indeterminate. The model retries on its own after `retryMs`, doubling to 60 s; the timer does not keep the process alive.
 - **`version()`** is `<hash>#<generation>`, with `~` appended while a reload is pending. The hash covers the loaded policies, not the stores' own `version()`.
 - **Sync capability.** `capabilities.sync` is `'always'` only when every store is a `ConfigPolicyStore` and no policy has `when` or `scope`; otherwise `'never'`, and `filterNow` cannot use the model.

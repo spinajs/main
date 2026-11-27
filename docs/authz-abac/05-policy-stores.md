@@ -52,6 +52,7 @@ The `PolicyStore` contract:
 | `readonly name: string` | Store name; the default `source` of its policies, and the store named in errors. |
 | `load(): Promise<readonly Policy[]>` | Every policy, as plain objects. The model checks them; the store need not. |
 | `version(): Promise<string>` | A value that changes when the policies change. `AbacModel` does not read it; it hashes what it loaded. |
+| `inTransaction?(): boolean` | Optional. `true` when a `load()` made now would run inside an ORM transaction (its reads would see that transaction's rows or snapshot), `false` when it would not. While a reload is pending, a check whose stores all answer `false` waits for the one shared reload; otherwise it reads the stores itself and the model keeps nothing it read. A store without the member counts as inside: every check that finds the policies behind reads it once more until the background reload lands. `DbPolicyStore` answers from the ORM's current transaction; `ConfigPolicyStore` and `MemoryPolicyStore` answer `false`. |
 
 ### Policy store: custom implementation
 
@@ -80,6 +81,11 @@ export class JsonFilePolicyStore extends PolicyStore {
   async version(): Promise<string> {
     return String((await stat(this.path)).mtimeMs);
   }
+
+  // A file read never joins an ORM transaction, so checks may share the model's reload.
+  inTransaction(): boolean {
+    return false;
+  }
 }
 
 // Config: authz: { models: ['FilePoliciesModel'] }
@@ -97,7 +103,7 @@ export function reloadFilePolicies(): void {
 ## Important behaviour
 
 - **One failing store fails the load.** At boot that fails the domain; at a reload the model keeps routing on its last good policies and retries.
-- **Stores are read together.** `load()` runs on every store at once, so the slowest store sets the load time; while a reload is pending each check of the model reads them itself and waits for its own read.
+- **Stores are read together.** `load()` runs on every store at once, so the slowest store sets the load time, and requests of the model wait for it during a reload; inside a transaction a check reads them itself.
 - **Ids are global to the model.** Two stores with one policy id fail the index.
 - **A config-only model is static.** It ignores invalidations and can be `sync: 'always'`; adding any other store, even an empty `MemoryPolicyStore`, makes it `'never'`.
 - **`MemoryPolicyStore` does not check.** Its `put` stores what it gets; the model checks at the next load. Through `AuthzAdmin` the handler checks first.
@@ -133,7 +139,7 @@ export function freezeInvoices(store: MemoryPolicyStore, model: AbacModel): void
 }
 ```
 
-The next check of the model reads the stores itself (the reload runs in the background) and sees the deny.
+The next check of the model waits for the reload and sees the deny.
 
 ## Related
 
