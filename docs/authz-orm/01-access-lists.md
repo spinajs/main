@@ -119,10 +119,25 @@ restrict(query, (where) => {
 - **Long subject lists are one parameter.** An RBAC term names every subject key of the principal; PostgreSQL, SQLite and MSSQL bind a long `whereIn` list as one parameter ([`@spinajs/orm` query builder](../orm/05-query-builder.md#filtering)).
 - **The runtime guard names the app's line.** In `development`, `AccessGuardMiddleware` warns once per call site about a multi-row select without `.accessible()`, `.unscoped()` or `runAs(SYSTEM)`. The call site is the first stack frame outside `di`, `util`, `orm`, any `orm-<name>` package, `authz` and `authz-orm` (their `src` or `lib` folders). An app folder with one of those names followed by `src` or `lib` counts as internal too ([The runtime guard](07-runtime-guard.md)).
 - **A route's `@Unscoped(reason)` covers its selects.** authz-http stores the reason for the request; the guard lets every select of that request through. `.unscoped(reason)` on one builder is the per-query form.
-- **Relations are not filtered.** `populate()`, joins and sub-queries get no filter. Authorize the aggregate root; a child type that is its own resource calls `.accessible()` inside the populate callback, whose `this` is the relation's query (see the example below). Without `{ onNone: 'empty' }` there, a caller who may read the parent but no child gets `AccessDenied`, which fails the whole load.
+- **Relations are not filtered.** `populate()`, joins and sub-queries get no filter, and a mark on a sub-query is refused ([Sub-queries](#sub-queries)). Authorize the aggregate root; a child type that is its own resource calls `.accessible()` inside the populate callback, whose `this` is the relation's query (see the example below). Without `{ onNone: 'empty' }` there, a caller who may read the parent but no child gets `AccessDenied`, which fails the whole load.
 - **A belongsTo, many-to-many or recursive relation does not filter in a populate callback.** A belongsTo query is merged into the parent query, a many-to-many relation runs its junction query instead, and the recursive part of a `@Recursive` relation's query is built without the where, so its descendants would not be filtered. `.accessible()`, `.within()`, `.withAccess()` and `.withFields()` in such a callback throw `AuthzConfigError` naming the relation; on a hasMany relation they filter. A many-to-many list's own `populate(cb)` (`campaign.tags.populate(...)`) throws too, and names the junction model's belongsTo to the target, because the list loads through its junction model. In a join callback (`leftJoin(relation, on, queryCallback)`) the marks throw as well: the join query is merged into the parent. Filter the parent query instead, populate through a hasMany relation, or load the related rows with their own `.accessible()` query.
 - **A clone keeps the marks.** `SelectQueryBuilder.clone()` copies `.accessible()`, `.within()`, `.withAccess()` and `.unscoped()` to the copy.
 - **One permission per query.** A second `.accessible()` with another permission throws `AuthzConfigError`; the same permission again is a no-op.
+
+## Sub-queries
+
+Only a query that executes runs the access list. A select used inside another statement is compiled into that statement's SQL, so a mark on it would not be applied. A statement that embeds a query carrying `.accessible()`, `.within()`, `.withAccess()` or `.withFields()` is therefore refused with `AuthzConfigError` before any SQL is sent: `authz-orm: .accessible("task:read") on a sub-query of Task is not applied on this version: …`. The check covers selects (`first()`, counts, `resultExists()` and pages too), updates and deletes. It looks at every place a select can sit, depth first: `whereIn` / `whereNotIn` / `whereExist` / `whereNotExists` with a query, the relation forms of `whereExist`, nested groups, join callbacks, `selectCondition()` columns and to-one populate callbacks. `.unscoped()` on a sub-query is not refused, and an unmarked sub-query runs as before. A mark on the outer query filters as usual.
+
+```ts
+// Refused: AuthzConfigError, nothing reaches the database
+await Comment.query().whereIn('task_id', Task.query().select('id').accessible('task:read'));
+
+// Do: execute the marked query, pass its result as values
+const ids = (await Task.query().select('id').accessible('task:read')).map((t) => t.id);
+const comments = await Comment.query().whereIn('task_id', ids);
+```
+
+Not seen by the check: SQL text (`RawQuery`, raw joins), a sub-query attached inside a `Lazy` callback or by a query middleware ordered after 90, and a statement sent with `driver.execute(builder)`, which runs no query middleware.
 
 ## Best practices
 
