@@ -30,6 +30,8 @@ export interface IPostgresTransactionContext extends ITransactionContext {
   rollbackFailed?: boolean;
   /** The error of the failed ROLLBACK TO SAVEPOINT, the `inner` of the commit's refusal. */
   savepointRollbackFailure?: Error;
+  /** The error of a statement that got no answer from the server (pg's query_timeout): it may still run there, and a COMMIT would commit it. */
+  abandoned?: unknown;
 }
 
 /**
@@ -38,6 +40,16 @@ export interface IPostgresTransactionContext extends ITransactionContext {
  * going away ( admin shutdown, crash shutdown, cannot connect now ).
  */
 const PG_RETRYABLE_CODES = new Set(['08000', '08001', '08003', '08004', '08006', '08007', '57P01', '57P02', '57P03']);
+
+/**
+ * The server answered and the session lives on: pg's DatabaseError, or PGlite's own class (not a pg.DatabaseError at
+ * run time), which carries the server's severity and SQLSTATE code. A FATAL or PANIC answer ends the session.
+ */
+function answeredByServer(err: unknown): boolean {
+  const severity = err instanceof Error && 'severity' in err ? err.severity : undefined;
+  if (severity === 'FATAL' || severity === 'PANIC') return false;
+  return err instanceof pg.DatabaseError || (err instanceof Error && typeof severity === 'string' && 'code' in err && typeof err.code === 'string');
+}
 
 /**
  * Rewrites every `?` in a statement into `$1..$n` positional parameters, unbounded — it does
@@ -259,7 +271,12 @@ export class PostgresOrmDriver extends SqlDriver {
       if (txContext?.connection) {
         // A transaction owns its client for its whole lifetime — statements must never
         // land on another pooled connection.
-        result = await txContext.connection.query(finalQuery, params);
+        try {
+          result = await txContext.connection.query(finalQuery, params);
+        } catch (err) {
+          if (!answeredByServer(err)) txContext.abandoned ??= err;
+          throw err;
+        }
       } else {
         const client = await this.acquireClient();
 
@@ -707,6 +724,10 @@ export class PostgresOrmDriver extends SqlDriver {
       const failure = tx.savepointRollbackFailure;
       throw new OrmException(`transaction on connection ${this.Options.Name} was not committed: the ROLLBACK TO SAVEPOINT of a nested transaction failed (it may never have reached the server), so work the nested call reported as undone may still be in it; nothing of it was written; the failure: ${failure?.message ?? 'unknown'}`, undefined, undefined, undefined, failure);
     }
+    // The statement may still run on the server, and a COMMIT queued behind it would commit it.
+    if (tx.abandoned !== undefined) {
+      throw new OrmException(`transaction on connection ${this.Options.Name} was not committed: one of its statements got no answer from the server and may still be running there, so the transaction is rolled back instead; retry the whole transaction`, undefined, undefined, undefined, tx.abandoned);
+    }
     await tx.connection.query('COMMIT');
   }
 
@@ -744,7 +765,7 @@ export class PostgresOrmDriver extends SqlDriver {
 
   protected _dispose(ctx: ITransactionContext): Promise<void> {
     const tx = ctx as IPostgresTransactionContext;
-    tx.connection.release(tx.rollbackFailed === true);
+    tx.connection.release(tx.rollbackFailed === true || tx.abandoned !== undefined);
     return Promise.resolve();
   }
 }

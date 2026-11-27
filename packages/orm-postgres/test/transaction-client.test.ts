@@ -1,8 +1,9 @@
 import { DI } from '@spinajs/di';
-import { OrmException } from '@spinajs/orm';
+import { OrmException, QueryContext } from '@spinajs/orm';
 import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 import 'mocha';
+import pg from 'pg';
 import sinon from 'sinon';
 import { PostgresOrmDriver } from '../src/index.js';
 
@@ -190,5 +191,64 @@ describe('postgres transaction client (unit)', function () {
       expect(fake.statements).to.deep.equal(['BEGIN', 'COMMIT']);
       expect(fake.release.args).to.deep.equal([[true], [false]]);
     });
+  });
+
+  it('refuses the commit after a statement got no answer from the server, rolls back and destroys the client', async () => {
+    const timeout = new Error('Query read timeout');
+    const fake = fakeClient({ 'SELECT pg_sleep(2)': timeout });
+    usePool(fake.client);
+
+    const err = await driver
+      .transaction(async () => {
+        await driver.executeOnDb('SELECT pg_sleep(2)', [], QueryContext.Select).catch(() => undefined);
+        return 'the work';
+      })
+      .then(
+        () => undefined,
+        (e: unknown) => e,
+      );
+
+    expect(err).to.be.instanceOf(OrmException);
+    expect(err).to.have.property('inner', timeout);
+    expect(fake.statements).to.deep.equal(['BEGIN', 'SELECT pg_sleep(2)', 'ROLLBACK']);
+    expect(fake.release.args).to.deep.equal([[true]]);
+  });
+
+  it('commits after a statement error the server answered, from pg or from PGlite, that the callback caught', async () => {
+    const fake = fakeClient({
+      'SELECT 1 FROM nope': new pg.DatabaseError('relation "nope" does not exist', 0, 'error'),
+      // PGlite's DatabaseError is its own class, with the server's severity and SQLSTATE
+      'SELECT 2 FROM nope': Object.assign(new Error('relation "nope" does not exist'), { severity: 'ERROR', code: '42P01' }),
+    });
+    usePool(fake.client);
+
+    const result = await driver.transaction(async () => {
+      await driver.executeOnDb('SELECT 1 FROM nope', [], QueryContext.Select).catch(() => undefined);
+      await driver.executeOnDb('SELECT 2 FROM nope', [], QueryContext.Select).catch(() => undefined);
+      return 'the work';
+    });
+
+    expect(result).to.equal('the work');
+    expect(fake.statements).to.deep.equal(['BEGIN', 'SELECT 1 FROM nope', 'SELECT 2 FROM nope', 'COMMIT']);
+    expect(fake.release.args).to.deep.equal([[false]]);
+  });
+
+  it('refuses the commit after a FATAL server answer that ended the session, and destroys the client', async () => {
+    const fatal = Object.assign(new pg.DatabaseError('terminating connection due to administrator command', 0, 'error'), { severity: 'FATAL', code: '57P01' });
+    const fake = fakeClient({ 'SELECT pg_sleep(5)': fatal });
+    usePool(fake.client);
+
+    const err = await driver
+      .transaction(async () => {
+        await driver.executeOnDb('SELECT pg_sleep(5)', [], QueryContext.Select).catch(() => undefined);
+        return 'the work';
+      })
+      .then(
+        () => undefined,
+        (e: unknown) => e,
+      );
+
+    expect(err).to.be.instanceOf(OrmException).with.property('inner', fatal);
+    expect(fake.release.args).to.deep.equal([[true]]);
   });
 });

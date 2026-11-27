@@ -42,6 +42,7 @@ export const PGLITE_SKIPS: Readonly<Record<string, string>> = {
   'postgres integration - a transaction that fails to open': 'pglite-gap: the one session cannot be destroyed (the pool adapter ignores release(true)) and emits no pool events',
   'postgres integration - a transaction whose ROLLBACK fails': 'pglite-gap: the one session cannot be destroyed (the pool adapter ignores release(true)) and has no client-side query timeout',
   'postgres integration - a nested transaction whose ROLLBACK TO SAVEPOINT never reached the server commits nothing, although the outer body caught the nested rejection and went on': 'pglite-gap: no client-side query timeout, so a ROLLBACK TO SAVEPOINT cannot be left unsent',
+  'postgres integration - a plain transaction whose statement timed out on the client': 'pglite-gap: no client-side query timeout, and the one session cannot be destroyed (the pool adapter ignores release(true))',
 };
 
 export function pgliteSkip(title: string | undefined): string | undefined {
