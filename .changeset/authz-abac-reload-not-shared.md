@@ -1,0 +1,5 @@
+---
+"@spinajs/authz-abac": patch
+---
+
+`AbacModel` no longer hands a running policy reload to a second caller. With the ORM's savepoint queue, two checks of one request, one inside a nested `transaction()`, after an `invalidate()` or a failed reload over `DbPolicyStore`, waited for a reload whose `SELECT` was queued behind that check's savepoint: through `AuthzService.check()` both stalled until `modelTimeoutMs` (2 s by default) and denied with `model_error`, and a direct call of `evaluate` never settled. Now a check that finds the policies behind reads the stores itself and evaluates on its own read; the model keeps that read only when no invalidation came after it started. The background reload of `invalidate()` and the retry timer stay, but no check waits for them. Cost: the checks that overlap between an invalidation and the landing of its reload read `authz_policy` once each instead of once together; a check of a current model still reads nothing. A failed read still fails the check (`model_error`), never an empty policy set.

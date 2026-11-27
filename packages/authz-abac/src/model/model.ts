@@ -41,6 +41,23 @@ interface Entry {
   readonly needsSubject: boolean;
 }
 
+/** One read of the stores, parsed; nothing of the model changes until it is adopted. */
+class PolicySnapshot {
+  private built: PolicyIndex | undefined;
+
+  constructor(
+    readonly loaded: readonly LoadedPolicy[],
+    /** The store each loaded policy id came from (`validate`). */
+    readonly storeOf: ReadonlyMap<string, string>,
+    readonly versions: string,
+  ) {}
+
+  index(registry: PermissionRegistry): PolicyIndex {
+    this.built ??= new PolicyIndex(this.loaded, registry);
+    return this.built;
+  }
+}
+
 /**
  * ABAC (design §6.2): permit and deny policies from policy stores, targeted by permission glob,
  * resource type, principal type (the principal or a companion), actor type and scope, with core
@@ -58,13 +75,10 @@ export class AbacModel extends AuthorizationModel {
   private stores: readonly PolicyStore[] | undefined;
   private generation = 0;
   private registry: PermissionRegistry | undefined;
-  private loaded: readonly LoadedPolicy[] = [];
-  /** The store each loaded policy id came from (`validate`). */
-  private storeOf: ReadonlyMap<string, string> = new Map();
-  private versions = '';
-  private built: PolicyIndex | undefined;
+  private policies = new PolicySnapshot([], new Map(), '');
   /** The generation the loaded policies are current for; behind `generation` means a load is due. */
   private loadedGeneration = 0;
+  /** The background load of an invalidation or a retry; no check awaits it. */
   private reload: Promise<void> | undefined;
   /** The last load failed; routing falls back to the last good index until one succeeds. */
   private failed = false;
@@ -89,7 +103,7 @@ export class AbacModel extends AuthorizationModel {
    * compiling a condition is async, so a model with conditions or a DB store says 'never'.
    */
   get capabilities(): ModelCapabilities {
-    const sync = this.registry !== undefined && (this.stores ?? []).every((s) => s instanceof ConfigPolicyStore) && this.loaded.every((p) => !p.when && !p.policy.scope) ? 'always' : 'never';
+    const sync = this.registry !== undefined && (this.stores ?? []).every((s) => s instanceof ConfigPolicyStore) && this.policies.loaded.every((p) => !p.when && !p.policy.scope) ? 'always' : 'never';
     return { effects: ['permit', 'deny'], residuals: RESIDUALS, sync, fields: true, needsSubject: true };
   }
 
@@ -102,7 +116,7 @@ export class AbacModel extends AuthorizationModel {
     // DbPolicyStore is built with `new`, so it cannot inject the Orm that binds its records.
     if (this.stores.some((s) => s instanceof DbPolicyStore)) await ctx.container.resolve(Orm);
     // The registry is complete only after every model's init, so the index waits for the first applies().
-    await this.load(false);
+    this.policies = await this.read(false);
   }
 
   /**
@@ -112,16 +126,17 @@ export class AbacModel extends AuthorizationModel {
   toIR(ctx: IRCompileContext): IRFragment {
     const registry = this.registry ?? ctx.permissions;
     if (registry === undefined) throw new AuthzConfigError(`${this.name}: toIR needs the permission registry; call it after init`);
-    if (ctx.stored !== 'opaque') return abacToIR(this.loaded, registry, { model: this.name });
+    const { loaded, storeOf } = this.policies;
+    if (ctx.stored !== 'opaque') return abacToIR(loaded, registry, { model: this.name });
     const stored = new Set((this.stores ?? []).filter((s) => !(s instanceof ConfigPolicyStore)).map((s) => s.name));
-    const config = this.loaded.filter((p) => !stored.has(this.storeOf.get(p.policy.id) ?? ''));
+    const config = loaded.filter((p) => !stored.has(storeOf.get(p.policy.id) ?? ''));
     return abacToIR(config, registry, { model: this.name, storedStores: [...stored].sort() });
   }
 
   /**
    * Static routing; the first call builds the index, so an unregistered permission fails the boot
    * (B02). While a load is due every pair routes here, so a new policy on a pair this model did
-   * not route yet applies at once: `evaluate` waits for the load. After a failed load the last good
+   * not route yet applies at once: `evaluate` reads the stores. After a failed load the last good
    * index routes, so only this model's pairs are indeterminate while its store is down.
    */
   applies(permission: PermissionDef, type: ResourceType): boolean {
@@ -162,11 +177,11 @@ export class AbacModel extends AuthorizationModel {
    * the request (overview decision 8), so the plan is deny-all, all or abstain and never holds terms.
    */
   async listPlan(req: ListPlanRequest, ctx: EvaluationContext): Promise<ModelListPlan> {
-    await this.upTo(this.generation);
+    const index = this.index(await this.current());
     const permission = req.permission.name;
     const request: DecisionRequest = { principal: req.principal, ...(req.actor ? { actor: req.actor } : {}), permission, resource: { type: req.type }, env: req.env ?? { now: ctx.now } };
     const held: LoadedPolicy[] = [];
-    for (const p of this.index().candidates(permission, req.type)) {
+    for (const p of index.candidates(permission, req.type)) {
       if (!targets(p, request, ctx.now)) continue;
       const why = rowDependence(p);
       if (why !== undefined) throw new Error(notListFilterable(p, why, permission, req.type));
@@ -191,7 +206,7 @@ export class AbacModel extends AuthorizationModel {
    * each time, also when the load brought the same data.
    */
   version(): string {
-    return `${this.versions}#${this.generation}${this.due() ? '~' : ''}`;
+    return `${this.policies.versions}#${this.generation}${this.due() ? '~' : ''}`;
   }
 
   private due(): boolean {
@@ -200,8 +215,8 @@ export class AbacModel extends AuthorizationModel {
 
   /**
    * A change of policy data (`policy`, `policy:<id>`, `model:<name>`, or the host's catch-all `*`)
-   * starts a reload of the stores; requests wait for it. Config stores never change, so a model
-   * with nothing else ignores them.
+   * starts a reload of the stores in the background; until it lands each check reads the stores for
+   * itself. Config stores never change, so a model with nothing else ignores them.
    */
   invalidate(tags: readonly string[]): void {
     if (this.disposed || !this.registry || (this.stores ?? []).every((s) => s instanceof ConfigPolicyStore)) return;
@@ -212,19 +227,18 @@ export class AbacModel extends AuthorizationModel {
   }
 
   async preload(): Promise<void> {
-    await this.upTo(this.generation);
+    await this.current();
   }
 
   evaluate(req: DecisionRequest, ctx: EvaluationContext): Vote | Promise<Vote> {
-    // Current as of the request's arrival: later invalidations do not keep it waiting.
-    const target = this.generation;
-    if (this.loadedGeneration < target) return this.upTo(target).then(() => this.evaluateNow(req, ctx));
-    return this.evaluateNow(req, ctx);
+    const policies = this.current();
+    if (policies instanceof Promise) return policies.then((p) => this.evaluateNow(req, ctx, p));
+    return this.evaluateNow(req, ctx, policies);
   }
 
-  private evaluateNow(req: DecisionRequest, ctx: EvaluationContext): Vote | Promise<Vote> {
+  private evaluateNow(req: DecisionRequest, ctx: EvaluationContext, policies: PolicySnapshot): Vote | Promise<Vote> {
     const now = ctx.now;
-    const live = this.index()
+    const live = this.index(policies)
       .candidates(req.permission, req.resource.type)
       .filter((p) => targets(p, req, now));
     if (live.length === 0) return this.vote([], true);
@@ -321,8 +335,7 @@ export class AbacModel extends AuthorizationModel {
    * checks apply them.
    */
   async summarize(principal: Principal, at: ResourceRef, ctx: EvaluationContext): Promise<ModelSummary> {
-    await this.upTo(this.generation);
-    const index = this.index();
+    const index = this.index(await this.current());
     const atGlobal = (at.id === undefined || at.id === null) && at.type === GLOBAL.type;
     const ancestors = at.id !== undefined && at.id !== null ? (await ctx.ancestors(at)) ?? undefined : undefined;
     const out: { name: string; conditional: boolean; fields?: FieldSet }[] = [];
@@ -385,15 +398,16 @@ export class AbacModel extends AuthorizationModel {
   validate(policy: Omit<Policy, 'source'>, source = 'db'): void {
     if (!this.registry) throw new AuthzConfigError(`${this.name}: the model is used before init`);
     const p = loadPolicy({ ...policy, source }, 0, { source }, (c, where) => this.parser.parse(c, where));
-    const holder = this.storeOf.get(p.policy.id);
+    const holder = this.policies.storeOf.get(p.policy.id);
     if (holder !== undefined && holder !== source) throw new AuthzConfigError(`${p.where}: the id is already used by a policy from store ${JSON.stringify(holder)}`);
     new PolicyIndex([p], this.registry);
   }
 
   /** Boot refs for validateBoot (design §6.5 rules 7 and 10), fed through AbacContributor. */
   contribution(): AuthzContribution {
-    const permissionRefs = this.loaded.flatMap((p) => p.policy.permissions.filter((name) => !name.includes('*')).flatMap((permission) => (p.policy.resourceTypes ?? [undefined]).map((type) => ({ permission, ...(type === undefined ? {} : { type }), source: `${this.name} policy ${JSON.stringify(p.policy.id)}` }))));
-    const scopeRefs = this.loaded.flatMap((p) => {
+    const { loaded } = this.policies;
+    const permissionRefs = loaded.flatMap((p) => p.policy.permissions.filter((name) => !name.includes('*')).flatMap((permission) => (p.policy.resourceTypes ?? [undefined]).map((type) => ({ permission, ...(type === undefined ? {} : { type }), source: `${this.name} policy ${JSON.stringify(p.policy.id)}` }))));
+    const scopeRefs = loaded.flatMap((p) => {
       const types = new Set<string>(p.when?.facts.scopeTypes ?? []);
       if (p.policy.scope) types.add(p.policy.scope.type);
       return [...types].map((type) => ({ type, source: `${this.name} policy ${JSON.stringify(p.policy.id)}` }));
@@ -401,13 +415,35 @@ export class AbacModel extends AuthorizationModel {
     return { permissionRefs, scopeRefs };
   }
 
-  private index(): PolicyIndex {
+  private index(policies = this.policies): PolicyIndex {
     if (!this.registry) throw new AuthzConfigError(`${this.name}: the model is used before init`);
-    this.built ??= new PolicyIndex(this.loaded, this.registry);
-    return this.built;
+    return policies.index(this.registry);
   }
 
-  private async load(index: boolean): Promise<void> {
+  /**
+   * The loaded policies, or while a load is due a read of this caller's own: inside one transaction whose
+   * savepoints take turns, a load another caller started can be queued behind this caller's savepoint.
+   */
+  private current(): PolicySnapshot | Promise<PolicySnapshot> {
+    return this.loadedGeneration < this.generation ? this.readFor() : this.policies;
+  }
+
+  /** Kept only when no invalidation came since it started, so a later check never takes it for current. */
+  private async readFor(): Promise<PolicySnapshot> {
+    const generation = this.generation;
+    const snapshot = await this.read(true);
+    if (generation === this.generation && generation > this.loadedGeneration) this.adopt(snapshot, generation);
+    return snapshot;
+  }
+
+  private adopt(snapshot: PolicySnapshot, generation: number): void {
+    this.policies = snapshot;
+    this.loadedGeneration = generation;
+    this.failed = false;
+    this.retryDelay = this.retryMs;
+  }
+
+  private async read(index: boolean): Promise<PolicySnapshot> {
     const stores = this.stores ?? [];
     const lists = await Promise.all(stores.map(async (s) => ({ store: s, policies: await s.load() })));
     const loaded: LoadedPolicy[] = [];
@@ -420,42 +456,32 @@ export class AbacModel extends AuthorizationModel {
         storeOf.set(p.policy.id, store.name);
       }
     }
-    const built = index ? new PolicyIndex(loaded, this.registry!) : undefined;
-    this.loaded = loaded;
-    this.storeOf = storeOf;
-    this.built = built;
     // From what was loaded, not a second read of the stores, which a write in between could make disagree.
-    this.versions = createHash('sha256')
+    const versions = createHash('sha256')
       .update(JSON.stringify(loaded.map((p) => p.policy)))
       .digest('hex')
       .slice(0, 16);
-  }
-
-  /** Waits until the policies are current for `target`, starting loads as needed; rejects when a load fails. */
-  private async upTo(target: number): Promise<void> {
-    while (this.loadedGeneration < target) {
-      if (!this.reload) this.startLoad();
-      await this.reload;
-    }
+    const snapshot = new PolicySnapshot(loaded, storeOf, versions);
+    if (index) snapshot.index(this.registry!);
+    return snapshot;
   }
 
   /**
-   * One load at a time. It serves the generation current when it starts; if invalidations came
-   * meanwhile, the next one starts when it lands, so the data catches up without a request.
+   * One background load at a time. It serves the generation current when it starts; if invalidations
+   * came meanwhile, the next one starts when it lands, so the data catches up without a request.
    */
   private startLoad(): void {
     const generation = this.generation;
     if (this.retryTimer) clearTimeout(this.retryTimer);
     this.retryTimer = undefined;
-    const run = this.load(true).then(
-      () => {
-        this.loadedGeneration = Math.max(this.loadedGeneration, generation);
-        this.failed = false;
-        this.retryDelay = this.retryMs;
+    const run = this.read(true).then(
+      (snapshot) => {
+        // A check's own read may have landed a newer generation meanwhile.
+        if (generation > this.loadedGeneration) this.adopt(snapshot, generation);
       },
       (e: unknown) => {
         // A newer change came in meanwhile: the next load (for it) starts below, so this is no outage yet.
-        if (generation === this.generation) this.failed = true;
+        if (generation === this.generation && generation > this.loadedGeneration) this.failed = true;
         throw e;
       },
     );
