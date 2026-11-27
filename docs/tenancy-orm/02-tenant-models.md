@@ -25,6 +25,40 @@ share one table and a tenant column tells the rows apart.
 
 On a connection with tenant settings, step 4 also applies the [one scope per transaction](04-transactions.md) rule.
 
+## Sub-queries
+
+A select compiled into another statement runs no query middleware of its own, so the middleware takes each one the
+statement holds through steps 3 to 7 as if it were a statement, depth first, after the statement itself. It finds them
+in `whereIn(column, query)`, `whereNotIn`, `whereExist(query)`, `whereNotExists`, `whereExist('relation')` of every
+relation kind (for a many-to-many relation that is the junction select), nested groups, join callbacks,
+`selectCondition()` columns, the callback of a to-one `populate()`, and inside other sub-queries. It does this for
+selects (with `first()`, `selectCount()`, `resultExists()`, offset and keyset pages, `stream()`), updates and deletes.
+
+- Inside a tenant, a sub-query on a tenant model gets the tenant condition, grouped like a statement's: an `orWhere`
+  inside it cannot leave the tenant. The statement around it may be on a shared table.
+- With no tenant scope, a sub-query on a tenant model throws `TenantRequired`, also when the statement around it is on
+  a shared table.
+- A sub-query on a tenant table without the model (`driver.select().from('invoice')`) throws `NotSupported` inside a
+  tenant.
+- A sub-query on a shared table is left as it is.
+- `.acrossTenants(reason)` widens the builder it is called on: on a sub-query it widens that sub-query only, and on a
+  statement it does not widen the statement's sub-queries (see [Across tenants](03-across-tenants.md)).
+- A sub-query that also runs on its own, is used twice, or is cloned after it was confined gets the condition once: a
+  builder whose conditions already end in `AND <column> = '<tenant>'` for the current tenant is not confined again.
+- On a connection with tenant settings a sub-query counts as a statement of the transaction: one in another scope than
+  the statement around it throws `TenantSwitchDenied` inside a transaction.
+
+```ts
+await runInTenant('t1', async () => {
+  // SELECT * FROM carrier WHERE name IN ( SELECT code FROM invoice WHERE tenant_id = 't1' )
+  await Carrier.query().whereIn('name', Invoice.query().select('code'));
+  // only invoices of t1 that have a line of t1
+  await Invoice.query().whereExist('Lines');
+});
+
+await Carrier.query().whereIn('name', Invoice.query().select('code')); // throws TenantRequired: no tenant scope
+```
+
 ## Decorators
 
 | Decorator | Target | Options | Effect |
@@ -92,7 +126,7 @@ Introspection functions, for tooling and other packages:
 
 | Statement | Error |
 |---|---|
-| any statement on a tenant table with no tenant scope | `TenantRequired` |
+| with no tenant scope: any statement on a tenant table, or one that holds a [sub-query](#sub-queries) on a tenant model | `TenantRequired` |
 | a builder that does not go through the tenant model: no model (`driver.select().from('invoice')`, `truncate`), a model that is no tenant model on a tenant table, a tenant model on another table, a many-to-many populate that involves a tenant model; table names match in any letter case | `NotSupported` inside a tenant; allowed in the all-tenants scope |
 | in a select of a tenant model, `populate()` of any to-one relation, and a recursive query (`withRecursive()`, a `@Recursive` relation) | `NotSupported` inside a tenant: the ORM merges a to-one relation's conditions into the statement after the middleware ran, and builds the recursive part without them |
 | in a select of a model that is no tenant model, `populate()` of a to-one relation whose target is a tenant model, at any depth of to-one relations | `NotSupported` inside a tenant; load it with a query of its own |
@@ -111,14 +145,18 @@ middlewares, so a builder run that way is not confined either.
 
 It also does not look into:
 
-- a join you write yourself (`leftJoin(Model)`);
-- a sub-select (`whereExist(query)`, `whereIn(column, query)`, `whereExist('relation')`);
+- a join you write yourself (`leftJoin(Model)`), including the target table a many-to-many `whereExist('relation')`
+  joins to its junction select (the junction select itself is confined);
+- a sub-query attached inside a `Lazy` callback (`where(new Lazy(fn))`, a `Lazy` join callback): it exists only while
+  the SQL is built;
+- a sub-query that a query middleware ordered after 80 attaches to the statement;
 - the static `Model.populate(relation, owner)`, which reads through a join the framework builds.
 
 Put the tenant condition into those by hand. Such a statement reads the rows of every tenant, with or without a tenant
 scope, and nothing throws.
 
-Schema builders are not checked: a view over a tenant table, or a table clone with data, carries every tenant's rows.
+Schema builders are not checked: a view over a tenant table, a table clone with data, or an event action carries every
+tenant's rows, also through a select compiled into it.
 An update without a model (all-tenants scope only) is checked by the spelling of its keys, so a name that only the
 database's collation treats as the tenant column is not caught there.
 
