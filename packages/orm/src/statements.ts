@@ -35,7 +35,8 @@ export interface IQueryStatement {
   OnJoin?: boolean;
 
   // a condition the ORM added (createQuery's soft-delete and archive filters, a keyset page predicate, a belongsTo
-  // populate callback's group, the owner key of a lazy relation populate): compiled ANDed
+  // populate callback's group, the owner key of a lazy relation populate, the correlation predicate of a whereExist()
+  // sub-select): compiled ANDed
   // with the other statements as one group; withDeleted() / withArchived() remove only a marked filter on their column
   // ( SelectQueryBuilder.clone() and WhereBuilder.clone() copy it )
   Scope?: boolean;

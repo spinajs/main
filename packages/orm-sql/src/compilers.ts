@@ -3,7 +3,7 @@
 /* eslint-disable @typescript-eslint/no-empty-interface */
 /* eslint-disable prettier/prettier */
 import { InvalidOperation, InvalidArgument, MethodNotImplemented, NotSupported } from '@spinajs/exceptions';
-import { ORM_DB_VALUE_CONVERTERS, SessionSettingsQueryBuilder, SessionSettingsQueryCompiler, LimitBuilder, DropTableQueryBuilder, AlterColumnQueryBuilder, TableCloneQueryCompiler, ColumnStatement, OnDuplicateQueryBuilder, IJoinCompiler, DeleteQueryBuilder, IColumnsBuilder, IColumnsCompiler, ICompilerOutput, ILimitBuilder, LimitQueryCompiler, IGroupByCompiler, InsertQueryBuilder, IOrderByBuilder, IWhereBuilder, IWhereCompiler, OrderByBuilder, QueryBuilder, SelectQueryBuilder, UpdateQueryBuilder, SelectQueryCompiler, TableQueryCompiler, TableQueryBuilder, ColumnQueryBuilder, ColumnQueryCompiler, RawQuery, IQueryBuilder, OrderByQueryCompiler, OnDuplicateQueryCompiler, IJoinBuilder, IndexQueryCompiler, IndexQueryBuilder, IRecursiveCompiler, IWithRecursiveBuilder, ForeignKeyBuilder, ForeignKeyQueryCompiler, IGroupByBuilder, AlterTableQueryBuilder, CloneTableQueryBuilder, AlterTableQueryCompiler, ColumnAlterationType, AlterColumnQueryCompiler, TableAliasCompiler, DropTableCompiler, ValueConverter, DropEventQueryBuilder, EventQueryBuilder, EventQueryCompiler, DropEventQueryCompiler, LiteralQuoter, WhereStatement, IHavingCompiler, LazyQueryStatement, IQueryStatement, IQueryStatementResult, WhereBoolean, RawSchemaQueryCompiler, RawSchemaQueryBuilder, DropViewQueryBuilder, DropViewCompiler, IdentifierQuoter, CreateDatabaseCompiler, CreateDatabaseQueryBuilder, DropDatabaseCompiler, DropDatabaseQueryBuilder, SqlExpressions } from '@spinajs/orm';
+import { ORM_DB_VALUE_CONVERTERS, SessionSettingsQueryBuilder, SessionSettingsQueryCompiler, LimitBuilder, DropTableQueryBuilder, AlterColumnQueryBuilder, TableCloneQueryCompiler, ColumnStatement, OnDuplicateQueryBuilder, IJoinCompiler, DeleteQueryBuilder, IColumnsBuilder, IColumnsCompiler, ICompilerOutput, ILimitBuilder, LimitQueryCompiler, IGroupByCompiler, InsertQueryBuilder, IOrderByBuilder, IWhereBuilder, IWhereCompiler, OrderByBuilder, QueryBuilder, SelectQueryBuilder, UpdateQueryBuilder, SelectQueryCompiler, TableQueryCompiler, TableQueryBuilder, ColumnQueryBuilder, ColumnQueryCompiler, RawQuery, IQueryBuilder, OrderByQueryCompiler, OnDuplicateQueryCompiler, IJoinBuilder, IndexQueryCompiler, IndexQueryBuilder, IRecursiveCompiler, IWithRecursiveBuilder, ForeignKeyBuilder, ForeignKeyQueryCompiler, IGroupByBuilder, AlterTableQueryBuilder, CloneTableQueryBuilder, AlterTableQueryCompiler, ColumnAlterationType, AlterColumnQueryCompiler, TableAliasCompiler, DropTableCompiler, ValueConverter, DropEventQueryBuilder, EventQueryBuilder, EventQueryCompiler, DropEventQueryCompiler, LiteralQuoter, WhereStatement, IHavingCompiler, LazyQueryStatement, IQueryStatementResult, WhereBoolean, RawSchemaQueryCompiler, RawSchemaQueryBuilder, DropViewQueryBuilder, DropViewCompiler, IdentifierQuoter, CreateDatabaseCompiler, CreateDatabaseQueryBuilder, DropDatabaseCompiler, DropDatabaseQueryBuilder, SqlExpressions } from '@spinajs/orm';
 import { use } from 'typescript-mix';
 import { NewInstance, Inject, Container, IContainer, Autoinject } from '@spinajs/di';
 import _ from 'lodash';
@@ -272,11 +272,11 @@ export class SqlWhereCompiler implements IWhereCompiler {
     // sub-query registers its correlation predicate lazily). Building them now and
     // reusing the result guarantees the side effect runs exactly once, and lets the
     // non-lazy pass below pick up any statements the lazy build appended. The lazy
-    // results are then emitted after the non-lazy ones (preserving legacy ordering).
-    const lazyEntries = (builder.Statements.filter((x) => x instanceof LazyQueryStatement) as unknown as LazyQueryStatement[]).map((stmt) => ({
-      boolean: (stmt as unknown as IQueryStatement).Boolean,
-      result: stmt.build(),
-    }));
+    // results are then emitted after the non-lazy ones (preserving legacy ordering). A marked lazy entry (the
+    // correlation of a whereExist() sub-select) therefore lands after the group of the callback's conditions.
+    const lazyEntries = builder.Statements.filter((x): x is LazyQueryStatement => x instanceof LazyQueryStatement).map(
+      (stmt): IBuiltStatement => ({ boolean: stmt.Boolean, result: stmt.build(), scope: stmt.Scope }),
+    );
 
     const nonLazyEntries = (builder.Statements as WhereStatement[])
       .filter((x) => !x.IsAggregate)
@@ -297,7 +297,8 @@ interface IBuiltStatement {
 }
 
 /**
- * The ORM's own conditions (the soft-delete and archive scopes, a keyset page predicate) are ANDed with the other
+ * The ORM's own conditions (the soft-delete and archive scopes, a keyset page predicate, the correlation of a
+ * whereExist() sub-select) are ANDed with the other
  * statements as one group, so an OR among those cannot reach past them: `<scopes> AND ( a OR b ) AND <keyset>`. The
  * marked statements after the last other one stay after the group, the rest go first. A clause without a top-level OR
  * compiles as it always did.
