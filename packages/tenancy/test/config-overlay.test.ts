@@ -7,7 +7,7 @@ import { InvalidOperation } from '@spinajs/exceptions';
 import { createTestApp } from '@spinajs/testing';
 import type { TestApp } from '@spinajs/testing';
 import type { TenantRecord } from '../src/index.js';
-import { MemoryTenantRegistry, TenantConfigurationOverlay, TenantRegistry, TenantSettings, TenantSettingsUnavailable, TenantUnavailable, admitTenant, checkTenantSettings, forEachTenant, loadTenantSettings, runAcrossTenants, runInTenant, tenantRegistry } from '../src/index.js';
+import { MemoryTenantRegistry, TENANT_STATES, TenantConfigurationOverlay, TenantRegistry, TenantSettings, TenantSettingsUnavailable, TenantUnavailable, admitTenant, checkTenantSettings, forEachTenant, loadTenantSettings, runAcrossTenants, runInTenant, tenantRegistry } from '../src/index.js';
 
 chai.use(chaiAsPromised);
 const expect = chai.expect;
@@ -205,6 +205,39 @@ describe('tenant configuration overrides', () => {
       await expect(loadTenantSettings('nobody')).to.be.rejectedWith(TenantUnavailable);
     });
 
+    // plan h: seeders run while provisioning, exports while suspended, the data parts of a deletion while deleting
+    it('in every state but unknown loadTenantSettings loads what admission refuses, and an unknown tenant reads no registry', async () => {
+      const registry = await memory();
+      let calls = 0;
+      const get = registry.get.bind(registry);
+      registry.get = (id) => {
+        calls += 1;
+        return get(id);
+      };
+      const outcome = (run: Promise<unknown>) => run.catch((error: unknown) => (error instanceof TenantUnavailable ? error.reason : error instanceof TenantSettingsUnavailable ? 'unavailable' : error));
+      const read = (id: string) => outcome(runInTenant(id, async () => config.get('mail.from')));
+      const rows: unknown[][] = [];
+      for (const state of [...TENANT_STATES, 'unknown'] as const) {
+        const id = `lc-${state}`;
+        if (state !== 'unknown') registry.add({ id, state, settings: { mail: { from: `x@${state}.test` } } });
+        calls = 0;
+        const admission = await outcome(admitTenant(id).then(() => 'admitted'));
+        const before = await read(id);
+        const load = await outcome(loadTenantSettings(id).then(() => 'loaded'));
+        rows.push([state, admission, before, load, await read(id), await read(id), calls]);
+      }
+
+      expect(rows).to.deep.equal([
+        ['provisioning', 'inactive', 'unavailable', 'loaded', 'x@provisioning.test', 'x@provisioning.test', 2],
+        ['active', 'admitted', 'x@active.test', 'loaded', 'x@active.test', 'x@active.test', 2],
+        ['suspended', 'inactive', 'unavailable', 'loaded', 'x@suspended.test', 'x@suspended.test', 2],
+        ['deleting', 'inactive', 'unavailable', 'loaded', 'x@deleting.test', 'x@deleting.test', 2],
+        ['deleted', 'inactive', 'unavailable', 'loaded', 'x@deleted.test', 'x@deleted.test', 2],
+        ['unknown', 'unknown', 'unavailable', 'unknown', 'unavailable', 'unavailable', 2],
+      ]);
+      expect(warnings).to.deep.equal([]);
+    });
+
     it("drops a stored value the configuration schema refuses, with one warning, and keeps the tenant's other values", async () => {
       (await memory()).add({ id: 'broken', settings: { mail: { from: 'not an address' }, limits: { exports: 70 } } });
       await admitTenant('broken');
@@ -322,6 +355,43 @@ describe('tenant configuration overrides', () => {
     await readFor(50, () => Promise.resolve());
     await new Promise(setImmediate);
     expect([registry.calls, failures.length]).to.deep.equal([4, 3]);
+  });
+
+  it('refreshes a stale tenant in any state once per tenancy.registryCacheMs, and stops reading one the registry no longer knows after one warning', async () => {
+    class CountingRegistry extends MemoryTenantRegistry {
+      public calls = 0;
+      public readonly gone = new Set<string>();
+      public override get(id: string): Promise<TenantRecord | undefined> {
+        this.calls += 1;
+        return this.gone.has(id) ? Promise.resolve(undefined) : super.get(id);
+      }
+    }
+    const registry = new CountingRegistry();
+    let now = 0;
+    const failures: unknown[][] = [];
+    const settings = new TenantSettings(registry, () => 100, (tenant, error) => void failures.push([tenant, error instanceof TenantUnavailable ? error.reason : error]), () => now);
+    const ids = [...TENANT_STATES, 'vanished'];
+    for (const id of ids) {
+      registry.add({ id, state: TENANT_STATES.find((state) => state === id), settings: { plan: id } });
+      await settings.load(id);
+    }
+    registry.gone.add('vanished');
+    registry.calls = 0;
+    const readAll = async () => {
+      for (let i = 0; i < 20; i++) {
+        ids.forEach((id) => settings.settingsOf(id));
+        await new Promise(setImmediate);
+      }
+    };
+
+    now = 100;
+    await readAll();
+    expect([registry.calls, failures]).to.deep.equal([6, [['vanished', 'unknown']]]);
+    now = 200;
+    await readAll();
+    expect(registry.calls).to.equal(11);
+    expect(ids.map((id) => settings.settingsOf(id))).to.deep.equal([...TENANT_STATES.map((plan) => ({ plan })), undefined]);
+    expect(failures).to.have.length(1);
   });
 
   it('picks up a tenant changed by another process once the registry cache of tenancy.registryCacheMs lets it through', async () => {
