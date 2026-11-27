@@ -23,7 +23,19 @@ describe('access resource registrations of one class', () => {
     expect(errors.filter((d) => d.message.startsWith('Same '))).to.deep.equal([]);
   });
 
-  it('does not compare options behind a spread it cannot read or in a let, which may be reassigned', () => {
-    expect(errors.filter((d) => d.source?.line === 33 || d.source?.line === 34)).to.deep.equal([]);
+  it('does not compare options behind a spread it cannot read or that read a let, which may be reassigned', () => {
+    expect(errors.filter((d) => [33, 34, 48, 49].includes(d.source?.line ?? 0))).to.deep.equal([]);
+  });
+
+  it('notes each registration it does not compare', () => {
+    const skipped = ctx.diagnostics.filter((d) => d.code === 'CMP001' && d.message.endsWith('AUTHZ012 does not compare it'));
+    expect(skipped.map((d) => [d.severity, d.source?.line])).to.deep.equal([
+      ['info', 27],
+      ['info', 28],
+      ['info', 33],
+      ['info', 34],
+      ['info', 48],
+      ['info', 49],
+    ]);
   });
 });

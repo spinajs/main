@@ -9,7 +9,7 @@ import { owningPackage } from '../owning-package.js';
 import { baseClassOf, declaringPackage } from '../schema/framework-members.js';
 import { compareCodeUnits } from '../sort.js';
 import { modelDeclarationOf } from './models.js';
-import { isPlainJson, objectLiteralOf } from './object-literals.js';
+import { isPlainJson, objectLiteralOf, readsConstantsOnly } from './object-literals.js';
 
 type Resource = AuthzSection['resources'][number];
 type ResourceRelation = Resource['relations'][number];
@@ -65,11 +65,12 @@ const isOptions = (value: unknown): value is Record<string, unknown> => typeof v
 /**
  * The literal options of a registration, and whether the build read every part of them. Only those are compared: a
  * guessed key would be a false build error. They must lead to an object literal through constants only, as `@Access`
- * options do, and nothing in them may need a `CMP001` note (a spread, key or value the build cannot read).
+ * options do, read no `let` or `var` at any depth, and nothing in them may need a `CMP001` note (a spread, key or
+ * value the build cannot read).
  */
 function optionsOf(argument: ts.Expression | undefined, ctx: ExtractorContext): { options?: Record<string, unknown>; readable: boolean } {
   if (!argument) return { readable: true };
-  let unread = !objectLiteralOf(argument, ctx);
+  let unread = !objectLiteralOf(argument, ctx) || !readsConstantsOnly(argument, ctx);
   const value = literalValue(argument, {
     checker: ctx.checker,
     info: (code, message, node) => {
@@ -78,7 +79,9 @@ function optionsOf(argument: ts.Expression | undefined, ctx: ExtractorContext): 
     },
   });
   const options = isOptions(value) ? value : undefined;
-  return { ...(options ? { options } : {}), readable: !unread && !!options && isPlainJson(options) };
+  const readable = !unread && !!options && isPlainJson(options);
+  if (!readable) ctx.info('CMP001', `the options of this access resource registration cannot be read at build time (${argument.getText()}): AUTHZ012 does not compare it`, argument);
+  return { ...(options ? { options } : {}), readable };
 }
 
 function registrationCall(node: ts.Node, ctx: ExtractorContext): [ts.Symbol, Registration] | undefined {

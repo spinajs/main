@@ -43,3 +43,7 @@ export class Partial extends ModelBase<Partial> {
 
 registerAccessResource(Partial, 'partial', { rls: 'partial' });
 registerAccessResource(Partial, 'partial', { rls: true });
+let col = 'AuthorId';
+col = 'OwnerId';
+registerAccessResource(Other, 'other', { ...late });
+registerAccessResource(Other, 'other', { owner: col });
