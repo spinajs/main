@@ -4,8 +4,8 @@ import { PermanentJobFailure, QueueHeaders, QueueMessageHook, jobOptions } from 
 import type { IQueueMessage } from '@spinajs/queue';
 import type { TenantScope } from './contracts.js';
 import { TenantUnavailable } from './errors.js';
-import { allTenantsScope, establishTenantScope, isTenantId, tenantScope, tenantScopeOf } from './scope.js';
-import { admitTenant } from './services.js';
+import { admitTenant, allTenantsScope, isTenantId, tenantScope, tenantScopeOf } from './index.js'; // the entry registers the registries: a consumer may load nothing else
+import { establishTenantScope } from './scope.js';
 
 const ALL = '*:';
 
