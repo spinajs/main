@@ -57,11 +57,13 @@ export class TenantModel extends ModelBase<TenantModel> {
   }
 
   /**
-   * Moves the tenant from the state this row was read in to `to` and writes `suspension` in the same statement, so a
-   * state and its reason never part; false when another call moved the tenant first.
+   * Moves an active tenant to suspended, or a suspended one to active, and writes `suspension` in the same statement, so
+   * a state and its reason never part; false when the tenant is in any other state, also when another call moved it
+   * first. The source state is a condition of the statement, never the state this row was read in.
    */
   public async writeSuspension(to: 'active' | 'suspended', suspension: TenantSuspension | null): Promise<boolean> {
-    const result = await TenantModel.update({ state: to, suspension, updated_at: DateTime.utc() }).where('id', this.id).where('state', this.state);
+    const from: TenantState = to === 'suspended' ? 'active' : 'suspended';
+    const result = await TenantModel.update({ state: to, suspension, updated_at: DateTime.utc() }).where('id', this.id).where('state', from);
     if (result.RowsAffected !== 1) return false;
     this.state = to;
     this.suspension = suspension;

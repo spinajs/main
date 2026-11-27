@@ -173,6 +173,26 @@ describe('suspending and resuming a tenant', function () {
     expect((await requireRow('acme')).suspensionRecord()).to.deep.eq({ reason: 'unpaid', at: '2026-12-01T00:00:00.000Z' });
   });
 
+  const illegal = [
+    { to: 'suspended', from: ['provisioning', 'suspended', 'deleting', 'deleted'] },
+    { to: 'active', from: ['provisioning', 'active', 'deleting', 'deleted'] },
+  ] as const;
+  for (const { to, from } of illegal) {
+    for (const state of from) {
+      it(`refuses through the model to move a tenant from ${state} to ${to}, and leaves its row as it was`, async () => {
+        await seedTenant({ id: 'acme', state });
+        const row = await requireRow('acme');
+        const suspension = to === 'suspended' ? { reason: 'unpaid', at: '2026-12-01T00:00:00.000Z' } : null;
+
+        expect(await row.writeSuspension(to, suspension)).to.eq(false);
+        expect(row.state).to.eq(state);
+        const after = await requireRow('acme');
+        expect(after.state).to.eq(state);
+        expect(after.suspensionRecord()).to.eq(undefined);
+      });
+    }
+  }
+
   it('lets a request admitted before the suspension run to its end, and admits no new one', async () => {
     await seedTenant({ id: 'acme' });
     const inside = latch();
