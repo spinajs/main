@@ -49,9 +49,10 @@ async function rows(table: string): Promise<Array<{ Id: number; ExpiresAt: unkno
   return (await driver().executeOnDb(`SELECT Id, ExpiresAt FROM ${table} ORDER BY Id`, [], QueryContext.Select)) as Array<{ Id: number; ExpiresAt: unknown }>;
 }
 
-async function rejection(p: PromiseLike<unknown>): Promise<unknown> {
+/** Static `update(data)` converts its values when it is called, so a statement is passed as a function. */
+async function rejection(p: PromiseLike<unknown> | (() => PromiseLike<unknown>)): Promise<unknown> {
   try {
-    await p;
+    await (typeof p === 'function' ? p() : p);
   } catch (e) {
     return e;
   }
@@ -106,7 +107,7 @@ describe('sqlite @DateTime refuses a present value that is not a valid instant',
       });
 
       it('update() of a loaded model throws and keeps the stored instant', async () => {
-        const grant = (await Grant.where('Id', 1).first())!;
+        const grant = await Grant.where('Id', 1).first();
         grant.ExpiresAt = make() as DateTime;
 
         expect(await rejection(grant.update())).to.be.instanceOf(InvalidArgument);
@@ -114,8 +115,8 @@ describe('sqlite @DateTime refuses a present value that is not a valid instant',
       });
 
       it('query-builder update({ ExpiresAt }) throws and keeps the stored instant, also under unit milliseconds', async () => {
-        expect(await rejection(Grant.update({ ExpiresAt: make() as DateTime }).where('Id', 1))).to.be.instanceOf(InvalidArgument);
-        expect(await rejection(MillisGrant.update({ ExpiresAt: make() as DateTime }).where('Id', 1))).to.be.instanceOf(InvalidArgument);
+        expect(await rejection(() => Grant.update({ ExpiresAt: make() as DateTime }).where('Id', 1))).to.be.instanceOf(InvalidArgument);
+        expect(await rejection(() => MillisGrant.update({ ExpiresAt: make() as DateTime }).where('Id', 1))).to.be.instanceOf(InvalidArgument);
         expect(await rows('dt_invalid_grant')).to.deep.eq([{ Id: 1, ExpiresAt: LIVE }]);
         expect(await rows('dt_invalid_grant_ms')).to.deep.eq([{ Id: 1, ExpiresAt: Date.parse(LIVE) }]);
       });

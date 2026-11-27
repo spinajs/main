@@ -119,3 +119,31 @@ describe('datetime converters on a numeric column', () => {
     expect(c.toDB(at, undefined, column('integer'), { unit: 'milliseconds' }, {})).to.equal('2026-11-13T23:26:44.654Z');
   });
 });
+
+describe('an invalid instant (SqlDatetimeValueConverter for MySQL, IsoDatetimeValueConverter for MSSQL, SQLite and PostgreSQL)', () => {
+  const NOT_AN_INSTANT: Array<[string, () => unknown]> = [
+    ['DateTime.invalid', () => DateTime.invalid('test')],
+    ['Invalid Date', () => new Date(NaN)],
+    ['NaN', () => NaN],
+    ['Infinity', () => Infinity],
+    ['-Infinity', () => -Infinity],
+  ];
+  const expiresAt = (Type: string) => ({ Name: 'ExpiresAt', Type }) as IColumnDescriptor;
+
+  for (const c of [new SqlDatetimeValueConverter(), new IsoDatetimeValueConverter()]) {
+    for (const [label, make] of NOT_AN_INSTANT) {
+      it(`${c.constructor.name}: ${label} throws naming the column, for a text and a numeric column, a statement and toJSON()`, () => {
+        for (const column of [expiresAt('datetime'), expiresAt('bigint')]) {
+          expect(() => c.toDB(make(), undefined, column, { unit: 'milliseconds' }), column.Type).to.throw(InvalidArgument, /^column ExpiresAt: .* is not a valid instant$/);
+          expect(() => c.toDB(make(), undefined, column, { unit: 'seconds' }, {}), `${column.Type} dehydrated`).to.throw(InvalidArgument, /^column ExpiresAt: /);
+        }
+      });
+    }
+
+    it(`${c.constructor.name}: null, undefined and '' still write NULL`, () => {
+      for (const value of [null, undefined, '']) {
+        expect(c.toDB(value, undefined, expiresAt('datetime'), { unit: 'seconds' }), String(value)).to.eq(null);
+      }
+    });
+  }
+});

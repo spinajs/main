@@ -1,3 +1,4 @@
+import assert from 'node:assert';
 import { expect } from 'chai';
 import 'mocha';
 import '@spinajs/log';
@@ -6,8 +7,9 @@ import { DateTime } from 'luxon';
 import { DI } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
 import { InvalidArgument, InvalidOperation } from '@spinajs/exceptions';
-import { LiteralQuoter, Orm } from '@spinajs/orm';
+import { DatetimeValueConverter, LiteralQuoter, Orm } from '@spinajs/orm';
 
+import { SqlDatetimeValueConverter } from '../src/converters.js';
 import { inlineBindings, SqlLiteralQuoter } from '../src/literals.js';
 import { ConnectionConf, FakeSqliteDriver } from './fixture.js';
 
@@ -69,6 +71,15 @@ describe('literal quoting', () => {
 
   it('refuses an invalid date rather than writing the string "null"', () => {
     expect(() => quoter().quote(DateTime.fromSQL('garbage'))).to.throw(InvalidArgument);
+  });
+
+  it('refuses the invalid dates a bound parameter refuses', () => {
+    const converter = DI.get(Orm)!.Connections.get('sqlite')!.Container.resolve(DatetimeValueConverter);
+    assert(converter instanceof SqlDatetimeValueConverter);
+    for (const value of [DateTime.invalid('test'), new Date(NaN)]) {
+      expect(() => converter.toDB(value, undefined, undefined), `bound ${String(value)}`).to.throw(InvalidArgument, /^parameter: /);
+      expect(() => quoter().quote(value), `inlined ${String(value)}`).to.throw(InvalidArgument);
+    }
   });
 });
 
