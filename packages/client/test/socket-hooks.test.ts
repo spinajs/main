@@ -136,6 +136,18 @@ describe('socket hooks', () => {
     expect(typecheckFiles(more, { noUnusedLocals: true })).to.deep.equal([]);
   });
 
+  it('types the items of a stream the server redacts as Redacted<T>, by a class or a command rule, and type-checks', async () => {
+    const classLevel = structuredClone(manifest);
+    Object.assign(classLevel.socketControllers.find((c) => c.prefix === 'chat')!, { access: ['chat:read'], fields: 'filter' });
+    const commandLevel = structuredClone(manifest);
+    Object.assign(commandLevel.socketControllers.find((c) => c.prefix === 'chat')!.commands.find((c) => c.name === 'history')!, { access: ['chat:read'], fields: 'filter' });
+    for (const redacted of [classLevel, commandLevel]) {
+      const out = await socketFiles(redacted);
+      expect(typecheckFiles(out, { noUnusedLocals: true })).to.deep.equal([]);
+      expect(out['client.socket.ts']).to.include('payload: { since: string } | null): SocketStreamState<Redacted<ChatMessage>> {');
+    }
+  });
+
   it('writes only the hash check, and type-checks, when the manifest has no socket controllers', async () => {
     const none = await socketFiles({ ...manifest, socketControllers: [] });
     expect(none['client.socket.ts']).to.not.include('import { use');

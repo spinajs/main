@@ -20,14 +20,15 @@ function socketAccessOf(m: ts.HasDecorators, ctx: ExtractorContext): string[] | 
 }
 
 /** A `fields` the build cannot read counts as `'filter'`: the client must not type a result the server may redact as complete. */
-function socketFieldsOf(m: ts.MethodDeclaration, ctx: ExtractorContext): SocketCommandEntry['fields'] {
-  const options = findDecorator(m, 'SocketAccess')?.args[1];
+function socketFieldsOf(node: ts.MethodDeclaration | ts.ClassDeclaration, ctx: ExtractorContext): SocketCommandEntry['fields'] {
+  const options = findDecorator(node, 'SocketAccess')?.args[1];
   if (!options) return undefined;
-  // read once with notes, as before: fieldsOf reads quietly so that nothing is noted twice
-  literalValue(options, ctx);
+  // a handler's options were always read once with notes, a class's never; fieldsOf reads quietly so that nothing is noted twice
+  if (ts.isMethodDeclaration(node)) literalValue(options, ctx);
   const fields = fieldsOf(options, { checker: ctx.checker, info: () => undefined });
   if (fields.set && fields.value === undefined) {
-    ctx.info('CMP001', `the fields option of @SocketAccess cannot be read (${options.getText()}): recorded as filtering, the generated client types the result as Redacted<T>`, options);
+    const result = ts.isMethodDeclaration(node) ? 'the result' : 'the result of each command without its own @SocketAccess';
+    ctx.info('CMP001', `the fields option of @SocketAccess cannot be read (${options.getText()}): recorded as filtering, the generated client types ${result} as Redacted<T>`, options);
     return 'filter';
   }
   return fields.set && (fields.value === 'filter' || fields.value === 'filter-rows') ? fields.value : undefined;
@@ -180,12 +181,14 @@ function controllerOf(node: NamedClass, sc: DecoratorInfo | undefined, ctx: Extr
   const contract = sc && boundContractOf(sc, ctx);
   const diArgs = diArgsOf(node, ctx);
   const { access, policies } = guardsOf(node, 'class', ctx);
+  const fields = access ? socketFieldsOf(node, ctx) : undefined;
   return {
     id: `${ctx.packageName}:${node.name.text}`,
     className: node.name.text,
     prefix: (literalValue(sc?.args[0], ctx) as string | undefined) ?? '',
     ...(contract ? { contract } : {}),
     ...(access ? { access } : {}),
+    ...(fields ? { fields } : {}),
     ...(policies.length ? { policies } : {}),
     commands,
     events,

@@ -1,5 +1,5 @@
 import { configuredMountPath, controllerMountPath, routeFullPath, servedPath } from './route-path.js';
-import type { ControllerEntry, ParamEntry, PolicyRef, RouteEntry, SocketControllerEntry, SourceRef } from './types.js';
+import type { ControllerEntry, ParamEntry, PolicyRef, RouteEntry, SocketCommandEntry, SocketControllerEntry, SourceRef } from './types.js';
 import { IDEMPOTENCY_MIDDLEWARE, idempotencyOf } from './route-idempotency.js';
 
 const ACCESS_POLICY = 'AccessPolicy';
@@ -137,13 +137,24 @@ export function inheritController(ancestor: ControllerEntry, own: ControllerEntr
   };
 }
 
+/** A redeclared handler starts from a copy of the base's handler descriptor (http-socket `detachInheritedHandlers`), so it keeps that handler's guards. */
+function redeclared(mine: SocketCommandEntry, base: SocketControllerEntry): SocketCommandEntry {
+  const parent = mine.inheritedFrom === undefined ? base.commands.find((c) => c.handler === mine.handler) : undefined;
+  if (!parent) return mine;
+  const present = new Set(mine.policies.map((g) => JSON.stringify(g)));
+  const policies = [...parent.policies.filter((g) => (mine.access === undefined || !isSocketAccessGroup(g)) && !present.has(JSON.stringify(g))), ...mine.policies];
+  const access = mine.access ?? parent.access;
+  const fields = mine.access ? mine.fields : parent.fields;
+  return { ...mine, ...(access ? { access } : {}), ...(fields ? { fields } : {}), policies };
+}
+
 /** The runtime merge of `@spinajs/http-socket`, shared so the compiler records exactly what a boot resolves. */
 export function inheritSocketHandlers(entry: SocketControllerEntry, bases: readonly SocketControllerEntry[]): SocketControllerEntry {
-  const commands = [...entry.commands];
+  let commands = [...entry.commands];
   const events = [...entry.events];
   const diArgs = [...(entry.diArgs ?? [])];
   let contract = entry.contract;
-  let { access, policies = [] } = entry;
+  let { access, fields, policies = [] } = entry;
 
   for (const base of bases) {
     // A class's own @SocketAccess replaces the inherited one; other inherited class groups stay alternatives before its own.
@@ -151,11 +162,13 @@ export function inheritSocketHandlers(entry: SocketControllerEntry, bases: reado
     const present = new Set(policies.map((g) => JSON.stringify(g)));
     const inherited = (base.policies ?? []).filter((g) => (access === undefined || !isSocketAccessGroup(g)) && !present.has(JSON.stringify(g)));
     policies = [...inherited, ...policies];
+    if (access === undefined) fields ??= base.fields;
     access ??= base.access;
+    commands = commands.map((mine) => redeclared(mine, base));
     commands.push(...base.commands.filter((c) => !commands.some((own) => own.handler === c.handler)).map((c) => ({ ...c, inheritedFrom: c.inheritedFrom ?? base.id })));
     events.push(...base.events.filter((e) => !events.some((own) => own.name === e.name)).map((e) => ({ ...e, inheritedFrom: e.inheritedFrom ?? base.id })));
     diArgs.push(...(base.diArgs ?? []).filter((a) => !diArgs.some((own) => own.handler === a.handler)));
     contract ??= base.contract;
   }
-  return { ...entry, ...(access ? { access } : {}), ...(policies.length ? { policies } : {}), commands, events, ...(diArgs.length ? { diArgs } : {}), ...(contract ? { contract } : {}) };
+  return { ...entry, ...(access ? { access } : {}), ...(fields ? { fields } : {}), ...(policies.length ? { policies } : {}), commands, events, ...(diArgs.length ? { diArgs } : {}), ...(contract ? { contract } : {}) };
 }

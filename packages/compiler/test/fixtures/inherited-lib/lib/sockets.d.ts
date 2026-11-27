@@ -5,3 +5,6 @@ export declare abstract class FeedSocket<T> extends BaseSocketController {
     changed(item: T): void;
     renamed(item: T): void;
 }
+export declare abstract class GuardedFeedSocket<T> extends BaseSocketController {
+    peek(): Promise<T>;
+}
