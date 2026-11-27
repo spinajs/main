@@ -10,7 +10,9 @@ export function contractName(prefix: string, className: string): string {
 export function emitContract(controller: SocketControllerEntry, ctx: TypeContext): string {
   const commands = controller.commands.map((c) => {
     const type = ctx.typeOf(c.result);
-    const result = c.fields && type !== 'void' ? ctx.redacted(type) : type;
+    // http-socket applies the command's own @SocketAccess rule, else the controller's
+    const fields = c.access ? c.fields : controller.fields;
+    const result = fields && type !== 'void' ? ctx.redacted(type) : type;
     return `${propertyKey(c.name)}: [${ctx.typeOf(c.payload)}, ${c.stream ? `AsyncIterable<${result}>` : result}]`;
   });
   const events = controller.events.map((e) => `${propertyKey(e.name)}: ${ctx.typeOf(e.payload)}`);

@@ -123,5 +123,16 @@ describe('manifestToAsyncApi', () => {
     });
     expect((out.components.schemas.ChatMessage as { required?: unknown }).required).to.deep.equal(['id', 'text']);
   });
+
+  it("marks the reply of a command without its own @SocketAccess under a controller's fields, with the controller's permission", () => {
+    const m = structuredClone(manifest);
+    const chat = m.socketControllers.find((c) => c.prefix === 'chat')!;
+    Object.assign(chat, { access: ['chat:read'], fields: 'filter' });
+    const reply = (out: ReturnType<typeof manifestToAsyncApi>) => (out.components.messages['chat.history.reply'] as { payload: unknown }).payload;
+    expect(reply(manifestToAsyncApi(m, options))).to.deep.include({ properties: { id: { type: 'string', 'x-spina-fields': 'chat:read' }, text: { type: 'string', 'x-spina-fields': 'chat:read' } } });
+
+    Object.assign(chat.commands.find((c) => c.name === 'history')!, { access: ['chat:history'] });
+    expect(reply(manifestToAsyncApi(m, options))).to.deep.equal({ $ref: '#/components/schemas/ChatMessage' });
+  });
 });
 

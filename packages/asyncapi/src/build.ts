@@ -1,5 +1,5 @@
 import { publishedManifest } from '@spinajs/manifest';
-import type { Manifest, SocketCommandEntry, TypeRef } from '@spinajs/manifest';
+import type { Manifest, SocketCommandEntry, SocketControllerEntry, TypeRef } from '@spinajs/manifest';
 
 export interface AsyncApiOptions {
   title: string;
@@ -111,14 +111,17 @@ class Builder {
   }
 }
 
-function addCommand(b: Builder, prefix: string, command: SocketCommandEntry, errorType: TypeRef | undefined, channels: Record<string, Dict>, operations: Record<string, Dict>): void {
+function addCommand(b: Builder, controller: SocketControllerEntry, command: SocketCommandEntry, errorType: TypeRef | undefined, channels: Record<string, Dict>, operations: Record<string, Dict>): void {
+  const { prefix } = controller;
+  // http-socket applies the command's own @SocketAccess rule, else the controller's
+  const rule = command.access ? command : controller;
   const address = `socket/${prefix}/${command.name}`;
   const key = `${prefix}.${command.name}`;
   const chan = channelRef(address);
   const replies = ['reply'];
   const messages: Dict = {
     request: b.message(`${key}.request`, command.payload),
-    reply: b.message(`${key}.reply`, command.result, command.fields && command.access?.length ? command.access[0] : undefined),
+    reply: b.message(`${key}.reply`, command.result, rule.fields && rule.access?.length ? rule.access[0] : undefined),
   };
   if (errorType) {
     messages.error = b.message(`${key}.error`, errorType);
@@ -185,7 +188,7 @@ export function manifestToAsyncApi(fullManifest: Manifest, options: AsyncApiOpti
 
   for (const controller of [...manifest.socketControllers].sort((x, y) => x.prefix.localeCompare(y.prefix))) {
     for (const command of [...controller.commands].sort((x, y) => x.name.localeCompare(y.name))) {
-      addCommand(b, controller.prefix, command, errorType, channels, operations);
+      addCommand(b, controller, command, errorType, channels, operations);
     }
 
     for (const event of [...controller.events].sort((x, y) => x.name.localeCompare(y.name))) {

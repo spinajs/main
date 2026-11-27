@@ -112,6 +112,17 @@ describe('generateClient', () => {
     expect(output).to.not.include('Redacted');
   });
 
+  it("types a command without its own @SocketAccess under a controller's fields as Redacted<T>, one with its own rule without fields as T", async () => {
+    const m = structuredClone(manifest);
+    const chat = m.socketControllers.find((c) => c.prefix === 'chat')!;
+    Object.assign(chat, { access: ['chat:read'], fields: 'filter' });
+    Object.assign(chat.commands.find((c) => c.name === 'send')!, { access: ['chat:send'] });
+    const redacted = await generateClient({ manifest: m });
+    expect(redacted).to.include('history: [{ since: string }, AsyncIterable<Redacted<ChatMessage>>]');
+    expect(redacted).to.include('send: [{ text: string }, { id: string }]');
+    expect(typecheck(redacted)).to.deep.equal([]);
+  });
+
   it('Redacted<T> makes every property optional and possibly undefined, element-wise for lists', () => {
     const source = [
       "import type { Redacted } from '@spinajs/client/runtime';",
