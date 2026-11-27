@@ -20,6 +20,8 @@ const INTERRUPTED = mysqlError('Query execution was interrupted', 1317, 'ER_QUER
 const UPDATE = 'UPDATE `t` SET `v` = 1 WHERE `id` = 2';
 const INSERT = 'INSERT INTO `t` (`v`) VALUES (1)';
 const ON_TIMEOUT = 'SELECT @@innodb_rollback_on_timeout AS on_timeout';
+/** The statements of a transaction between the driver's own autocommit switches. */
+const session = (...statements: string[]) => ['SET autocommit = 0', ...statements, 'SET autocommit = 1'];
 
 /** A mysql2 PoolConnection stand-in: records statements and lifecycle events, fails the statements named in `failing`. */
 class FakeConnection {
@@ -103,7 +105,7 @@ describe('MySQL transaction the server rolled back (unit)', () => {
     expect((outcome as Error).message).to.include('was rolled back by MySQL');
     expect(outcome).to.have.nested.property('inner.errno', 1213);
     expect(ran).to.deep.equal([]);
-    expect(driver.connections[0].statements).to.deep.equal([UPDATE]);
+    expect(driver.connections[0].statements).to.deep.equal(session(UPDATE));
     expect(driver.connections[0].events).to.deep.equal(['begin', 'rollback', 'release']);
   });
 
@@ -125,7 +127,7 @@ describe('MySQL transaction the server rolled back (unit)', () => {
     expect(outcome).to.be.instanceOf(TransactionAborted);
     // a subclass, so an existing `catch` that tests for OrmException still sees it
     expect(outcome).to.be.instanceOf(OrmException);
-    expect(driver.connections[0].statements).to.deep.equal([UPDATE]);
+    expect(driver.connections[0].statements).to.deep.equal(session(UPDATE));
   });
 
   it('keeps the transaction after a caught duplicate key or interrupted statement: MySQL undoes that statement only', async () => {
@@ -146,7 +148,7 @@ describe('MySQL transaction the server rolled back (unit)', () => {
 
       expect(outcome).to.equal('the-value');
       expect(ran).to.deep.equal(['afterCommit']);
-      expect(driver.connections[0].statements).to.deep.equal([INSERT, UPDATE]);
+      expect(driver.connections[0].statements).to.deep.equal(session(INSERT, UPDATE));
       expect(driver.connections[0].events).to.deep.equal(['begin', 'commit', 'release']);
     }
   });
@@ -165,7 +167,7 @@ describe('MySQL transaction the server rolled back (unit)', () => {
         }),
       );
 
-      expect(driver.connections[0].statements).to.deep.equal([UPDATE, ON_TIMEOUT]);
+      expect(driver.connections[0].statements).to.deep.equal(session(UPDATE, ON_TIMEOUT));
       if (ends) {
         expect(outcome).to.be.instanceOf(TransactionAborted);
         expect(outcome).to.have.nested.property('inner.errno', 1205);
@@ -204,6 +206,6 @@ describe('MySQL transaction the server rolled back (unit)', () => {
     expect(nested).to.have.nested.property('inner.errno', 1213);
     expect(second).to.be.instanceOf(TransactionAborted);
     expect(outcome).to.be.instanceOf(TransactionAborted);
-    expect(driver.connections[0].statements).to.deep.equal(['SAVEPOINT `sp_1`', UPDATE]);
+    expect(driver.connections[0].statements).to.deep.equal(session('SAVEPOINT `sp_1`', UPDATE));
   });
 });
