@@ -116,6 +116,20 @@ describe('reads of many resources', function () {
         expect((await statements(d, () => removeNodes(d, tasks()))).count).to.equal(2);
         expect(await ancestorLinks(d)).to.deep.equal([]);
       });
+
+      it('reads which parents exist in one more statement per class table of a registered parent type', async () => {
+        const Project = await db.define({ name: 'Project', columns: {}, decorate: (c) => AccessResource('project')(c) }, dialect);
+        const ids = Array.from({ length: COUNT - 1 }, (_, i) => `p${i + 1}`);
+        await db.raw(`INSERT INTO "${db.table(Project)}" ("id") VALUES ${ids.map((_, i) => (dialect === 'postgres' ? `($${i + 1})` : '(?)')).join(', ')}`, ids, dialect);
+        const d = db.driver(dialect);
+        // the tasks' parents, which of the projects exist, the tasks' own rows and their projects' rows, the delete, the insert
+        expect((await statements(d, () => rebuildNodes(d, tasks()))).count).to.equal(6);
+
+        const links = await ancestorLinks(d);
+        expect(links).to.have.length(COUNT - 1);
+        expect(links).to.include('task:2499>project:p2499@1');
+        expect(links.filter((l) => l.startsWith('task:2500>'))).to.deep.equal([]);
+      });
     });
   }
 });

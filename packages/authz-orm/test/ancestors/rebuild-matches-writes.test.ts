@@ -99,8 +99,8 @@ describe('authz:ancestors-rebuild writes what the write observer wrote, for one 
         const driver = db.driver(dialect);
         const written = await ancestorLinks(driver);
         expect(written, 'the soft-deleted and the archived row keep their links').to.include.members(['document:d3>folder:f1@1', 'document:d4>folder:f2@1']);
-        expect(written).to.include.members(['document:d1>region:r1@1', 'document:d2>folder:f404@1', 'document:d5>project:p2@2', 'document:d5>org:o2@3', 'folder:f2>org:o2@3']);
-        expect(written.filter((l) => l.startsWith('org:') || l.startsWith('project:p3'))).to.deep.equal([]);
+        expect(written).to.include.members(['document:d1>region:r1@1', 'document:d5>project:p2@2', 'document:d5>org:o2@3', 'folder:f2>org:o2@3']);
+        expect(written.filter((l) => l.startsWith('org:') || l.startsWith('project:p3') || l.startsWith('document:d2'))).to.deep.equal([]);
 
         // A deleted row and an old parent, of declared types.
         await insertLinks(driver, ['project:p9>org:o1@1', 'folder:f1>project:p1@1']);
@@ -132,6 +132,67 @@ describe('authz:ancestors-rebuild writes what the write observer wrote, for one 
         out.length = 0;
         await verify();
         expect(out).to.deep.equal(['org: ok', 'project: ok', 'doc: ok']);
+      });
+
+      it('keeps the links to a parent whose class declares no @Parent, and to a soft-deleted parent', async () => {
+        const Org = (await db.define({ name: 'Org', columns: { deleted_at: 'TEXT' }, decorate: (c, p) => { AccessResource('org')(c); (SoftDelete() as PropertyDecorator)(p, 'deleted_at'); } }, dialect)) as M;
+        const Project = (await db.define(
+          {
+            name: 'Project',
+            columns: { org_id: 'TEXT', deleted_at: 'TEXT' },
+            decorate: (c, p) => {
+              AccessResource('project')(c);
+              Parent('org')(p, 'org_id');
+              (SoftDelete() as PropertyDecorator)(p, 'deleted_at');
+            },
+          },
+          dialect,
+        )) as M;
+        const Task = (await db.define({ name: 'Task', columns: { project_id: 'TEXT' }, decorate: (c, p) => { AccessResource('task')(c); Parent('project')(p, 'project_id'); } }, dialect)) as M;
+
+        await Org.insert([{ id: 'o1' }, { id: 'o2' }]);
+        await Org.destroy('o2');
+        await Project.insert([{ id: 'p1', org_id: 'o1' }, { id: 'p2', org_id: 'o1' }, { id: 'p3', org_id: 'o2' }]);
+        await Task.insert({ id: 't1', project_id: 'p1' });
+        await Project.destroy('p2');
+        await Task.insert({ id: 't2', project_id: 'p2' });
+
+        const driver = db.driver(dialect);
+        const written = await ancestorLinks(driver);
+        expect(written).to.deep.equal(['project:p1>org:o1@1', 'project:p2>org:o1@1', 'project:p3>org:o2@1', 'task:t1>org:o1@2', 'task:t1>project:p1@1', 'task:t2>org:o1@2', 'task:t2>project:p2@1']);
+
+        await rebuild();
+        expect(await ancestorLinks(driver)).to.deep.equal(written);
+        out.length = 0;
+        await verify();
+        expect(out).to.deep.equal(['org: ok', 'project: ok', 'task: ok']);
+      });
+
+      it('links no row to a parent id without a row, so a row created later with that id passes nothing to it', async () => {
+        const Org = (await db.define({ name: 'Org', columns: {}, decorate: (c) => AccessResource('org')(c) }, dialect)) as M;
+        const Project = (await db.define({ name: 'Project', columns: { org_id: 'TEXT' }, decorate: (c, p) => { AccessResource('project')(c); Parent('org')(p, 'org_id'); } }, dialect)) as M;
+        const Task = (await db.define({ name: 'Task', columns: { project_id: 'TEXT' }, decorate: (c, p) => { AccessResource('task')(c); Parent('project')(p, 'project_id'); } }, dialect)) as M;
+        const tasks = (links: readonly string[]): string[] => links.filter((l) => l.startsWith('task:'));
+
+        await Org.insert([{ id: 'o1' }, { id: 'o2' }]);
+        await Project.insert([{ id: 'p1', org_id: 'o1' }, { id: 'p2', org_id: 'o1' }, { id: 'p3', org_id: 'o1' }]);
+        await Task.insert([{ id: 't1', project_id: 'p1' }, { id: 't2', project_id: 'p2' }]);
+        await Project.destroy('p1');
+        // Untracked: project:p3 keeps its own links, which must not reach a child through the missing row.
+        await db.raw(`DELETE FROM ${TestDb.quote(db.table(Project), dialect)} WHERE ${TestDb.quote('id', dialect)} = 'p3'`, [], dialect);
+        await Task.update({ project_id: 'p1' }).where('id', 't2');
+        await Task.insert({ id: 't3', project_id: 'p3' });
+
+        const driver = db.driver(dialect);
+        const written = await ancestorLinks(driver);
+        expect(tasks(written)).to.deep.equal([]);
+        expect(written).to.include('project:p3>org:o1@1');
+
+        await rebuild();
+        expect(await ancestorLinks(driver)).to.deep.equal(written.filter((l) => l !== 'project:p3>org:o1@1'));
+
+        await Project.insert({ id: 'p1', org_id: 'o2' });
+        expect(tasks(await ancestorLinks(driver))).to.deep.equal([]);
       });
     });
   }
