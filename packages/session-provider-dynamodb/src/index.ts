@@ -191,8 +191,9 @@ export class DynamoDbSessionProvider extends SessionProvider {
   }
 
   /**
-   * One conditional UpdateItem of Expiration and Data: only an item that still
-   * exists, is live and is stored in the caller's State (SR-07).
+   * One conditional UpdateItem of Expiration and Data (Data only for a pending
+   * session): only an item that still exists, is live and is stored in the
+   * caller's State (SR-07).
    */
   public async touch(session: ISession): Promise<boolean> {
     const current = session.Expiration;
@@ -204,7 +205,10 @@ export class DynamoDbSessionProvider extends SessionProvider {
       ':data': { S: encodeSessionData(session.Data) },
     };
     let update = 'SET #data = :data REMOVE #exp';
-    if (session.Expiration !== undefined) {
+    if (session.State === 'pending') {
+      // A pending session keeps the expiration it was issued with, whatever the view carries (A09).
+      update = 'SET #data = :data';
+    } else if (session.Expiration !== undefined) {
       values[':exp'] = { N: toTtl(session.Expiration) };
       update = 'SET #exp = :exp, #data = :data';
     }

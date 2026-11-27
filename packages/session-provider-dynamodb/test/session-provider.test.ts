@@ -2,8 +2,9 @@ import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 import { UserSession as Session, decodeSessionData } from '@spinajs/authn-session';
 import type { ISession } from '@spinajs/authn-session';
-import { DateTime } from 'luxon';
+import { DateTime, Settings } from 'luxon';
 import { runSessionProviderConformance, IConformanceExpiration, SessionProviderFactory } from '../../authn-session/test/conformance/session-provider-conformance.js';
+import type { DynamoDbSessionProvider } from '../src/index.js';
 import { bootStore, disposeStore, fake, storedKeys } from './support.js';
 
 chai.use(chaiAsPromised);
@@ -24,6 +25,21 @@ const session = (over: Partial<ISession>) => new Session({ Subject: user('u-1'),
 
 const item = (id: string) => fake.items.get(id)!;
 const ids = (list: ISession[]) => list.map((s) => s.SessionId).sort();
+
+const TOUCH_CONDITION = 'attribute_exists(#id) AND #state = :state AND (attribute_not_exists(#exp) OR #exp > :now)';
+const TOUCH_NAMES = { '#id': 'SessionId', '#state': 'State', '#exp': 'Expiration', '#data': 'Data' };
+
+const lastUpdate = () => fake.sent.filter((s) => s.command === 'UpdateItemCommand').at(-1)!.input;
+
+async function restoreAt(store: DynamoDbSessionProvider, sessionId: string, at: DateTime): Promise<ISession | null> {
+  const now = Settings.now;
+  Settings.now = () => at.toMillis();
+  try {
+    return await store.restore(sessionId);
+  } finally {
+    Settings.now = now;
+  }
+}
 
 /** Runs `between` once, right before the first `command` of the store reaches the table. */
 function before(command: string, between: () => void): void {
@@ -159,6 +175,95 @@ describe('dynamodb session provider', function () {
 
       expect(await store.touch(view)).to.be.false;
       expect((await store.restore('t-race-state'))!.Expiration!.toMillis()).to.equal(fixed.toMillis());
+    });
+
+    it('SR-07 a pending touch without Expiration writes its Data and keeps the stored expiration (A09)', async () => {
+      const store = await makeProvider(SLIDING);
+      await store.truncate();
+
+      const fixed = DateTime.now().plus({ minutes: 5 });
+      await store.save(session({ SessionId: 't-pending-bare', State: 'pending', Expiration: fixed }));
+      const stored = item('t-pending-bare').Expiration;
+
+      const view = session({ SessionId: 't-pending-bare', State: 'pending', Expiration: undefined });
+      view.Data.set('Ip', '203.0.113.7');
+      expect(await store.touch(view)).to.be.false;
+
+      expect(item('t-pending-bare').Expiration, 'without its TTL attribute the pending session never expires').to.deep.equal(stored);
+      const after = (await store.restore('t-pending-bare'))!;
+      expect(after.Expiration!.toMillis()).to.equal(fixed.toMillis());
+      expect(after.Data.get('Ip')).to.equal('203.0.113.7');
+      expect(await restoreAt(store, 't-pending-bare', fixed.plus({ seconds: 1 }))).to.be.null;
+    });
+
+    it('SR-07 a pending touch with a later Expiration keeps the stored expiration (A09)', async () => {
+      const store = await makeProvider(SLIDING);
+      await store.truncate();
+
+      const fixed = DateTime.now().plus({ minutes: 5 });
+      await store.save(session({ SessionId: 't-pending-later', State: 'pending', Expiration: fixed }));
+      const stored = item('t-pending-later').Expiration;
+
+      expect(await store.touch(session({ SessionId: 't-pending-later', State: 'pending', Expiration: fixed.plus({ minutes: 2 }) }))).to.be.false;
+
+      expect(item('t-pending-later').Expiration).to.deep.equal(stored);
+      expect((await store.restore('t-pending-later'))!.Expiration!.toMillis()).to.equal(fixed.toMillis());
+      expect(await restoreAt(store, 't-pending-later', fixed.plus({ seconds: 1 }))).to.be.null;
+    });
+
+    it('the UpdateItem sent for a pending touch has no #exp in its update and no :exp value', async () => {
+      const store = await makeProvider(SLIDING);
+      await store.truncate();
+
+      const fixed = DateTime.now().plus({ minutes: 5 });
+      await store.save(session({ SessionId: 't-pending-request', State: 'pending', Expiration: fixed }));
+
+      for (const Expiration of [undefined, fixed.plus({ minutes: 2 })]) {
+        fake.sent.length = 0;
+        expect(await store.touch(session({ SessionId: 't-pending-request', State: 'pending', Expiration }))).to.be.false;
+
+        const update = lastUpdate();
+        expect(update.UpdateExpression).to.equal('SET #data = :data');
+        expect(update.ConditionExpression).to.equal(TOUCH_CONDITION);
+        expect(update.ExpressionAttributeNames).to.deep.equal(TOUCH_NAMES);
+        expect(update.ExpressionAttributeValues).to.have.all.keys(':state', ':now', ':data');
+        expect(update.ExpressionAttributeValues).to.deep.include({ ':state': { S: 'pending' } });
+      }
+    });
+
+    it('an active touch that a never-expiring strategy renews still removes the stored expiration', async () => {
+      const store = await makeProvider(ABSOLUTE);
+      await store.truncate();
+
+      await store.save(session({ SessionId: 't-active-forever', Expiration: DateTime.now().plus({ minutes: 5 }) }));
+      fake.sent.length = 0;
+
+      expect(await store.touch(session({ SessionId: 't-active-forever', Expiration: undefined }))).to.be.false;
+
+      expect(item('t-active-forever')).to.not.have.property('Expiration');
+      const update = lastUpdate();
+      expect(update.UpdateExpression).to.equal('SET #data = :data REMOVE #exp');
+      expect(update.ExpressionAttributeNames).to.deep.equal(TOUCH_NAMES);
+      expect(update.ExpressionAttributeValues).to.have.all.keys(':state', ':now', ':data');
+    });
+
+    it('an active touch with a later Expiration still writes it', async () => {
+      const store = await makeProvider(ABSOLUTE);
+      await store.truncate();
+
+      const fixed = DateTime.now().plus({ minutes: 5 });
+      await store.save(session({ SessionId: 't-active-later', Expiration: fixed }));
+      fake.sent.length = 0;
+
+      const later = fixed.plus({ minutes: 2 });
+      await store.touch(session({ SessionId: 't-active-later', Expiration: later }));
+
+      expect(item('t-active-later').Expiration).to.deep.equal({ N: `${later.toMillis() / 1000}` });
+      const update = lastUpdate();
+      expect(update.UpdateExpression).to.equal('SET #exp = :exp, #data = :data');
+      expect(update.ConditionExpression).to.equal(TOUCH_CONDITION);
+      expect(update.ExpressionAttributeNames).to.deep.equal(TOUCH_NAMES);
+      expect(update.ExpressionAttributeValues).to.have.all.keys(':state', ':now', ':data', ':exp');
     });
   });
 
