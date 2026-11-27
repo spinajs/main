@@ -5,9 +5,26 @@ import { IInstanceCheck, Injectable, PerInstanceCheck } from "@spinajs/di";
 import { Log, ILogEntry, LogTarget, ICommonTargetOptions, Logger, BatchQueue } from "@spinajs/log";
 
 
-import axios, { AxiosError, AxiosInstance } from "axios";
+import axios, { AxiosError, AxiosInstance, isAxiosError } from "axios";
 import _ from "lodash";
 import { BackoffType, ResiliencePipeline, ResiliencePipelineBuilder, TimeSpan } from "@spinajs/util";
+
+import { loggableEndpoint, loggableReason } from "./loggable-endpoint.js";
+
+class LokiPushError extends Error {
+  declare code?: string;
+  declare status?: number;
+}
+
+// The axios error itself is never logged or kept: its `config` and `request` carry the host and the Authorization header.
+function pushFailure(err: unknown, host: string): LokiPushError {
+  const failure = new LokiPushError(loggableReason(err instanceof Error ? err.message : String(err), host ?? ""));
+  failure.name = err instanceof Error ? err.name : "Error";
+  if (err instanceof Error && "code" in err && typeof err.code === "string") failure.code = err.code;
+  const status = isAxiosError(err) ? err.response?.status : undefined;
+  if (status !== undefined) failure.status = status;
+  return failure;
+}
 
 /**
  * HTTP status codes worth retrying against Loki: rate limiting and transient
@@ -282,18 +299,19 @@ export class GraphanaLokiLogTarget extends LogTarget<IGraphanaOptions> implement
       // drained successfully - allow the next overflow episode to warn again
       this.Overflowed = false;
 
-      this.Log.trace({ host: this.Options.host, messages: batch.length }, "Wrote buffered messages to graphana target at url ${host}, ${messages} messages.");
+      this.Log.trace({ host: loggableEndpoint(this.Options.host), messages: batch.length }, "Wrote buffered messages to graphana target at url ${host}, ${messages} messages.");
     } catch (err) {
       // reached only after retries are exhausted ( transient ) or immediately
       // for a non-retryable error.
+      const failure = pushFailure(err, this.Options.host);
       this.HasError = true;
-      this.Error = err as Error;
+      this.Error = failure;
 
       if (isRetryableLokiError(err)) {
         // retryable but exhausted: put the batch back at the front so the next
         // flush retries it. The queue enforces the maxQueue cap ( dropping the
         // oldest + onOverflow ) so the retry buffer never grows without bound.
-        this.Log.error({ error: err }, `Cannot write log messages to graphana target - retries exhausted, retaining entries for next flush.`);
+        this.Log.error({ error: failure }, `Cannot write log messages to graphana target - retries exhausted, retaining entries for next flush.`);
         this.Queue.requeueFront(batch);
         return;
       }
@@ -306,7 +324,7 @@ export class GraphanaLokiLogTarget extends LogTarget<IGraphanaOptions> implement
         this.OnDropped?.(entry);
       }
 
-      this.Log.error({ error: err, entries: batch.length }, "Cannot write log messages to graphana target - dropping ${entries} entries because the error is non-retryable.");
+      this.Log.error({ error: failure, entries: batch.length }, "Cannot write log messages to graphana target - dropping ${entries} entries because the error is non-retryable.");
     }
   }
 }

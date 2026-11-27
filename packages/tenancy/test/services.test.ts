@@ -2,6 +2,7 @@ import 'mocha';
 import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 import { requestScope } from '@spinajs/authz';
+import { InvalidConfiguration } from '@spinajs/configuration';
 import { InvalidArgument } from '@spinajs/exceptions';
 import { SYSTEM, UNATTENDED } from '@spinajs/principal';
 import type { Principal } from '@spinajs/principal';
@@ -517,6 +518,40 @@ describe('tenancy services', () => {
 
     it('refuses a concurrency that is not a positive integer', async () => {
       await expect(forEachTenant(async () => undefined, { concurrency: 0 })).to.be.rejectedWith(InvalidArgument);
+    });
+  });
+
+  describe('tenancy.registryCacheMs', () => {
+    async function refused(registryCacheMs: unknown): Promise<void> {
+      const booted = tenancyApp({ registryCacheMs });
+      await booted.then((accepted) => accepted.dispose(), () => undefined);
+      await expect(booted).to.be.rejectedWith(InvalidConfiguration, 'registryCacheMs');
+    }
+
+    async function cacheMsOf(registryCacheMs: unknown): Promise<unknown> {
+      app = await tenancyApp({ registryCacheMs });
+      const value = app.config.get<unknown>('tenancy.registryCacheMs');
+      await app.dispose();
+      return value;
+    }
+
+    it('refuses a registry cache lifetime above one minute', async () => {
+      await refused(60_001);
+      await refused(Number.MAX_SAFE_INTEGER);
+      await refused('60001');
+      expect(await cacheMsOf(60_000)).to.eq(60_000);
+    });
+
+    it('accepts 0, which turns the cache off, and refuses a negative or non-numeric lifetime', async () => {
+      expect(await cacheMsOf(0)).to.eq(0);
+      await refused(-1);
+      await refused('soon');
+    });
+
+    // Ajv's coerceTypes runs before minimum: null and false load as 0, the cache-off side.
+    it('loads null and false as 0', async () => {
+      expect(await cacheMsOf(null)).to.eq(0);
+      expect(await cacheMsOf(false)).to.eq(0);
     });
   });
 });

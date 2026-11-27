@@ -390,8 +390,8 @@ export interface IDriverOptions {
   Encoding?: string;
 
   /**
-   * Session time zone of the connection's datetimes: `SYSTEM` ( default ) keeps the server's zone and expects the
-   * node process to run in the same one, `UTC` or an offset such as `+02:00` is set on every session. Read by
+   * Session time zone of the connection's datetimes: `UTC` ( default ) or an offset such as `+02:00` is set on
+   * every session, `SYSTEM` keeps the server's zone and expects the node process to run in the same one. Read by
    * `@spinajs/orm-mysql`.
    */
   TimeZone?: string;
@@ -1390,6 +1390,9 @@ export interface IWhereBuilder<T> {
   whereColumn<C extends ColumnRef<Unbox<T>>, R extends ColumnRef<Unbox<T>>>(left: LiteralColumn<Unbox<T>, C> | Wrap, operator: Op, right: LiteralColumn<Unbox<T>, R> | Wrap | OuterColumn | ConcatExpression): this;
   whereStartsWith(column: DeclaredColumn<Unbox<T>>, prefix: string): this;
   whereStartsWith<C extends ColumnRef<Unbox<T>>>(column: LiteralColumn<Unbox<T>, C>, prefix: string): this;
+  /** `column = value` byte for byte on every dialect, trailing spaces included; an index on `column` is still sought. */
+  whereExactly(column: DeclaredColumn<Unbox<T>>, value: string): this;
+  whereExactly<C extends ColumnRef<Unbox<T>>>(column: LiteralColumn<Unbox<T>, C>, value: string): this;
 
   // join-scoped conditions - land in relation JOIN ON clause instead of parent WHERE
   whereOnJoin(callback: WhereFunction<T>): this;
