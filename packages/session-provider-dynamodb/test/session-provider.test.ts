@@ -119,6 +119,16 @@ describe('dynamodb session provider', function () {
       });
     }
 
+    it('a Subject with an empty id is unreadable like any other, not the principal user:""', async () => {
+      const store = await makeProvider(SLIDING);
+      await store.truncate();
+      await store.save(session({ SessionId: 'r-subject-empty-id', Subject: user('u-42') }));
+      item('r-subject-empty-id').Subject = { S: 'user:' };
+
+      expect(await store.restore('r-subject-empty-id')).to.equal(null);
+      expect(await store.listBySubject(user(''))).to.deep.equal([]);
+    });
+
     it('an ExternalKey that is the empty string is a key like any other', async () => {
       const store = await makeProvider(SLIDING);
       await store.truncate();
@@ -132,7 +142,7 @@ describe('dynamodb session provider', function () {
       const store = await makeProvider(SLIDING);
       await store.truncate();
       const log = DI.resolve(Log, ['dynamo-session-store']);
-      const original = log.warn;
+      expect(Object.hasOwn(log, 'warn'), 'warn comes from the prototype, so deleting the stub restores it').to.equal(false);
 
       for (const attribute of ['ImpersonatorId', 'ExternalKey']) {
         const id = `r-warn-${attribute}-bearer-key`;
@@ -144,7 +154,7 @@ describe('dynamodb session provider', function () {
         try {
           expect(await store.restore(id)).to.equal(null);
         } finally {
-          log.warn = original;
+          Reflect.deleteProperty(log, 'warn');
         }
 
         expect(lines, attribute).to.have.length(1);
