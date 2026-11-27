@@ -237,6 +237,7 @@ describe('authz-rbac pinned shapes', () => {
           forSubjects(subjects: readonly AssignmentSubject[], at: Date): Promise<readonly Assignment[]>;
           holders(role: string, scope: ResourceRef, at: Date): Promise<readonly AssignmentSubject[]>;
           byId(id: string): Promise<Assignment | null>;
+          inTransaction?(): boolean;
           assign?(a: Omit<Assignment, 'id' | 'source'>, actor: PrincipalRef, tx: AuthzTx): Promise<Assignment>;
           revoke?(id: string, actor: PrincipalRef, tx: AuthzTx): Promise<void>;
         }

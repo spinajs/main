@@ -59,6 +59,15 @@ class ScriptedStore extends AssignmentStore {
   }
 }
 
+/** A ScriptedStore that tells the cache whether its reads run inside a transaction. */
+class AnsweringStore extends ScriptedStore {
+  inside = false;
+
+  inTransaction(): boolean {
+    return this.inside;
+  }
+}
+
 const isThenable = (v: unknown): boolean => typeof (v as { then?: unknown } | null)?.then === 'function';
 
 const ids = (rows: Rows) => rows.map((a) => a.id);
@@ -72,8 +81,9 @@ const now = (v: Rows | Promise<Rows>): Rows => {
   return v as Rows;
 };
 
-const setup = (rows: Assignment[] = [], opts: { ttlMs?: number; maxEntries?: number } = {}) => {
-  const store = new ScriptedStore(rows);
+const setup = (rows: Assignment[] = [], opts: { ttlMs?: number; maxEntries?: number } = {}) => setupWith(new ScriptedStore(rows), opts);
+
+const setupWith = <S extends ScriptedStore>(store: S, opts: { ttlMs?: number; maxEntries?: number } = {}) => {
   const clock = new ManualClock(NOW);
   const cache = new AssignmentCache(store, { ttlMs: opts.ttlMs ?? TTL, maxEntries: opts.maxEntries ?? 100, clock, model: 'rbac' });
   return { store, clock, cache };
@@ -389,6 +399,137 @@ describe('authz-rbac model: AssignmentCache', () => {
       expect(err).to.be.instanceOf(Error);
       store.extra = [];
       expect(await cache.read([alice], request())).to.deep.equal([]);
+    });
+  });
+
+  describe('sharing a load by the answer of inTransaction()', () => {
+    const CONCURRENT = 10;
+
+    /** Starts `CONCURRENT` reads of alice, each in a request of its own, and answers them once all reached the cache; returns the store reads they made. */
+    const concurrentReads = async (store: ScriptedStore, cache: AssignmentCache): Promise<number> => {
+      const before = store.calls.length;
+      store.manual = true;
+      const reads = Array.from({ length: CONCURRENT }, () => cache.read([alice], request()));
+      await settle();
+      const made = store.calls.length - before;
+      store.manual = false;
+      for (const call of store.calls.slice(before)) call.resolve();
+      for (const rows of await Promise.all(reads)) expect(ids(rows)).to.deep.equal(['a1']);
+      return made;
+    };
+
+    it('outside a transaction, concurrent first reads of a subject share one store read, cold and at TTL expiry', async () => {
+      const { store, clock, cache } = setupWith(new AnsweringStore([row('a1', alice)]));
+      const cold = await concurrentReads(store, cache);
+      const warm = await concurrentReads(store, cache);
+      clock.advance(TTL);
+      const expired = await concurrentReads(store, cache);
+      expect({ cold, warm, expired }).to.deep.equal({ cold: 1, warm: 0, expired: 1 });
+    });
+
+    it('inside a transaction, each read loads for itself and keeps nothing across requests', async () => {
+      const { store, cache } = setupWith(new AnsweringStore([row('a1', alice)]));
+      store.inside = true;
+      const inside = await concurrentReads(store, cache);
+      store.inside = false;
+      const after = await concurrentReads(store, cache);
+      expect({ inside, after }).to.deep.equal({ inside: CONCURRENT, after: 1 });
+    });
+
+    it('a reader inside a transaction does not join a load started outside, and a reader outside does not join a load started inside', async () => {
+      const { store, cache } = setupWith(new AnsweringStore([row('a1', alice)]));
+      store.manual = true;
+      const outside = cache.read([alice], request());
+      store.inside = true;
+      const inside = cache.read([alice], request());
+      store.inside = false;
+      const outsideAfterInside = cache.read([alice], request());
+      await settle();
+      expect(store.calls).to.have.length(2);
+      store.inside = true;
+      const insideFirst = cache.read([bob], request());
+      store.inside = false;
+      const outsideJoiner = cache.read([bob], request());
+      await settle();
+      expect(store.calls.map((c) => c.keys)).to.deep.equal([['user:alice'], ['user:alice'], ['user:bob'], ['user:bob']]);
+      for (const call of store.calls) call.resolve();
+      for (const p of [outside, inside, outsideAfterInside]) expect(ids(await p)).to.deep.equal(['a1']);
+      for (const p of [insideFirst, outsideJoiner]) expect(await p).to.deep.equal([]);
+    });
+
+    it('a load started before an invalidate is not joined by a read after it, and is not kept', async () => {
+      const { store, cache } = setupWith(new AnsweringStore([row('a1', alice)]));
+      store.manual = true;
+      const stale = cache.read([alice], request());
+      await settle();
+      cache.invalidate(['subject:user:alice']);
+      store.rows.push(row('a2', alice, 'writer'));
+      const fresh = cache.read([alice], request());
+      await settle();
+      expect(store.calls).to.have.length(2);
+      store.calls[0].resolve([row('a1', alice)]);
+      expect(ids(await stale)).to.deep.equal(['a1']);
+      const joiner = cache.read([alice], request());
+      await settle();
+      expect(store.calls, 'a read after the stale load settled joins the fresh one').to.have.length(2);
+      store.calls[1].resolve();
+      for (const p of [fresh, joiner]) expect(ids(await p)).to.deep.equal(['a1', 'a2']);
+      expect(ids(now(cache.read([alice], request())))).to.deep.equal(['a1', 'a2']);
+    });
+
+    it('a reader whose now lies before a running load does not join it; a later one does', async () => {
+      const later = new Date(NOW.getTime() + 10 * SECOND);
+      const { store, cache } = setupWith(new AnsweringStore([row('a1', alice)]));
+      store.manual = true;
+      const first = cache.read([alice], request(later));
+      const earlier = cache.read([alice], request(NOW));
+      const laterStill = cache.read([alice], request(new Date(later.getTime() + SECOND)));
+      await settle();
+      expect(store.calls.map((c) => c.at.getTime())).to.deep.equal([later.getTime(), NOW.getTime()]);
+      for (const call of store.calls) call.resolve();
+      for (const p of [first, earlier, laterStill]) expect(ids(await p)).to.deep.equal(['a1']);
+    });
+
+    it('a failed shared load rejects the readers that joined it, keeps nothing, and the next read goes to the store', async () => {
+      const { store, cache } = setupWith(new AnsweringStore([row('a1', alice)]));
+      store.manual = true;
+      const reads = [cache.read([alice], request()), cache.read([alice], request())];
+      await settle();
+      expect(store.calls).to.have.length(1);
+      store.calls[0].reject(new Error('db down'));
+      for (const p of reads) {
+        const err = await Promise.resolve(p).then(
+          () => undefined,
+          (e: Error) => e,
+        );
+        expect(err?.message).to.equal('db down');
+      }
+      store.manual = false;
+      expect(ids(await cache.read([alice], request()))).to.deep.equal(['a1']);
+      expect(store.calls).to.have.length(2);
+    });
+
+    it('a store whose inTransaction() throws rejects the read', async () => {
+      const store = new AnsweringStore([row('a1', alice)]);
+      store.inTransaction = () => {
+        throw new Error('no connection');
+      };
+      const { cache } = setupWith(store);
+      const err = await Promise.resolve(cache.read([alice], request())).then(
+        () => undefined,
+        (e: Error) => e,
+      );
+      expect(err?.message).to.equal('no connection');
+      expect(store.calls).to.have.length(0);
+    });
+
+    it('a store without inTransaction() shares no load and keeps its rows across requests as before (store reads per phase)', async () => {
+      const { store, clock, cache } = setup([row('a1', alice)]);
+      const cold = await concurrentReads(store, cache);
+      const warm = await concurrentReads(store, cache);
+      clock.advance(TTL);
+      const expired = await concurrentReads(store, cache);
+      expect({ cold, warm, expired }).to.deep.equal({ cold: CONCURRENT, warm: 0, expired: CONCURRENT });
     });
   });
 

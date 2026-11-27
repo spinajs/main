@@ -41,6 +41,15 @@ class Snapshot {
   ) {}
 }
 
+/** A store read in flight that readers outside a transaction may join. */
+class Running {
+  constructor(
+    readonly rows: Promise<Rows>,
+    readonly at: number,
+    readonly generation: number,
+  ) {}
+}
+
 const MEMO_PREFIX = '\u0000rbac:assignments:';
 /** Tags whose changes cannot reach assignment rows. */
 const IGNORED_PREFIXES = ['policy:', 'rule:'];
@@ -54,17 +63,22 @@ const SET_PREFIX = '%set:';
  *   at or after it, and `collect` re-checks expiry against ctx.now; a request before `at` reads anew.
  * - Every invalidate moves the generation. A load that started in an older generation answers its
  *   own caller but stores nothing; a ctx.cache snapshot of an older generation is not reused.
- * - Only settled rows are kept, at either level; a read that finds no settled rows loads for itself.
- *   A load still in flight is never shared: inside a transaction, a caller in a savepoint that
+ * - Only settled rows are kept, at either level. A read that finds no settled rows joins a load in
+ *   flight only when the store answered inTransaction() === false for that load and for the reader,
+ *   the load's `at` is not after the reader's and no invalidate came since it started; otherwise it
+ *   loads for itself. Inside a transaction a load is never shared: a caller in a savepoint that
  *   awaited a load another caller issued on the enclosing level would wait for a statement queued
- *   behind its own savepoint. So concurrent first reads of a subject each go to the store.
- * - A failed load is never stored: its caller gets the rejection, the next read goes to the store.
+ *   behind its own savepoint. A store that cannot answer shares nothing.
+ * - A load the store says ran inside a transaction fills only its request: the transaction may roll back.
+ * - A failed load is never stored: its caller and the readers that joined it get the rejection, the
+ *   next read goes to the store.
  */
 export class AssignmentCache {
   private generation = 0;
   private loads = 0;
   private reads = 0;
   private readonly entries = new Map<string, Entry>();
+  private readonly running = new Map<string, Running>();
 
   constructor(private readonly store: AssignmentStore, private readonly opts: AssignmentCacheOptions) {}
 
@@ -118,47 +132,86 @@ export class AssignmentCache {
   }
 
   private load(subjects: ReadonlyMap<string, AssignmentSubject>, at: Date, fresh = false): Rows | Promise<Rows> {
+    let inside: boolean | undefined;
+    try {
+      inside = this.store.inTransaction?.();
+    } catch (err) {
+      return rejected(err);
+    }
     const now = at.getTime();
     const clock = this.opts.clock.now().getTime();
-    const parts = new Map<string, Rows>();
+    const parts = new Map<string, Rows | Promise<Rows>>();
     const missing: string[] = [];
     for (const key of subjects.keys()) {
-      if (fresh) {
-        missing.push(key);
-        continue;
-      }
-      const entry = this.entries.get(key);
-      // An entry from the future (the clock went back) would outlive its TTL.
-      if (entry !== undefined && (clock >= entry.until || clock < entry.until - this.opts.ttlMs)) this.entries.delete(key);
-      else if (entry !== undefined && entry.at <= now) {
-        this.entries.delete(key);
-        this.entries.set(key, entry);
-        parts.set(key, entry.rows);
-        continue;
-      }
-      missing.push(key);
+      const part = fresh ? undefined : (this.cached(key, now, clock) ?? (inside === false ? this.joinable(key, now) : undefined));
+      if (part === undefined) missing.push(key);
+      else parts.set(key, part);
     }
     Perf.count(missing.length > 0 ? 'authz.rbac.assignments.miss' : 'authz.rbac.assignments.hit');
-    const ordered = (fetched: ReadonlyMap<string, Rows>) => Object.freeze([...subjects.keys()].flatMap((key) => parts.get(key) ?? fetched.get(key)!));
-    if (missing.length === 0) return ordered(new Map());
-    return this.fetch(missing, subjects, at).then(ordered);
+    if (missing.length > 0) for (const [key, rows] of this.fetch(missing, subjects, at, inside)) parts.set(key, rows);
+    const ordered = [...subjects.keys()].map((key) => parts.get(key)!);
+    const settled = ordered.filter((part): part is Rows => !(part instanceof Promise));
+    if (settled.length === ordered.length) return Object.freeze(settled.flat());
+    return Promise.all(ordered).then((all) => Object.freeze(all.flat()));
   }
 
-  /** One store read for `keys`; its rows are stored only if no invalidate came since it started. */
-  private async fetch(keys: readonly string[], subjects: ReadonlyMap<string, AssignmentSubject>, at: Date): Promise<Map<string, Rows>> {
+  /** The entry's rows when it is live on the clock and loaded at or before `now`; marks it recently used. */
+  private cached(key: string, now: number, clock: number): Rows | undefined {
+    const entry = this.entries.get(key);
+    if (entry === undefined) return undefined;
+    // An entry from the future (the clock went back) would outlive its TTL.
+    if (clock >= entry.until || clock < entry.until - this.opts.ttlMs) {
+      this.entries.delete(key);
+      return undefined;
+    }
+    if (entry.at > now) return undefined;
+    this.entries.delete(key);
+    this.entries.set(key, entry);
+    return entry.rows;
+  }
+
+  /** The rows of a load outside a transaction still running for `key`, started in this generation at or before `now`. */
+  private joinable(key: string, now: number): Promise<Rows> | undefined {
+    const run = this.running.get(key);
+    return run !== undefined && run.generation === this.generation && run.at <= now ? run.rows : undefined;
+  }
+
+  /**
+   * One store read for `keys`, a promise per key. Its rows are stored only if no invalidate came since
+   * it started and the store did not say it ran inside a transaction; a read outside one can be joined.
+   */
+  private fetch(keys: readonly string[], subjects: ReadonlyMap<string, AssignmentSubject>, at: Date, inside: boolean | undefined): Map<string, Promise<Rows>> {
     const generation = this.generation;
     const started = ++this.loads;
     const until = this.opts.clock.now().getTime() + this.opts.ttlMs;
-    const rows = await this.store.forSubjects(
-      keys.map((k) => subjects.get(k)!),
-      at,
-    );
-    const buckets = new Map<string, Assignment[]>(keys.map((k) => [k, []]));
-    // A row of a subject not asked for is dropped; a row whose subject cannot be read fails the load.
-    for (const row of rows.map(frozenData)) buckets.get(subjectKey(row.subject))?.push(row);
-    const out = new Map<string, Rows>([...buckets].map(([k, list]) => [k, Object.freeze(list)]));
-    if (this.generation === generation) for (const [key, list] of out) this.keep(key, { rows: list, started, at: at.getTime(), until });
-    return out;
+    const batch = (async () => {
+      const rows = await this.store.forSubjects(
+        keys.map((k) => subjects.get(k)!),
+        at,
+      );
+      const buckets = new Map<string, Assignment[]>(keys.map((k) => [k, []]));
+      // A row of a subject not asked for is dropped; a row whose subject cannot be read fails the load.
+      for (const row of rows.map(frozenData)) buckets.get(subjectKey(row.subject))?.push(row);
+      const out = new Map<string, Rows>([...buckets].map(([k, list]) => [k, Object.freeze(list)]));
+      if (this.generation === generation && inside !== true) for (const [key, list] of out) this.keep(key, { rows: list, started, at: at.getTime(), until });
+      return out;
+    })();
+    const mine = new Map(keys.map((key) => [key, batch.then((out) => out.get(key)!)]));
+    if (inside === false) {
+      for (const [key, rows] of mine) {
+        const run = new Running(rows, at.getTime(), generation);
+        this.running.set(key, run);
+        void rows.then(
+          () => this.finished(key, run),
+          () => this.finished(key, run),
+        );
+      }
+    }
+    return mine;
+  }
+
+  private finished(key: string, run: Running): void {
+    if (this.running.get(key) === run) this.running.delete(key);
   }
 
   private keep(key: string, entry: Entry): void {
@@ -176,6 +229,11 @@ export class AssignmentCache {
   private clear(): void {
     this.entries.clear();
   }
+}
+
+/** `err` as a rejection, whatever was thrown: `read` fails by rejecting, never by throwing. */
+async function rejected(err: unknown): Promise<never> {
+  throw err;
 }
 
 /**

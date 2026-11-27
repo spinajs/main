@@ -89,7 +89,16 @@ The request (`ctx.cache`) keeps a `setsOf` answer per member key list once it wa
 | Request memo (`ctx.cache`) | One request; also outlives the TTL inside it | none |
 | Cross-request entries | `authz.rbac.cache.assignmentsTtlSeconds` | `authz.rbac.cache.maxSubjects` subjects, least recently used first |
 
-- A cache miss reads `AssignmentStore.forSubjects(missing subjects, now)` once for all missing subjects. Both levels keep rows only once the read settled; a check that finds a read still in flight reads for itself, so concurrent first checks of one subject read it each, and so do the checks running when its entry expires. Sharing a read in flight would hang a check inside a nested `transaction()` that waited for a read queued behind its own savepoint ([Transactions](../orm/08-transactions.md)).
+- A cache miss reads `AssignmentStore.forSubjects(missing subjects, now)` once for all missing subjects. Both levels keep rows only once the read settled.
+- Whether a read in flight is shared depends on the store's answer to `inTransaction()` ([Custom stores](11-custom-stores.md#assignmentstoreintransaction)):
+
+  | `inTransaction()` when the read starts | A later check that finds it in flight | Cross-request entry once it settled |
+  | --- | --- | --- |
+  | `false` (`DbAssignmentStore` outside a transaction) | joins it, if it is also outside, its own instant is not before the read's, and no invalidate came since the read started | kept |
+  | `true` (`DbAssignmentStore` inside a transaction) | reads for itself | not kept: the transaction may roll back; the request memo still keeps it |
+  | not implemented | reads for itself | kept, as before this member existed |
+
+  So concurrent first checks of one subject outside a transaction, the HTTP route guards for example, read it once, and so do the checks running when its entry expires. Inside a transaction each check reads for itself: sharing a read in flight would hang a check inside a nested `transaction()` that waited for a read queued behind its own savepoint ([Transactions](../orm/08-transactions.md)). A joined read that fails rejects every check that joined it; nothing is kept and the next check reads again. A read shared outside a transaction may come from a read replica; a request that must see its own committed writes before the next invalidate reads with `fresh`.
 - Rows only expire, so rows read at `t` serve any request at or after `t`; `collect` re-checks expiry against the request's instant.
 - `RbacModel.invalidate(tags)`, called by the engine for every `AuthzChange`:
 

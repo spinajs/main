@@ -25,7 +25,7 @@ The defaults live in code, not in the package config file.
 | Port | Methods | Notes |
 | --- | --- | --- |
 | `RoleStore` | `name`, `load(): { roles, ladders }`, `version(): string` | `version` must change whenever `load` would answer differently; the model reloads on a new version. |
-| `AssignmentStore` | `name`, `forSubjects(subjects, at)`, `holders(role, scope, at)`, `byId(id)` | `forSubjects` answers the rows live at `at`. `byId` answers expired rows too. |
+| `AssignmentStore` | `name`, `forSubjects(subjects, at)`, `holders(role, scope, at)`, `byId(id)`, optional `inTransaction()` | `forSubjects` answers the rows live at `at`. `byId` answers expired rows too. `inTransaction()`: [below](#assignmentstoreintransaction). |
 | `AdminAssignmentStore` | + `assign`, `revoke`, `update`, `find`, `forSubjectKeys`, `forgetScope` | `assign` upserts by subject, role and scope and keeps the id. Every write takes the batch's `AuthzTx`. |
 | `RuleStore` | `name`, `forPath(path, at)`, `version()` | An in-memory store also has `all()` and `rulesOn(path, at)`; the model then reads it without IO and checks it at boot. |
 | `AdminRuleStore` | + `byId`, `assertStorable`, `put`, `delete`, `find`, `forgetScope` | |
@@ -36,6 +36,36 @@ The defaults live in code, not in the package config file.
 | `SubjectResolver` | `subjects(principal)` | Not a store: passed as `RbacModelOptions.subjects`. See [below](#subjectresolver). |
 
 `SubjectKey` format: `type:id` for a principal, `type:id#role` for a set, `type:*` for a wildcard. In the id, `%`, `#` and `*` are escaped as `%25`, `%23`, `%2A`. Keys longer than 200 characters are refused on write.
+
+### `AssignmentStore.inTransaction()`
+
+The optional `inTransaction(): boolean` answers: does a `forSubjects` read made now run inside an ORM transaction on this store's connection? The assignment cache asks it before each store read ([Assignment cache](05-check-resolution.md#assignment-cache)).
+
+- **`false`.** Concurrent first checks of a subject share one read, and the rows serve later requests for the TTL.
+- **`true`.** The check reads for itself. Its rows serve only its own request, because the transaction may still roll back.
+  - A store that answers `true` for every read keeps nothing across requests: `authz.rbac.cache.assignmentsTtlSeconds` then has no effect for it.
+- **Not implemented.** The check reads for itself, and the rows serve later requests as before. This costs one read per concurrent first check of a subject, instead of one per subject: for example, 1,000 concurrent requests over 100 principals read the store 1,000 times instead of 100.
+  - **The rollback window stays open.** A grant written and read inside a transaction that then rolls back still allows that subject's later requests, for up to `authz.rbac.cache.assignmentsTtlSeconds` (60 s by default).
+  - Implementing the member closes it.
+
+`DbAssignmentStore` answers from its driver (`CurrentTransaction !== undefined`). A store over the ORM answers the same way:
+
+```ts sample
+import { AssignmentStore } from '@spinajs/authz-rbac';
+import type { OrmDriver } from '@spinajs/orm';
+
+export abstract class OrmBackedAssignmentStore extends AssignmentStore {
+  protected abstract driver(): OrmDriver;
+
+  inTransaction(): boolean {
+    return this.driver().CurrentTransaction !== undefined;
+  }
+}
+```
+
+A store that never runs a statement inside a transaction (a remote service, a file) may answer `false`.
+
+A store that already has its own `inTransaction` member of another type must rename it: the cache calls `inTransaction()` before each read, and a read whose `inTransaction` throws, or is not a function, is rejected (the check denies with `model_error`).
 
 ## Shipped implementations
 

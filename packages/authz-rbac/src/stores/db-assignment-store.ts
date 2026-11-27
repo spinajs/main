@@ -12,7 +12,7 @@ import { AdminAssignmentStore } from '../admin/ports.js';
 import type { AssignmentQuery, ListResult, Page } from '../admin/ports.js';
 import { rowToAssignment } from './assignment-row.js';
 import { ASSIGNMENT_COLUMN_WIDTHS, SUBJECT_KEY_MAX_LENGTH, scopeToColumns, subjectKeyOf, subjectToColumns } from './columns.js';
-import { requireTransaction } from './context.js';
+import { recordDriver, requireTransaction } from './context.js';
 import { withDbRbacStore } from './db-store.js';
 import { applyWindow, pageWindow, requireScopeNode, trimWindow, whereLive } from './queries.js';
 import type { ListWindow } from './queries.js';
@@ -69,6 +69,10 @@ export class DbAssignmentStore extends withDbRbacStore(AdminAssignmentStore) {
 
   async forSubjects(subjects: readonly AssignmentSubject[], at: Date): Promise<readonly Assignment[]> {
     return (await this.rowsForKeys(subjects.map(subjectKeyOf), at)).map(rowToAssignment);
+  }
+
+  inTransaction(): boolean {
+    return recordDriver(AssignmentRecord).CurrentTransaction !== undefined;
   }
 
   async forSubjectKeys(keys: readonly string[], at: Date): Promise<readonly Assignment[]> {
