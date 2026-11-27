@@ -201,7 +201,7 @@ export class AssignmentCache {
       for (const [key, rows] of mine) {
         const run = new Running(rows, at.getTime(), generation);
         this.running.set(key, run);
-        rows.then(
+        void rows.then(
           () => this.finished(key, run),
           () => this.finished(key, run),
         );
