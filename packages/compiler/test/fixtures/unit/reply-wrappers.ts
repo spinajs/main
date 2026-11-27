@@ -6,6 +6,7 @@ import * as InHttpFolder from './inner/http/replies.js';
 import * as Again from './reply-reexports.js';
 import * as App from './reply-lookalikes.js';
 import * as Lib from './vendor/reply-lib/index.js';
+import * as Look from './wrapper-lookalikes.js';
 
 export class Payload { id!: number }
 
@@ -129,6 +130,23 @@ export interface ModelDataReplies {
   OkModelData: Http.Ok<ModelData<Payload>>;
   PromisedModelDataWithRelationData: Promise<ModelDataWithRelationData<Payload>>;
   OkModelDataWithRelationData: Http.Ok<ModelDataWithRelationData<Payload>>;
+}
+
+type AsyncOk<T> = Promise<Http.Ok<T>>;
+type PromiseList<T> = Promise<T[]>;
+type PromisedPayload = Promise<Payload>;
+export interface PromiseAliases {
+  AsyncOk: AsyncOk<Payload>;
+  PromiseList: PromiseList<Payload>;
+  PromisedPayload: PromisedPayload;
+}
+
+type LookAsync<T> = Look.Promise<T>;
+export interface WrapperLookalikes {
+  Promise: Look.Promise<Payload>;
+  AliasedPromise: LookAsync<Payload>;
+  ModelData: Look.ModelData<Payload>;
+  ModelDataWithRelationData: Look.ModelDataWithRelationData<Payload>;
 }
 
 export interface HttpFolderReplies {

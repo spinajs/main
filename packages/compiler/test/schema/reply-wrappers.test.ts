@@ -51,6 +51,17 @@ describe('reply wrappers are http responses by their declaring package', () => {
       OkModelDataWithRelationData: model,
     });
   });
+  it('follows a type alias of Promise to its payload', () => {
+    expect(refsOf('PromiseAliases')).to.deep.equal({ AsyncOk: payload.Ok, PromiseList: { text: 'Payload[]' }, PromisedPayload: payload.Ok });
+  });
+  it('describes an application type named Promise, ModelData or ModelDataWithRelationData by its own schema', () => {
+    expect(refsOf('WrapperLookalikes')).to.deep.equal({
+      Promise: { text: 'Promise<Payload>', schema: 'spinajs/unit/Promise_Payload' },
+      AliasedPromise: { text: 'LookAsync<Payload>', schema: 'spinajs/unit/Promise_Payload' },
+      ModelData: { text: 'ModelData<Payload>', schema: 'spinajs/unit/ModelData_Payload' },
+      ModelDataWithRelationData: { text: 'ModelDataWithRelationData<Payload>', schema: 'spinajs/unit/ModelDataWithRelationData_Payload' },
+    });
+  });
   it('leaves a generic subclass of an http reply bare: its type argument need not be the payload', () => {
     expect(refsOf('GenericSubclassReplies')).to.deep.equal({ MyGenericOk: { text: 'MyGenericOk' } });
   });
