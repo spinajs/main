@@ -1,6 +1,6 @@
 ---
-"@spinajs/orm-mysql": major
+"@spinajs/orm-mysql": minor
 "@spinajs/orm": minor
 ---
 
-MySQL connections take a `TimeZone` option that sets one zone for the session, for mysql2, for the datetime text the converter writes and reads, and for `driver.now()` / `driver.ago()`: `SYSTEM` (default) keeps the server's zone and expects the node process to run in the same one, `UTC` keeps the former always-UTC behaviour, an offset such as `+02:00` applies everywhere, and a named zone fails the resolve. Breaking: connections no longer default to UTC sessions; set `TimeZone: 'UTC'` to keep the previous behaviour. Datetimes written under the old UTC default read back shifted by the server's offset under the new default unless `TimeZone: 'UTC'` is set.
+MySQL connections take a `TimeZone` option that sets one zone for the session, for mysql2, for the datetime text the converter writes and reads, and for `driver.now()` / `driver.ago()`. Without it a connection runs in UTC, as every 3.x release did (`SET time_zone = '+00:00'`, mysql2 `timezone: 'Z'`, `UTC_TIMESTAMP(3)`), so rows a 3.x application stored read back unchanged. `SYSTEM` keeps the server's zone and stores the wall clock of the node process (as 2.x did); every node process and the MySQL server must then run in one zone. An offset such as `+02:00` applies to every layer, and a named zone fails the driver resolve with `OrmException`.
