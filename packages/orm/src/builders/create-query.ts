@@ -16,6 +16,14 @@ export function _descriptor(model: Class<any>) {
   return extractModelDescriptor(model);
 }
 
+function whereScope(query: SelectQueryBuilder, column: string): void {
+  query.whereNull(column);
+  const statement = query.Statements.at(-1);
+  if (statement) {
+    statement.Scope = true;
+  }
+}
+
 /**
  * Helper function to create query based on model
  *
@@ -78,14 +86,14 @@ export function createQuery<T extends QueryBuilder>(model: Class<any>, query: Cl
   // impossible anyway, and the guard keeps queries working when table info
   // has not (yet) surfaced the column.
   if (qr instanceof SelectQueryBuilder && dsc.SoftDelete?.DeletedAt && dsc.Columns?.some((c) => c.Name === dsc.SoftDelete.DeletedAt)) {
-    (qr as unknown as SelectQueryBuilder).whereNull(dsc.SoftDelete.DeletedAt);
+    whereScope(qr, dsc.SoftDelete.DeletedAt);
   }
 
   // Archive read filtering, symmetric with the soft-delete block above: by default exclude rows
   // that have been archived ( ArchivedAt IS NOT NULL ). SelectQueryBuilder.withArchived() removes
   // this default statement. Same column-presence guard, for the same reason.
   if (qr instanceof SelectQueryBuilder && dsc.Archived?.ArchivedAt && dsc.Columns?.some((c) => c.Name === dsc.Archived.ArchivedAt)) {
-    (qr as unknown as SelectQueryBuilder).whereNull(dsc.Archived.ArchivedAt);
+    whereScope(qr, dsc.Archived.ArchivedAt);
   }
 
   if (own.Options.Database) {

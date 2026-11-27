@@ -281,11 +281,11 @@ export class SqlWhereCompiler implements IWhereCompiler {
     const nonLazyEntries = (builder.Statements as WhereStatement[])
       .filter((x) => !x.IsAggregate)
       .filter((x) => !(x instanceof LazyQueryStatement))
-      .map((stmt) => ({ boolean: stmt.Boolean, result: stmt.build() }));
+      .map((stmt): IBuiltStatement => ({ boolean: stmt.Boolean, result: stmt.build(), scope: stmt.Scope }));
 
     return {
       bindings,
-      expression: joinBuiltStatements(nonLazyEntries.concat(lazyEntries), bindings),
+      expression: joinScoped(nonLazyEntries.concat(lazyEntries), bindings),
     };
   }
 }
@@ -293,6 +293,48 @@ export class SqlWhereCompiler implements IWhereCompiler {
 interface IBuiltStatement {
   boolean: WhereBoolean;
   result: IQueryStatementResult;
+  scope?: boolean;
+}
+
+/**
+ * The default scopes (soft delete, archive) are ANDed with the other statements as one group, so an OR among those
+ * cannot reach past them: `<scopes> AND ( a OR b )`. A clause without a top-level OR compiles as it always did.
+ */
+function joinScoped(statements: IBuiltStatement[], bindings: any[]): string {
+  const flatBindings: any[] = [];
+  const flat = joinBuiltStatements(statements, flatBindings);
+  if (!statements.some((s) => s.scope) || !hasTopLevelOr(flat)) {
+    bindings.push(...flatBindings);
+    return flat;
+  }
+
+  const scopes = joinBuiltStatements(statements.filter((s) => s.scope).map((s) => ({ ...s, boolean: WhereBoolean.AND })), bindings);
+  const conditions = joinBuiltStatements(statements.filter((s) => !s.scope), bindings);
+  if (conditions === '') {
+    return scopes;
+  }
+
+  return `${scopes} AND ${hasTopLevelOr(conditions) ? `( ${conditions} )` : conditions}`;
+}
+
+// Quoted text, a lone quote, a parenthesis, `||`, or a word with its qualifier (`t.or` is a column, not the keyword).
+const SQL_TOKENS = /'[^']*'|"[^"]*"|`[^`]*`|\[[^\]]*\]|['"`[]|[()]|\|\||\w[\w$.]*/g;
+const LONE_QUOTE = /^['"`[]$/;
+const OR_TOKEN = /^(x?or|\|\|)$/i;
+
+/**
+ * Whether `sql` has an OR (XOR, MySQL's `||`) outside parentheses and quoted text. An unbalanced quote or parenthesis
+ * (a backslash escape this does not read) counts as one: a group too many costs nothing, one too few leaks rows.
+ */
+function hasTopLevelOr(sql: string): boolean {
+  let depth = 0;
+  for (const [part] of sql.matchAll(SQL_TOKENS)) {
+    if (part === '(') depth++;
+    if (part === ')') depth--;
+    if (depth < 0 || LONE_QUOTE.test(part) || (depth === 0 && OR_TOKEN.test(part))) return true;
+  }
+
+  return depth !== 0;
 }
 
 /**

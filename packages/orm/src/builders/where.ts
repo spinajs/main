@@ -97,6 +97,7 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
       // preserve the per-statement boolean connector (clone() rebuilds the
       // statement from scratch and would otherwise reset it to the AND default)
       cloned.Boolean = s.Boolean;
+      cloned.Scope = s.Scope;
       if (adopted) {
         builder.adopted().add(cloned);
       }
