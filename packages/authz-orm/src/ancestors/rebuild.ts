@@ -1,11 +1,13 @@
-import { resourceKey } from '@spinajs/authz';
-import type { ResourceRef } from '@spinajs/authz';
+import { AuthzConfigError, resourceKey } from '@spinajs/authz';
+import type { ResourceRef, ResourceType } from '@spinajs/authz';
 import type { OrmDriver } from '@spinajs/orm';
 
 import { closeOver } from './closure.js';
 import type { Link } from './closure.js';
+import { undeclaredAncestorTypes, undeclaredLinks } from './full.js';
 import { readAncestors } from './read.js';
 import { deleteRowsOf, readDescendants, readParents, replaceAncestors } from './store.js';
+import type { AncestorRow } from './table.js';
 
 function unique(refs: readonly ResourceRef[], skip: ReadonlySet<string> = new Set()): ResourceRef[] {
   const out = new Map<string, ResourceRef>();
@@ -23,14 +25,26 @@ export async function rebuildNodes(driver: OrmDriver, nodes: readonly ResourceRe
   const keys = new Set(list.map((n) => resourceKey(n)));
   const parents = await readParents(driver, list);
   const outsideRefs = unique([...parents.values()].flat(), new Set([...keys, ...gone]));
+  const rows = await readAncestors([...list, ...outsideRefs]);
+  refuseToDropUndeclared(list, rows);
   const outside = new Map<string, Link[]>();
-  for (const [k, rows] of await readAncestors(outsideRefs))
-    outside.set(
-      k,
-      rows.map((r) => ({ type: r.ancestor_type, id: r.ancestor_id, depth: r.depth })),
-    );
+  for (const ref of outsideRefs) outside.set(resourceKey(ref), (rows.get(resourceKey(ref)) ?? []).map((r) => ({ type: r.ancestor_type, id: r.ancestor_id, depth: r.depth })));
   await replaceAncestors(list, closeOver(list, parents, outside, gone));
   return list.length;
+}
+
+// Before replaceAncestors deletes anything: the observer runs inside the write's transaction, so the write rolls back.
+function refuseToDropUndeclared(list: readonly ResourceRef[], rows: ReadonlyMap<string, readonly AncestorRow[]>): void {
+  const linked = new Map<ResourceType, Set<ResourceType>>();
+  for (const n of list) {
+    const types = linked.get(n.type) ?? new Set<ResourceType>();
+    for (const r of rows.get(resourceKey(n)) ?? []) types.add(r.ancestor_type);
+    linked.set(n.type, types);
+  }
+  for (const [type, types] of linked) {
+    const undeclared = undeclaredAncestorTypes(type, types);
+    if (undeclared.length > 0) throw new AuthzConfigError(`authz-orm: ${type}: ${undeclaredLinks(type, undeclared)}`);
+  }
 }
 
 /** Recomputes `roots` and every resource the table lists below them (a move, an insert). */

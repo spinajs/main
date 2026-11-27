@@ -85,9 +85,15 @@ The table and its migration `AuthzResourceAncestor_2026_10_14_00_00_00` are desc
 | Command | Does |
 | --- | --- |
 | `authz:ancestors-verify [type]` | Recomputes the expected rows from the `@Parent` columns and compares them with the table. Prints `missing`, `extra` and `depth` lines (at most 50 per type, then `… and N more`), one summary line per type, and sets exit code 1 on any difference. Without `type` it checks every registered type and every type the table lists. |
-| `authz:ancestors-rebuild [type]` | Rewrites the rows of each type from the `@Parent` columns: one transaction per type deletes its rows and inserts the expected ones. Prints `<type>: <n> rows`. Without `type` it rebuilds every registered type. |
+| `authz:ancestors-rebuild [type] [--prune]` | Rewrites the rows of each type from the `@Parent` columns: one transaction per type deletes its rows and inserts the expected ones. Prints `<type>: <n> rows`. Without `type` it rebuilds every registered type. It first checks every type: when rows link to an ancestor type that no `@Parent` of the type names in this process (a parent declared by a module the CLI did not load), it rewrites nothing, prints the types and exits with code 1. `--prune` deletes those links; with a type no model declares, it deletes that type's rows. |
 
-Both run as `SYSTEM`. A `type` with no `@AccessResource` model fails with `no @AccessResource model has type '<type>'` and exit code 1. Both read whole tables: every table of the type and of every type above it (`typesAbove()`).
+A write keeps the same rule. When an insert, an update of a `@Parent` column, a delete or an upsert of an
+`@AccessResource` row would rewrite rows (the row's own, and those the table lists below it) that link to an ancestor
+type no `@Parent` names in the running process, the write fails with `AuthzConfigError` and rolls back. Import every
+module that declares parents (for tenants: `@spinajs/tenancy-orm/authz`) in every process that writes such rows.
+`authz:ancestors-verify` prints the same line next to the extra rows of such a type.
+
+Both run as `SYSTEM`. A `type` with no `@AccessResource` model fails with `no @AccessResource model has type '<type>'` and exit code 1, except for `authz:ancestors-rebuild <type> --prune`. Both read whole tables: every table of the type and of every type above it (`typesAbove()`).
 
 ## Important behaviour
 
@@ -99,9 +105,15 @@ Both run as `SYSTEM`. A `type` with no `@AccessResource` model fails with `no @A
 - **An update that leaves `@Parent` columns alone does nothing.** It needs no transaction and reads nothing.
 - **Deletes see soft-deleted and archived rows.** The capture's key select adds `withDeleted()` and `withArchived()`, so a hard delete of a soft-deleted row still cleans up.
 - **The model needs a single-column primary key.** The capture refuses a write of a model with a composite key, and the domain boot refuses such an `@AccessResource` model.
-- **A deleted id reused later inherits nothing.** Its assignments, links, rules, policies and scope attributes are gone with the row.
+- **A deleted id reused later inherits nothing.** Its assignments, links, rules, policies and scope attributes are gone with the row. A later `authz:ancestors-rebuild` is the exception for links: see "A rebuild links children to a deleted parent" below.
 - **A `NULL` parent column is a root.** The row gets no rows for that chain.
 - **Raw SQL is not tracked.** Imports, raw SQL, builders from `driver.insert()`, `driver.update()` or `driver.del()` (no model) and database triggers bypass the write capture. Run `authz:ancestors-rebuild` afterwards, or call `rebuildFrom()` in the same transaction.
+- **Run a rebuild while nothing moves resources.** The rebuild reads the `@Parent` columns before its transaction and does not lock the resource tables: a move committed during a rebuild can leave the row linked to its old parent as well as its new one (a grant on the old parent still reaches it), or fail with a duplicate key. Run `authz:ancestors-verify` after the rebuild and rebuild again if it reports drift. Decisions cached before the rebuild keep their answer until `authz.cache.ttlSeconds` ends. A type with two resource types on one table, or whose first class on a table declares no `@Parent`, is not rebuilt correctly yet.
+  - Until this is fixed, stop the writes that move or delete resources of the rebuilt types and of the types above them while the rebuild runs. A link written by another process after the rebuild checked the type is not protected either.
+  - The rebuild publishes no change on the domain's `ChangeBus`. A decision cached before the rebuild keeps its answer for up to `authz.cache.ttlSeconds`: wait that long before you rely on a link the rebuild removed.
+  - Two resource types on one table: a write writes the rows of the written model's type only, the rebuild writes every row as both types, and after a rebuild a move through one class leaves the other type's links at the old parent. Map each resource type to a table of its own.
+  - Two classes of one type on one table, the first registered without `@Parent`: the rebuild reads the table through that first class and deletes every link of the type. Declare the same `@Parent` columns on every class of the type that maps to the table.
+- **A rebuild links children to a deleted parent.** Deleting a parent row drops its children's links to it, but the children's `@Parent` columns still name it, so `authz:ancestors-rebuild` links them to that id again. A row created later with the same id then passes its grants, and those of its ancestors, to the old children. Before a rebuild, point such children at another parent or clear their parent column, and do not reuse resource ids.
 - **Ids are stored as text.** Integer and UUID keys share one table; `resource_id` and `ancestor_id` are `varchar(64)`.
 
 ## Best practices

@@ -63,6 +63,23 @@ export async function actualRows(type: ResourceType): Promise<AncestorRow[]> {
   return await selectFrom(AncestorRecord).where('resource_type', type);
 }
 
+/** The ancestor types the table lists for rows of `type`. */
+export async function ancestorTypesOf(type: ResourceType): Promise<ResourceType[]> {
+  return (await selectFrom(AncestorRecord).columns(['ancestor_type']).distinct().where('resource_type', type)).map((r) => r.ancestor_type);
+}
+
+/** The types among `linked` that no `@Parent` chain of `type` reaches in this process (all of them for a type no class declares). */
+export function undeclaredAncestorTypes(type: ResourceType, linked: Iterable<ResourceType>): ResourceType[] {
+  const declared = new Set<ResourceType>([type, ...typesAbove(type)]);
+  return [...new Set(linked)].filter((t) => !declared.has(t)).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+}
+
+export function undeclaredLinks(type: ResourceType, undeclared: readonly ResourceType[]): string {
+  // --prune in a process that merely did not load the model would delete every row of the type.
+  if (classesOf(type).length === 0) return `rows link to ${undeclared.join(', ')}, and no model of ${type} is loaded in this process; load that model in this process, or, if it was removed for good, delete its rows with authz:ancestors-rebuild ${type} --prune`;
+  return `rows link to ${undeclared.join(', ')}, which no @Parent of ${type} names in this process; import the module that declares that parent in this process (a CLI loads it from a file of system.dirs.cli), or delete those links for good with authz:ancestors-rebuild ${type} --prune`;
+}
+
 /** Resource types that have rows in the table. */
 export async function listedTypes(): Promise<ResourceType[]> {
   return (await selectFrom(AncestorRecord).columns(['resource_type']).distinct()).map((r) => r.resource_type);

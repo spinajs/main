@@ -1,6 +1,6 @@
 import { Argument, Command } from '@spinajs/cli';
 
-import { actualRows, diffRows, expectedRows, listedTypes, requireType } from '../../ancestors/full.js';
+import { actualRows, ancestorTypesOf, diffRows, expectedRows, listedTypes, requireType, undeclaredAncestorTypes, undeclaredLinks } from '../../ancestors/full.js';
 import { registeredTypes } from '../../registry.js';
 import { AuthzOrmCliCommand } from '../base.js';
 
@@ -18,7 +18,8 @@ export class AncestorsVerifyCommand extends AuthzOrmCliCommand {
         for (const t of all) {
           const driver = this.driverFor(t);
           const d = diffRows(await expectedRows(driver, t), await actualRows(t));
-          const lines = [...d.missing.map((x) => `missing ${x}`), ...d.extra.map((x) => `extra ${x}`), ...d.depth.map((x) => `depth ${x}`)];
+          const undeclared = d.extra.length === 0 ? [] : undeclaredAncestorTypes(t, await ancestorTypesOf(t));
+          const lines = [...d.missing.map((x) => `missing ${x}`), ...d.extra.map((x) => `extra ${x}`), ...d.depth.map((x) => `depth ${x}`), ...(undeclared.length > 0 ? [undeclaredLinks(t, undeclared)] : [])];
           if (lines.length === 0) {
             this.out(`${t}: ok`);
             continue;

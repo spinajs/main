@@ -88,6 +88,31 @@ describe('authz:ancestors-verify / authz:ancestors-rebuild', function () {
     expect(io.code()).to.equal(1);
   });
 
+  it('rebuild stops before it drops links to an ancestor type no @Parent names, unless --prune; verify names them', async () => {
+    await rebuild();
+    await insertLinks(db.driver(), ['task:t1>tenant:acme@1']);
+    io.out.length = 0;
+    await rebuild('task');
+    expect(io.err.join('\n')).to.contain('task: rows link to tenant, which no @Parent of task names in this process');
+    expect(io.err.join('\n')).to.not.match(/tenancy-orm/);
+    expect(io.code()).to.equal(1);
+    expect(await ancestorLinks(db.driver())).to.include('task:t1>tenant:acme@1');
+
+    await verify('task');
+    expect(io.out).to.include('task: extra task:t1>tenant:acme@1');
+    expect(io.out.some((l) => l.startsWith('task: rows link to tenant, which no @Parent of task names in this process'))).to.equal(true);
+
+    await Object.assign(new AncestorsRebuildCommand(), { Orm: db.orm }).execute('task', { prune: true });
+    expect(await ancestorLinks(db.driver())).to.not.include('task:t1>tenant:acme@1');
+  });
+
+  it('rebuild --prune deletes the rows of a type the table lists and no model declares', async () => {
+    await rebuild();
+    await insertLinks(db.driver(), ['ghost:g1>project:p1@1']);
+    await Object.assign(new AncestorsRebuildCommand(), { Orm: db.orm }).execute('ghost', { prune: true });
+    expect((await ancestorLinks(db.driver())).filter((l) => l.startsWith('ghost:'))).to.deep.equal([]);
+  });
+
   it('an unknown type is a usage error with exit code 1', async () => {
     await verify('nope');
     expect(io.err).to.deep.equal(["authz:ancestors: no @AccessResource model has type 'nope'"]);
