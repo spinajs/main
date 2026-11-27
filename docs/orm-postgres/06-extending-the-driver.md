@@ -195,7 +195,7 @@ protected isRetryableError(err: unknown) {
 
 ### Connect over TLS with a private CA
 
-`PostgresOrmDriver` does not pass `ssl` to `pg.Pool`. Override `poolConfig()` and spread `super.poolConfig()`: `connect()`, the `search_path` pinning, the UTC session and the UTC `timestamp` parser all stay.
+`PostgresOrmDriver` does not pass `ssl` to `pg.Pool`. Override `poolConfig()` and spread `super.poolConfig()`: `connect()`, the `search_path` pinning, the UTC session, the UTC `timestamp` parser and the client class that cancels abandoned statements all stay. The cancel request goes out in plain text before any TLS, as `pg`'s own does: PostgreSQL reads it in place of a startup packet.
 
 ```ts sample
 import { readFileSync } from 'node:fs';
