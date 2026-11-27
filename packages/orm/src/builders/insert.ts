@@ -215,8 +215,18 @@ export class InsertQueryBuilder extends QueryBuilder<IUpdateResult> {
     return this;
   }
 
+  /**
+   * Sets the table that rows are inserted into.
+   *
+   * @param table - sql table name
+   * @param schema - schema or database name, as `database()` sets it
+   */
   public into(table: string, schema?: string) {
-    this.setTable(table, schema);
+    this.setTable(table);
+    if (schema) {
+      this.database(schema);
+    }
+
     return this;
   }
 
