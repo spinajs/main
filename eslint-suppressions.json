@@ -4825,9 +4825,6 @@
     }
   },
   "packages/log-source-graphana-loki/src/index.ts": {
-    "@typescript-eslint/no-unnecessary-type-assertion": {
-      "count": 1
-    },
     "@typescript-eslint/no-unsafe-call": {
       "count": 1
     },
