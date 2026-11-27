@@ -1,14 +1,12 @@
 import { AuthzConfigError, SYSTEM, authzStorage, currentPrincipal } from '@spinajs/authz';
 import { Injectable } from '@spinajs/di';
-import { InStatement, QueryMiddleware, SelectQueryBuilder, SqlOperator, WhereBoolean, WhereStatement, relationSyncOf } from '@spinajs/orm';
+import { DeleteQueryBuilder, InStatement, QueryMiddleware, SelectQueryBuilder, SqlOperator, UpdateQueryBuilder, WhereBoolean, WhereStatement, relationSyncOf } from '@spinajs/orm';
 import type { IQueryStatement, QueryBuilder } from '@spinajs/orm';
 
 import { ormLog, storageUnscoped } from '../host.js';
 import { marksOf } from '../marker.js';
 import { entryOf, nameOf } from '../registry.js';
 import type { ResourceEntry } from '../registry.js';
-import { isUpdateOrDelete } from '../sync-statement.js';
-import type { SyncStatement } from '../sync-statement.js';
 import { guardMode } from './env.js';
 
 const isScalar = (v: unknown): boolean => typeof v === 'string' || typeof v === 'number' || typeof v === 'bigint';
@@ -103,7 +101,7 @@ export class AccessGuardMiddleware extends QueryMiddleware {
 
   beforeQueryExecution(query: QueryBuilder): void {
     if (query instanceof SelectQueryBuilder) this.guardSelect(query);
-    else if (isUpdateOrDelete(query)) this.guardSync(query);
+    else if (query instanceof UpdateQueryBuilder || query instanceof DeleteQueryBuilder) this.guardSync(query);
   }
 
   protected guardSelect(query: SelectQueryBuilder): void {
@@ -120,7 +118,7 @@ export class AccessGuardMiddleware extends QueryMiddleware {
   }
 
   /** Only the statements a relation list's sync() builds itself; the app's own updates and deletes stay unguarded. */
-  protected guardSync(query: SyncStatement): void {
+  protected guardSync(query: UpdateQueryBuilder<unknown> | DeleteQueryBuilder<unknown>): void {
     const sync = relationSyncOf(query);
     const entry = sync !== undefined ? entryOf(query.Model) : undefined;
     if (sync === undefined || !entry || authorized(query)) return;
