@@ -190,7 +190,8 @@ export class OfflinePdfRenderer extends PdfRenderer {
         if (local || url.protocol === 'data:') {
           void request.continue();
         } else {
-          this.Log.warn({ url: request.url() }, 'Blocked remote request ${url}');
+          // the query of a presigned asset URL is a credential: log the host only
+          this.Log.warn({ host: url.host }, 'Blocked remote request to ${host}');
           void request.abort();
         }
       });

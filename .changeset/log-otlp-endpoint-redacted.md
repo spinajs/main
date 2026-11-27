@@ -1,0 +1,5 @@
+---
+"@spinajs/log-otlp": patch
+---
+
+Security: `OtlpLogTarget` wrote its `endpoint` into the application's own log as configured, so a credential in the URL (`https://user:secret@host/...`, `?token=...`) reached every other log target of the application at `trace` in `Wrote buffered messages to OTLP target at ...`, and its failed-export `error` lines handed the logger the raw axios error, whose request config holds the endpoint and the `headers` (API keys, bearer tokens). The trace line now prints the endpoint without userinfo, query and fragment, with a path segment that may be a token masked as `***` and `<not a URL>` for a value that does not parse; the error lines and `target.Error` carry only the failure's `name`, `message` (endpoint redacted), `code` and HTTP `status`. Exports still go to the configured URL with the configured headers. If a credential was ever part of `endpoint`, treat it as exposed and rotate it, and put it in `headers` instead: axios sends URL userinfo as an `Authorization: Basic` header, which replaces an `Authorization` header from `headers`.
