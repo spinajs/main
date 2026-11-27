@@ -44,9 +44,10 @@ const settle = async (fn: () => PromiseLike<unknown>): Promise<unknown> => {
 };
 const boot = () => settle(() => new AuthzOrmContributor().contribute('root'));
 const docKeys = (rows: unknown): string[] => (rows as { id: string; tenant: string }[]).map((r) => `${r.id}/${r.tenant}`).sort();
+const ids = (rows: unknown): string[] => (rows as { id: string }[]).map((r) => r.id).sort();
 
-const refusal = (model: string, resource: string, keys: string, added: string) =>
-  new RegExp(`^authz-orm: model ${model}_\\d+_\\d+ extends @AccessResource model ${resource} and adds ${added} to its primary key \\(${keys}\\); a resource is identified by one key column, so rows that differ only in ${added} would be one resource: do not add a key column, or make ${model}_\\d+_\\d+ a model of its own that does not extend ${resource.split(' ')[0]}, with an @AccessResource type of its own and a single-column key$`);
+const refusal = (model: typeof ModelBase, resource: typeof ModelBase, type: string) =>
+  `authz-orm: model ${model.name} extends @AccessResource model ${resource.name} (resource '${type}') and adds tenant to its primary key (id, tenant); a resource is identified by one key column, so rows that differ only in tenant would be one resource: do not add a key column, or make ${model.name} a model of its own that does not extend ${resource.name}, with an @AccessResource type of its own and a single-column key`;
 
 describe('authz-orm: a subclass of a resource that adds a key column', function () {
   this.timeout(60000);
@@ -98,10 +99,8 @@ describe('authz-orm: a subclass of a resource that adds a key column', function 
       const tenantDoc = (base: typeof ModelBase = Doc) => db.define({ name: 'TenantDoc', base, columns: { tenant: 'TEXT', owner_id: 'TEXT' }, primary: ['id', 'tenant'], rows: TWO_TENANTS }, dialect) as Promise<M>;
 
       it('refuses at domain boot a subclass that adds @Primary() to a single-key resource, naming it, its key and its resource', async () => {
-        await tenantDoc();
-        const error = await boot();
-        expect(error).to.be.instanceOf(AuthzConfigError);
-        expect((error as Error).message).to.match(refusal('TenantDoc', `Doc_\\d+_\\d+ \\(resource 'doc'\\)`, 'id, tenant', 'tenant'));
+        const TenantDoc = await tenantDoc();
+        expect(await boot()).to.be.instanceOf(AuthzConfigError).with.property('message', refusal(TenantDoc, Doc, 'doc'));
       });
 
       it('boots a subclass that adds no key column, which reads and lists as its parent does', async () => {
@@ -109,31 +108,30 @@ describe('authz-orm: a subclass of a resource that adds a key column', function 
         expect(await boot()).to.have.property('listTypes').that.includes('doc');
         sinon.stub(await (await testHost.domains()).service('root'), 'accessPlan').resolves(withinD1);
         const rows = await runWithPrincipal(alice, async () => await SubDoc.query().accessible('doc:read'));
-        expect(rows.map((r) => r.PrimaryKeyValue)).to.deep.equal(['d1']);
+        expect(ids(rows)).to.deep.equal(['d1']);
         expect(entryOf(SubDoc)).to.deep.include({ registered: Doc, idColumns: ['id'] });
       });
 
       it('refuses a subclass two levels down whose middle class added the key column', async () => {
-        class Middle extends Doc {}
-        Primary()(Middle.prototype, 'tenant');
+        class Middle extends Doc {
+          @Primary() public tenant: string;
+        }
         const Leaf = await db.define({ name: 'Leaf', base: Middle, columns: { tenant: 'TEXT', owner_id: 'TEXT' }, primary: ['id', 'tenant'] }, dialect);
-        const error = await boot();
-        expect((error as Error).message).to.match(refusal('Leaf', `Doc_\\d+_\\d+ \\(resource 'doc'\\)`, 'id, tenant', 'tenant'));
-        expect(() => entryOf(Leaf)).to.throw(AuthzConfigError, /adds tenant to its primary key/);
+        expect(await boot()).to.be.instanceOf(AuthzConfigError).with.property('message', refusal(Leaf, Doc, 'doc'));
+        expect(() => entryOf(Leaf)).to.throw(AuthzConfigError, refusal(Leaf, Doc, 'doc'));
       });
 
       it("refuses a subclass of a resource another package registered with registerAccessResource(), as a fragment does", async () => {
         const Shared = await db.define({ name: 'Shared', columns: { owner_id: 'TEXT' } }, dialect);
         registerAccessResource(Shared, 'shared');
-        await tenantDoc(Shared);
-        const error = await boot();
-        expect((error as Error).message).to.match(refusal('TenantDoc', `Shared_\\d+_\\d+ \\(resource 'shared'\\)`, 'id, tenant', 'tenant'));
+        const TenantDoc = await tenantDoc(Shared);
+        expect(await boot()).to.be.instanceOf(AuthzConfigError).with.property('message', refusal(TenantDoc, Shared, 'shared'));
       });
 
       it('refuses a subclass loaded after the boot at its first use, with the same error', async () => {
         expect(await boot()).to.have.property('listTypes').that.includes('doc');
         const TenantDoc = await tenantDoc();
-        expect(() => entryOf(TenantDoc)).to.throw(AuthzConfigError, refusal('TenantDoc', `Doc_\\d+_\\d+ \\(resource 'doc'\\)`, 'id, tenant', 'tenant'));
+        expect(() => entryOf(TenantDoc)).to.throw(AuthzConfigError, refusal(TenantDoc, Doc, 'doc'));
         // The whole key is a single-object load the guard lets through: only the refusal stops it.
         const read = await settle(() => authzStorage().run({ Principal: alice, AuthzDecision: decided }, async () => await TenantDoc.where('id', 'd1').where('tenant', 't2')));
         expect(read).to.be.instanceOf(AuthzConfigError);
