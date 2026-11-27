@@ -2,7 +2,7 @@
 
 OpenTelemetry trace export for SpinaJS. `OtelTracing` attaches an OTLP/HTTP span processor (JSON body, highlight.io endpoint by default) to the shared tracer provider of `@spinajs/tracing`, so every framework span (HTTP, policy, authz, ORM, queue) is exported along with your own. `LongSpanRegistry` keeps keyed spans open for minutes across handlers, eg. one span per payment transaction.
 
-It does **not** own a provider: the service name, resource attributes and sampler come from `tracing.*` of `@spinajs/tracing`. It does **not** export under an external OpenTelemetry SDK, or with `tracing.enabled: false`: `start()` warns and stays inactive. It does **not** start before DI resolves `OtelTracing`, which must happen after the configuration resolves. It does **not** export logs or metrics: logs go through [`@spinajs/log-otlp`](../log-otlp/README.md), metrics through `@spinajs/telemetry`.
+It does **not** own a provider: the service name, resource attributes and sampler come from `tracing.*` of `@spinajs/tracing`. It does **not** export under an external OpenTelemetry SDK, or with `tracing.enabled: false`: `start()` warns and stays inactive. It does **not** start before DI resolves `OtelTracing`, which must happen after the configuration resolves. It does **not** export logs: they go through [`@spinajs/log-otlp`](../log-otlp/README.md). [`OtelPerfSink`](06-perf-metrics.md) exports the framework's `Perf` metrics when `otel.metrics.enabled` is set.
 
 ## Install
 
@@ -10,7 +10,7 @@ It does **not** own a provider: the service name, resource attributes and sample
 npm install @spinajs/telemetry-otel
 ```
 
-Importing the package registers `OtelTracing` and `LongSpanRegistry` in the root DI container, both as singletons. Its default config (`otel.*`, tracing off) is picked up from `lib/config/otel.js` by `@spinajs/configuration`.
+Importing the package registers `OtelTracing`, `LongSpanRegistry` and the `PerfSink` `OtelPerfSink` in the root DI container, all as singletons. Its default config (`otel.*`, tracing off) is picked up from `lib/config/otel.js` by `@spinajs/configuration`.
 
 ## Features
 
@@ -21,6 +21,7 @@ Importing the package registers `OtelTracing` and `LongSpanRegistry` in the root
 | [Span processors](03-span-processors.md) | The `start( processor )` override: in-memory export for tests, console export, fan-out and filtering processors |
 | [Customizing the tracing service](04-customizing-the-tracing-service.md) | Subclass or replace `OtelTracing`: auto-start, auth headers, sampling |
 | [Customizing the long-span registry](05-customizing-the-long-span-registry.md) | Subclass or replace `LongSpanRegistry`: default attributes, a recording test double |
+| [Perf metrics](06-perf-metrics.md) | `OtelPerfSink`: every `Perf` counter, timing and value as an OpenTelemetry metric over OTLP/HTTP |
 
 ## Extension points at a glance
 
