@@ -1,12 +1,12 @@
 import type { PlanRow } from '@spinajs/authz-orm/plan';
-import { Wrapper } from '@spinajs/orm';
+import { QueryContext, Wrapper } from '@spinajs/orm';
 import type { ICompilerOutput, IWhereBuilder } from '@spinajs/orm';
 import * as chai from 'chai';
 import 'mocha';
 
-import { AUTHZ_ASSIGNMENT_TABLE, RbacAssignmentTerm, parseRbacPlanArgs, rbacPlanArgs } from '../../src/index.js';
+import { AUTHZ_ASSIGNMENT_TABLE, DbAssignmentStore, RbacAssignmentTerm, parseRbacPlanArgs, rbacPlanArgs } from '../../src/index.js';
 import type { RbacAssignmentPlanArgs } from '../../src/index.js';
-import { DB_KINDS, bootDb } from '../support/db.js';
+import { DB_KINDS, bootDb, rawQuery } from '../support/db.js';
 import type { TestDb } from '../support/db.js';
 
 const expect = chai.expect;
@@ -164,6 +164,26 @@ for (const kind of DB_KINDS) {
           });
       });
       expect(kept).to.deep.equal([3]);
+    });
+
+    it('leaves out a permit assignment whose expires_at no converter reads, and keeps such a deny assignment in force', async () => {
+      await db.driver.insert().into(AUTHZ_ASSIGNMENT_TABLE).values([assignment('u1', 'user:dave', 'editor', 'project', 'p1'), assignment('u2', 'user:dave', 'blocked', 'org', 'o1')]);
+      // A value of the column type the datetime converter reads as null: SQLite keeps any text, PostgreSQL takes infinity.
+      await rawQuery(db.driver, `UPDATE ${AUTHZ_ASSIGNMENT_TABLE} SET expires_at = ${kind === 'postgres' ? "'infinity'" : "'not a date'"} WHERE id IN ('u1', 'u2')`, [], QueryContext.Update);
+
+      expect(await permit({ subjects: ['user:dave'] })).to.deep.equal([]);
+      expect(await permit({ subjects: ['user:dave'], roles: [{ role: 'blocked' }], global: true })).to.deep.equal([]);
+      expect(await permit({ subjects: ['user:dave'], roles: [{ role: 'blocked' }], global: true, deny: true })).to.deep.equal([1, 2, 5]);
+    });
+
+    it('keeps for the model a deny assignment whose expires_at sorts before now but no converter reads', async () => {
+      await db.driver.insert().into(AUTHZ_ASSIGNMENT_TABLE).values([assignment('u3', 'user:gina', 'blocked', 'org', 'o1')]);
+      // PostgreSQL -infinity and SQLite text starting with a digit both sort before every instant
+      await rawQuery(db.driver, `UPDATE ${AUTHZ_ASSIGNMENT_TABLE} SET expires_at = ${kind === 'postgres' ? "'-infinity'" : "'0garbage'"} WHERE id = 'u3'`, [], QueryContext.Update);
+
+      const rows = await db.container.resolve(DbAssignmentStore).forSubjects([{ type: 'user', id: 'gina' }], new Date());
+      expect(rows.map((r) => r.id)).to.deep.equal(['u3']);
+      expect(Number.isNaN(rows[0].expiresAt!.getTime())).to.equal(true);
     });
 
     it('a qualified role with global reads the $global branch', async () => {

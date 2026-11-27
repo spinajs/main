@@ -188,9 +188,7 @@ Index `authz_admin_idempotency_expires` on `expires_at`.
 ### Unreadable `expires_at`
 
 An `expires_at` that holds a value no datetime converter reads (text written by hand, a MySQL zero date, a PostgreSQL
-`infinity`) is not read as "never expires"; when the store reads the row, it is never read as "expired" where that
-would lift a restriction (a value the database sorts before now does not reach the store yet: see the end of this
-section). The checks
+`infinity`) is not read as "never expires", and never as "expired" where that would lift a restriction. The checks
 that load such an assignment answer `model_error` (fail closed) and the engine logs the assignment id; when the
 assignment makes its principal a member of a subject set, every check of that principal is refused, because the set
 may hold a deny role. Such a rule refuses the checks of its path (`AuthzConfigError` naming the rule; a rule at GLOBAL,
@@ -236,12 +234,19 @@ Repair an assignment first: `authz:membership-rebuild` then rewrites the members
 ones). After upgrading, run `authz:membership-verify`: a membership recomputed before this release from such an
 assignment is stored as never expiring; the command refuses, naming the assignment, until it is repaired, and then
 lists the membership as changed when the repaired assignment has an expiry; `authz:membership-rebuild` rewrites it.
-Not yet covered (a follow-up fix): the stores' SQL filter still compares `expires_at` in SQL. A value the database
-sorts before now (a PostgreSQL `-infinity`, a MySQL `0000-00-00` or zero month, SQLite text such as `''`) is dropped
-before the store can read it, so a deny assignment or a rule holding one does not apply in checks, as before this
-release. A value it sorts after now (SQLite text, a PostgreSQL `infinity`, a MySQL zero day in a later month) stays
-live in lists filtered by the policy plan (`rbac.assignment`) and in PostgreSQL row level security until it is
-repaired. The queries above list both kinds: repair them before upgrading.
+The stores' SQL filter keeps such a value whatever the database's order makes of it (a PostgreSQL `-infinity`, a
+MySQL `0000-00-00` or zero month, SQLite text such as `''`), so the model refuses the row as above instead of a deny
+assignment, a rule or a membership holding it being dropped, on SQLite, PostgreSQL, PGlite and MySQL alike. Lists
+filtered by the policy plan (`rbac.assignment`) and PostgreSQL row level security read such a row the same way: it
+grants nothing, and a deny role it assigns stays in force. The SQLite values the query above over-lists are read by
+the converter but not by SQL: the stores' filter keeps them for the converter to judge, and those two SQL forms count
+no grant and keep every deny that holds one. The admin user listing's role filter (`users-http`) still compares
+`expires_at` in SQL and lists such a holder until the row is repaired. Row level security policies are SQL that
+`authz:rls --out <dir>` wrote into a migration, so they keep comparing `expires_at` as before until they are replaced.
+A regenerated migration creates the policies again and fails on a database that holds them (`policy … already
+exists`): run the `DROP POLICY IF EXISTS …` statements of the old `AuthzRls_*` migration's `DOWN` list, then
+`migrate-up` with the new one, in one deployment step (in between the tables keep `FORCE ROW LEVEL SECURITY` with no
+policy and show no rows).
 
 ### Migrations
 

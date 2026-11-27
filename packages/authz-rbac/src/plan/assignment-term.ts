@@ -6,6 +6,7 @@ import { Wrapper, outer } from '@spinajs/orm';
 import type { ISelectQueryBuilder, IWhereBuilder } from '@spinajs/orm';
 
 import { parsePrincipalSubjectKey } from '../model/sets/keys.js';
+import { readableExpiry } from '../stores/queries.js';
 import { AUTHZ_ASSIGNMENT_TABLE } from '../stores/tables.js';
 import { RBAC_ASSIGNMENT_PLAN_OP, parseRbacPlanArgs, rbacPlanArgs } from './args.js';
 import { rbacAssignmentSql } from './assignment-sql.js';
@@ -18,11 +19,24 @@ const GLOBAL_TYPE = '$global';
 
 const qualified = (r: RbacPlanRole): boolean => r.scopeTypes !== undefined || r.tag !== undefined || r.relation !== undefined;
 
-/** Not expired, by the database's clock. */
-function live(q: Where, row: PlanRow): void {
+/** Not expired, by the database's clock. An unreadable expiry ends a grant and keeps a deny in force (fail closed both ways). */
+function live(q: ISelectQueryBuilder<unknown>, alias: string, row: PlanRow, deny: boolean): void {
   const now = row.now();
+  const check = readableExpiry(q, `${alias}.expires_at`);
   q.where(function () {
-    this.whereNull('expires_at').orWhere('expires_at', '>', now);
+    if (check === undefined || deny) {
+      this.whereNull('expires_at').orWhere('expires_at', '>', now);
+      if (check !== undefined)
+        this.orWhere(function () {
+          this.whereNotNull('expires_at').whereNot(function () {
+            this.where(check);
+          });
+        });
+      return;
+    }
+    this.whereNull('expires_at').orWhere(function () {
+      this.where('expires_at', '>', now).where(check);
+    });
   });
 }
 
@@ -84,7 +98,7 @@ function assignments(row: PlanRow, args: RbacAssignmentPlanArgs, branch: Branch,
   else if (branch === 'global') s.where('scope_type', GLOBAL_TYPE);
   else s.whereColumn('scope_type', '=', outer('ancestor_type')).whereColumn('scope_id', '=', outer('ancestor_id'));
   s.whereIn('subject_key', [...args.subjects]);
-  live(s, row);
+  live(s, 'authz_s', row, args.deny === true);
   withRoles(s);
   if (branch !== 'ancestor') return s;
   const a = row.from(row.ancestorTable, 'authz_a');
@@ -102,7 +116,7 @@ function denyShape(where: Where, row: PlanRow, args: RbacAssignmentPlanArgs): vo
     .whereColumn('ancestor_id', '=', outer('scope_id'));
   const d = row.from(AUTHZ_ASSIGNMENT_TABLE, 'authz_d');
   d.whereIn('subject_key', [...args.subjects]).whereIn('role', [...new Set(args.roles.map((r) => r.role))]);
-  live(d, row);
+  live(d, 'authz_d', row, args.deny === true);
   d.where(function () {
     this.where(function () {
       this.where('scope_type', row.type).whereColumn('scope_id', '=', outer(row.id));

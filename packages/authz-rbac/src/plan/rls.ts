@@ -8,7 +8,7 @@ import type { CompiledGrant } from '../model/grants.js';
 import { RBAC_ASSIGNMENT_PLAN_OP, rbacPlanArgs } from './args.js';
 import type { RbacPlanRole } from './args.js';
 
-const term = (roles: readonly RbacPlanRole[]): PlanTerm => Object.freeze({ op: RBAC_ASSIGNMENT_PLAN_OP, args: rbacPlanArgs({ subjects: [], roles, global: true }) });
+const term = (roles: readonly RbacPlanRole[], deny = false): PlanTerm => Object.freeze({ op: RBAC_ASSIGNMENT_PLAN_OP, args: rbacPlanArgs({ subjects: [], roles, global: true, ...(deny ? { deny: true as const } : {}) }) });
 
 function intersect(a: readonly string[] | undefined, b: readonly string[] | undefined): readonly string[] | undefined {
   if (a === undefined) return b;
@@ -54,7 +54,7 @@ export function rbacRlsPlan(model: RbacModel, permission: PermissionDef, type: R
   for (const role of graph.names) for (const e of roleEntries(model, role, permission, type)) entries.set(JSON.stringify(e), e);
   const denying = graph.names.filter((r) => grants.denies(r, permission.name)).map((r) => ({ role: r }));
   if (entries.size === 0 && denying.length === 0) return Object.freeze({ kind: 'abstain' });
-  return Object.freeze({ kind: 'terms', permit: entries.size === 0 ? [] : [term([...entries.values()])], deny: denying.length === 0 ? [] : [term(denying)] });
+  return Object.freeze({ kind: 'terms', permit: entries.size === 0 ? [] : [term([...entries.values()])], deny: denying.length === 0 ? [] : [term(denying, true)] });
 }
 
 @Singleton()

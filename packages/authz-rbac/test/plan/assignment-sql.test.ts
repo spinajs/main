@@ -1,6 +1,6 @@
 import type { PlanRow } from '@spinajs/authz-orm/plan';
 import { rlsContext } from '@spinajs/authz-orm';
-import { Wrapper } from '@spinajs/orm';
+import { QueryContext, Wrapper } from '@spinajs/orm';
 import type { IWhereBuilder } from '@spinajs/orm';
 import * as chai from 'chai';
 import 'mocha';
@@ -126,6 +126,15 @@ describe('rbac.assignment as RLS SQL (postgres)', function () {
 
   it('counts an assignment at the bare type of an ancestor for every row under it, as checks do', async () => {
     expect(await rls(['user:dave'], args({ roles: [{ role: 'auditor' }] }))).to.deep.equal([1, 2, 3, 5, 6]);
+  });
+
+  it('drops a permit assignment whose expires_at is infinity and keeps such a deny in force, as the query-builder form', async () => {
+    await db.driver.insert().into(AUTHZ_ASSIGNMENT_TABLE).values([assignment('u1', 'user:frank', 'editor', 'project', 'p1'), assignment('u2', 'user:frank', 'blocked', 'org', 'o1')]);
+    await rawQuery(db.driver, `UPDATE ${AUTHZ_ASSIGNMENT_TABLE} SET expires_at = 'infinity' WHERE id IN ('u1', 'u2')`, [], QueryContext.Update);
+
+    expect(await rls(['user:frank'], args())).to.deep.equal([]);
+    expect(await rls(['user:frank'], args({ roles: [{ role: 'blocked' }], global: true, deny: true }))).to.deep.equal([1, 2, 5]);
+    expect(await rls(['user:frank'], args({ roles: [{ role: 'blocked' }], global: true, deny: true }))).to.deep.equal(await builder(rbacPlanArgs({ ...args({ roles: [{ role: 'blocked' }], global: true, deny: true }), subjects: ['user:frank'] })));
   });
 
   it("reads a tag from the granting assignment or the principal's live tag set at $global", async () => {

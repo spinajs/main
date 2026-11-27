@@ -89,7 +89,7 @@ describe('authz-rbac listPlan (design §6.2)', () => {
 
   it('a $global deny is deny-all; a scoped deny rides on all', async () => {
     expect(await plan([row('v', 'viewer'), row('b', 'blocked')])).to.deep.equal({ kind: 'deny-all', reason: { code: 'role_denied', role: 'blocked', priority: DEFAULT_DENY_PRIORITY.role_denied } });
-    expect(await plan([row('v', 'viewer'), row('b', 'blocked', P2)])).to.deep.equal({ kind: 'all', deny: [assignmentTerm([{ role: 'blocked' }], { global: true })] });
+    expect(await plan([row('v', 'viewer'), row('b', 'blocked', P2)])).to.deep.equal({ kind: 'all', deny: [assignmentTerm([{ role: 'blocked' }], { global: true, deny: true })] });
   });
 
   it('owner from a $global role is a relation.owner term; from a scoped one a role entry with relation', async () => {
@@ -151,7 +151,7 @@ describe('authz-rbac listPlan (design §6.2)', () => {
 
   it('a ceiling keeps its roles only, never drops a deny', async () => {
     const capped = withCeiling(alice, { roles: ['viewer'] });
-    expect(await plan([row('v', 'viewer', P1), row('e', 'editor', P2), row('b', 'blocked', O1)], { principal: capped })).to.deep.equal({ kind: 'terms', permit: [assignmentTerm([{ role: 'viewer' }])], deny: [assignmentTerm([{ role: 'blocked' }], { global: true })] });
+    expect(await plan([row('v', 'viewer', P1), row('e', 'editor', P2), row('b', 'blocked', O1)], { principal: capped })).to.deep.equal({ kind: 'terms', permit: [assignmentTerm([{ role: 'viewer' }])], deny: [assignmentTerm([{ role: 'blocked' }], { global: true, deny: true })] });
   });
 
   it('sets are subjects of the term, nested ones too', async () => {

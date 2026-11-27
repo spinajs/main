@@ -90,7 +90,7 @@ export function rbacListPlan(s: RbacState): ModelListPlan {
 
   if (!all && entries.size === 0 && relations.size === 0) return Object.freeze({ kind: 'abstain' });
   const denyRoles = sortedUnique(denying.map((l) => l.role));
-  const deny: PlanTerm[] = denyRoles.length === 0 ? [] : [term(RBAC_ASSIGNMENT_PLAN_OP, rbacPlanArgs({ ...holders(s, true), roles: denyRoles.map((role) => ({ role })), global: true }))];
+  const deny: PlanTerm[] = denyRoles.length === 0 ? [] : [term(RBAC_ASSIGNMENT_PLAN_OP, rbacPlanArgs({ ...holders(s, true), roles: denyRoles.map((role) => ({ role })), global: true, deny: true }))];
   if (all) return finish(deny.length === 0 ? { kind: 'all' } : { kind: 'all', deny: Object.freeze(deny) });
   const permit: PlanTerm[] = [...(entries.size > 0 ? [term(RBAC_ASSIGNMENT_PLAN_OP, rbacPlanArgs({ ...holders(s, false, bound), roles: [...entries.values()], global: false }))] : []), ...[...relations].sort(compareStrings).map((r) => relationTerm(r, input.request.principal))];
   return finish({ kind: 'terms', permit: Object.freeze(permit), deny: Object.freeze(deny) });
