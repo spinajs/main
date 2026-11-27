@@ -140,6 +140,8 @@ describe('AncestorObserver', function () {
         query.values({ id: 'i2', code: 'k', project_id: 'p2' }).onDuplicate('code').update(['project_id']);
         await query;
         expect((await ancestorLinks(driver)).filter((l) => l.startsWith('item:'))).to.deep.equal(['item:i1>org:o2@2', 'item:i1>project:p2@1']);
+        await ticks();
+        expect(published.map((p) => p.change.tags), 'the upsert moved item i1').to.deep.equal([['scope:item:i1']]);
       });
 
       it('an upsert the capture cannot key still rebuilds the rows it names', async () => {
@@ -151,6 +153,8 @@ describe('AncestorObserver', function () {
         query.values({ id: 'i1', code: 'k', kind: 'a', project_id: 'p2' }).onDuplicate(['code', 'kind']).update(['project_id']);
         await query;
         expect((await ancestorLinks(driver)).filter((l) => l.startsWith('item:'))).to.deep.equal(['item:i1>org:o2@2', 'item:i1>project:p2@1']);
+        await ticks();
+        expect(published.map((p) => p.change.tags), 'the upsert moved item i1').to.deep.equal([['scope:item:i1']]);
       });
 
       it('a replace that deletes a row through a unique column forgets it as a delete does', async function () {

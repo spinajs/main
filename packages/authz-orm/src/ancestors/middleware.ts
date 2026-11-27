@@ -11,6 +11,7 @@ import type { ModelClass, ResourceEntry } from '../registry.js';
 import { cleanupDeleted } from './cleanup.js';
 import { AncestorRecord } from './record.js';
 import { rebuildFrom, removeNodes } from './rebuild.js';
+import { movedRows, publishMoved } from './moved.js';
 
 interface Work {
   readonly kind: 'insert' | 'update' | 'delete';
@@ -64,14 +65,23 @@ export class AncestorObserver extends WriteObserver {
     if (write.unknownKeys) {
       this.insertWithoutIds(work);
       // An upsert still names the keys of rows it may have moved under another parent; access must not keep the old one.
-      if (write.kind === 'insert') await rebuildFrom(write.driver, refsOf(upsertKeys(write.query, work.entry.idColumn)));
+      if (write.kind === 'insert') {
+        const named = refsOf(upsertKeys(write.query, work.entry.idColumn));
+        await rebuildFrom(write.driver, named);
+        // The capture read no rows here, so a move cannot be told from an unchanged parent.
+        if (write.query.Update || write.query.Replace) await publishMoved(write.driver, named);
+      }
       return;
     }
     if (work.kind === 'update') {
       await rebuildFrom(write.driver, refsOf(write.rows.map((r) => r.id)));
+      await publishMoved(write.driver, refsOf(movedRows(work.entry, write.rows)));
       return;
     }
-    if (work.kind === 'insert') await rebuildFrom(write.driver, refsOf(write.rows.filter((r) => r.after !== undefined).map((r) => r.id)));
+    if (work.kind === 'insert') {
+      await rebuildFrom(write.driver, refsOf(write.rows.filter((r) => r.after !== undefined).map((r) => r.id)));
+      await publishMoved(write.driver, refsOf(movedRows(work.entry, write.rows)));
+    }
     // A delete, or the rows a replace deleted through a unique column.
     const gone = refsOf(write.rows.filter((r) => r.after === undefined).map((r) => r.id));
     await removeNodes(write.driver, gone);

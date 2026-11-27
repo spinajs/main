@@ -7,7 +7,7 @@ import type { OrmDriver } from '@spinajs/orm';
 import { changeBusOf, domainContainer, ormDomain, recordAudit } from '../host.js';
 import { afterCommit } from './commit.js';
 
-const SYSTEM_REF = Object.freeze({ type: SYSTEM.type, id: SYSTEM.id });
+export const SYSTEM_REF =Object.freeze({ type: SYSTEM.type, id: SYSTEM.id });
 export const RESOURCE_DELETED = 'resource-deleted';
 const DELETED = Object.freeze({ actor: SYSTEM, reason: RESOURCE_DELETED });
 
