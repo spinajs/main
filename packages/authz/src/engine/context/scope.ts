@@ -3,7 +3,7 @@ import { AuthzConfigError } from '../../contracts/errors.js';
 import type { ResourceRef } from '../../contracts/principal.js';
 import { GLOBAL, resourceKey } from '../../contracts/resource.js';
 import { mergeAttributes } from '../attributes.js';
-import { l1Key, memo } from '../context.js';
+import { l1Key } from '../context.js';
 import type { MaybePromise } from '../context.js';
 import { isThenable, swallow } from '../run.js';
 import { copyRef, describeError } from '../vote.js';
@@ -14,9 +14,39 @@ import { GLOBAL_ANCESTORS, GLOBAL_TYPE } from '../types.js';
 import type { Attributes, Engine, LoadedAttributes, NodeLoad } from '../types.js';
 import { refuseLateType } from './late-type.js';
 
-/** Step 5 and ctx.ancestors: memoised in L1; sync for refs that need no IO. */
+// L1 keeps a read only once it settled: inside a transaction whose savepoints take turns, a second
+// caller awaiting a read the first one started would wait for a statement queued behind its own savepoint.
+class KnownAncestors {
+  constructor(readonly list: readonly ResourceRef[] | null, readonly generation: number) {}
+}
+
+class KnownAttributes {
+  constructor(readonly load: NodeLoad, readonly generation: number) {}
+}
+
+const ancestorsKey = (engine: Engine, ref: ResourceRef): string => l1Key('ancestors', engine.domain, resourceKey(ref));
+
+function knownAncestors(engine: Engine, ref: ResourceRef, scope: Map<string, unknown>): KnownAncestors | undefined {
+  const known = scope.get(ancestorsKey(engine, ref));
+  return known instanceof KnownAncestors && known.generation === engine.generation ? known : undefined;
+}
+
+/** True when L1 holds the ancestors of `ref`, read since the last invalidate. */
+export const knowsAncestors = (engine: Engine, ref: ResourceRef, scope: Map<string, unknown>): boolean => knownAncestors(engine, ref, scope) !== undefined;
+
+/** Keeps a read that started in `generation`, unless an invalidate came since. */
+export function keepAncestors(engine: Engine, ref: ResourceRef, scope: Map<string, unknown>, list: readonly ResourceRef[] | null, generation: number): readonly ResourceRef[] | null {
+  if (engine.generation === generation) scope.set(ancestorsKey(engine, ref), new KnownAncestors(list, generation));
+  return list;
+}
+
+/** Step 5 and ctx.ancestors: kept in L1 once read, a read in flight is not shared; sync for refs that need no IO. */
 export function ancestorsOf(engine: Engine, ref: ResourceRef, scope: Map<string, unknown>): MaybePromise<readonly ResourceRef[] | null> {
-  return memo(scope, l1Key('ancestors', engine.domain, resourceKey(ref)), () => loadAncestors(engine, ref));
+  const known = knownAncestors(engine, ref, scope);
+  if (known) return known.list;
+  const generation = engine.generation;
+  const loaded = loadAncestors(engine, ref);
+  return isThenable(loaded) ? Promise.resolve(loaded).then((list) => keepAncestors(engine, ref, scope, list, generation)) : keepAncestors(engine, ref, scope, loaded, generation);
 }
 
 export function loadAncestors(engine: Engine, ref: ResourceRef): MaybePromise<readonly ResourceRef[] | null> {
@@ -42,24 +72,28 @@ export function attributesOf(engine: Engine, ref: ResourceRef, scope: Map<string
   return nodeLoad(engine, ref, scope).result.then((l) => l.attributes);
 }
 
+/** A caller that finds no settled load of `ref` starts its own; only a clean one is kept, so a failed or timed-out read is tried again. */
 export function nodeLoad(engine: Engine, ref: ResourceRef, scope: Map<string, unknown>): NodeLoad {
-  return memo(scope, l1Key('attributes', engine.domain, resourceKey(ref)), () => {
-    const load = { ref, timeoutLogged: false, degraded: false } as { -readonly [K in keyof NodeLoad]: NodeLoad[K] };
-    // The flag is set before any awaiting model resumes, so a vote built on a degraded load is never stored.
-    load.result = loadAttributes(engine, ref, load).then(
-      (l) => {
-        if (l.degraded) load.degraded = true;
-        return l;
-      },
-      (e: unknown) => {
-        load.degraded = true;
-        throw e;
-      },
-    );
-    swallow(load.result);
-    loads(engine, scope).push(load);
-    return load;
-  });
+  const key = l1Key('attributes', engine.domain, resourceKey(ref));
+  const known = scope.get(key);
+  if (known instanceof KnownAttributes && known.generation === engine.generation) return known.load;
+  const generation = engine.generation;
+  const load = { ref, timeoutLogged: false, degraded: false } as { -readonly [K in keyof NodeLoad]: NodeLoad[K] };
+  // The flag is set before any awaiting model resumes, so a vote built on a degraded load is never stored.
+  load.result = loadAttributes(engine, ref, load).then(
+    (l) => {
+      if (l.degraded) load.degraded = true;
+      else if (engine.generation === generation) scope.set(key, new KnownAttributes(load, generation));
+      return l;
+    },
+    (e: unknown) => {
+      load.degraded = true;
+      throw e;
+    },
+  );
+  swallow(load.result);
+  loads(engine, scope).push(load);
+  return load;
 }
 
 /**
