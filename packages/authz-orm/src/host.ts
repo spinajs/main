@@ -1,4 +1,4 @@
-import { AUTHZ_AUDIT_SERVICE_KEY, AuthzDomains, DecisionAudit, DefaultAuthzDomains, authzStorage, configuredLineage, engineLog, pickNamed, readDomainConfig, thrownError } from '@spinajs/authz';
+import { AUTHZ_AUDIT_SERVICE_KEY, AUTHZ_BUS_SERVICE_KEY, AuthzDomains, ChangeBus, DecisionAudit, DefaultAuthzDomains, authzStorage, configuredLineage, engineLog, pickNamed, readDomainConfig, thrownError } from '@spinajs/authz';
 import type { DomainConfig, AuthzLog, Principal, ResourceType } from '@spinajs/authz';
 import { Configuration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
@@ -49,6 +49,13 @@ async function auditOf(domain: string): Promise<DecisionAudit | undefined> {
   const booted = bootedDomains(domain);
   if (booted) return booted.audit(domain);
   return pickNamed(domainContainer(domain), DecisionAudit, domainConfig(domain).audit.service, AUTHZ_AUDIT_SERVICE_KEY, 'authz-orm');
+}
+
+/** The ChangeBus the domain's service picked at boot, which it listens on; before that boot, picked the way the host picks it. */
+export async function changeBusOf(domain: string): Promise<ChangeBus | undefined> {
+  const booted = bootedDomains(domain);
+  if (booted) return booted.bus(domain);
+  return pickNamed(domainContainer(domain), ChangeBus, domainConfig(domain).bus.service, AUTHZ_BUS_SERVICE_KEY, 'authz-orm');
 }
 
 /** Fire and forget: auditing never fails the query. */

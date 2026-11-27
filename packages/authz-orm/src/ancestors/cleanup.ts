@@ -1,11 +1,10 @@
-import { AuthzAdminBackend, ChangeBus, SYSTEM, forgetScopesInTx, pickNamed } from '@spinajs/authz';
+import { AuthzAdminBackend, SYSTEM, forgetScopesInTx, pickNamed } from '@spinajs/authz';
 import type { ResourceRef } from '@spinajs/authz';
 import { Configuration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
-import type { IContainer } from '@spinajs/di';
 import type { OrmDriver } from '@spinajs/orm';
 
-import { domainContainer, ormDomain, recordAudit } from '../host.js';
+import { changeBusOf, domainContainer, ormDomain, recordAudit } from '../host.js';
 import { afterCommit } from './commit.js';
 
 const SYSTEM_REF = Object.freeze({ type: SYSTEM.type, id: SYSTEM.id });
@@ -18,9 +17,9 @@ export function adminBackendName(): string {
   return typeof v === 'string' && v !== '' ? v : 'MemoryAuthzAdminBackend';
 }
 
-function publishAndAudit(domain: string, container: IContainer, deleted: readonly ResourceRef[], tags: readonly string[]): Promise<void> {
+function publishAndAudit(domain: string, deleted: readonly ResourceRef[], tags: readonly string[]): Promise<void> {
   return (async () => {
-    const bus = container.hasRegistered(ChangeBus) ? ((await container.resolve(ChangeBus)) as ChangeBus) : undefined;
+    const bus = await changeBusOf(domain);
     await bus?.publish(Object.freeze({ domain, tags: Object.freeze([...tags]), actor: SYSTEM_REF, at: new Date() }));
     for (const resource of deleted) recordAudit(domain, { kind: 'system', principal: SYSTEM_REF, resource, reason: RESOURCE_DELETED });
   })();
@@ -38,7 +37,7 @@ export async function cleanupDeleted(driver: OrmDriver, deleted: readonly Resour
   const backendName = adminBackendName();
   if (backendName === 'DbAuthzAdminBackend') {
     const { tags } = await forgetScopesInTx(container, deleted, { driver }, DELETED);
-    await afterCommit(driver, 'publishing the change', () => publishAndAudit(domain, container, deleted, tags));
+    await afterCommit(driver, 'publishing the change', () => publishAndAudit(domain, deleted, tags));
     return;
   }
   await afterCommit(driver, `forgetting the deleted scopes through ${backendName}`, async () => {
@@ -48,6 +47,6 @@ export async function cleanupDeleted(driver: OrmDriver, deleted: readonly Resour
       await backend.bumpVersion(domain, tx);
       return out;
     });
-    await publishAndAudit(domain, container, deleted, tags);
+    await publishAndAudit(domain, deleted, tags);
   });
 }

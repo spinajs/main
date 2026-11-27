@@ -223,6 +223,27 @@ describe('AncestorObserver', function () {
         expect(published[0].change.tags).to.include.members(['test:project:p1', 'scope:project:p1']);
       });
 
+      it('publishes a delete on the bus its domain booted with, not on the last registered one', async () => {
+        const picked = new RecordingChangeBus();
+        const last = new RecordingChangeBus();
+        undo.push(testHost.registerInRoot(ChangeBus, testHost.named('PickedBus', testHost.instance(picked))));
+        undo.push(testHost.registerInRoot(ChangeBus, testHost.instance(last)));
+        testHost.config().set(['authz', 'bus', 'service'], 'PickedBus');
+        undo.push(() => testHost.config().unset(['authz', 'bus', 'service']));
+        await testHost.resetRoot();
+        const domains = await testHost.domains();
+        await domains.service('root');
+
+        await Task.insert({ id: 1, title: 'a', project_id: 'p1' });
+        await Project.destroy('p1');
+        await ticks();
+
+        expect(domains.bus('root'), 'root booted with the named bus').to.equal(picked);
+        expect(picked.published).to.have.length(1);
+        expect(picked.published[0].tags).to.include.members(['test:project:p1', 'scope:project:p1']);
+        expect(last.published, 'the last registered bus hears nothing').to.deep.equal([]);
+      });
+
       it('a rolled-back delete keeps the rows and publishes nothing', async () => {
         await Task.insert({ id: 1, title: 'a', project_id: 'p1' });
         const before = await ancestorLinks(driver);

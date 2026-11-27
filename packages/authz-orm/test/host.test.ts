@@ -1,12 +1,12 @@
 import * as chai from 'chai';
 import 'mocha';
 
-import { DecisionAudit, SYSTEM, authzStorage, runWithPrincipal } from '@spinajs/authz';
-import { RecordingAudit, testHost } from '@spinajs/authz-testing';
+import { ChangeBus, DecisionAudit, SYSTEM, authzStorage, runWithPrincipal } from '@spinajs/authz';
+import { RecordingAudit, RecordingChangeBus, testHost } from '@spinajs/authz-testing';
 import { DI } from '@spinajs/di';
 
 import { marksOf, setMarks } from '../src/marker.js';
-import { auditUnscoped, domainConfig, domainContainer, ormDomain, storageUnscoped } from '../src/host.js';
+import { auditUnscoped, changeBusOf, domainConfig, domainContainer, ormDomain, storageUnscoped } from '../src/host.js';
 
 const expect = chai.expect;
 const tick = () => new Promise((r) => setImmediate(r));
@@ -98,5 +98,16 @@ describe('authz-orm host helpers', function () {
     auditUnscoped('root', SYSTEM, 'again', 'task');
     await tick();
     expect(lastNamed()?.of('unscoped')).to.have.length(1);
+  });
+
+  it('changeBusOf: before the boot the bus authz.bus.service names, after it the one the domain booted with', async () => {
+    class NamedBus extends RecordingChangeBus {}
+    testHost.registerInRoot(ChangeBus, NamedBus);
+    testHost.registerInRoot(ChangeBus, testHost.instance(new RecordingChangeBus()));
+    testHost.config().set(['authz', 'bus', 'service'], 'NamedBus');
+    expect(await changeBusOf('root')).to.be.instanceOf(NamedBus);
+    const domains = await testHost.domains();
+    await domains.service('root');
+    expect(await changeBusOf('root')).to.equal(domains.bus('root'));
   });
 });
