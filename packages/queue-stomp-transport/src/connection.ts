@@ -347,13 +347,6 @@ export class StompQueueClient extends QueueClient {
     const broker = loggableEndpoint(host);
     this.Log.info({ host: broker, clientId: this.ClientId }, 'Connecting to STOMP queue at ${host} with client-id: ${clientId} ...');
 
-    // `ws` instead of the `websocket` package's W3C shim: the shim swallows the
-    // connect-failure reason ( ECONNREFUSED / ETIMEDOUT / 401 / TLS ) and hands stompjs an
-    // event whose `target` walks into the TLSSocket, so nothing about WHY a connection
-    // failed ever reached the log. `ws` surfaces the real Error in `ErrorEvent.error`.
-    // The factory runs inside stompjs's un-awaited connect loop, where a throw would be an unhandled rejection with no
-    // socket close: resolve() would never settle and no reconnect would be scheduled.
-    const openSocket = typeof appFactory === 'function' ? appFactory : () => this.createWebSocket();
     let socketFailed: (err: unknown) => void;
 
     this.Client = this.createClient({
@@ -371,10 +364,17 @@ export class StompQueueClient extends QueueClient {
       // additional options ( may override any of the defaults above )
       ...this.Options.options,
 
-      // after the spread, so an application's options.webSocketFactory is wrapped too
+      // `ws` instead of the `websocket` package's W3C shim: the shim swallows the
+      // connect-failure reason ( ECONNREFUSED / ETIMEDOUT / 401 / TLS ) and hands stompjs an
+      // event whose `target` walks into the TLSSocket, so nothing about WHY a connection
+      // failed ever reached the log. `ws` surfaces the real Error in `ErrorEvent.error`.
+      // After the spread, so that an application's options.webSocketFactory is wrapped too: the factory runs inside
+      // stompjs's un-awaited connect loop, where a throw is an unhandled rejection with no socket close, so resolve()
+      // would never settle and no reconnect would be scheduled.
       webSocketFactory: () => {
         try {
-          return openSocket();
+          // stompjs calls an application's factory with its client as `this`
+          return typeof appFactory === 'function' ? appFactory.call(this.Client) : this.createWebSocket();
         } catch (err) {
           socketFailed(err);
           return closedSocket();

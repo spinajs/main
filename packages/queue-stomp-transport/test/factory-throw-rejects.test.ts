@@ -238,6 +238,26 @@ describe('stomp transport - a websocket factory that throws rejects resolve()', 
     });
   }
 
+  it('calls an options.webSocketFactory with the stompjs client as this, as stompjs does', async () => {
+    const port = await closedPort();
+    const receivers: unknown[] = [];
+    const client = new ProbeClient(
+      options(brokerUrl(port), {
+        options: {
+          webSocketFactory: function (this: unknown): Stomp.IStompSocket {
+            receivers.push(this);
+            throw new Error('not dialled');
+          },
+        },
+      }),
+    );
+    await settledWithin(client.resolve(), 1000);
+    await settledWithin(client.dispose(), 1000);
+
+    expect(receivers).to.have.length(1);
+    expect(receivers[0]).to.equal(client.stomp);
+  });
+
   it('logs a factory that throws on a reconnect, without quoting the broker, and reconnects again', async () => {
     const listener = await stompListener();
     let attempts = 0;
