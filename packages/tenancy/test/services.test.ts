@@ -3,6 +3,7 @@ import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 import { requestScope } from '@spinajs/authz';
 import { InvalidArgument } from '@spinajs/exceptions';
+import { SYSTEM, UNATTENDED } from '@spinajs/principal';
 import type { Principal } from '@spinajs/principal';
 import type { TestApp } from '@spinajs/testing';
 import {
@@ -94,6 +95,101 @@ const reasonOf = (work: Promise<unknown>): Promise<string> =>
     (err: unknown) => (err instanceof TenantUnavailable ? err.reason : `unexpected ${String(err)}`),
   );
 
+async function refusalOf(work: Promise<unknown>): Promise<TenantUnavailable> {
+  const error = await work.then(
+    () => undefined,
+    (err: unknown) => err,
+  );
+  if (!(error instanceof TenantUnavailable)) throw new Error(`expected TenantUnavailable, got ${String(error)}`);
+  return error;
+}
+
+/** The callers of the review's refusal table, by name. */
+const callers = (member: Principal, nonMember: Principal): [string, Principal | undefined][] => [
+  ['no principal', undefined],
+  ['anonymous', anonymous],
+  ['UNATTENDED', UNATTENDED],
+  ['SYSTEM, not authenticated', { ...SYSTEM, authenticated: false }],
+  ['member', member],
+  ['non-member', nonMember],
+  ['SYSTEM', SYSTEM],
+];
+
+const visitors: Principal[] = [anonymous, UNATTENDED, { ...SYSTEM, authenticated: false }];
+
+/** An application rule that closes acme to visitors; it records which member was asked, for whom. */
+class AcmeClosedToVisitorsAccess extends PrincipalAttributeTenantAccess {
+  public readonly asked: string[] = [];
+
+  public override canEnter(principal: Principal, tenant: TenantRecord): Promise<boolean> {
+    this.asked.push(`canEnter ${principal.id}@${tenant.id}`);
+    return super.canEnter(principal, tenant);
+  }
+
+  // No `override`: the same class must compile against the base, where the member does not exist, for the red run.
+  public admitsVisitor(principal: Principal, tenant: TenantRecord): Promise<boolean> {
+    this.asked.push(`admitsVisitor ${principal.id}@${tenant.id}`);
+    return Promise.resolve(tenant.id !== 'acme');
+  }
+}
+
+const storeDown = new Error('member store down');
+
+class FailingTenantAccess extends TenantAccess {
+  public canEnter(): Promise<boolean> {
+    return Promise.reject(storeDown);
+  }
+
+  public admitsVisitor(): Promise<boolean> {
+    return Promise.reject(storeDown);
+  }
+}
+
+// Application rules written against canEnter alone, in the six natural shapes: super first or last or none, with a user
+// lookup that answers undefined for an unknown id (lenient) or throws (strict). Asked for a visitor, four of them refuse or throw.
+interface DirectoryUser {
+  readonly tenants: readonly string[];
+  readonly active: boolean;
+  readonly support: boolean;
+}
+const directory = new Map<string, DirectoryUser>([['alice', { tenants: ['acme'], active: true, support: false }]]);
+function userOf(id: string): Promise<DirectoryUser> {
+  const found = directory.get(id);
+  return found === undefined ? Promise.reject(new Error(`no user ${id}`)) : Promise.resolve(found);
+}
+
+class SuperFirstLenientAccess extends PrincipalAttributeTenantAccess {
+  public override async canEnter(principal: Principal, tenant: TenantRecord): Promise<boolean> {
+    return (await super.canEnter(principal, tenant)) && directory.get(principal.id)?.active === true;
+  }
+}
+class SuperFirstStrictAccess extends PrincipalAttributeTenantAccess {
+  public override async canEnter(principal: Principal, tenant: TenantRecord): Promise<boolean> {
+    return (await super.canEnter(principal, tenant)) && (await userOf(principal.id)).active;
+  }
+}
+class SuperLastLenientAccess extends PrincipalAttributeTenantAccess {
+  public override canEnter(principal: Principal, tenant: TenantRecord): Promise<boolean> {
+    return directory.get(principal.id)?.support === true ? Promise.resolve(true) : super.canEnter(principal, tenant);
+  }
+}
+class SuperLastStrictAccess extends PrincipalAttributeTenantAccess {
+  public override async canEnter(principal: Principal, tenant: TenantRecord): Promise<boolean> {
+    return (await userOf(principal.id)).support || super.canEnter(principal, tenant);
+  }
+}
+class FromScratchLenientAccess extends TenantAccess {
+  public canEnter(principal: Principal, tenant: TenantRecord): Promise<boolean> {
+    return Promise.resolve(directory.get(principal.id)?.tenants.includes(tenant.id) === true);
+  }
+}
+class FromScratchStrictAccess extends TenantAccess {
+  public async canEnter(principal: Principal, tenant: TenantRecord): Promise<boolean> {
+    return (await userOf(principal.id)).tenants.includes(tenant.id);
+  }
+}
+const existingRules = [SuperFirstLenientAccess, SuperFirstStrictAccess, SuperLastLenientAccess, SuperLastStrictAccess, FromScratchLenientAccess, FromScratchStrictAccess];
+
 describe('tenancy services', () => {
   let app: TestApp;
 
@@ -163,11 +259,86 @@ describe('tenancy services', () => {
       }
     });
 
-    it('asks TenantAccess for an authenticated principal only', async () => {
-      expect(await reasonOf(admitTenant('acme', user('alice', ['acme'])))).to.eq('admitted');
-      expect(await reasonOf(admitTenant('acme', user('bob')))).to.eq('forbidden');
-      expect(await reasonOf(admitTenant('acme', anonymous))).to.eq('admitted');
-      expect(await reasonOf(admitTenant('acme'))).to.eq('admitted');
+    it('admits every caller that is not authenticated through the attribute rule, and asks it for the others', async () => {
+      const outcomes: [string, string][] = [];
+      for (const [name, principal] of callers(user('alice', ['acme']), user('bob', ['globex']))) outcomes.push([name, await reasonOf(admitTenant('acme', principal))]);
+
+      expect(Object.fromEntries(outcomes)).to.deep.eq({
+        'no principal': 'admitted',
+        anonymous: 'admitted',
+        UNATTENDED: 'admitted',
+        'SYSTEM, not authenticated': 'admitted',
+        member: 'admitted',
+        'non-member': 'forbidden',
+        SYSTEM: 'forbidden',
+      });
+    });
+  });
+
+  describe('admitTenant with a TenantAccess of the application', () => {
+    async function appWith(rule: new () => TenantAccess): Promise<TenantAccess> {
+      app = await tenancyApp({ registry: 'MemoryTenantRegistry', access: rule.name }, (container) => container.register(rule).as(TenantAccess));
+      const registry = await memory();
+      registry.add({ id: 'acme' });
+      registry.add({ id: 'beta' });
+      return tenantAccess();
+    }
+
+    async function closedToVisitors(): Promise<AcmeClosedToVisitorsAccess> {
+      const access = await appWith(AcmeClosedToVisitorsAccess);
+      if (!(access instanceof AcmeClosedToVisitorsAccess)) throw new Error('expected the application rule');
+      return access;
+    }
+
+    it('lets admitsVisitor refuse a visitor with the refusal a non-member gets, per tenant, without asking canEnter', async () => {
+      const access = await closedToVisitors();
+      const visitorRefusal = await refusalOf(admitTenant('acme', anonymous));
+      const nonMemberRefusal = await refusalOf(admitTenant('acme', user('bob')));
+
+      expect(visitorRefusal.reason).to.eq('forbidden');
+      expect(visitorRefusal.message).to.eq('anonymous:anonymous may not enter tenant "acme"');
+      expect(nonMemberRefusal.reason).to.eq('forbidden');
+      expect(nonMemberRefusal.message).to.eq('user:bob may not enter tenant "acme"');
+      expect((await admitTenant('beta', anonymous)).id).to.eq('beta');
+      expect(access.asked).to.deep.eq(['admitsVisitor anonymous@acme', 'canEnter bob@acme', 'admitsVisitor anonymous@beta']);
+    });
+
+    it('asks admitsVisitor for every principal that is not authenticated, and canEnter for every authenticated one, once each', async () => {
+      const access = await closedToVisitors();
+      for (const visitor of visitors) await reasonOf(admitTenant('beta', visitor));
+      await admitTenant('acme', user('alice', ['acme']));
+      await reasonOf(admitTenant('acme', SYSTEM));
+
+      expect(access.asked).to.deep.eq(['admitsVisitor anonymous@beta', 'admitsVisitor unattended@beta', 'admitsVisitor system@beta', 'canEnter alice@acme', 'canEnter system@acme']);
+    });
+
+    it('asks neither member when no principal is given, as the queue worker, the scheduler and the CLI --tenant hook call it', async () => {
+      const access = await closedToVisitors();
+      expect((await admitTenant('acme')).id).to.eq('acme');
+      expect(access.asked).to.deep.eq([]);
+    });
+
+    it('admits visitors to every active tenant through a rule written against canEnter alone, in each of its six shapes', async () => {
+      const outcomes: [string, string[]][] = [];
+      for (const [i, rule] of existingRules.entries()) {
+        if (i > 0) await app.dispose();
+        await appWith(rule);
+        const seen: string[] = [];
+        for (const visitor of visitors) seen.push(await reasonOf(admitTenant('acme', visitor)));
+        seen.push(await reasonOf(admitTenant('acme', user('alice', ['acme']))));
+        outcomes.push([rule.name, seen]);
+      }
+
+      const asOnTheBase = ['admitted', 'admitted', 'admitted', 'admitted'];
+      expect(Object.fromEntries(outcomes)).to.deep.eq(Object.fromEntries(existingRules.map((rule) => [rule.name, asOnTheBase])));
+    });
+
+    it('rejects with the error of a rule that throws, from canEnter as from admitsVisitor, and admits nobody', async () => {
+      await appWith(FailingTenantAccess);
+
+      await expect(admitTenant('acme', user('alice', ['acme']))).to.be.rejectedWith(storeDown);
+      await expect(admitTenant('acme', anonymous)).to.be.rejectedWith(storeDown);
+      expect((await admitTenant('acme')).id).to.eq('acme');
     });
   });
 

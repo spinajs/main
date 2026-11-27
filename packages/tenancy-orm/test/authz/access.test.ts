@@ -4,6 +4,7 @@ import chaiAsPromised from 'chai-as-promised';
 import sinon from 'sinon';
 
 import { AuthzAdminFailure, SYSTEM, UNATTENDED } from '@spinajs/authz';
+import type { Principal } from '@spinajs/authz';
 import { DbAssignmentStore } from '@spinajs/authz-rbac';
 import { Configuration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
@@ -14,6 +15,8 @@ import { authzStack, grant, person } from './support/stack.js';
 
 chai.use(chaiAsPromised);
 const expect = chai.expect;
+
+const ANONYMOUS: Principal = { type: 'anonymous', id: 'anonymous', authenticated: false, source: 'anonymous', attributes: {} };
 
 describe('AuthzTenantAccess and tenantsOf', function () {
   this.timeout(60000);
@@ -51,6 +54,54 @@ describe('AuthzTenantAccess and tenantsOf', function () {
     expect(await access.canEnter(UNATTENDED, acme)).to.eq(false);
     // SYSTEM is the platform principal: authz allows it everything, by identity only.
     expect(await access.canEnter(SYSTEM, acme)).to.eq(true);
+  });
+
+  it('admits every caller that is not authenticated, and asks authz for the others', async () => {
+    const member = person('member');
+    await grant(member, TENANT_MEMBER_ROLE, tenantResource('acme'));
+    const callers: [string, Principal | undefined][] = [
+      ['no principal', undefined],
+      ['anonymous', ANONYMOUS],
+      ['UNATTENDED', UNATTENDED],
+      ['SYSTEM, not authenticated', { ...SYSTEM, authenticated: false }],
+      ['member', member],
+      ['non-member', person('stranger', { tenants: ['acme'] })],
+      ['SYSTEM', SYSTEM],
+    ];
+    const outcomes: [string, string][] = [];
+    for (const [name, principal] of callers) {
+      const outcome = await admitTenant('acme', principal).then(
+        () => 'admitted',
+        (err: unknown) => (err instanceof TenantUnavailable ? err.reason : `unexpected ${String(err)}`),
+      );
+      outcomes.push([name, outcome]);
+    }
+
+    expect(Object.fromEntries(outcomes)).to.deep.eq({
+      'no principal': 'admitted',
+      anonymous: 'admitted',
+      UNATTENDED: 'admitted',
+      'SYSTEM, not authenticated': 'admitted',
+      member: 'admitted',
+      'non-member': 'forbidden',
+      SYSTEM: 'admitted',
+    });
+  });
+
+  it('asks authz and the assignment store nothing for a caller that is not authenticated', async () => {
+    const can = sinon.spy(await tenancyAuthz(), 'can');
+    const forSubjects = sinon.spy(DbAssignmentStore.prototype, 'forSubjects');
+
+    try {
+      for (const principal of [ANONYMOUS, UNATTENDED, { ...SYSTEM, authenticated: false }]) await admitTenant('acme', principal);
+      expect([can.callCount, forSubjects.callCount]).to.deep.eq([0, 0]);
+
+      await expect(admitTenant('acme', person('stranger'))).to.be.rejectedWith(TenantUnavailable);
+      expect(can.callCount).to.eq(1);
+    } finally {
+      can.restore();
+      forSubjects.restore();
+    }
   });
 
   it('lists the active tenants a principal may enter', async () => {
