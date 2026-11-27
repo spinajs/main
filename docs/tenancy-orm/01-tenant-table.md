@@ -124,7 +124,9 @@ application lists; guard the route or command that calls them.
   and the overlay serves it as stored. List only paths a schema declares.
 - Inside a tenant scope only that tenant's settings are written; another id throws `TenantMismatch`. With no scope and
   across all tenants (`runAcrossTenants`) the call writes the tenant it names: that is the platform's form.
-- An unknown tenant throws `TenantUnavailable`; a tenant in any state can be written.
+- An unknown tenant throws `TenantUnavailable`. A tenant that is `deleting` or `deleted` throws `InvalidOperation`:
+  its settings are not changed any more. A `provisioning`, `active` or `suspended` tenant is written, so an operator
+  can fix the configuration of a suspended tenant before resuming it.
 
 After the write the service drops the tenant from the registry cache and loads its settings again, so the next read in
 this process answers the new value. Other processes see it once their copy is older than `tenancy.registryCacheMs`

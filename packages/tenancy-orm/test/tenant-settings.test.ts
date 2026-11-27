@@ -2,7 +2,7 @@ import 'mocha';
 import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 import { InvalidConfiguration, registerConfigurationSchemaAtImport } from '@spinajs/configuration';
-import { InvalidArgument } from '@spinajs/exceptions';
+import { InvalidArgument, InvalidOperation } from '@spinajs/exceptions';
 import { CachedTenantRegistry, TenantMismatch, TenantSettings, TenantUnavailable, admitTenant, runAcrossTenants, runInTenant } from '@spinajs/tenancy';
 import type { TestApp } from '@spinajs/testing';
 import { DbTenantRegistry, TenantModel, TenantSettingsService } from '../src/index.js';
@@ -113,6 +113,20 @@ describe('TenantSettingsService', function () {
   it('refuses an unknown tenant and a malformed path', async () => {
     await expect(service.set('nobody', 'mail.from', 'x@y.test')).to.be.rejectedWith(TenantUnavailable);
     await expect(service.set('acme', 'mail..from', 'x@y.test')).to.be.rejectedWith(InvalidArgument);
+  });
+
+  it('refuses a tenant that is deleting or deleted; a provisioning or suspended tenant is written', async () => {
+    for (const state of ['deleting', 'deleted'] as const) {
+      await seedTenant({ id: state, state, settings: {} });
+      await expect(service.set(state, 'mail.from', 'x@acme.test')).to.be.rejectedWith(InvalidOperation, `tenant "${state}" is ${state}`);
+      await expect(service.unset(state, 'mail.from')).to.be.rejectedWith(InvalidOperation, `tenant "${state}" is ${state}`);
+      expect(await stored(state)).to.deep.equal({});
+    }
+    for (const state of ['provisioning', 'suspended'] as const) {
+      await seedTenant({ id: state, state, settings: {} });
+      await service.set(state, 'mail.from', 'x@acme.test');
+      expect(await stored(state)).to.deep.equal({ mail: { from: 'x@acme.test' } });
+    }
   });
 
   it('inside a tenant scope writes only that tenant; with no scope or across all tenants it writes the tenant it names', async () => {

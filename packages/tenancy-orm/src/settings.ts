@@ -1,6 +1,6 @@
 import { Config } from '@spinajs/configuration';
 import { Injectable } from '@spinajs/di';
-import { InvalidArgument } from '@spinajs/exceptions';
+import { InvalidArgument, InvalidOperation } from '@spinajs/exceptions';
 import {
   CLOSED_CONFIGURATION_ROOTS,
   OVERRIDABLE_PATH_PATTERN,
@@ -63,7 +63,7 @@ export class TenantSettingsService {
   @Config('tenancy.config.overridable', { defaultValue: [] })
   protected Overridable!: unknown;
 
-  /** @throws InvalidArgument for a path that is not listed, TenantMismatch inside another tenant's scope, InvalidConfiguration for a refused value */
+  /** @throws InvalidArgument for a path that is not listed, TenantMismatch inside another tenant's scope, InvalidOperation for a deleting or deleted tenant, InvalidConfiguration for a refused value */
   public async set(id: string, path: string, value: unknown): Promise<TenantRecord> {
     const segments = this.listedPath(path);
     const json = jsonForm(value);
@@ -89,6 +89,7 @@ export class TenantSettingsService {
     const scoped = currentTenant();
     if (scoped !== undefined && scoped.id !== id) throw new TenantMismatch(`tenancy-orm: code in tenant "${scoped.id}" cannot write the settings of tenant "${id}"`);
     const row = await this.current(id);
+    if (row.state === 'deleting' || row.state === 'deleted') throw new InvalidOperation(`tenancy-orm: tenant "${id}" is ${row.state}; its settings are not changed any more`);
     const next = change(isRecord(row.settings) ? row.settings : {});
     await checkTenantSettings(next);
     row.settings = next;
