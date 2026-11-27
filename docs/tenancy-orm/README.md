@@ -28,7 +28,7 @@ import '@spinajs/tenancy-orm';
 | [Tenant models](02-tenant-models.md) | `@Tenant()` models whose statements are confined to the current tenant by `TenantScopeMiddleware` |
 | [Across tenants](03-across-tenants.md) | `.acrossTenants(reason)` widens one select, update or delete to every tenant |
 | [Transactions](04-transactions.md) | One tenant scope per transaction on a connection with tenant settings |
-| [Tenant lifecycle](07-lifecycle.md) | `TenantLifecycle.provision()` in resumable steps with `TenantSeeder`s, one operation per tenant at a time under a lease |
+| [Tenant lifecycle](07-lifecycle.md) | `TenantLifecycle.provision()` in resumable steps with `TenantSeeder`s, one operation per tenant at a time under a lease; `suspend()` and `resume()` with a recorded reason |
 
 ## Quick start
 

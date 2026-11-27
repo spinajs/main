@@ -82,6 +82,9 @@ const states = await DI.resolve(TenantStateService);
 await states.transition('t1', 'suspended');
 ```
 
+`transition` writes the state only. To suspend a tenant with its reason, and to resume it, call
+`TenantLifecycle.suspend(id, reason)` and `resume(id)` ([the tenant lifecycle](07-lifecycle.md#suspending-and-resuming)).
+
 `nextStates(from)` lists the states a tenant may move to, `canTransition(from, to)` checks one step, and
 `isTenantState(value)` checks a value.
 
