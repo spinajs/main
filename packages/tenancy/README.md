@@ -11,6 +11,10 @@ The tenant scope of a SpinaJS application: which tenant the current request, mes
 
 The scope lives in the request store the framework already shares, so `runAs` keeps it and log lines carry it as `Tenant`. This package depends on neither the ORM, http nor authz; `@spinajs/tenancy-http` and `@spinajs/tenancy-orm` build on it.
 
+## Files
+
+`import '@spinajs/tenancy/fs'` (needs `@spinajs/fs`) keeps the files of the providers listed in `tenancy.fs.prefixed` per tenant: inside tenant `acme` a lookup by name hands out a view whose paths land under `tenants/acme/` (`tenancy.fs.prefix`), or on the tenant's own provider (`tenancy.fs.dedicated`); no path reaches above it. With no tenant scope, or across all tenants, every action of the view throws `TenantRequired`. A listed provider that `@spinajs/authz-fs` guards, that `@spinajs/upload` or the framework writes, or a provider layer registered after it, is refused with `InvalidOption`. See `docs/tenancy/08-files-per-tenant.md`.
+
 ## Registry and access
 
 - `tenancy.registry` names the `TenantRegistry` (default `ConfigTenantRegistry`, the tenants listed under `tenancy.tenants`; `MemoryTenantRegistry` for tests). `tenantRegistry()` answers it behind a cache of `tenancy.registryCacheMs` (5000) that has `invalidate(id)`.

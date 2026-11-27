@@ -5,6 +5,10 @@
   "main": "./lib/index.js",
   "types": "./lib/index.d.ts",
   "exports": {
+    "./fs": {
+      "types": "./lib/fs.d.ts",
+      "import": "./lib/fs.js"
+    },
     ".": {
       "types": "./lib/index.d.ts",
       "import": "./lib/index.js"
@@ -56,14 +60,19 @@
     "@spinajs/principal": "3.0.23"
   },
   "peerDependencies": {
+    "@spinajs/fs": "3.0.23",
     "@spinajs/queue": "3.0.23"
   },
   "peerDependenciesMeta": {
     "@spinajs/queue": {
       "optional": true
+    },
+    "@spinajs/fs": {
+      "optional": true
     }
   },
   "devDependencies": {
+    "@spinajs/fs": "3.0.23",
     "@spinajs/authz": "3.0.23",
     "@spinajs/queue": "3.0.23",
     "@spinajs/testing": "3.0.23"
