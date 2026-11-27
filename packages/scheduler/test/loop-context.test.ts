@@ -3,6 +3,7 @@ import { trace } from '@opentelemetry/api';
 import { expect } from 'chai';
 import sinon from 'sinon';
 import { DI } from '@spinajs/di';
+import { Orm } from '@spinajs/orm';
 import { SpinaAttr, tracingState, withSpan } from '@spinajs/tracing';
 import { resetTracing, useInMemorySpans } from '@spinajs/tracing/testing';
 import type { InMemorySpans } from '@spinajs/tracing/testing';
@@ -152,5 +153,40 @@ describe('the scheduler loop and the context that woke it', () => {
     expect(seen.body).to.deep.eq([false, false]);
     // every timer the loop sets, its own and the runs', is set outside the waker's store
     expect([...seen.hook, ...seen.events, ...seen.timers]).to.not.include(true);
+  });
+
+  it('runs nothing of a tick in the transaction of the code that woke it, also after that transaction rolled back', async () => {
+    const timers = new Map<unknown, NodeJS.Timeout>();
+    sinon.stub(clock, 'setTimeout').callsFake((fn: () => void, ms: number) => {
+      const handle = setTimeout(fn, ms);
+      timers.set(handle, handle);
+      return handle;
+    });
+    sinon.stub(clock, 'clearTimeout').callsFake((handle: unknown) => clearTimeout(timers.get(handle)));
+    const driver = DI.get(Orm)?.Connections.get('sqlite');
+    if (!driver) throw new Error('no sqlite connection');
+    const inTransaction: boolean[] = [];
+    sinon.stub(Observe.prototype, 'execute').callsFake(() => {
+      inTransaction.push(driver.CurrentTransaction !== undefined);
+      return Promise.resolve(null);
+    });
+    const s = await DI.resolve(Scheduler, [{ replicaId: 'r1', autoStart: false }]);
+    const ended = async (id: string) =>
+      ['succeeded', 'failed'].includes((await RunModel.where('Id', id).first()).Status);
+    const first = await queuedRun('ctx-observe', clock.now());
+    await driver
+      .transaction(async () => {
+        s.start();
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+        throw new Error('the waker rolls back');
+      })
+      .catch(() => undefined);
+    await waitFor(() => ended(first.Id), 10_000);
+    const later = await queuedRun('ctx-observe', clock.now() + 1);
+    await waitFor(() => ended(later.Id), 10_000);
+    await s.stop();
+
+    // one body per run: a claim made in the waker's transaction is rolled back with it and the run executes twice
+    expect(inTransaction).to.deep.eq([false, false]);
   });
 });
