@@ -34,4 +34,10 @@ describe('mysql insert', function () {
   it('keeps a plain insert plain', () => {
     expect(insert().toDB().expression).to.eq('INSERT INTO `campaign_status` (`CampaignId`,`Status`) VALUES (?,?)');
   });
+
+  it('writes into the database given to into()', () => {
+    const result = driver.insert().into('campaign_status', 'archive').values({ CampaignId: 1, Status: 3 }).toDB();
+
+    expect(result.expression).to.eq('INSERT INTO `archive`.`campaign_status` (`CampaignId`,`Status`) VALUES (?,?)');
+  });
 });

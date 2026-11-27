@@ -44,6 +44,18 @@ describe('mssql dialect', function () {
     expect(quoter.quoteQualified('dbo.users')).to.eq('[dbo].[users]');
   });
 
+  it('writes into the schema given to into()', () => {
+    const result = driver.insert().into('users', 'archive').values({ Id: 1 }).toDB();
+
+    expect(result.expression).to.eq('INSERT INTO [archive].[users]  ([Id]) VALUES (?); SELECT SCOPE_IDENTITY() as ID, @@ROWCOUNT as INSERTED;');
+  });
+
+  it('leaves into() with one argument unqualified', () => {
+    const result = driver.insert().into('users').values({ Id: 1 }).toDB();
+
+    expect(result.expression).to.eq('INSERT INTO [users]  ([Id]) VALUES (?); SELECT SCOPE_IDENTITY() as ID, @@ROWCOUNT as INSERTED;');
+  });
+
   it('locks a table with a shared table lock held to the end of the transaction', async () => {
     const sent: string[] = [];
     driver.executeOnDb = (stmt: string) => (sent.push(stmt), Promise.resolve([]));
