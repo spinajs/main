@@ -15,8 +15,9 @@ const isScalar = (v: unknown): boolean => typeof v === 'string' || typeof v === 
 
 /**
  * Overview decision 11: exactly one primary-key value (`where(pk, v)`, `get(v)`, `findOrFail([v])`) is
- * a single-object load, which the route's check-before covers. The soft-delete and archive scopes
- * createQuery adds by default do not count.
+ * a single-object load, which the route's check-before covers. The soft-delete and archive filters
+ * createQuery adds and the keyset predicate of a later page do not count: each is ANDed with the
+ * rest and only narrows it.
  */
 export function isSingleObjectLoad(query: SelectQueryBuilder, entry: ResourceEntry): boolean {
   let keys = 0;
