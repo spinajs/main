@@ -8,8 +8,8 @@
 2. **Begin.** `PostgresOrmDriver._begin(options)` takes a client with `Pool.connect()`, runs `BEGIN`, then `SET TRANSACTION ISOLATION LEVEL <level>` when a level is given. It returns `{ connection: client, depth: 0 }`, an `IPostgresTransactionContext`. If `BEGIN` or `SET` fails, the client is destroyed (`release(true)`), never pooled, and the error is re-thrown.
 3. **Run.** `OrmDriver` stores the context in `TransactionStorage` (an `AsyncLocalStorage`) and calls `cb(driver)`. `_executeOnDbOnce()` reads the store and sends every statement through `context.connection`, never through another pooled client.
 4. **Nest.** A `transaction()` call inside the callback does not open a second transaction. It calls `_savepoint(ctx, 'sp_<n>')`, which runs `SAVEPOINT "sp_<n>"`. On success it runs `RELEASE SAVEPOINT "sp_<n>"`; on a throw it runs `ROLLBACK TO SAVEPOINT "sp_<n>"` and re-throws.
-5. **Finish.** `_commit(ctx)` runs `COMMIT`. If the callback or the commit throws, `_rollback(ctx)` runs `ROLLBACK`; a rollback failure is swallowed so the original error surfaces.
-6. **Release.** `_dispose(ctx)` releases the client to the pool, or destroys it when `ROLLBACK` failed (the session may still be inside the transaction). `afterCommit()` callbacks then run.
+5. **Finish.** `_commit(ctx)` runs `COMMIT`, or refuses without sending it when a nested `ROLLBACK TO SAVEPOINT` failed. If the callback or the commit throws, `_rollback(ctx)` runs `ROLLBACK`; a rollback failure is swallowed so the original error surfaces.
+6. **Release.** `_dispose(ctx)` releases the client to the pool, or destroys it when `ROLLBACK` or a `ROLLBACK TO SAVEPOINT` failed (the session may still be inside the transaction). `afterCommit()` callbacks then run.
 
 ```mermaid
 sequenceDiagram
@@ -44,7 +44,7 @@ sequenceDiagram
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
 | Transaction primitives | protected methods `_begin`, `_commit`, `_rollback`, `_savepoint`, `_releaseSavepoint`, `_rollbackToSavepoint`, `_dispose` of the driver | `PostgresOrmDriver` | | Override in a [driver subclass](06-extending-the-driver.md); call `super` to keep the client handling. |
-| `IPostgresTransactionContext` | exported interface: `ITransactionContext` plus `connection: pg.PoolClient` and `rollbackFailed?: boolean`, set by `_rollback` when `ROLLBACK` failed | | | Read `connection` in a subclass to send statements on the transaction's client. |
+| `IPostgresTransactionContext` | exported interface: `ITransactionContext` plus `connection: pg.PoolClient` and `rollbackFailed?: boolean`, set when `ROLLBACK` or `ROLLBACK TO SAVEPOINT` failed; `_commit` refuses such a context | | | Read `connection` in a subclass to send statements on the transaction's client. |
 | `SupportedIsolationLevels` | public readonly field of the driver | all four levels | | Redeclare in a subclass to forbid a level. |
 
 ### Transaction primitives: custom implementation
@@ -82,6 +82,8 @@ Select it with `Driver: 'orm-driver-postgres-bounded'` on the connections that n
 
 - A transaction holds one pool client from `_begin()` to `_dispose()`. A pool of `Pool.Max` clients runs at most `Pool.Max` transactions at once; further `transaction()` calls wait up to `Pool.AcquireTimeout`.
 - Statements inside a transaction are never retried: `isRetryableError()` returns `false` while `TransactionStorage` holds a context. A transport failure inside a transaction rejects the transaction.
+- When the `ROLLBACK TO SAVEPOINT` of a nested `transaction()` fails (a client-side `query_timeout` that leaves it unsent behind a statement the server still runs), the outermost transaction cannot commit: `transaction()` rejects with `OrmException` (the failed `ROLLBACK TO SAVEPOINT`'s error as `inner`), `afterCommit()` callbacks do not run, and the driver sends `ROLLBACK` and destroys the client. Nothing of the transaction is written. Before, an outer callback that caught the nested rejection and went on committed the work the nested call reported as undone. This refusal has no error class of its own yet: tell it from other `OrmException`s by its message, `... the ROLLBACK TO SAVEPOINT of a nested transaction failed ...`, and retry the whole `transaction()`.
+- A limit this does not close: a statement of a plain transaction (no nested call) that times out on the client keeps running on the server, and a `COMMIT` the callback sends after catching that error commits it, although the caller was told the statement failed. Keep a server-side `statement_timeout` at or below `query_timeout`, or let the error end the transaction.
 - After any failed statement PostgreSQL rejects every further statement of that transaction with `current transaction is aborted` (SQLSTATE `25P02`) until it rolls back. Catching the error inside the callback does not make the transaction usable again; a nested `transaction()` around the risky statement does, because it rolls back to its savepoint.
 - The isolation level is set inside the transaction, right after `BEGIN`. It must be the first statement, so the driver sends it before your callback runs.
 - Savepoint names are generated (`sp_1`, `sp_2`, ...) and quoted with `pgEscapeIdentifier()`; nothing caller-supplied reaches them.
