@@ -6,6 +6,7 @@ import type { PolicyIR } from '@spinajs/authz-ir';
 import { defineAssertions, describeAssertion, formatResults, releaseSolver, verifyAssertions } from '../src/index.js';
 import type { AssertionResult, AssertionSet, SatSolver, VerifyOptions } from '../src/index.js';
 import { z3Solver } from '../src/smt/z3.js';
+import { abacIR } from './fixtures/abac.js';
 import { foldersIR, invoicesIR } from './fixtures/invoices.js';
 
 function monotoneInvoices(): PolicyIR {
@@ -26,6 +27,8 @@ function partnerInvoices(): PolicyIR {
 const NOTE = 'holds for principals without a ceiling: a ceiling whose permissions list invoice:approve and not invoice:read denies invoice:read where invoice:approve stays allowed (implies(a, b, { narrowed: true }) checks it)';
 const codes = (results: AssertionResult[]): string[] => results.flatMap((r) => r.diagnostics.map((d) => `${d.code} ${d.severity} ${d.assertion}: ${d.message}`));
 const unavailable: VerifyOptions = { solver: () => Promise.resolve(undefined) };
+/** What a plain JavaScript assertions file can write where `name` belongs. */
+const notStrings = (name: string): unknown[] => [[name], 42, { name }, null, undefined, Object(name), Symbol(name)];
 
 describe('defineAssertions', () => {
   it('builds assertions with the kit and labels them', () => {
@@ -146,13 +149,152 @@ describe('assertions that name a permission the policy does not have', () => {
     expect(codes([r])).to.deep.equal(['AZV006 error never(public, invoice:aprove): invoice:aprove names no permission of the policy']);
     expect(r.verdict.opaque).to.deep.equal([]);
   });
+
+  it('refuse a permission or an isolated type that is not a string, and throw nothing', async () => {
+    const set = defineAssertions(({ implies, isolated, never, onlyVia, separated }) => [
+      ...notStrings('invoice:read').flatMap((v) => [
+        Object.assign(never({ holder: 'public', permission: 'invoice:read' }), { permission: v }),
+        Object.assign(implies('invoice:read', 'invoice:read'), { a: v }),
+        Object.assign(implies('invoice:approve', 'invoice:read'), { b: v }),
+        Object.assign(separated('invoice:read', 'invoice:approve'), { a: v }),
+        Object.assign(separated('invoice:read', 'invoice:approve'), { b: v }),
+        Object.assign(onlyVia('invoice:read', ['role:accountant']), { permission: v }),
+      ]),
+      ...notStrings('org').map((type) => Object.assign(isolated('org'), { type })),
+    ]);
+    const results = await verifyAssertions(monotoneInvoices(), set, unavailable);
+    expect(results.map((r) => `${r.verdict.result} ${r.diagnostics.map((d) => d.code).join(' ')}`)).to.deep.equal(new Array<string>(49).fill('unknown AZV006'));
+    expect(codes([...results.slice(0, 6), ...results.slice(42, 43)])).to.deep.equal([
+      'AZV006 error never(public, ["invoice:read"]): ["invoice:read"] names no permission of the policy',
+      'AZV006 error implies(["invoice:read"], invoice:read): ["invoice:read"] names no permission of the policy',
+      'AZV006 error implies(invoice:approve, ["invoice:read"]): ["invoice:read"] names no permission of the policy',
+      'AZV006 error separated(["invoice:read"], invoice:approve): ["invoice:read"] names no permission of the policy',
+      'AZV006 error separated(invoice:read, ["invoice:read"]): ["invoice:read"] names no permission of the policy',
+      'AZV006 error onlyVia(["invoice:read"], [role:accountant]): ["invoice:read"] names no permission of the policy',
+      'AZV006 error isolated(["org"]): ["org"] names no type of the policy',
+    ]);
+  });
+});
+
+describe('assertions that name a holder the policy does not have', () => {
+  const azv005 = async (holder: string, permission = 'invoice:read'): Promise<string[]> => {
+    const [r] = await verifyAssertions(monotoneInvoices(), defineAssertions(({ never }) => [never({ holder, permission })]), unavailable);
+    return [r.verdict.result, ...codes([r])];
+  };
+
+  it('are AZV005 errors with an unknown verdict in never, so a misspelt holder never shows a proof', async () => {
+    expect(await azv005('role:clrek')).to.deep.equal(['unknown', 'AZV005 error never(role:clrek, invoice:read): role:clrek names no role or relation of the policy']);
+    expect(await azv005('role:accountant@nosuch')).to.deep.equal(['unknown', 'AZV005 error never(role:accountant@nosuch, invoice:read): role:accountant@nosuch names no role or relation of the policy']);
+    expect(await azv005('role:clerk@org')).to.deep.equal(['unknown', 'AZV005 error never(role:clerk@org, invoice:read): role:clerk@org names no role or relation of the policy']);
+    expect(await azv005('nosuch#rel', 'invoice:*')).to.deep.equal(['unknown', 'AZV005 error never(nosuch#rel, invoice:*): nosuch#rel names no role or relation of the policy']);
+    expect(await azv005('org#auditor')).to.deep.equal(['unknown', 'AZV005 error never(org#auditor, invoice:read): org#auditor names no role or relation of the policy']);
+    expect(await azv005('public:nosuch#rel')).to.deep.equal(['unknown', 'AZV005 error never(public:nosuch#rel, invoice:read): public:nosuch#rel names no role or relation of the policy']);
+    expect(await azv005('anyone:invoice#nosuch')).to.deep.equal(['unknown', 'AZV005 error never(anyone:invoice#nosuch, invoice:read): anyone:invoice#nosuch names no role or relation of the policy']);
+    expect(await azv005('accountant')).to.deep.equal(['unknown', 'AZV005 error never(accountant, invoice:read): accountant names no role or relation of the policy']);
+    expect(await azv005('user:u1')).to.deep.equal(['unknown', 'AZV005 error never(user:u1, invoice:read): user:u1 names no role or relation of the policy']);
+    expect(await azv005('')).to.deep.equal(['unknown', "AZV005 error never(, invoice:read): '' names no role or relation of the policy"]);
+  });
+
+  it('take a stored relation for type#name, never a permission: a permission is never a holder', async () => {
+    expect(await azv005('org#can_invoice_read')).to.deep.equal(['unknown', 'AZV005 error never(org#can_invoice_read, invoice:read): org#can_invoice_read names no role or relation of the policy']);
+    expect(await azv005('public:org#can_invoice_read')).to.deep.equal(['unknown', 'AZV005 error never(public:org#can_invoice_read, invoice:read): public:org#can_invoice_read names no role or relation of the policy']);
+  });
+
+  it('match holder names by letter case', async () => {
+    for (const holder of ['Role:accountant', 'role:Accountant', 'role:accountant@Org', 'Org#accountant', 'org#Accountant', 'Public']) {
+      expect(await azv005(holder), holder).to.deep.equal(['unknown', `AZV005 error never(${holder}, invoice:read): ${holder} names no role or relation of the policy`]);
+    }
+  });
+
+  it('look names up as own properties: an inherited name is unknown and nothing throws', async () => {
+    for (const holder of ['role:constructor', 'role:__proto__', 'role:toString@org', '__proto__#parent', 'org#constructor', 'public:org#hasOwnProperty', 'anyone:invoice#toString']) {
+      expect(await azv005(holder), holder).to.deep.equal(['unknown', `AZV005 error never(${holder}, invoice:read): ${holder} names no role or relation of the policy`]);
+    }
+  });
+
+  it('check the holders of onlyVia and the exceptions of isolated too, and name only the unknown ones', async () => {
+    const set = defineAssertions(({ onlyVia, isolated }) => [onlyVia('invoice:read', ['role:clrek']), onlyVia('invoice:read', ['role:accountant@org', 'org#auditor', ' public']), isolated('org', { except: ['nothing#here'] })]);
+    const results = await verifyAssertions(monotoneInvoices(), set, unavailable);
+    expect(results.map((r) => r.verdict.result)).to.deep.equal(['unknown', 'unknown', 'unknown']);
+    expect(codes(results)).to.deep.equal([
+      'AZV005 error onlyVia(invoice:read, [role:clrek]): role:clrek names no role or relation of the policy',
+      "AZV005 error onlyVia(invoice:read, [role:accountant@org, org#auditor,  public]): org#auditor, ' public' name no role or relation of the policy",
+      'AZV005 error isolated(org, except nothing#here): nothing#here names no role or relation of the policy',
+    ]);
+  });
+
+  it('leave every holder form the engines match to them, as before', async () => {
+    const set = defineAssertions(({ never, onlyVia, isolated }) => [
+      never({ holder: 'public', permission: 'invoice:*' }),
+      never({ holder: 'role:accountant', permission: 'invoice:read' }),
+      never({ holder: 'role:accountant@org', permission: 'invoice:read' }),
+      never({ holder: 'org#accountant', permission: 'invoice:read' }),
+      never({ holder: 'group#member', permission: 'invoice:read' }),
+      never({ holder: 'public:invoice#frozen', permission: 'invoice:read' }),
+      never({ holder: 'role:clerk@$global', permission: 'invoice:read' }),
+      onlyVia('invoice:approve', ['role:accountant@org', 'public']),
+      isolated('org', { except: ['role:clerk', '$global#clerk'] }),
+    ]);
+    expect(codes(await verifyAssertions(monotoneInvoices(), set, unavailable))).to.deep.equal([
+      'AZV002 info never(public, invoice:*): holds (exact)',
+      'AZV001 error never(role:accountant, invoice:read): violated (exact)',
+      'AZV001 error never(role:accountant@org, invoice:read): violated (exact)',
+      'AZV001 error never(org#accountant, invoice:read): violated (exact)',
+      'AZV002 info never(group#member, invoice:read): holds (exact)',
+      'AZV002 info never(public:invoice#frozen, invoice:read): holds (exact)',
+      'AZV002 info never(role:clerk@$global, invoice:read): holds (exact)',
+      'AZV002 info onlyVia(invoice:approve, [role:accountant@org, public]): holds (exact)',
+      'AZV090 warning isolated(org, except role:clerk, $global#clerk): not verified: z3-solver is not installed; non-monotone assertions are not verified',
+    ]);
+  });
+
+  it('leave an anyone term, which is named after a permission, to the engines, and refuse one named after a relation', async () => {
+    const [relation] = await verifyAssertions(abacIR(), defineAssertions(({ never }) => [never({ holder: 'anyone:doc#parent', permission: 'doc:read' })]), unavailable);
+    expect(codes([relation])).to.deep.equal(['AZV005 error never(anyone:doc#parent, doc:read): anyone:doc#parent names no role or relation of the policy']);
+    const set = defineAssertions(({ never, onlyVia, isolated }) => [
+      never({ holder: 'anyone:doc#abac_permit_doc_read', permission: 'doc:read' }),
+      never({ holder: 'anyone:doc#abac_permit_doc_read', permission: 'doc:update' }),
+      onlyVia('doc:read', ['anyone:doc#abac_permit_doc_read']),
+      isolated('doc', { except: ['anyone:doc#abac_permit_doc_read'] }),
+    ]);
+    expect(codes(await verifyAssertions(abacIR(), set, unavailable))).to.deep.equal([
+      'AZV001 error never(anyone:doc#abac_permit_doc_read, doc:read): violated (exact)',
+      'AZV090 warning never(anyone:doc#abac_permit_doc_read, doc:update): not verified: z3-solver is not installed; non-monotone assertions are not verified',
+      'AZV002 info onlyVia(doc:read, [anyone:doc#abac_permit_doc_read]): holds (exact)',
+      'AZV090 warning isolated(doc, except anyone:doc#abac_permit_doc_read): not verified: z3-solver is not installed; non-monotone assertions are not verified',
+    ]);
+  });
+
+  it('refuse a holder that is not a string, which a plain JavaScript assertions file can write, and throw nothing', async () => {
+    const set = defineAssertions(({ never, onlyVia, isolated }) =>
+      notStrings('role:accountant').flatMap((v) => [
+        Object.assign(never({ holder: 'role:accountant', permission: 'invoice:read' }), { holder: v }),
+        Object.assign(onlyVia('invoice:read', []), { holders: ['role:accountant@org', v] }),
+        Object.assign(isolated('org'), { except: [v] }),
+      ]),
+    );
+    const results = await verifyAssertions(monotoneInvoices(), set, unavailable);
+    expect(results.map((r) => `${r.verdict.result} ${r.diagnostics.map((d) => d.code).join(' ')}`)).to.deep.equal(new Array<string>(21).fill('unknown AZV005'));
+    expect(codes(results.filter((r) => r.assertion.kind === 'never'))).to.deep.equal(
+      ['["role:accountant"]', '42', '{"name":"role:accountant"}', 'null', 'undefined', '"role:accountant"', 'Symbol(role:accountant)'].map((v) => `AZV005 error never(${v}, invoice:read): ${v} names no role or relation of the policy`),
+    );
+    expect(codes(results.slice(1, 3))).to.deep.equal([
+      'AZV005 error onlyVia(invoice:read, [role:accountant@org, ["role:accountant"]]): ["role:accountant"] names no role or relation of the policy',
+      'AZV005 error isolated(org, except ["role:accountant"]): ["role:accountant"] names no role or relation of the policy',
+    ]);
+  });
+
+  it('report only AZV006 for an assertion with both an unknown permission and an unknown holder', async () => {
+    const [r] = await verifyAssertions(monotoneInvoices(), defineAssertions(({ never }) => [never({ holder: 'role:clrek', permission: 'invoice:raed' })]), unavailable);
+    expect([r.verdict.result, ...codes([r])]).to.deep.equal(['unknown', 'AZV006 error never(role:clrek, invoice:raed): invoice:raed names no permission of the policy']);
+  });
 });
 
 describe('verifyAssertions with the exact engine', () => {
   it('decides the monotone fragment without a solver', async () => {
     const set = defineAssertions(({ implies, never, onlyVia, separated }) => [
       implies('invoice:approve', 'invoice:read'),
-      onlyVia('invoice:approve', ['role:treasurer@org']),
+      onlyVia('invoice:approve', ['role:clerk@$global']),
       never({ holder: 'public', permission: 'invoice:*' }),
       separated('invoice:read', 'invoice:approve'),
     ]);
@@ -160,7 +302,7 @@ describe('verifyAssertions with the exact engine', () => {
     expect(codes(results)).to.deep.equal([
       'AZV002 info implies(invoice:approve, invoice:read): holds (exact)',
       `AZV004 info implies(invoice:approve, invoice:read): ${NOTE}`,
-      'AZV001 error onlyVia(invoice:approve, [role:treasurer@org]): violated (exact)',
+      'AZV001 error onlyVia(invoice:approve, [role:clerk@$global]): violated (exact)',
       'AZV002 info never(public, invoice:*): holds (exact)',
       'AZV001 error separated(invoice:read, invoice:approve): violated (exact)',
     ]);
@@ -232,16 +374,16 @@ describe('verifyAssertions with the bounded engine', function () {
 
 describe('formatResults', () => {
   it('prints text, json and GitHub annotations in the doctor shapes', async () => {
-    const results = await verifyAssertions(monotoneInvoices(), defineAssertions(({ implies, onlyVia }) => [implies('invoice:approve', 'invoice:read'), onlyVia('invoice:approve', ['org#auditor'])]), unavailable);
+    const results = await verifyAssertions(monotoneInvoices(), defineAssertions(({ implies, onlyVia }) => [implies('invoice:approve', 'invoice:read'), onlyVia('invoice:approve', ['group#member'])]), unavailable);
     expect(formatResults(results, 'text')).to.deep.equal([
-      'ok   AZV002 implies(invoice:approve, invoice:read)   holds (exact)',
-      `ok   AZV004 implies(invoice:approve, invoice:read)   ${NOTE}`,
-      'fail AZV001 onlyVia(invoice:approve, [org#auditor])  violated (exact)',
+      'ok   AZV002 implies(invoice:approve, invoice:read)    holds (exact)',
+      `ok   AZV004 implies(invoice:approve, invoice:read)    ${NOTE}`,
+      'fail AZV001 onlyVia(invoice:approve, [group#member])  violated (exact)',
       '     principal user:u1 with invoice:i1#parent@project:p1, project:p1#parent@org:o1, org:o1#accountant@user:u1 gets invoice:approve allow on invoice:i1',
       '1 error(s), 0 warning(s), 2 info',
     ]);
     const json = JSON.parse(formatResults(results, 'json')[0]) as { summary: unknown };
     expect(json.summary).to.deep.equal({ error: 1, warning: 0, info: 2 });
-    expect(formatResults(results, 'github')[2]).to.equal('::error title=AZV001 onlyVia(invoice%3Aapprove%2C [org#auditor])::violated (exact): principal user:u1 with invoice:i1#parent@project:p1, project:p1#parent@org:o1, org:o1#accountant@user:u1 gets invoice:approve allow on invoice:i1');
+    expect(formatResults(results, 'github')[2]).to.equal('::error title=AZV001 onlyVia(invoice%3Aapprove%2C [group#member])::violated (exact): principal user:u1 with invoice:i1#parent@project:p1, project:p1#parent@org:o1, org:o1#accountant@user:u1 gets invoice:approve allow on invoice:i1');
   });
 });

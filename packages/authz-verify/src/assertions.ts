@@ -55,27 +55,34 @@ export function defineAssertions(define: (kit: AssertionKit) => Assertion[]): As
   return { assertions: define(KIT) };
 }
 
+/** A plain JavaScript assertions file can put any value where a name belongs; a template literal throws on a symbol. */
+const isText = (v: unknown): v is string => typeof v === 'string';
+const written = (v: unknown): string => (isText(v) ? v : typeof v === 'object' && v !== null ? JSON.stringify(v) : String(v));
+
 export function describeAssertion(a: Assertion): string {
   switch (a.kind) {
     case 'implies':
-      return a.narrowed === true ? `implies(${a.a}, ${a.b}, narrowed)` : `implies(${a.a}, ${a.b})`;
+      return a.narrowed === true ? `implies(${written(a.a)}, ${written(a.b)}, narrowed)` : `implies(${written(a.a)}, ${written(a.b)})`;
     case 'separated':
-      return `separated(${a.a}, ${a.b})`;
+      return `separated(${written(a.a)}, ${written(a.b)})`;
     case 'isolated':
-      return `isolated(${a.type}${a.except.length > 0 ? `, except ${a.except.join(', ')}` : ''})`;
+      return `isolated(${written(a.type)}${a.except.length > 0 ? `, except ${a.except.map(written).join(', ')}` : ''})`;
     case 'onlyVia':
-      return `onlyVia(${a.permission}, [${a.holders.join(', ')}])`;
+      return `onlyVia(${written(a.permission)}, [${a.holders.map(written).join(', ')}])`;
     case 'never':
-      return `never(${a.holder}, ${a.permission})`;
+      return `never(${written(a.holder)}, ${written(a.permission)})`;
   }
 }
+
+/** Only a string names something: an own-key lookup would turn `['org']` into `'org'`, which no engine matches. */
+const own = (o: object, k: unknown): boolean => isText(k) && Object.prototype.hasOwnProperty.call(o, k);
 
 /**
  * The names of `a` that select no permission of the IR. Every engine has no state for such a name and answers
  * `holds`, so a typo would read as a proof. Only `never` takes a glob; the other kinds look a name up as it is.
  */
-function unknownPermissions(ir: PolicyIR, a: Assertion): string[] {
-  const missing = (p: string): boolean => !Object.prototype.hasOwnProperty.call(ir.permissions, p);
+function unknownPermissions(ir: PolicyIR, a: Assertion): unknown[] {
+  const missing = (p: unknown): boolean => !own(ir.permissions, p);
   switch (a.kind) {
     case 'implies':
     case 'separated':
@@ -83,13 +90,33 @@ function unknownPermissions(ir: PolicyIR, a: Assertion): string[] {
     case 'onlyVia':
       return missing(a.permission) ? [a.permission] : [];
     case 'never':
-      return permissionsMatching(ir, a.permission).length === 0 ? [a.permission] : [];
+      return !isText(a.permission) || permissionsMatching(ir, a.permission).length === 0 ? [a.permission] : [];
     case 'isolated':
       return [];
   }
 }
 
-const shown = (name: string): string => (name !== '' && name.trim() === name ? name : `'${name}'`);
+/** A selector `matchesHolder` can match: `public`, `role:<r>[@<t>]`, `[public:]<t>#<stored relation>` or `anyone:<t>#<permission>`. */
+function namesHolder(ir: PolicyIR, selector: unknown): boolean {
+  if (!isText(selector)) return false;
+  if (selector === 'public') return true;
+  const role = /^role:([^@]+)(?:@(.+))?$/.exec(selector);
+  if (role !== null) return own(ir.principal.roles, role[1]) && ir.principal.roles[role[1]].some((r) => role[2] === undefined || r.type === role[2]);
+  const term = /^(public:|anyone:)?([^#]+)#(.+)$/.exec(selector);
+  if (term === null || !own(ir.types, term[2])) return false;
+  // An anyone term is named after the rewrite that admits everyone; every other holder after the stored relation it reads.
+  return own(term[1] === 'anyone:' ? ir.types[term[2]].permissions : ir.types[term[2]].relations, term[3]);
+}
+
+const shown = (name: unknown): string => (isText(name) && (name === '' || name.trim() !== name) ? `'${name}'` : written(name));
+
+/** `AZV005` for the holders of `a` that name nothing: no reacher matches them, so `never` of one would hold. */
+function unknownHolders(ir: PolicyIR, a: Assertion): Verdict | undefined {
+  const selectors: readonly unknown[] = a.kind === 'never' ? [a.holder] : a.kind === 'onlyVia' ? a.holders : a.kind === 'isolated' ? a.except : [];
+  const unknown = [...new Set(selectors)].filter((s) => !namesHolder(ir, s));
+  if (unknown.length === 0) return undefined;
+  return { result: 'unknown', engine: 'exact', opaque: [], code: 'AZV005', message: `${unknown.map(shown).join(', ')} ${unknown.length === 1 ? 'names' : 'name'} no role or relation of the policy` };
+}
 
 /** The exact engine first; what it leaves `unknown` goes to the bounded engine. */
 export async function verifyAssertion(ir: PolicyIR, a: Assertion, options: BoundedOptions = {}): Promise<Verdict> {
@@ -98,9 +125,11 @@ export async function verifyAssertion(ir: PolicyIR, a: Assertion, options: Bound
     // Nothing was analysed, so no opaque part of the IR bears on this verdict.
     return { result: 'unknown', engine: 'exact', opaque: [], code: 'AZV006', message: `${unknown.map(shown).join(', ')} ${unknown.length === 1 ? 'names' : 'name'} no permission of the policy` };
   }
-  if (a.kind === 'isolated' && !Object.prototype.hasOwnProperty.call(ir.types, a.type)) {
+  if (a.kind === 'isolated' && !own(ir.types, a.type)) {
     return { result: 'unknown', engine: 'exact', opaque: [], code: 'AZV006', message: `${shown(a.type)} names no type of the policy` };
   }
+  const holders = unknownHolders(ir, a);
+  if (holders !== undefined) return holders;
   switch (a.kind) {
     case 'implies': {
       const plain = await orBounded(await exactImplies(ir, a.a, a.b), ir, { checks: [{ permission: a.a, allowed: true }, { permission: a.b, allowed: false }] }, options);
@@ -271,7 +300,7 @@ function boundary(e: Encoder, u: Universe, type: TypeName): Formula[] {
   return out;
 }
 
-export type VerifyCode = 'AZV001' | 'AZV002' | 'AZV003' | 'AZV004' | 'AZV006' | 'AZV090';
+export type VerifyCode = 'AZV001' | 'AZV002' | 'AZV003' | 'AZV004' | 'AZV005' | 'AZV006' | 'AZV090';
 
 export interface VerifyDiagnostic {
   readonly code: VerifyCode;
@@ -304,8 +333,8 @@ function diagnose(assertion: Assertion, label: string, v: Verdict, ir: PolicyIR,
   const on = (code: VerifyCode, severity: VerifyDiagnostic['severity'], message: string, counterexample?: Counterexample): number => out.push({ code, severity, assertion: label, message, ...(counterexample === undefined ? {} : { counterexample }) });
   if (v.result === 'violated') on('AZV001', 'error', `violated (${v.engine === 'exact' ? 'exact' : `bounded k=${v.bound ?? '?'}`})`, v.counterexample);
   else if (v.result === 'holds') on('AZV002', 'info', v.engine === 'exact' ? 'holds (exact)' : `verified up to k=${v.bound ?? '?'}`);
-  else if (v.code === 'AZV006') on('AZV006', 'error', v.message ?? 'names no permission of the policy');
   else if (v.code === 'AZV090') on('AZV090', options.requireSolver === true ? 'error' : 'warning', `not verified: ${v.message ?? 'solver unavailable'}`);
+  else if (v.code !== undefined) on(v.code, 'error', v.message ?? 'names nothing of the policy');
   else on('AZV003', 'warning', `not decided: ${v.message ?? 'outside both engines'}`);
   if (v.opaque.length > 0) on('AZV003', 'warning', `depends on opaque: ${v.opaque.map((o) => `${o.kind} '${o.name}'`).join(', ')}`);
   const note = ceilingNote(assertion, v, ir);

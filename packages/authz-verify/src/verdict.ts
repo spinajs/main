@@ -24,8 +24,8 @@ export interface Verdict {
   readonly counterexample?: Counterexample;
   /** Parts the analysis cannot see: `ir.opaque` plus the opaque rewrites the permissions reach. */
   readonly opaque: OpaqueRef[];
-  /** `AZV090` when the bounded engine had no solver; `AZV006` when the assertion names a permission or an `isolated` type the IR does not have. */
-  readonly code?: 'AZV090' | 'AZV006';
+  /** `AZV090` when the bounded engine had no solver; `AZV006` when the assertion names a permission or an `isolated` type the IR does not have; `AZV005` when it names a holder the IR does not have. */
+  readonly code?: 'AZV090' | 'AZV006' | 'AZV005';
   /** Why an `unknown` verdict was not decided. */
   readonly message?: string;
 }

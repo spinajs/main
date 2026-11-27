@@ -58,7 +58,7 @@ describe('anyone terms (what ABAC compiles to)', () => {
   });
 
   it('never(holder, permission) is violated for any holder: the term needs none', async () => {
-    expect((await verifyAssertion(abacIR(), { kind: 'never', holder: 'role:auditor@org', permission: 'doc:read' }, noSolver)).result).to.equal('violated');
+    expect((await verifyAssertion(abacIR(), { kind: 'never', holder: 'doc#parent', permission: 'doc:read' }, noSolver)).result).to.equal('violated');
   });
 
   it('a caveated term is not decided without a solver, and says so', async () => {
