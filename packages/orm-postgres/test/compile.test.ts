@@ -199,6 +199,12 @@ describe('postgres SQL compilation', function () {
       expect(result.bindings).to.be.an('array').that.includes.members([1, 'spine@spine.pl']);
     });
 
+    it('gives the table no alias from the schema argument of into(), which postgres leaves unqualified like database()', () => {
+      const result = iqb().into('users', 'archive').values({ id: 1 }).toDB();
+
+      expect(result.expression).to.equal('INSERT INTO "users" ("id") VALUES (?)');
+    });
+
     it('spells insert-or-ignore as ON CONFLICT DO NOTHING, not INSERT IGNORE', () => {
       const result = iqb().into('users').values({ id: 1, email: 'spine@spine.pl' }).orIgnore().toDB();
 
