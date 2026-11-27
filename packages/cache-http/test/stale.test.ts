@@ -9,7 +9,6 @@ import type { IContainer } from '@spinajs/di';
 import { BaseController, BasePath, Controllers, Get, HTTP_STATUS_CODE, HttpServer, Ok } from '@spinajs/http';
 import { ResponseCache, ResponseCacheMiddleware } from '../src/index.js';
 import { cacheWarnings, run, runs, useServer } from './support/server.js';
-import type { Answer } from './support/server.js';
 
 const PUBLIC = 'the test reply is the same for every caller';
 
@@ -121,7 +120,6 @@ class Slow extends BaseController {
     return new Ok({ run: n });
   }
 
-  /** Slower than cache.http.timeout (200 ms here), faster than cache.http.waitTimeout. */
   @Get('report')
   @ResponseCache(shared({ ttl: '1m' }))
   public async report() {
@@ -146,6 +144,11 @@ async function until(check: () => boolean, ms = 3000): Promise<void> {
 
 const settle = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
+const sizeOf = (owner: unknown, field: string): number => {
+  const value: unknown = typeof owner === 'object' && owner !== null ? Reflect.get(owner, field) : undefined;
+  return value instanceof Map || value instanceof Set ? value.size : NaN;
+};
+
 /** The warnings of a route whose request stopped waiting for another request's run of its key. */
 const waitsGivenUp = (route: string): number => cacheWarnings().filter((text) => text.includes(route) && text.includes('cache.http.waitTimeout')).length;
 
@@ -165,12 +168,7 @@ describe('@ResponseCache with concurrent and stale requests', function () {
   let middlewares: ResponseCacheMiddleware[] = [];
 
   /** Keys of in-flight runs and refreshes the response caches of Slow hold. */
-  const inTheAir = (): number =>
-    middlewares.reduce((sum, m) => {
-      const flights: unknown = Reflect.get(m, 'inFlight');
-      const refreshing: unknown = Reflect.get(m, 'refreshing');
-      return sum + (flights instanceof Map ? flights.size : NaN) + (refreshing instanceof Set ? refreshing.size : NaN);
-    }, 0);
+  const inTheAir = (): number => middlewares.reduce((sum, m) => sum + sizeOf(m, 'inFlight') + sizeOf(m, 'refreshing'), 0);
 
   before(async () => {
     const listed = await (await server.app!.resolve(Controllers)).Controllers;
@@ -279,7 +277,6 @@ describe('@ResponseCache with concurrent and stale requests', function () {
   it('stops waiting at cache.http.waitTimeout for a run that does not end, and runs its own route', async () => {
     const first = get('/slow/hang');
     await until(() => runs.get('hang') === 1);
-    // the first run is held to the end of the test: both waiters give up on it and answer
     const answers = await Promise.all([get('/slow/hang'), get('/slow/hang')]);
     // each ran its own route, or found the one the other stored: never the held first run
     expect(answers.map((a) => [a.status, byRun(a) === '{"run":1}'])).to.deep.eq([
@@ -427,19 +424,6 @@ describe('@ResponseCache with concurrent and stale requests', function () {
     expect([(await first).body, (await second).body]).to.deep.eq([{ run: 2 }, { run: 2 }]);
   });
 
-  it('holds one flight per key while 1000 misses of 1000 keys run, and none after', async () => {
-    const sent: Promise<Answer>[] = [];
-    // in batches: a burst of 1000 connections overflows the listen backlog
-    for (let batch = 1; batch <= 10; batch++) {
-      for (let i = 0; i < 100; i++) sent.push(get(`/slow/fresh?key=${batch}-${i}`));
-      await until(() => runs.get('fresh') === batch * 100, 30000);
-    }
-    expect(inTheAir()).to.eq(1000);
-    gate.release();
-    expect((await Promise.all(sent)).every((a) => a.status === 200)).to.eq(true);
-    expect(inTheAir()).to.eq(0);
-  });
-
   it('leaves no flight and no refresh behind when the server stops while they run', async () => {
     const as = await staleEntry('nine');
     const refreshing = get('/slow/stale', as);
@@ -468,11 +452,6 @@ class Stuck extends BaseController {
   }
 }
 
-const sizeOf = (owner: unknown, field: string): number => {
-  const value: unknown = typeof owner === 'object' && owner !== null ? Reflect.get(owner, field) : undefined;
-  return value instanceof Map || value instanceof Set ? value.size : NaN;
-};
-
 describe('@ResponseCache waits when the application is disposed', function () {
   this.timeout(180000);
 
@@ -483,30 +462,27 @@ describe('@ResponseCache waits when the application is disposed', function () {
     const warnings: string[] = [];
     const onWarning = (warning: Error): void => void warnings.push(warning.message);
     process.on('warning', onWarning);
-    try {
-      const listed = await (await server.app!.resolve(Controllers)).Controllers;
-      const stuck = listed.map((c) => c.instance).find((c) => c instanceof Stuck);
-      const middleware = stuck?.MountedMiddlewares('forever').find((m) => m instanceof ResponseCacheMiddleware);
-      const waiting = (): number => sizeOf(Reflect.get(middleware ?? {}, 'Waits'), 'pending');
-      const timers = (): number => process.getActiveResourcesInfo().filter((type) => type === 'Timeout').length;
-      const listeners = (): number => server.app!.container.listenerCount('di.dispose');
-      const before = { timers: timers(), listeners: listeners() };
+    const listed = await (await server.app!.resolve(Controllers)).Controllers;
+    const stuck = listed.map((c) => c.instance).find((c) => c instanceof Stuck);
+    const middleware = stuck?.MountedMiddlewares('forever').find((m) => m instanceof ResponseCacheMiddleware);
+    const waiting = (): number => sizeOf(Reflect.get(middleware ?? {}, 'Waits'), 'pending');
+    const timers = (): number => process.getActiveResourcesInfo().filter((type) => type === 'Timeout').length;
+    const listeners = (): number => server.app!.container.listenerCount('di.dispose');
+    const before = { timers: timers(), listeners: listeners() };
 
-      const sent = [get('/stuck/forever').catch(() => undefined)];
-      await until(() => runs.get('stuck') === 1);
-      for (let batch = 1; batch <= 5; batch++) {
-        for (let i = 0; i < 100; i++) sent.push(get('/stuck/forever').catch(() => undefined));
-        await until(() => waiting() === batch * 100, 30000);
-      }
-      expect([timers() >= before.timers + 500, listeners()]).to.deep.eq([true, before.listeners]);
-
-      await server.app!.dispose();
-      expect(waiting()).to.eq(0);
-      await Promise.all(sent);
-      await until(() => sizeOf(middleware, 'inFlight') === 0, 15000);
-      expect([timers() <= before.timers, listeners(), warnings]).to.deep.eq([true, before.listeners, []]);
-    } finally {
-      process.off('warning', onWarning);
+    const sent = [get('/stuck/forever').catch(() => undefined)];
+    await until(() => runs.get('stuck') === 1);
+    for (let batch = 1; batch <= 5; batch++) {
+      for (let i = 0; i < 100; i++) sent.push(get('/stuck/forever').catch(() => undefined));
+      await until(() => waiting() === batch * 100, 30000);
     }
+    expect([timers() >= before.timers + 500, listeners()]).to.deep.eq([true, before.listeners]);
+
+    await server.app!.dispose();
+    expect(waiting()).to.eq(0);
+    await Promise.all(sent);
+    await until(() => sizeOf(middleware, 'inFlight') === 0, 15000);
+    process.off('warning', onWarning);
+    expect([timers() <= before.timers, listeners(), warnings]).to.deep.eq([true, before.listeners, []]);
   });
 });

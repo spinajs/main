@@ -67,9 +67,8 @@ export class CaptureLogTarget extends LogTarget<ICommonTargetOptions> {
 export const cacheWarnings = (): string[] =>
   CaptureLogTarget.Entries.filter((e) => e.Variables.logger === 'cache' && e.Level === LogLevel.Warn).map((e) => String(e.Variables.message));
 
-// http.routes.middlewares of the next useServer boot: the configuration class is instantiated by the boot itself
+// http.routes.middlewares and cache.http of the next boot: the configuration class is instantiated by the boot itself
 let globalRouteMiddlewares: readonly string[] = [];
-// cache.http of the next boot
 let cacheHttp: Readonly<Record<string, number>> = {};
 
 class CacheHttpConfiguration extends FrameworkConfiguration {

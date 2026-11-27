@@ -1,12 +1,8 @@
 import { SyncService } from '@spinajs/di';
 
-/** How a wait ended: the run settled, the bound passed, or the container disposed the waits. */
 export type WaitEnd = 'ran' | 'late' | 'disposed';
 
-/**
- * The waits of every response cache of a container for another request's run of the same key. A Service, so the
- * container's dispose ends them all at once, timers included; one instance per container, no listener.
- */
+/** Waits for another request's run of a key; a Service, so the container's dispose ends them all, timers included. */
 export class ResponseCacheWaits extends SyncService {
   private readonly pending = new Set<(end: WaitEnd) => void>();
 

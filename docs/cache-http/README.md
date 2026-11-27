@@ -104,14 +104,14 @@ of a sign-in cannot be keyed. A `FreshAuth` policy is not affected: the policies
 included.
 
 What the action reads of the request without an argument (the ambient request store, `req` through a wrapper) is not
-in the key either. The `Host` header is not in the key either. On a `'tenant'` or `'shared'` route a reply that builds URLs from the
+in the key either, nor is the `Host` header. On a `'tenant'` or `'shared'` route a reply that builds URLs from the
 request host (`req.hostname`, `req.protocol`) needs `vary: ['host']`, and `x-forwarded-host` (and `x-forwarded-proto`)
 behind a proxy: otherwise one caller's `Host` header plants its links in the reply every caller gets. An action that
 reads `Accept-Language` itself needs `vary: ['accept-language']`, with or without `@spinajs/intl-http`, which never
 reads that header. The key holds no build or version of the application: a reply cached before a deployment is served
-after it until it ends, and two versions behind one shared store exchange their replies; invalidate the route's tags
-on deploy, or register a `ResponseCacheKeyPart` that returns the build id. Two applications that share one store
-(Redis) need a cache name of their own each: with the same cache name and route path they compute the same keys.
+after it until it ends, and two versions behind one shared store exchange their replies; invalidate the route's tags on
+deploy, or register a `ResponseCacheKeyPart` that returns the build id. Two applications sharing one store (Redis) need
+a cache name each: with the same cache name and route path they compute the same keys.
 
 ## Arguments of a shared route
 
@@ -205,12 +205,10 @@ its tags was invalidated, never to a request of another key (another principal, 
 never to a request of another cache scope. Other replicas keep serving the expired reply until their own first request
 refreshes it.
 
-The refresh is that first request: it runs the route with its own principal, tenant and request store, waits for it,
-and gets the new reply. No refresh runs in the background, and none outlives its request. Its reply is stored by the
-rules of "What is stored", under the tag versions its own lookup read before the route ran: a refresh that an
-invalidation reaches while it runs stores a reply that is already invalid. A refresh that fails, or whose reply is not
-stored, leaves the expired reply in place, and the next request of the process refreshes it again.
-
+The refresh is that first request: it runs the route with its own principal, tenant and request store and gets the new
+reply; nothing runs in the background. Its reply is stored by the rules of "What is stored", under the tag versions its
+own lookup read before the route ran, so an invalidation during the refresh leaves it invalid. A refresh that fails, or
+whose reply is not stored, leaves the expired reply in place, and the next request of the process refreshes it again.
 A stale reply goes out with the headers it was stored with: no `Age`, and the route's own `Cache-Control` (a
 `max-age=60` stays `max-age=60`), so a browser or CDN may keep it `max-age` longer. Give a route with `swr` a short
 `max-age`, or `no-cache` downstream through `CacheControl`'s options.
@@ -218,16 +216,14 @@ A stale reply goes out with the headers it was stored with: no `Age`, and the ro
 ## Concurrent requests
 
 Concurrent requests of one key that find nothing in one process wait for the one that runs the route, then look the
-key up again in their own scope: each gets the stored reply through its own lookup and its own reply pipeline, so a
-waiter never gets the headers or the cookies of the request it waited for. When that run stores nothing (it failed,
-its client went away, its reply is not stored, or an invalidation reached it), each waiter runs the route itself.
-A request waits at most `cache.http.waitTimeout` (5 s by default); then it runs the route itself, and the route logs a
-warning at most once a minute. So a route up to that slow runs once per key for a burst of concurrent misses; a slower
-one runs once per `waitTimeout` wave, each waiter after waiting that long first. When the run stores nothing (above),
-its waiters answer only after that whole run and their own. A lookup the store did not answer within
-`cache.http.timeout` is read as a miss and never waits. Disposing the application's container ends every wait at once,
-with its timer; each waiter then goes on as one that gave up. A request of another key never waits; one of another cache scope (a tenant that only a `CacheScope` puts
-into the key) may wait for the run of the same key in another scope, and then runs its own.
+key up again in their own scope and get the stored reply through their own reply pipeline, never the headers or
+cookies of the request they waited for. When that run stores nothing (it failed, its client left, its reply is not
+stored, an invalidation reached it), each waiter runs the route itself, after that whole run. A request waits at most
+`cache.http.waitTimeout` (5 s), then runs the route itself; the route logs a warning at most once a minute. So a route
+up to that slow runs once per key for a burst; a slower one once per `waitTimeout` wave. A lookup the store did not
+answer within `cache.http.timeout` never waits. Disposing the container ends every wait at once, with its timer, and
+each waiter goes on as one that gave up. A request of another key never waits; one of another cache scope (a tenant
+only a `CacheScope` puts into the key) may wait for the same key in another scope, then runs its own.
 
 ## Invalidation and failures
 
