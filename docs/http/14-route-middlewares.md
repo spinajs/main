@@ -360,6 +360,47 @@ An `'outer'` middleware runs right after the policy gate, before every `'inner'`
 
 `onRegister(route, path, controller)` runs once per route, when the route is mounted, and only for enabled middlewares. Check configuration or load an optional dependency there. A throw fails the registration with `RouteRegistrationException`, which names the middleware and the route.
 
+### A reply shaped per principal
+
+A middleware whose `onAfter` shapes the reply for the caller who asked says so on its class, so that a response cache
+can refuse to give that reply to another caller without depending on the middleware's package:
+
+```ts sample
+import { IController, IReplyContext, IRoute, RouteMiddleware } from '@spinajs/http';
+
+declare module '@spinajs/http' {
+  interface IActionLocalStoregeContext {
+    seesCostPrices?: boolean;
+  }
+}
+
+export class HideCostPrices extends RouteMiddleware {
+  public static readonly PerPrincipalReply = true;
+
+  public isEnabled(_route: IRoute, _controller: IController): boolean {
+    return true;
+  }
+
+  public async onAfter({ response, storage, error }: IReplyContext): Promise<void> {
+    if (error !== undefined || storage.seesCostPrices === true) return;
+    const data: unknown = await response.data;
+    if (Array.isArray(data)) response.data = data.map((row: object) => ({ ...row, costPrice: undefined }));
+  }
+}
+```
+
+A consumer reads the member from the class, `'PerPrincipalReply' in type && type.PerPrincipalReply === true`, where
+`type` is the middleware's class or the `constructor` of a mounted instance. Only the value `true` counts: a missing
+member, `'true'` or `1` do not, and neither does an instance property. The member is a `static readonly` with the literal
+type `true`, so a subclass inherits it, and a subclass that redeclares it as `false` does not compile. Do not unset it in
+a subclass: a middleware that does not shape the reply per caller is a separate class.
+
+`AuthzFieldsMiddleware`, the field filter of `@Access(…, { fields: 'filter' })` of `@spinajs/authz-http`
+([Field filters](../authz-http/06-field-filters.md)), declares it. `@ResponseCache` of `@spinajs/cache-http` refuses to
+register a route with `scope: 'tenant'` or `'shared'` that mounts such a middleware on the route or on its controller.
+A `DataTransformer` may declare it too: `AuthzFieldTransformer` (`x-data-transform: authz-fields`) does, and a request
+that names such a transformer runs uncached, whatever the route's scope. Nothing in `@spinajs/http` reads the member.
+
 ### State between stages
 
 State is shared, never copied. Every hook, the action and the error handlers see the same `req`, `res` and `req.storage` objects for the whole request.

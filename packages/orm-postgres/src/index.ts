@@ -30,6 +30,8 @@ export interface IPostgresTransactionContext extends ITransactionContext {
   rollbackFailed?: boolean;
   /** The error of the failed ROLLBACK TO SAVEPOINT, the `inner` of the commit's refusal. */
   savepointRollbackFailure?: Error;
+  /** The first statement failure since `BEGIN` or the last `ROLLBACK TO SAVEPOINT`. */
+  failure?: Error;
 }
 
 /**
@@ -290,7 +292,7 @@ export class PostgresOrmDriver extends SqlDriver {
           return result.rows;
       }
     } catch (err) {
-      throw mapPostgresError(
+      const mapped = mapPostgresError(
         err,
         {
           Host: this.Options.Host,
@@ -300,6 +302,8 @@ export class PostgresOrmDriver extends SqlDriver {
         stmt,
         params,
       );
+      if (txContext) txContext.failure ??= mapped;
+      throw mapped;
     }
   }
 
@@ -707,7 +711,11 @@ export class PostgresOrmDriver extends SqlDriver {
       const failure = tx.savepointRollbackFailure;
       throw new OrmException(`transaction on connection ${this.Options.Name} was not committed: the ROLLBACK TO SAVEPOINT of a nested transaction failed (it may never have reached the server), so work the nested call reported as undone may still be in it; nothing of it was written; the failure: ${failure?.message ?? 'unknown'}`, undefined, undefined, undefined, failure);
     }
-    await tx.connection.query('COMMIT');
+    const result = await tx.connection.query('COMMIT');
+    // A COMMIT of an aborted transaction raises no error: PostgreSQL rolls it back and answers with this tag.
+    if (result.command === 'ROLLBACK') {
+      throw new OrmException(`transaction on connection ${this.Options.Name} was aborted by an earlier failed statement whose error was caught; PostgreSQL rolled it back when it was asked to commit, and nothing of it was written; the first failure: ${tx.failure?.message ?? 'unknown'}`, undefined, undefined, undefined, tx.failure);
+    }
   }
 
   protected async _rollback(ctx: ITransactionContext): Promise<void> {
@@ -740,6 +748,8 @@ export class PostgresOrmDriver extends SqlDriver {
       tx.savepointRollbackFailure ??= err instanceof Error ? err : new Error(String(err));
       throw err;
     }
+    // A savepoint can only be taken in a healthy transaction, so rolling back to it heals the transaction.
+    tx.failure = undefined;
   }
 
   protected _dispose(ctx: ITransactionContext): Promise<void> {
