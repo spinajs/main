@@ -5,7 +5,7 @@ import type { PrincipalRef } from '@spinajs/authz';
 import { DI, Injectable } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 import { InvalidArgument } from '@spinajs/exceptions';
-import { Orm, OrmConnectionMissing, instantFromDb, modelDriver } from '@spinajs/orm';
+import { IdentifierQuoter, Orm, OrmConnectionMissing, RawQuery, SqlExpressions, instantFromDb, modelDriver } from '@spinajs/orm';
 import type { OrmDriver } from '@spinajs/orm';
 import { chunk } from '@spinajs/util';
 import { DateTime } from 'luxon';
@@ -156,8 +156,9 @@ export class OrmFileAclStore extends FileAclStore {
       const rows = await exactRows(tx, src.fs, src.path);
       const moving = new Set(rows.map((r) => rowKey(dst.path, r)));
       await deleteIds((await exactRows(tx, dst.fs, dst.path)).filter((r) => moving.has(rowKey(r.path, r))).map((r) => r.id));
-      // By id: a condition on fs would also move another filesystem's rows under a case-insensitive or PAD SPACE collation.
-      for (const part of chunk(rows.map((r) => r.id), IN_CHUNK)) await FsAclRecord.update({ fs: dst.fs, path: dst.path, path_hash: aclPathHash(dst.path) }).whereIn('id', part);
+      // One statement, so a row committed meanwhile moves too and one that left is not taken. `fs = ?` seeks the index;
+      // equalsExactly decides, since `=` ignores case or trailing spaces under some collations (MySQL, MSSQL).
+      await FsAclRecord.update({ fs: dst.fs, path: dst.path, path_hash: aclPathHash(dst.path) }).where({ fs: src.fs, path_hash: aclPathHash(src.path), path: src.path }).where(exactly(tx, 'fs', src.fs));
     });
   }
 
@@ -179,6 +180,11 @@ export class OrmFileAclStore extends FileAclStore {
 const rowKey = (path: string, r: Row): string => `${path}\0${r.subject_key}\0${r.relation}`;
 
 const utc = (date: Date): DateTime => DateTime.fromJSDate(date, { zone: 'utc' });
+
+function exactly(driver: OrmDriver, column: string, value: string): RawQuery {
+  const fragment = driver.Container.resolve(SqlExpressions).equalsExactly(driver.Container.resolve(IdentifierQuoter).quote(column), { sql: '?', bindings: [value] });
+  return RawQuery.create(fragment.sql, [...fragment.bindings]);
+}
 
 function recordDriver(): OrmDriver {
   try {

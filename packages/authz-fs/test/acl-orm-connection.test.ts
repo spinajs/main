@@ -76,6 +76,8 @@ describe('authz-fs OrmFileAclStore: the connection of fs_acl', function () {
   it('on a case-insensitive table matches rows exactly in code', async () => {
     await store.grant({ fs: 'ci', path: 'Docs/A.txt', subject: ALICE, relation: 'viewer' });
     expect(await store.holds('ci', ['docs/a.txt'], ['user:alice'], 'viewer', new Date())).to.equal(false);
+    // The table's `fs = 'CI'` returns the row of `ci`; only the exact check in code refuses it.
+    expect(await store.holds('CI', ['Docs/A.txt'], ['user:alice'], 'viewer', new Date())).to.equal(false);
     expect(await store.list('ci', 'docs/a.txt')).to.deep.equal([]);
     await store.deleteTree('ci', 'docs');
     expect(await store.list('ci', 'Docs/A.txt')).to.have.length(1);
