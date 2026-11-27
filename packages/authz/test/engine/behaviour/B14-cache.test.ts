@@ -5,6 +5,7 @@ import { Authorizer } from '../../../src/engine/authorizer.js';
 import type { AuthorizerOptions, RequestScope } from '../../../src/engine/authorizer.js';
 import { LruDecisionCache } from '../../../src/engine/cache.js';
 import { runAsync } from '../../../src/engine/run.js';
+import { nestExpiry, newNested } from '../../../src/engine/support/misc.js';
 import { FALSE, SYSTEM, ScopeAttributeStore, TRUE, resourceKey } from '../../../src/index.js';
 import type { CheckInput, Decision, DecisionRequest, EvaluationContext, Principal, ResourceFilter, ResourceRef, Vote } from '../../../src/index.js';
 import { FakeAdapter, FakeRow, FakeScopeResolver, RecordingAudit, RecordingLog, StaticModel, deny, fakeClock, permit, principal, registryOf } from '../fakes.js';
@@ -416,6 +417,128 @@ describe('B14: decision caches (L1 per request, L2 across requests)', () => {
       await a.check(read(alice, D1), fresh());
       expect(cache.sets).to.have.length(0);
       expect(m.calls.filter((c) => c.req.principal.id === 'alice')).to.have.length(2);
+    });
+
+    describe('a decision resting on a nested ctx.check ends when the nested grant does', () => {
+      const carol = principal('user', 'carol');
+      const T0 = fakeClock().now.getTime();
+      const expiry = new Date(T0 + 5_000);
+      /** alice reads what bob may write, bob writes what carol may write; `grantee` holds a grant that ends at `expiry` (or never). */
+      const chain = (clock: FakeClock, grantee: Principal, ends: boolean, effect: 'permit' | 'deny') =>
+        new StaticModel('m', {
+          vote: async (req: DecisionRequest, ctx: EvaluationContext) => {
+            if (req.principal.id === grantee.id) {
+              const live = !ends || clock.now.getTime() < expiry.getTime();
+              const until = ends && live ? { validUntil: expiry } : {};
+              if (effect === 'deny') return live ? pass('m', FALSE, { denyWhen: TRUE, ...until }) : pass('m', TRUE);
+              return pass('m', live ? TRUE : FALSE, until);
+            }
+            const next = req.principal.id === 'alice' ? bob : carol;
+            return pass('m', (await ctx.check({ principal: next, permission: 'doc:write', resource: req.resource, env: {} })).allowed ? TRUE : FALSE);
+          },
+        });
+      const built = (grantee: Principal, ends: boolean, options: { l2?: boolean } = {}, effect: 'permit' | 'deny' = 'permit') => {
+        const clock = fakeClock();
+        const cache = new RecordingCache({ clock: clock.clock });
+        const models = [chain(clock, grantee, ends, effect)];
+        const a = new Authorizer({ domain: 'root', registry, models, adapters: [new FakeAdapter(['doc', 'folder'], { rows: rows() })], clock: clock.clock, ...(options.l2 === false ? {} : { cache }) });
+        return { a, cache, clock };
+      };
+      const outer = (cache: RecordingCache) => cache.sets.find((s) => s.decision.principal.id === 'alice');
+
+      it('B14: in the L2 the outer entry lives no longer than the nested grant', async () => {
+        const { a, cache, clock } = built(bob, true);
+        const first = await a.check(read(alice, D1), fresh());
+        expect(first.allowed).to.equal(true);
+        clock.advance(6_000);
+        expect((await a.check(read(alice, D1), fresh())).allowed).to.equal(false);
+        expect(first.validUntil?.getTime()).to.equal(expiry.getTime());
+        expect(outer(cache)?.ttlMs).to.equal(5_000);
+      });
+
+      it('B14: in the L1 of one request the outer entry ends with the nested grant', async () => {
+        const { a, clock } = built(bob, true, { l2: false });
+        const scope = fresh();
+        expect((await a.check(read(alice, D1), scope)).allowed).to.equal(true);
+        clock.advance(6_000);
+        expect((await a.check(read(alice, D1), scope)).allowed).to.equal(false);
+      });
+
+      for (const level of ['L1', 'L2'] as const) {
+        it(`B14: a nested check answered from the ${level} bounds the outer entry too`, async () => {
+          const { a, clock } = built(bob, true, { l2: level === 'L2' });
+          const scope = fresh();
+          await a.check({ principal: bob, permission: 'doc:write', resource: D1 }, level === 'L1' ? scope : fresh());
+          expect((await a.check(read(alice, D1), scope)).allowed).to.equal(true);
+          clock.advance(6_000);
+          expect((await a.check(read(alice, D1), scope)).allowed).to.equal(false);
+        });
+      }
+
+      it('B14: two levels down, the grant of the innermost check bounds the outer entry', async () => {
+        const { a, cache, clock } = built(carol, true);
+        expect((await a.check(read(alice, D1), fresh())).allowed).to.equal(true);
+        expect(outer(cache)?.ttlMs).to.equal(5_000);
+        clock.advance(6_000);
+        expect((await a.check(read(alice, D1), fresh())).allowed).to.equal(false);
+      });
+
+      /** alice's own vote ends at `own`; it rests on bob's grant, which ends at `expiry`. */
+      const ownAndNested = (own: Date) => {
+        const clock = fakeClock();
+        const cache = new RecordingCache({ clock: clock.clock });
+        const m = new StaticModel('m', {
+          vote: async (req: DecisionRequest, ctx: EvaluationContext) => {
+            if (req.principal.id === bob.id) return pass('m', TRUE, { validUntil: expiry });
+            const d = await ctx.check({ principal: bob, permission: 'doc:write', resource: req.resource, env: {} });
+            return pass('m', d.allowed ? TRUE : FALSE, { validUntil: own });
+          },
+        });
+        const a = new Authorizer({ domain: 'root', registry, models: [m], adapters: [new FakeAdapter(['doc', 'folder'], { rows: rows() })], clock: clock.clock, cache });
+        return { a, cache };
+      };
+
+      it('B14: an outer vote with a later expiry of its own still ends with the nested grant', async () => {
+        const { a, cache } = ownAndNested(new Date(T0 + 9_000));
+        expect((await a.check(read(alice, D1), fresh())).validUntil?.getTime()).to.equal(expiry.getTime());
+        expect(outer(cache)?.ttlMs).to.equal(5_000);
+      });
+
+      it('B14: an outer vote with an earlier expiry of its own ends first', async () => {
+        const { a, cache } = ownAndNested(new Date(T0 + 2_000));
+        expect((await a.check(read(alice, D1), fresh())).validUntil?.getTime()).to.equal(T0 + 2_000);
+        expect(outer(cache)?.ttlMs).to.equal(2_000);
+      });
+
+      it('B14: a nested deny that ends bounds the cached outer denial the same way', async () => {
+        const { a, cache, clock } = built(bob, true, {}, 'deny');
+        expect((await a.check(read(alice, D1), fresh())).allowed).to.equal(false);
+        expect(outer(cache)?.ttlMs).to.equal(5_000);
+        clock.advance(6_000);
+        expect((await a.check(read(alice, D1), fresh())).allowed).to.equal(true);
+      });
+
+      it('B14: a nested check with no expiry shortens nothing, and the expiry leaves the nested tags as they were', async () => {
+        const plain = built(bob, false);
+        const d = await plain.a.check(read(alice, D1), fresh());
+        expect(d.validUntil).to.equal(undefined);
+        expect(outer(plain.cache)?.ttlMs).to.equal(60_000);
+        const bounded = built(bob, true);
+        await bounded.a.check(read(alice, D1), fresh());
+        expect(outer(bounded.cache)?.tags).to.include('subject:user:bob');
+        expect(outer(bounded.cache)?.tags).to.deep.equal(outer(plain.cache)?.tags);
+      });
+
+      it('B14: a nested expiry that cannot be read keeps every decision above out of the caches', () => {
+        const nested = newNested();
+        nestExpiry(nested, new Date(NaN));
+        expect(nested.uncacheable).to.equal(true);
+        expect(nested.until).to.equal(undefined);
+        nestExpiry(nested, new Date(T0 + 9_000));
+        nestExpiry(nested, expiry);
+        nestExpiry(nested, undefined);
+        expect(nested.until?.getTime()).to.equal(expiry.getTime());
+      });
     });
 
     it('B14: a decision resting on a nested decision served from the L2 stays out of the L2, as the nested tags are unknown (review P2)', async () => {

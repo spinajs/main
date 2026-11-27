@@ -7,7 +7,7 @@ import { l1Key } from '../context.js';
 import { isObject } from '../internal/util.js';
 import { swallow } from '../run.js';
 import { deepFreeze, thrownError, validDate } from '../vote.js';
-import { audits, nest, withOwnDate } from '../support/misc.js';
+import { audits, nest, nestExpiry, withOwnDate } from '../support/misc.js';
 import { logAt } from '../support/plumbing.js';
 import { record } from '../pipeline/finish.js';
 import { CachedDecision } from '../types.js';
@@ -26,7 +26,10 @@ export function cached(engine: Engine, key: string, run: Run, def: PermissionDef
   if (entry instanceof CachedDecision && entry.generation === engine.generation && now < entry.expiresAt) {
     Perf.count('authz.cache.l1.hit');
     markHit(run);
-    if (run.depth > 0) nest(run, entry.tags);
+    if (run.depth > 0) {
+      nest(run, entry.tags);
+      nestExpiry(run.nested, entry.decision.validUntil);
+    }
     if (entry.unaudited && audits(run)) {
       entry.unaudited = false;
       auditDenial(engine, requester, def, ref, entry.decision);
@@ -38,7 +41,10 @@ export function cached(engine: Engine, key: string, run: Run, def: PermissionDef
   Perf.count('authz.cache.l2.hit');
   markHit(run);
   // The L2 returns no tags, so what the stored decision rested on (nested checks, scope nodes) is unknown here.
-  if (run.depth > 0) nest(run, undefined);
+  if (run.depth > 0) {
+    nest(run, undefined);
+    nestExpiry(run.nested, decision.validUntil);
+  }
   const ttl = ttlOf(engine, decision);
   if (ttl) run.scope.set(l1, new CachedDecision(decision, undefined, ttl.now + ttl.ms, run.generation, !decision.allowed && !audits(run)));
   if (audits(run) && !decision.allowed) auditDenial(engine, requester, def, ref, decision);
