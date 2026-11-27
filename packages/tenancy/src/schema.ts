@@ -16,6 +16,11 @@ export const TENANCY_DEFAULTS = {
     principalAttribute: 'tenant',
     sessionKey: 'tenant',
   },
+  fs: {
+    prefixed: [],
+    prefix: 'tenants/${tenant}/',
+    dedicated: {},
+  },
 } as const;
 
 const text = { type: 'string', minLength: 1 };
@@ -64,6 +69,14 @@ export const TENANCY_CONFIGURATION_SCHEMA = {
         pathParam: text,
         principalAttribute: text,
         sessionKey: text,
+      },
+    },
+    fs: {
+      type: 'object',
+      properties: {
+        prefixed: texts,
+        prefix: text,
+        dedicated: { type: 'object', additionalProperties: { type: 'object', propertyNames: { pattern: TENANT_ID_PATTERN }, additionalProperties: text } },
       },
     },
   },
