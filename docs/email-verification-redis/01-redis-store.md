@@ -48,12 +48,13 @@ export default {
 - A store failure is not fatal for checks: `EmailVerification` logs it and runs the verifier live.
 - `loadLists()` reads each set with `SMEMBERS`. It is not one atomic snapshot across sources, but each source is consistent.
 - `keyPrefix` isolates apps that share a Redis; give each app its own.
+- Errors from the store carry no `command`, the copy of the failed command's arguments that ioredis attaches: checked domains, stored meta values and, after a refused `AUTH`, the Redis password. The same holds for each item of an `EXECABORT` error's `previousErrors` and for the error the `error` listener logs. Class, `name`, `message` and `stack` are unchanged.
 
 ## Services and extension points
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
-| Store | `EmailVerificationStore`, singleton, by class name | `RedisEmailVerificationStore` | Memory, ORM, DynamoDB | Subclass and override `createClient()` or `clientOptions()` to change the connection; decorate with `@Injectable(EmailVerificationStore)` and set `emailVerification.store` to the subclass name. See [custom stores](../email-verification/07-custom-verifiers-and-stores.md#custom-emailverificationstore). |
+| Store | `EmailVerificationStore`, singleton, by class name | `RedisEmailVerificationStore` | Memory, ORM, DynamoDB | Subclass and override `createClient()` or `clientOptions()` to change the connection; decorate with `@Injectable(EmailVerificationStore)` and set `emailVerification.store` to the subclass name. A public method you add or override that calls `this.Client` runs its body through the protected `run()`: `return this.run(async () => { … })`. It removes ioredis's `command` (domains, stored values, the `AUTH` password) from the error it rethrows. See [custom stores](../email-verification/07-custom-verifiers-and-stores.md#custom-emailverificationstore). |
 
 ## Related
 
