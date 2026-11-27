@@ -22,17 +22,19 @@ const splitMember = (m: string): [ListKind, string] => {
   return [m.slice(0, at) as ListKind, m.slice(at + 1)];
 };
 
-const UNKNOWN_COMMAND = /^ERR unknown command '([^']*)', with args beginning with: /;
+/** Redis 6.2 and later quote the name in `'`, older versions in backticks. */
+const UNKNOWN_COMMAND = /^ERR unknown command (['`])[^'`]*\1, with args beginning with: /;
 
-/** Redis quotes up to 128 characters of the arguments in its unknown-command reply: a checked domain, a stored meta value. */
+/** Redis quotes up to 128 characters of the arguments in its unknown-command reply: a checked domain, a stored meta value, the AUTH password. */
 function redactUnknownCommand(err: Error): void {
-  const match = UNKNOWN_COMMAND.exec(err.message);
+  const old = err.message;
+  const match = UNKNOWN_COMMAND.exec(old);
   if (!match) return;
-  const stack = err.stack;
-  err.message = `ERR unknown command '${match[1]}', with args beginning with: <redacted>`;
-  if (stack === undefined) return;
-  const eol = stack.indexOf('\n');
-  err.stack = `${err.name}: ${err.message}${eol < 0 ? '' : stack.slice(eol)}`;
+  const message = `${match[0]}<redacted>`;
+  const stack: unknown = err.stack;
+  // Reflect.set: a frozen error stays as thrown instead of turning into a TypeError that quotes it.
+  Reflect.set(err, 'message', message);
+  if (typeof stack === 'string') Reflect.set(err, 'stack', stack.split(old).join(message));
 }
 
 function strip(err: Error): void {
