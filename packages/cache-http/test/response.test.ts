@@ -102,6 +102,8 @@ describe('CachedResponse', () => {
 
 describe('the stored reply', () => {
   const jsonReply = (more: Partial<CapturedJsonReply> = {}): CapturedJsonReply => ({ ...STORED, ...more });
+  // STORED as replyToStore keeps it: without the route's own X-Route
+  const KEPT: CapturedJsonReply = { ...STORED, headers: { 'content-type': JSON_TYPE, etag: 'W/"b-stored"' } };
 
   it('is a 200 JSON reply only', () => {
     expect(replayableReply(jsonReply())).to.deep.eq(STORED);
@@ -138,12 +140,12 @@ describe('the stored reply', () => {
     for (const vary of ['*', 'accept, *', ['accept', ' * ']]) {
       expect(replyToStore({ reply: STORED }, headersOf({ vary }), 'principal'), String(vary)).to.eq(undefined);
     }
-    expect(replyToStore({ reply: STORED }, headersOf({ vary: 'accept' }), 'principal')).to.deep.eq(STORED);
+    expect(replyToStore({ reply: STORED }, headersOf({ vary: 'accept' }), 'principal')).to.deep.eq(KEPT);
   });
 
   it('is not taken from a response that failed, sets a cookie or says no-store, nor from a private one on a wider scope', () => {
     const plain = headersOf({ 'cache-control': 'max-age=60' });
-    expect(replyToStore({ reply: STORED }, plain, 'shared')).to.deep.eq({ ...STORED, headers: { 'content-type': JSON_TYPE, etag: 'W/"b-stored"' } });
+    expect(replyToStore({ reply: STORED }, plain, 'shared')).to.deep.eq(KEPT);
     expect(replyToStore({ reply: null }, plain, 'principal')).to.eq(undefined);
     expect(replyToStore({ reply: STORED, error: new Error('boom') }, plain, 'principal')).to.eq(undefined);
     expect(replyToStore({ reply: jsonReply({ status: 500 }) }, plain, 'principal')).to.eq(undefined);
@@ -153,7 +155,7 @@ describe('the stored reply', () => {
       expect(replyToStore({ reply: STORED }, headersOf({ 'cache-control': ['public', 'no-store'] }), scope), scope).to.eq(undefined);
     }
     const personal = headersOf({ 'cache-control': 'private, max-age=60' });
-    expect(replyToStore({ reply: STORED }, personal, 'principal')).to.deep.eq(STORED);
+    expect(replyToStore({ reply: STORED }, personal, 'principal')).to.deep.eq(KEPT);
     expect(replyToStore({ reply: STORED }, personal, 'tenant')).to.eq(undefined);
     expect(replyToStore({ reply: STORED }, personal, 'shared')).to.eq(undefined);
   });
@@ -169,17 +171,17 @@ describe('the stored reply', () => {
     for (const vary of ['Cookie', 'accept, authorization', ['origin', ' COOKIE ']]) {
       expect(replyToStore({ reply: STORED }, headersOf({ vary }), 'tenant'), String(vary)).to.eq(undefined);
       expect(replyToStore({ reply: STORED }, headersOf({ vary }), 'shared'), String(vary)).to.eq(undefined);
-      expect(replyToStore({ reply: STORED }, headersOf({ vary }), 'principal'), String(vary)).to.deep.eq(STORED);
+      expect(replyToStore({ reply: STORED }, headersOf({ vary }), 'principal'), String(vary)).to.deep.eq(KEPT);
     }
     // CORS varies every reply on Origin: it changes headers a middleware sets again on a hit, not the body
     expect(replyToStore({ reply: STORED }, headersOf({ vary: 'Origin' }), 'shared')).to.not.eq(undefined);
   });
 
-  it('keeps on a wider scope only the headers that describe the body, and every header of a per-principal reply', () => {
+  it('keeps only the headers that describe the body, on every scope: X-Request-Id or a CSRF token belong to one request', () => {
     const described = { 'content-type': JSON_TYPE, etag: 'W/"b"', 'content-language': 'pl', link: '</items?page=2>; rel="next"', 'last-modified': 'Mon, 01 Jan 2001 00:00:00 GMT' };
-    const reply = jsonReply({ headers: { ...described, 'x-csrf-token': 'token-of-ann', 'x-route': 'items' } });
-    expect(replyToStore({ reply }, headersOf({}), 'shared')).to.deep.eq({ ...reply, headers: described });
-    expect(replyToStore({ reply }, headersOf({}), 'tenant')).to.deep.eq({ ...reply, headers: described });
-    expect(replyToStore({ reply }, headersOf({}), 'principal')).to.deep.eq(reply);
+    const reply = jsonReply({ headers: { ...described, 'x-csrf-token': 'token-of-ann', 'x-request-id': 'first', 'x-route': 'items' } });
+    for (const scope of ['principal', 'tenant', 'shared'] as const) {
+      expect(replyToStore({ reply }, headersOf({}), scope), scope).to.deep.eq({ ...reply, headers: described });
+    }
   });
 });

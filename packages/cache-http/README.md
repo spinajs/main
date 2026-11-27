@@ -44,10 +44,10 @@ Limits of this version:
   made for one caller. Other names are not checked against the key (CORS adds `Vary: Origin` to every reply); a
   header the body depends on belongs in `vary`.
 - A reply that says `Cache-Control: no-cache` is not stored: a hit never asks the action again.
-- A hit sends the stored `Content-Type`, `Location`, `ETag` and the headers the route set in its reply. On a
-  `'tenant'` or `'shared'` route only the route's headers that describe the body are kept (`Content-Language`,
-  `Content-Disposition`, `Last-Modified`, `Link`, `Cache-Control`, `Expires`, `Vary`): a header meant for one caller
-  (a CSRF token) is set by a middleware, which sets it again on a hit.
+- A hit sends the stored `Content-Type`, `Location`, `ETag` and, of the headers the route set in its reply, only those
+  that describe the body (`Content-Language`, `Content-Disposition`, `Last-Modified`, `Link`, `Cache-Control`,
+  `Expires`, `Vary`), on every scope: a route's `X-Request-Id`, CSRF token or rate-limit value belongs to one request
+  or session, and one principal has many. A header like that is set by a middleware, which sets it again on a hit.
 - The key holds no build or version of the application: a reply cached before a deployment is served after it until
   its ttl, and two versions behind one shared store exchange their replies. Invalidate the route's tags on deploy, or
   register a `ResponseCacheKeyPart` that returns the build id.

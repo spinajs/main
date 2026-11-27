@@ -15,3 +15,5 @@ Every call of the response cache to its cache is bounded by the new setting `cac
 On a `'tenant'` or `'shared'` route `@Header()` must name its header (`@Header('x-region')`); a `@Header()` without a name fails the registration with a message that says so, instead of refusing a header listed in `vary`. A refused argument is named by its position when http has not named it yet.
 
 On a `'tenant'` or `'shared'` route an action that takes `@Req()` or `@Res()`, or has more parameters than declared arguments (and so reads the `req`, `res`, `next` http passes after them), fails the registration instead of logging a warning: it shared whatever it read of one caller's request with the next caller.
+
+A per-principal reply keeps the same headers as a shared one: a route header that is not one of those, such as the first request's `X-Request-Id`, is not replayed to the principal's later requests.
