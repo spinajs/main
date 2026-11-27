@@ -67,6 +67,8 @@ export interface ModelSpec {
   readonly decorate?: (model: typeof ModelBase, proto: object) => void;
   /** Extends this class instead of ModelBase (decorators already on it are kept). */
   readonly base?: typeof ModelBase;
+  /** Maps the class to this existing table instead of creating one (`columns` is then ignored). */
+  readonly table?: string;
 }
 
 let seq = 0;
@@ -192,7 +194,7 @@ export class TestDb {
   /** Defines a model class on `dialect`, creates its table and inserts `spec.rows`. */
   async define(spec: ModelSpec, dialect: Dialect = 'sqlite'): Promise<typeof ModelBase & (new () => ModelBase)> {
     const name = unique(spec.name);
-    const table = name.toLowerCase();
+    const table = spec.table ?? name.toLowerCase();
     const Base = spec.base ?? ModelBase;
     const cls = { [name]: class extends Base {} }[name] as typeof ModelBase & (new () => ModelBase);
 
@@ -201,12 +203,14 @@ export class TestDb {
     Connection(dialect)(cls);
     Model(table)(cls);
 
-    const q = (n: string) => TestDb.quote(n, dialect);
-    const columns = { id: dialect === 'mysql' ? 'VARCHAR(64)' : 'TEXT', ...spec.columns };
-    const ddl = Object.entries(columns)
-      .map(([c, t]) => `${q(c)} ${t}${c === 'id' ? ' PRIMARY KEY' : ''}`)
-      .join(', ');
-    await this.raw(`CREATE TABLE ${q(table)} (${ddl})`, [], dialect);
+    if (spec.table === undefined) {
+      const q = (n: string) => TestDb.quote(n, dialect);
+      const columns = { id: dialect === 'mysql' ? 'VARCHAR(64)' : 'TEXT', ...spec.columns };
+      const ddl = Object.entries(columns)
+        .map(([c, t]) => `${q(c)} ${t}${c === 'id' ? ' PRIMARY KEY' : ''}`)
+        .join(', ');
+      await this.raw(`CREATE TABLE ${q(table)} (${ddl})`, [], dialect);
+    }
     this.models.push({ model: cls, table, dialect });
 
     const orm = this.orm as unknown as { registerModel(m: unknown): void; applyModelMixins(): void; wireRelations(): void };
