@@ -43,7 +43,7 @@ await runInTenant('acme', async () => sendInvoices());
 
 ## Writing settings
 
-`checkTenantSettings(settings)` throws `InvalidConfiguration` when a value at an overridable path does not pass the schema or holds a `__proto__`, `constructor` or `prototype` key at any depth (a value the overlay would drop), and `InvalidOperation` while the configuration loads. Call it before a tenant's settings are written. After writing settings by other means, invalidate the registry cache (`(await tenantRegistry()).invalidate(id)`) and call `loadTenantSettings(id)`.
+`checkTenantSettings(settings)` throws `InvalidConfiguration` when a value at an overridable path does not pass the schema or holds a `__proto__`, `constructor` or `prototype` key at any depth (a value the overlay would drop), and `InvalidOperation` while the configuration loads. Call it before a tenant's settings are written. With the tenant table of `@spinajs/tenancy-orm`, [`TenantSettingsService`](../tenancy-orm/01-tenant-table.md#writing-a-tenants-settings) does both and writes only listed paths. After writing settings by other means, invalidate the registry cache (`(await tenantRegistry()).invalidate(id)`) and call `loadTenantSettings(id)`.
 
 ## Values copied at boot
 
