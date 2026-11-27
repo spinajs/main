@@ -1,6 +1,7 @@
 import * as Http from '@spinajs/http';
 import { Ok as Fine, NotFound as Missing } from '@spinajs/http';
 import { BadRequest, Forbidden } from '@spinajs/exceptions';
+import type { ModelData, ModelDataWithRelationData } from '@spinajs/orm';
 import * as InHttpFolder from './inner/http/replies.js';
 import * as Again from './reply-reexports.js';
 import * as App from './reply-lookalikes.js';
@@ -113,6 +114,21 @@ export interface ImportedAsReplies {
   Fine: Fine<Payload>;
   Missing: Promise<Missing<Payload>>;
   OkAlias: OkAlias<Payload>;
+}
+
+type MissingPayload = Http.NotFound<Payload>;
+type OkList<T> = Http.Ok<T[]>;
+export interface AliasedReplies {
+  MissingPayload: MissingPayload;
+  PromisedMissingPayload: Promise<MissingPayload>;
+  OkList: OkList<Payload>;
+}
+
+export interface ModelDataReplies {
+  PromisedModelData: Promise<ModelData<Payload>>;
+  OkModelData: Http.Ok<ModelData<Payload>>;
+  PromisedModelDataWithRelationData: Promise<ModelDataWithRelationData<Payload>>;
+  OkModelDataWithRelationData: Http.Ok<ModelDataWithRelationData<Payload>>;
 }
 
 export interface HttpFolderReplies {

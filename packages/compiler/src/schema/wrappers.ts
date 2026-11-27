@@ -25,10 +25,12 @@ export function wrapperName(checker: ts.TypeChecker, type: ts.Type): string | un
   return [...new Set(names)].join(' | ');
 }
 
+// The reference's own arguments win over an alias's: `type OkList<T> = Ok<T[]>` passes `T[]`, not `T`, and
+// `type Missing = NotFound<P>` has none. A mapped or intersection alias (`ModelData<M>`) has only the alias's.
 function typeArgumentsOf(checker: ts.TypeChecker, type: ts.Type): readonly ts.Type[] {
-  if (type.aliasSymbol) return type.aliasTypeArguments ?? [];
   const isReference = type.flags & ts.TypeFlags.Object && (type as ts.ObjectType).objectFlags & ts.ObjectFlags.Reference;
-  return isReference ? checker.getTypeArguments(type as ts.TypeReference) : [];
+  if (isReference) return checker.getTypeArguments(type as ts.TypeReference);
+  return type.aliasTypeArguments ?? [];
 }
 
 function payloadOf(checker: ts.TypeChecker, type: ts.Type): ts.Type | undefined {
