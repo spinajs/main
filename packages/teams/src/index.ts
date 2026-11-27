@@ -6,3 +6,6 @@ export { fromAssignmentSubject, parseSubjectLabel, readSubject, subjectLabel, to
 export * from './services/team-service.js';
 export * from './services/group-service.js';
 export * from './invitations/index.js';
+export * from './ports.js';
+// Registers TeamsTenancyCheck as an AuthzContributor.
+export * from './tenancy-check.js';
