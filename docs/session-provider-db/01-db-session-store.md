@@ -23,12 +23,12 @@
 1. `DbSession.query().where({ SessionId })` reads the row with a flag that tells a `NULL` `Expiration` from an unreadable one. No row returns `null`.
 2. `toSession()` reads `Subject`, `Impersonator` and `State` from their columns. A row without a readable `Subject` returns `null`.
 3. It decodes `Data` (a `Buffer` is read as UTF-8 text first). A row whose `Data` does not decode throws.
-4. An expired session returns `null`. The row stays until the sweep deletes it. An [unreadable `Expiration`](#unreadable-expiration) counts as passed.
+4. An expired session returns `null`. The row stays until the sweep deletes it. An [unreadable `Expiration`](#unreadable-expiration) counts as passed, and so does an [unreadable `ImpersonatorId` or `ExternalKey`](#unreadable-impersonatorid-or-externalkey).
 
 ### Touch, `touch(session)`
 
 1. `SessionProvider.applyRenewedExpiration()` computes the new expiration. A `pending` session keeps its expiration.
-2. One `UPDATE` writes `Expiration` and `Data` where `SessionId` matches, the stored `State` equals `session.State`, and the stored `Expiration` is `NULL` or in the future.
+2. One `UPDATE` writes `Expiration` and `Data` where `SessionId` matches, the stored `State` equals `session.State`, the stored `ImpersonatorId` equals the principal key of `session.Impersonator` (`NULL` when it has none), and the stored `Expiration` is `NULL` or in the future.
 3. When no row was updated, the store restores `session.Expiration` to its old value and returns `false`.
 4. Otherwise it returns `true` when the expiration changed, `false` when it stayed the same.
 
@@ -127,7 +127,7 @@ this.Config = _.merge(this.Config, {
 ## Important behaviour
 
 - `restore()` throws when one row's `Data` does not decode. `deleteBySubject()` and `listBySubject()` do not: they log a warning and treat that row's `Data` as empty, so one bad row cannot block a revocation.
-- A stored `State` other than exactly `active` reads back as `pending` (fail closed). A row without a readable `Subject` reads as absent.
+- A stored `State` other than exactly `active` reads back as `pending` (fail closed). A row without a readable `Subject` (a principal key with a non-empty type and id) reads as absent.
 - `touch()` never extends a row that is expired, deleted, or stored in another `State`, a `NULL` `State` included. A forged `active` view of a `pending` row returns `false` and changes nothing.
 - `touch()` writes `Data` even when it returns `false` because the expiration did not change.
 - The store does not hash ids. It keys rows by whatever `SessionId` it gets; the issuer passes `sha256(rawId)`.
@@ -156,6 +156,20 @@ SELECT Subject, Expiration FROM user_sessions WHERE Expiration IS NOT NULL
 ```
 
 MSSQL's datetime types hold no such value. Setting `Expiration = NULL` instead of deleting makes the session never expire.
+
+### Unreadable `ImpersonatorId` or `ExternalKey`
+
+Revoking an impersonator (`deleteBySubject(admin, { includeImpersonations: true })`) and an IdP logout (`deleteByExternalKey`) select rows by equality on `ImpersonatorId` and `ExternalKey`, so a value present but unreadable would leave the session live after its revocation. Such a session counts as expired, as an unreadable `Expiration` does, and the warning names the subject and the column: an `ImpersonatorId` that is not a principal key with a non-empty type and id (`''`, `user:`, `:admin`, `admin`, `42`, a SQLite blob), or a SQLite blob in `ExternalKey` (any text is a key). Only `NULL` means not impersonated or no IdP session. The revocation does not delete such a row, because it cannot tell whose it is; `deleteBySubject(subject)` does, and so does the sweep once the row's `Expiration` passes. To find the `ImpersonatorId` rows:
+
+```sql
+-- PostgreSQL
+SELECT "Subject", "ImpersonatorId" FROM user_sessions WHERE position(':' in "ImpersonatorId") <= 1 OR position(':' in "ImpersonatorId") = length("ImpersonatorId");
+-- MySQL
+SELECT Subject, ImpersonatorId FROM user_sessions WHERE LOCATE(':', ImpersonatorId) <= 1 OR LOCATE(':', ImpersonatorId) = CHAR_LENGTH(ImpersonatorId);
+-- SQLite (also lists blobs, in either column)
+SELECT Subject, ImpersonatorId FROM user_sessions WHERE typeof(ExternalKey) = 'blob' OR typeof(ImpersonatorId) = 'blob'
+  OR instr(ImpersonatorId, ':') <= 1 OR instr(ImpersonatorId, ':') = length(ImpersonatorId);
+```
 
 ## Best practices
 
