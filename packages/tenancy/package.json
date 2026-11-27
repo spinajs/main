@@ -16,6 +16,10 @@
     "./queue": {
       "types": "./lib/queue.d.ts",
       "import": "./lib/queue.js"
+    },
+    "./cli": {
+      "types": "./lib/cli/hook.d.ts",
+      "import": "./lib/cli/hook.js"
     }
   },
   "type": "module",
@@ -60,10 +64,14 @@
     "@spinajs/principal": "3.0.23"
   },
   "peerDependencies": {
+    "@spinajs/cli": "3.0.23",
     "@spinajs/fs": "3.0.23",
     "@spinajs/queue": "3.0.23"
   },
   "peerDependenciesMeta": {
+    "@spinajs/cli": {
+      "optional": true
+    },
     "@spinajs/queue": {
       "optional": true
     },
@@ -74,6 +82,8 @@
   "devDependencies": {
     "@spinajs/fs": "3.0.23",
     "@spinajs/authz": "3.0.23",
+    "@spinajs/cli": "3.0.23",
+    "@spinajs/log": "3.0.23",
     "@spinajs/queue": "3.0.23",
     "@spinajs/testing": "3.0.23"
   },

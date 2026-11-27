@@ -3,7 +3,7 @@ import { expect } from 'chai';
 import { resourceKey } from '@spinajs/authz';
 import type { DecisionRecord, Principal, ResourceRef } from '@spinajs/authz';
 
-import { MemoryChangeLog, canonicalize, policyHash, replayDecision } from '../../src/index.js';
+import { MemoryChangeLog, canonicalize, changeLogReplay, policyHash, replayDecision } from '../../src/index.js';
 import type { AttributeHistoryContributor, AttributeLeafImage, PolicyIR, ReplayDeps } from '../../src/index.js';
 import { TupleStore } from '../fixtures/history-store.js';
 import { tapped } from '../fixtures/tap.js';
@@ -74,7 +74,7 @@ async function world(node: Record<string, unknown>, o: { principal?: string; all
   const attributes = new Attributes(log);
   const limits = { maxChanges: 1000, maxKeys: 1000, maxDepth: 8, maxCalls: 10_000, clockSkewMs: 1000, commitLagMs: 5000, timeoutMs: 15_000 };
   const policies = new Map([[policyHash(IR), canonicalize(IR)]]);
-  const deps: ReplayDeps = { log, loadPolicy: (h) => Promise.resolve(policies.get(h)), contributors: [tuples], splicers: [], attributes, limits, now: () => t.getTime() + HOUR };
+  const deps: ReplayDeps = { ...changeLogReplay(log), loadPolicy: (h) => Promise.resolve(policies.get(h)), contributors: [tuples], splicers: [], attributes, limits, now: () => t.getTime() + HOUR };
   return { t, log, record, attributes, deps };
 }
 
