@@ -56,6 +56,31 @@ export interface ModelHistory {
    */
   byActor(actor: string, query?: HistoryQuery): Promise<readonly HistoryEntry[]>;
   forget(id: string | number | bigint): Promise<number>;
+  /**
+   * For each distinct id, its entry with the highest `seq` at or before `at` (inclusive); an id without one is absent, and
+   * the map holds asked ids only, each with its own entry. Row entries only, no `lost` marker and no erasure record; a forgotten row's entry comes
+   * back redacted. One read of the trail per id; an id no row can have (`'01'` of an integer key) is absent without one.
+   * Absent is not "no row": the row may be older than its tracking, or retention pruned its entries; read
+   * `HistoryCoverage.since()` after these entries to tell. Throws `HistoryConfigError` when the trail's `subject_id`
+   * ignores trailing spaces and the last 1000 entries it matches for an id are another id's.
+   */
+  latestBefore(ids: readonly string[], at: Date): Promise<ReadonlyMap<string, HistoryEntry>>;
+  /** For each id, its last entry: `latestBefore` without an instant. */
+  latest(ids: readonly string[]): Promise<ReadonlyMap<string, HistoryEntry>>;
+  /**
+   * The current rows of `ids`, read on the primary, each as the `after` of an entry written for it reads back from the
+   * trail: the same columns, masks and value encoding. An id matches by its exact key text; one without a row is absent.
+   * Read without the model: a soft-deleted row is returned, no authz filter and no read audit apply, and a tenant model
+   * needs a tenant scope.
+   */
+  current(ids: readonly string[]): Promise<ReadonlyMap<string, Readonly<Record<string, unknown>>>>;
+  /**
+   * At most `limit` current rows whose columns equal `where` now, in primary-key order, encoded and read as `current`
+   * does; a map of `limit` rows may leave more out. A value is a string, a finite number or null (matches NULL); one the
+   * column's type cannot hold matches nothing, and a string or a number matches a text column only as written, whatever its
+   * collation, reading on in pages that double up to 1000 rows. Only columns history records may be named.
+   */
+  currentWhere(where: Readonly<Record<string, unknown>>, limit: number): Promise<ReadonlyMap<string, Readonly<Record<string, unknown>>>>;
 }
 
 /** What `row.history()` and `historyOf(row)` return: the history of one row, bound to its primary key. */

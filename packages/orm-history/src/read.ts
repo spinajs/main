@@ -7,8 +7,10 @@ import { ModelBase, Orm, extractModelDescriptor } from '@spinajs/orm';
 import type { ModelBaseClass } from '@spinajs/orm';
 
 import { asOfFrom, assertInstant } from './as-of.js';
+import { currentRows, currentWhere, possibleKeys, tableOf } from './current.js';
 import { HISTORY_OPS } from './encode.js';
 import { toHistoryEntry } from './entry.js';
+import { latestOf } from './latest.js';
 import { HistoryConfigError } from './errors.js';
 import { HistorySpecs } from './registry.js';
 import type { HistorySpec } from './registry.js';
@@ -26,9 +28,7 @@ function limitOf(q: HistoryQuery | undefined): number {
 
 /** Transactional events live on the connection of the write, so that is where a model's history is read. */
 function sourceOf(spec: HistorySpec): string {
-  const d = extractModelDescriptor(spec.model)?.Driver;
-  if (!d) throw new HistoryConfigError(`orm-history: ${spec.model.name} has no ORM connection yet (is the ORM booted?)`);
-  return d.Options.Name;
+  return tableOf(spec).driver.Options.Name;
 }
 
 // The same text as the write side's captureKeyText for a string, a safe integer and a bigint, the only keys recorded.
@@ -113,6 +113,13 @@ function modelHistory(model: ModelBaseClass, spec: HistorySpec | undefined): Mod
     byActor: async (actor, q) => listed((query) => trail().byActor(actor, query), { ...windowOf(spec, q, q?.afterSeq), subjectType: spec.entity }, q),
     asOf: async (id, at) => asOfFrom(trail(), spec, sourceOf(spec), keyOf(id), at),
     forget: async (id) => forgetOn(trail(), spec, { type: spec.entity, id: keyOf(id) }),
+    latestBefore: async (ids, at) => {
+      assertInstant('at', at);
+      return latestOf(trail(), spec.entity, sourceOf(spec), [...possibleKeys(spec, ids).keys()], at);
+    },
+    latest: async (ids) => latestOf(trail(), spec.entity, sourceOf(spec), [...possibleKeys(spec, ids).keys()]),
+    current: async (ids) => currentRows(spec, ids),
+    currentWhere: async (where, limit) => currentWhere(spec, where, limit),
   };
 }
 

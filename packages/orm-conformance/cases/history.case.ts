@@ -1,7 +1,13 @@
+import { isDeepStrictEqual } from 'node:util';
+
+import { audit } from '@spinajs/audit';
+import type { AuditInput } from '@spinajs/audit';
 import { DI } from '@spinajs/di';
 import type { Constructor } from '@spinajs/di';
 import type { ModelBase, OrmDriver } from '@spinajs/orm';
 import { HistoryCoverage, OrmHistoryCoverage_2026_11_25_00_00_00, OrmHistory_2026_11_16_00_00_00, historyOf, registerHistory } from '@spinajs/orm-history';
+import type { HistoryEntry } from '@spinajs/orm-history';
+import { DateTime } from 'luxon';
 
 import { CfDoc, CfUser, defineCase } from '../src/index.js';
 import { EMPTY } from './seeds.js';
@@ -88,6 +94,78 @@ export const HISTORY_CASES = [
         // A connection that reports the keys of a multi-row insert leaves the coverage alone; one that does not moves it to its marker.
         const expected = marker === undefined ? recorded : Math.max(marker.at.getTime(), recorded ?? 0);
         return { coveredBefore: before !== undefined, recorded: recorded !== undefined, kept: kept === recorded, followsTheLostMarker: (await since()) === expected };
+      }),
+  }),
+  defineCase({
+    name: 'history-current-is-the-last-after',
+    seed: EMPTY,
+    order: 'ordered',
+    expected: { inserted: true, updated: true, deleted: true, last: 'delete', noneBefore: true, atItsInstant: true, notAMillisecondBefore: true, pastTheBindLimit: true },
+    run: ({ driver }) =>
+      tracked(driver, CfUser, async () => {
+        const history = historyOf(CfUser);
+        const agree = async (id: string): Promise<boolean> => isDeepStrictEqual((await history.current([id])).get(id) ?? null, (await history.latest([id])).get(id)?.after ?? null);
+        const user = await CfUser.create({ Name: 'Łukasz 東京', Active: true, Score: 12.5, CreatedAt: DateTime.fromISO('2026-11-25T10:00:00.123Z') });
+        const id = String(user.Id);
+        const inserted = await agree(id);
+        // More keys than MSSQL binds in one statement (2100), none of them a row.
+        const pastTheBindLimit = (await history.current([...Array.from({ length: 2200 }, (_, i) => String(1_000_000 + i)), id])).has(id);
+        user.Name = 'renamed';
+        await user.update();
+        const updated = await agree(id);
+        await user.destroy();
+        const deleted = await agree(id);
+        const lastEntry = (await history.latest([id])).get(id);
+        const at = lastEntry?.at ?? new Date(0);
+        const atItsInstant = (await history.latestBefore([id], at)).get(id)?.seq === lastEntry?.seq;
+        const notAMillisecondBefore = (await history.latestBefore([id], new Date(at.getTime() - 1))).get(id)?.seq !== lastEntry?.seq;
+        const noneBefore = (await history.latestBefore([id], new Date(0))).size === 0;
+        return { inserted, updated, deleted, last: lastEntry?.op, noneBefore, atItsInstant, notAMillisecondBefore, pastTheBindLimit };
+      }),
+  }),
+  defineCase({
+    name: 'history-current-json',
+    seed: EMPTY,
+    order: 'ordered',
+    expected: { agrees: true, selected: ['café'] },
+    run: ({ driver }) =>
+      tracked(driver, CfDoc, async () => {
+        const history = historyOf(CfDoc);
+        const doc = await CfDoc.create({ Label: 'café', Body: { b: [1, { d: 'ł', c: 2 }], a: null } });
+        const id = String(doc.Id);
+        const agrees = isDeepStrictEqual((await history.current([id])).get(id), (await history.latest([id])).get(id)?.after);
+        const selected = [...(await history.currentWhere({ Label: 'café' }, 10)).values()].map((row) => row.Label);
+        return { agrees, selected };
+      }),
+  }),
+  defineCase({
+    name: 'history-latest-is-the-asked-ids-own',
+    seed: EMPTY,
+    order: 'ordered',
+    expected: { latest: ['1:1', '2:2'], latestBefore: ['1:1', '2:2'] },
+    run: ({ driver }) =>
+      tracked(driver, CfUser, async () => {
+        // The trail's subject_id ignores trailing spaces on MySQL and MSSQL, so '1' and '1 ' match each other there; no
+        // row of the integer key can have '1 ', so asking it reads nothing.
+        const event = (id: string, minute: number): AuditInput => ({ kind: 'data', action: 'insert', subject: { type: 'cf_users', id }, data: { after: { Name: id } }, at: new Date(Date.UTC(2026, 9, 1, 12, minute)) });
+        await driver.transaction((tx) => audit().record([event('1', 10), event('1 ', 20), event('2 ', 10), event('2', 20)], { trail: 'history', mode: 'transactional', transaction: tx, onFailure: 'reject' }));
+        const history = historyOf(CfUser);
+        const asked = ['1', '1 ', '2', '2 '];
+        const pairs = (found: ReadonlyMap<string, HistoryEntry>): string[] => [...found].map(([id, entry]) => `${id}:${entry.id}`);
+        return { latest: pairs(await history.latest(asked)), latestBefore: pairs(await history.latestBefore(asked, new Date(Date.UTC(2026, 9, 1, 12, 30)))) };
+      }),
+  }),
+  defineCase({
+    name: 'history-current-where-exact-text',
+    seed: EMPTY,
+    order: 'ordered',
+    expected: { first: ['open'], all: ['open', 'open'], upper: ['OPEN'], padded: ['open '] },
+    run: ({ driver }) =>
+      tracked(driver, CfUser, async () => {
+        for (const Name of ['OPEN', 'Open', 'open', 'open ', 'open']) await CfUser.create({ Name, Active: true });
+        const history = historyOf(CfUser);
+        const names = async (Name: string, limit: number): Promise<unknown[]> => [...(await history.currentWhere({ Name }, limit)).values()].map((row) => row.Name);
+        return { first: await names('open', 1), all: await names('open', 10), upper: await names('OPEN', 10), padded: await names('open ', 10) };
       }),
   }),
 ];

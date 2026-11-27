@@ -6,7 +6,7 @@ import { HistoryConfigError } from './errors.js';
 import type { AsOf, HistoryEntry } from './types.js';
 import type { HistorySpec } from './registry.js';
 
-const ROW_OPS = HISTORY_OPS.filter((o) => o !== 'lost');
+export const ROW_OPS = HISTORY_OPS.filter((o) => o !== 'lost');
 
 interface Scope {
   readonly trail: AuditTrail;

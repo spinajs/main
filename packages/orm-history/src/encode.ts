@@ -78,7 +78,7 @@ function same(a: unknown, b: unknown, json: boolean): boolean {
 }
 const isNullish = (v: unknown): boolean => v === null || v === undefined;
 
-function visibleRow(spec: HistorySpec, row: CapturedRow): Record<string, unknown> {
+export function visibleRow(spec: HistorySpec, row: CapturedRow): Record<string, unknown> {
   return Object.fromEntries(
     Object.entries(row)
       .filter(([k]) => !spec.exclude.has(k) && !spec.masked.has(k))

@@ -148,6 +148,10 @@ describe('history reads', function () {
         await expect(history.asOf(1, new Date())).to.be.rejectedWith(HistoryConfigError, message);
         await expect(history.since(0)).to.be.rejectedWith(HistoryConfigError, message);
         await expect(history.forget(1)).to.be.rejectedWith(HistoryConfigError, message);
+        await expect(history.latest(['1'])).to.be.rejectedWith(HistoryConfigError, message);
+        await expect(history.latestBefore(['1'], new Date())).to.be.rejectedWith(HistoryConfigError, message);
+        await expect(history.current(['1'])).to.be.rejectedWith(HistoryConfigError, message);
+        await expect(history.currentWhere({}, 1)).to.be.rejectedWith(HistoryConfigError, message);
       } finally {
         registerHistory(Unbooted, false);
       }
@@ -185,6 +189,7 @@ describe('history reads', function () {
       // asOf reads through the trail's `of`.
       await expect(Logged.history().asOf('l1', new Date())).to.be.rejectedWith(AuditNotSupported, 'audit: trail "logged" (store LogAuditStore) cannot be read from this application (of)');
       await expect(Logged.history().forget('l1')).to.be.rejectedWith(AuditNotSupported, 'cannot be read from this application (forget)');
+      await expect(Logged.history().latest(['l1'])).to.be.rejectedWith(AuditNotSupported, 'audit: trail "logged" (store LogAuditStore) cannot be read from this application (of)');
     });
   });
 });
