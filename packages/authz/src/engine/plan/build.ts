@@ -71,7 +71,7 @@ function saysKeepable(model: AuthorizationModel, def: PermissionDef, type: Resou
  * tags are those a type-level decision of the principal would carry, nested checks and loaded scope nodes included, so a
  * change that drops such a decision drops what the plan filtered; a nested check that could not be cached keeps nothing.
  */
-export function keptPlan(engine: Engine, plan: AccessPlan, parts: { readonly principal: Principal; readonly delegation: Delegation; readonly models: readonly AuthorizationModel[]; readonly def: PermissionDef; readonly type: ResourceType; readonly run: Run }): AccessPlan {
+function keptPlan(engine: Engine, plan: AccessPlan, parts: { readonly principal: Principal; readonly delegation: Delegation; readonly models: readonly AuthorizationModel[]; readonly def: PermissionDef; readonly type: ResourceType; readonly run: Run }): AccessPlan {
   const { principal, delegation, models, def, type, run } = parts;
   // No model planned means no model vouched for the plan.
   if (models.length === 0 || run.nested.uncacheable || scopeFaulted(engine, run.scope) || !models.every((m) => saysKeepable(m, def, type))) return plan;
