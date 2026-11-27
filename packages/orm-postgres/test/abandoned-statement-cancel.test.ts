@@ -20,6 +20,10 @@ class ProbeDriver extends PostgresOrmDriver {
     return this.poolConfig().Client;
   }
 
+  public static rearmNoCancelKeyWarning(): void {
+    PostgresOrmDriver.WarnedNoCancelKey = false;
+  }
+
   public logger() {
     return this.Log;
   }
@@ -133,6 +137,7 @@ describe('postgres abandoned statement cancel (unit)', function () {
   const timedOut = () => Promise.reject(new Error('Query read timeout'));
 
   beforeEach(async () => {
+    ProbeDriver.rearmNoCancelKeyWarning();
     server = await postmaster();
     await resolveDriver();
   });
@@ -249,6 +254,21 @@ describe('postgres abandoned statement cancel (unit)', function () {
       clock.restore();
       await peer.close();
     }
+  });
+
+  it('warns once when a statement is abandoned on a client that never got a cancel key', async () => {
+    const warn = sinon.stub(driver.logger(), 'warn');
+    const { client } = pooledClient(() => Promise.reject(new Error('Connection terminated unexpectedly')), null);
+    client.connection.emit('end');
+    await expect(driver.executeOnDb('SELECT 1', [], QueryContext.Select)).to.be.rejected;
+    expect(warn.callCount, 'a closed socket is no reason to warn').to.equal(0);
+
+    for (let i = 0; i < 2; i++) {
+      pooledClient(timedOut, null);
+      await expect(driver.executeOnDb('SELECT 1', [], QueryContext.Select)).to.be.rejected;
+    }
+    expect(warn.callCount).to.equal(1);
+    expect(warn.args[0][1]).to.contain('will not be cancelled');
   });
 
 });

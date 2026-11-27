@@ -11,14 +11,19 @@ export interface IPostgresCancelKey {
 export class CancellableClient extends pg.Client {
   public cancelKey: IPostgresCancelKey | undefined;
 
+  /** Why an open session has no usable key; undefined once one arrived or the socket closed. */
+  public cancelKeyMissing: string | undefined = 'the server sent no cancel key (BackendKeyData)';
+
   constructor(config?: pg.ClientConfig) {
     super(config);
     this.connection.once('backendKeyData', (key: IPostgresCancelKey) => {
       this.cancelKey = { processID: key.processID, secretKey: key.secretKey };
+      this.cancelKeyMissing = undefined;
     });
     // a socket closed by a connection error leaves no statement to stop, or no route to the server
     this.connection.once('end', () => {
       this.cancelKey = undefined;
+      this.cancelKeyMissing = undefined;
     });
   }
 }

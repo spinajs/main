@@ -186,6 +186,8 @@ export class PostgresServerResponseMapper extends ServerResponseMapper {
 export class PostgresOrmDriver extends SqlDriver {
   protected Pool: pg.Pool;
 
+  protected static WarnedNoCancelKey = false;
+
   /**
    * Postgres parses all four standard levels; READ UNCOMMITTED is accepted and behaves as
    * READ COMMITTED, which is the standard-permitted upgrade, so it is not refused here.
@@ -369,8 +371,17 @@ export class PostgresOrmDriver extends SqlDriver {
    */
   protected cancelAbandoned(client: pg.PoolClient): Promise<void> | undefined {
     const enabled = (this.Options.Options as Record<string, unknown> | undefined)?.CancelAbandonedStatements !== false;
-    const key = enabled && client instanceof CancellableClient ? client.cancelKey : undefined;
+    if (!enabled || !(client instanceof CancellableClient)) {
+      return undefined;
+    }
+
+    const key = client.cancelKey;
     if (!key) {
+      if (client.cancelKeyMissing && !PostgresOrmDriver.WarnedNoCancelKey) {
+        // once per process: after a pg upgrade or behind a pooler every abandoned statement would repeat it
+        PostgresOrmDriver.WarnedNoCancelKey = true;
+        this.Log?.warn({ connection: this.Options.Name, reason: client.cancelKeyMissing }, 'abandoned statements on ${connection} will not be cancelled on the server: ${reason}');
+      }
       return undefined;
     }
 
