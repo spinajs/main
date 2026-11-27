@@ -91,7 +91,7 @@ export const AUTHN_HTTP_SCHEMAS: Readonly<Record<string, JsonSchema>> = {
     jwk: obj(['kty', 'crv', 'x'], { kty: text, crv: text, x: text, y: text }),
     thumbprint: text,
     scope: { type: 'object', additionalProperties: true, nullable: true },
-    createdAt: instant,
+    createdAt: nullableInstant,
     expiresAt: nullableInstant,
     lastUsedAt: nullableInstant,
     revokedAt: nullableInstant,

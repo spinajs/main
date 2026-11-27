@@ -38,7 +38,8 @@ function toRecord(row: AuthnKey): KeyRecord {
     thumbprint: row.thumbprint,
     ...(row.name ? { name: row.name } : {}),
     ...(row.scope ? { scope: decodeCeiling(row.scope) } : {}),
-    createdAt: row.created_at.toJSDate(),
+    // created_at is NOT NULL, so a null here is a stored value the converter could not read.
+    createdAt: unreadable(row.created_at, true) ? new Date(NaN) : row.created_at.toJSDate(),
     ...(createdBy ? { createdBy } : {}),
     ...(expiresAt ? { expiresAt } : {}),
     ...(revokedAt ? { revokedAt } : {}),
@@ -103,7 +104,7 @@ export class OrmKeyStore extends KeyStore {
   }
 
   private recordOf(row: AuthnKey): KeyRecord {
-    const columns = [unreadable(row.expires_at, row.expires_at_set) ? 'expires_at' : '', unreadable(row.revoked_at, row.revoked_at_set) ? 'revoked_at' : ''].filter((c) => c !== '');
+    const columns = [unreadable(row.expires_at, row.expires_at_set) ? 'expires_at' : '', unreadable(row.revoked_at, row.revoked_at_set) ? 'revoked_at' : '', unreadable(row.created_at, true) ? 'created_at' : ''].filter((c) => c !== '');
     if (columns.length > 0) {
       // The kid is a public key id; the warning never carries the key material.
       this.Log.warn(`authn_key ${row.kid}: its ${columns.join(' and ')} is not a datetime the store can read; the key is not usable`);

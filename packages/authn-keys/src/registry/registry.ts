@@ -64,8 +64,8 @@ function isCeiling(v: unknown): v is Ceiling {
   return (v.roles === undefined || strings(v.roles)) && (v.permissions === undefined || strings(v.permissions)) && (resources === undefined || (Array.isArray(resources) && resources.every((r) => isPlainObject(r) && typeof r.type === 'string' && (r.id === undefined || typeof r.id === 'string')))) && (v.expiresAt === undefined || (v.expiresAt instanceof Date && !Number.isNaN(v.expiresAt.getTime()))) && (v.reason === undefined || typeof v.reason === 'string');
 }
 
-/** Usable for verification: neither revoked nor expired at `now`. */
-export const isUsableKey = (key: KeyRecord, now: Date): boolean => !key.revokedAt && (!key.expiresAt || now.getTime() < key.expiresAt.getTime());
+/** Usable for verification: neither revoked nor expired at `now`, and created at a readable instant. */
+export const isUsableKey = (key: KeyRecord, now: Date): boolean => !key.revokedAt && !Number.isNaN(key.createdAt.getTime()) && (!key.expiresAt || now.getTime() < key.expiresAt.getTime());
 
 /**
  * A login challenge is stored for the key it names; a name that is not a kid still gets a challenge of the same shape

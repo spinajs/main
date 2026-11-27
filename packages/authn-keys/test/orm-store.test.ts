@@ -2,16 +2,18 @@ import 'mocha';
 import assert from 'node:assert/strict';
 import sinon from 'sinon';
 import type { KeyRecord } from '@spinajs/authn/contracts';
-import { generateKeyPair } from '@spinajs/authn-testing';
+import { FakeBackoffThrottle, MemorySecretStore, generateKeyPair, throttleParams } from '@spinajs/authn-testing';
 import { DI } from '@spinajs/di';
 import { Log } from '@spinajs/log';
 import { Orm } from '@spinajs/orm';
 import { keyLine } from '../src/cli/ListKeys.js';
 import { thumbprint } from '../src/jwk/index.js';
 import { AuthnKey } from '../src/models/AuthnKey.js';
-import { OrmKeyStore } from '../src/registry/index.js';
+import { DefaultKeyRegistry, OrmKeyStore } from '../src/registry/index.js';
 import { isUsableKey } from '../src/registry/registry.js';
+import { usableKey } from '../src/strategies/keys.js';
 import { bootSqlite, clearKeys } from './db.js';
+import { keysOptionsFor } from './support/keys-options.js';
 
 function withZone<T>(zone: string, fn: () => Promise<T>): Promise<T> {
   const before = process.env.TZ;
@@ -85,7 +87,7 @@ describe('OrmKeyStore', () => {
     afterEach(() => sinon.restore());
 
     /** Writes past the model's converter, as an operator's SQL would, and checks the value the table now holds. */
-    const write = async (kid: string, column: 'expires_at' | 'revoked_at', value: string): Promise<void> => {
+    const write = async (kid: string, column: 'expires_at' | 'revoked_at' | 'created_at', value: string): Promise<void> => {
       const connection = DI.get(Orm)!.Connections.get('sqlite')!;
       await connection.update().in('authn_key').update({ [column]: value }).where('kid', kid);
       const [stored] = await connection.select<Record<string, unknown>[]>().from('authn_key').columns([column]).where('kid', kid);
@@ -166,6 +168,24 @@ describe('OrmKeyStore', () => {
       assert.strictEqual(isUsableKey((await store.get('future'))!, now), true);
       assert.strictEqual((await store.get('zoneless'))?.revokedAt?.toISOString(), '2026-06-01T12:00:00.000Z');
       assert.strictEqual(warn.callCount, 0);
+    });
+
+    it('reads a key whose created_at no converter reads as unusable instead of throwing, and lists it', async () => {
+      const store = new OrmKeyStore();
+      const key = await seed(store, 'k-9');
+      await write('k-9', 'created_at', 'not a date');
+      const warn = warnings();
+      const registry = new DefaultKeyRegistry({ store, secrets: new MemorySecretStore(), throttle: new FakeBackoffThrottle(throttleParams()), options: keysOptionsFor({ cache: { ttlSeconds: 0, maxEntries: 1 } }) });
+
+      const read = await store.get('k-9');
+      assert.ok(read && Number.isNaN(read.createdAt.getTime()));
+      assert.deepStrictEqual(await usableKey(registry, 'k-9', { now: new Date(), purpose: 'request' }), { key: null, reason: 'expired', alg: 'ES256' });
+      assert.match(keyLine((await store.listByOwner(OWNER))[0]), /created unreadable/);
+
+      // get, the registry's get and listByOwner: one warning each, naming the kid and no key material
+      const messages = warn.getCalls().map((c) => String(c.lastArg));
+      assert.strictEqual(messages.length, 3);
+      assert.ok(messages.every((m) => m.includes('k-9') && m.includes('created_at') && !m.includes(key.thumbprint) && !m.includes(key.jwk.x)));
     });
   });
 });
