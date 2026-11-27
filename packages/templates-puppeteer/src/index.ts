@@ -86,6 +86,30 @@ function loggableText(text: string): string {
   });
 }
 
+// a cause chain may loop back on itself
+const MAX_CAUSE_DEPTH = 10;
+
+/**
+ * The copy of a render failure that is logged: an error from `page.goto()` in a subclass reads
+ * `net::ERR_* at <url>`, query and userinfo included. The thrown error itself belongs to the caller and is not touched.
+ */
+function loggableError(err: unknown, depth = 0): unknown {
+  if (typeof err === 'string') {
+    return loggableText(err);
+  }
+  if (!(err instanceof Error)) {
+    return err;
+  }
+
+  const copy = new Error(loggableText(err.message));
+  copy.name = err.name;
+  copy.stack = err.stack === undefined ? undefined : loggableText(err.stack);
+  if (err.cause !== undefined && depth < MAX_CAUSE_DEPTH) {
+    copy.cause = loggableError(err.cause, depth + 1);
+  }
+  return copy;
+}
+
 export abstract class PuppeteerRenderer extends TemplateRenderer implements IInstanceCheck {
   protected abstract Options: IPuppeteerRendererOptions;
 
@@ -267,15 +291,15 @@ export abstract class PuppeteerRenderer extends TemplateRenderer implements IIns
 
         progress.phase(RenderPhase.Done);
       } catch (renderError) {
-        this.Log.error({ error: renderError, filePath }, 'Error during rendering for ${filePath}');
+        this.Log.error({ error: loggableError(renderError), filePath }, 'Error during rendering for ${filePath}');
         throw renderError;
       } finally {
         cancelWatchdog();
         removeListeners();
       }
     } catch (err) {
-      progress.phase(RenderPhase.Failed, errorMessage(err));
-      this.Log.error({ error: err, filePath }, 'Error rendering to file ${filePath}');
+      progress.phase(RenderPhase.Failed, loggableText(errorMessage(err)));
+      this.Log.error({ error: loggableError(err), filePath }, 'Error rendering to file ${filePath}');
       throw err;
     } finally {
       progress.dispose();
