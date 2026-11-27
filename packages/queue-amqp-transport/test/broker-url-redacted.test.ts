@@ -208,12 +208,16 @@ describe('amqp transport - the broker url in logs and errors', function () {
       ['65001/QZXWKVJQ', `amqp://guest:65001/QZXWKVJQ@127.0.0.1:${port}/vhost`],
       ['65002?QZXWKVJQ', `amqp://guest:65002?QZXWKVJQ@127.0.0.1:${port}/vhost`],
       ['QZXWKVJQ#QZYWKVJR', `amqp://QZXWKVJQ#QZYWKVJR@127.0.0.1:${port}/vhost`],
+      ['Q#QZYWKVJR', `amqp://Q#QZYWKVJR@127.0.0.1:${port}/vhost`],
+      ['Qzx#QZYWKVJR', `amqp://Qzx#QZYWKVJR@127.0.0.1:${port}/vhost`],
+      ['Qzy/QZYWKVJR', `amqp://Qzy/QZYWKVJR@127.0.0.1:${port}/vhost`],
     ];
     for (const [password, host] of cases) {
       const { calls, thrown } = await failedConnect({ host, options: { lookup } });
       const text = inspect([calls, thrown], { depth: 6, showHidden: true });
       for (let from = 0; from + 4 <= password.length; from++) expect(text, host).to.not.contain(password.slice(from, from + 4));
       expect(connectingHosts(calls)).to.deep.eq(['<not a URL>']);
+      expect(causeOf(thrown), host).to.deep.include({ code: 'ENOTFOUND', message: "the host url has an '@' after the host: percent-encode a '/', '?', '#' or '@' in its userinfo, vhost or query" });
     }
   });
 
