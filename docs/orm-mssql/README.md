@@ -80,7 +80,7 @@ export class AppConfiguration extends FrameworkConfiguration {
 | Datetime columns | `dateTime()` / `timestamp()` create `DATETIMEOFFSET(3)`; values are written as ISO 8601 in UTC |
 | Constraint errors | `UniqueViolation` (2627, 2601), `ConstraintViolation` (515, 547), else `OrmException` |
 | `INSERT IGNORE`, `INSERT OR REPLACE` | Throw `OrmException` |
-| Upsert | `MERGE ... WITH (HOLDLOCK)` on the unique columns |
+| Upsert | `MERGE ... WITH (HOLDLOCK)` on the unique columns, one row per statement: several rows throw `NotSupported` |
 | Paging | `OFFSET ? ROWS FETCH NEXT ? ROWS ONLY`; `ORDER BY (SELECT NULL)` when the query has no sort |
 | Column changes | `ALTER COLUMN` for type, collation and nullability; renames through `sp_rename`; no `AFTER` |
 | Multi-column `ORDER BY` | Every sort is rendered |

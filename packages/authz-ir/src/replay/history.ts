@@ -1,38 +1,11 @@
-import type { ChangeKind, ChangeRecord } from '@spinajs/authz';
+import type { ChangeKind } from '@spinajs/authz';
 
-export type KeyState =
-  | { readonly known: true; readonly value: unknown; readonly origin: 'current' | 'history'; readonly seq?: number }
-  | { readonly known: false; readonly reason: string };
-
-/** Changes inside `[T - beforeMs, T + afterMs]` may be on either side of the decision. */
-export interface ReplayWindow {
-  readonly beforeMs: number;
-  readonly afterMs: number;
-}
-
-export interface KeyInput {
-  kind: ChangeKind;
-  /** The store's row projected to the payload shape, or undefined when the key is absent now. */
-  current: unknown;
-  /** The key's changes with `at` after T, in `seq` order. */
-  after: readonly ChangeRecord[];
-  /** The key's last change with `at` at or before T, if retained. */
-  before?: ChangeRecord;
-  /** `coveredSince` of the kind (and type), read after the key's history. */
-  since?: Date;
-  window: ReplayWindow;
-  /**
-   * Precision of the instants inside images, that of the coarsest store column they come from; default 1 ms. The
-   * changelog's `changeLogPrecisionMs` serves only while every such column keeps at least that precision: a coarser
-   * one turns healthy keys into gaps.
-   */
-  precisionMs?: number;
-}
+import type { KeyInput, KeyState, ReplayChange, ReplayWindow } from './ports.js';
 
 const UNKNOWN = Symbol('unknown');
 
 const gap = (reason: string): KeyState => ({ known: false, reason });
-const afterImage = (c: ChangeRecord): unknown => (c.op === 'remove' ? undefined : c.payload);
+const afterImage = (c: ReplayChange): unknown => (c.op === 'remove' ? undefined : c.payload);
 
 /** Why the log of `kind` cannot vouch for `t`, or undefined when it covers it: every `since` is another node's clock. */
 export function coverageGap(t: Date, kind: ChangeKind, since: Date | undefined, window: ReplayWindow): string | undefined {
@@ -65,7 +38,7 @@ export function stateAt(t: Date, k: KeyInput): KeyState {
 }
 
 /** Can `next` be the change that came right after a key held `state`? The stores never log a write that changes nothing. */
-function follows(state: unknown, next: ChangeRecord, precisionMs: number): boolean {
+function follows(state: unknown, next: ReplayChange, precisionMs: number): boolean {
   if (next.op === 'add') return state === undefined;
   if (state === undefined) return false;
   if (next.before !== null) return sameImage(state, next.before, precisionMs);
@@ -73,7 +46,7 @@ function follows(state: unknown, next: ChangeRecord, precisionMs: number): boole
 }
 
 // add: absent before; a before-image when logged; remove: what was removed; put: else the last earlier after-image.
-function beforeImage(c: ChangeRecord, earlier: ChangeRecord | undefined): unknown {
+function beforeImage(c: ReplayChange, earlier: ReplayChange | undefined): unknown {
   if (c.op === 'add') return undefined;
   if (c.before !== null) return c.before;
   if (c.op === 'remove' && c.payload !== null) return c.payload;
