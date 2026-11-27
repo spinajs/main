@@ -1,3 +1,3 @@
 import { defineAssertions } from '@spinajs/authz-verify';
 
-export default defineAssertions(({ isolated }) => [isolated('folder')]);
+export default defineAssertions(({ isolated }) => [isolated('folder', { except: ['public'] })]);

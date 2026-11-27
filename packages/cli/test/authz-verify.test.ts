@@ -151,13 +151,13 @@ describe('spinajs authz:verify -k', function () {
 
   it('searches one object per type with -k 1', async () => {
     await spinajs('-k', '1');
-    expect(lines).to.deep.equal(['warn AZV003 isolated(folder)  not decided: isolated(folder) needs k >= 2', '0 error(s), 1 warning(s), 0 info']);
+    expect(lines).to.deep.equal(['warn AZV003 isolated(folder, except public)  not decided: isolated(folder) needs k >= 2', '0 error(s), 1 warning(s), 0 info']);
     expect(process.exitCode).to.equal(undefined);
   });
 
   it('searches two objects per type with -k 2', async () => {
     await spinajs('-k', '2');
-    expect(lines).to.deep.equal(['ok   AZV002 isolated(folder)  verified up to k=2', '0 error(s), 0 warning(s), 1 info']);
+    expect(lines).to.deep.equal(['ok   AZV002 isolated(folder, except public)  verified up to k=2', '0 error(s), 0 warning(s), 1 info']);
   });
 
   it('accepts -k 64, the largest bound', async () => {
@@ -168,7 +168,7 @@ describe('spinajs authz:verify -k', function () {
 
   it('searches three objects per type without -k', async () => {
     await spinajs();
-    expect(lines).to.deep.equal(['ok   AZV002 isolated(folder)  verified up to k=3', '0 error(s), 0 warning(s), 1 info']);
+    expect(lines).to.deep.equal(['ok   AZV002 isolated(folder, except public)  verified up to k=3', '0 error(s), 0 warning(s), 1 info']);
     expect(process.exitCode).to.equal(undefined);
   });
 });
