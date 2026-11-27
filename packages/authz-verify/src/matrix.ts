@@ -4,6 +4,7 @@ import type { Permission } from '@spinajs/authz';
 import { RewriteAutomaton, holderKey } from './graph.js';
 import type { HolderRef } from './graph.js';
 import { explore, reachersOf } from './monotone.js';
+import { matchesHolder } from './verdict.js';
 
 /** `always`: holding it grants the permission over an unconditional path; `conditional`: only through non-monotone parts. */
 export type Access = 'always' | 'conditional' | 'never';
@@ -26,12 +27,18 @@ const stronger = (a: Access, b: Access): Access => (RANK[a] >= RANK[b] ? a : b);
 const own = (o: object, k: string): boolean => Object.prototype.hasOwnProperty.call(o, k);
 
 /**
- * What `holder` gets for `permission`: its own cell or what everyone holds, whichever is more. `never` exactly where
- * `never(holder, permission)` holds on the exact engine, `always` exactly where it is violated there.
+ * What `holder` gets for `permission`: the most of what everyone holds and the cells of the holders it selects, the
+ * public holder of the relation it names included. For a holder key, `never` exactly where `never(holder, permission)`
+ * holds on the exact engine, `always` exactly where it is violated there.
  */
 export function accessOf(m: PermissionMatrix, holder: string, permission: Permission): Access {
-  const cell = own(m.cells, holder) && own(m.cells[holder], permission) ? m.cells[holder][permission] : 'never';
-  return stronger(cell, own(m.everyone, permission) ? m.everyone[permission] : 'never');
+  let access: Access = own(m.everyone, permission) ? m.everyone[permission] : 'never';
+  for (const h of m.holders) {
+    const cells = m.cells[holderKey(h)];
+    const named: HolderRef = h.kind === 'public' ? { ...h, kind: h.role === undefined ? 'relation' : 'role' } : h;
+    if ((matchesHolder(holder, h) || matchesHolder(holder, named)) && own(cells, permission)) access = stronger(access, cells[permission]);
+  }
+  return access;
 }
 
 export function permissionMatrix(ir: PolicyIR): PermissionMatrix {
