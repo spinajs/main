@@ -8,7 +8,9 @@ The strategy is a `SessionExpirationProvider` with two methods. `SessionProvider
 
 1. `SessionProvider.save()` of a row with no `Expiration` calls `applyInitialExpiration()`, which sets `Expiration = strategy.initial(row)`. A row that already has an `Expiration` is stored as is.
 2. `SessionProvider.touch()` calls `applyRenewedExpiration()`, which sets `Expiration = strategy.renew(row)` for an active row. A pending row keeps its expiration.
-3. `SessionProvider.restore()` answers `null` for a row whose `Expiration` is at or before now or is not a valid instant (an invalid luxon `DateTime`, such as a renewal capped at an unreadable `Creation`). Only a row with no `Expiration` never expires.
+3. `SessionProvider.restore()` answers `null` for a row whose `Expiration` is at or before now or is not a valid instant (an invalid luxon `DateTime`), and for a row whose `Creation` is not a valid instant. Only a row with no `Expiration` never expires.
+
+In steps 1 and 2 a strategy result that is not a valid instant, and any result for a row whose `Creation` is not a valid instant, is stored as the epoch (`1970-01-01T00:00:00Z`): a real instant that has passed, so every store writes it and reads the row back as expired. An `undefined` result of a row with a valid `Creation` stays `undefined` (never expires).
 
 When each step runs:
 
@@ -104,6 +106,7 @@ Keep settings of your own under a config path your app owns, as `terminals.closi
 - **Missing values expire at once.** A `ttl` or `maxLifetime` that is missing at runtime (set past the schema) makes `initial()` return `Creation` or earlier: the session is born expired instead of living forever. The same holds for a missing `pendingTtlSeconds`.
 - **A pending row needs its own expiration.** `applyInitialExpiration()` throws `InvalidOperation('A pending session must carry its own expiration (authn.session.pendingTtlSeconds)')` for a pending row without one.
 - **Process clock.** The strategies and `SessionProvider.isExpired()` use `DateTime.now()` of the Node process, not the clock of a database. `isExpired()` is public: `DefaultSessionIssuer` judges a row with its store's `isExpired()`, so a store that overrides it is honoured by the issuer too.
+- **An unreadable `Creation` ends the session.** A row whose `Creation` cannot be read (text no converter reads, a date past the JavaScript range; the db store gets it from the ORM as `null`) counts as expired under every strategy, also `SlidingExpiration`, which never needs `Creation`: `restore` answers `null` (the user signs in again), listings leave it out, `deleteBySubject` deletes it without counting it, and a `touch` of it stores the epoch. The helpers do not call the strategy for such a row, and the stores refuse it before the issuer would, so a strategy that reads `Creation` cannot throw on it. Before, a capped renewal or an absolute initial expiry over such a `Creation` produced an invalid `DateTime`, which `session-provider-db` wrote as SQL `NULL` and `session-provider-redis` as a missing expiry: a session that never expired. Only the helpers are covered: an application that calls a store's `save` itself with an invalid `Expiration` still gets "no expiry" from `session-provider-db` (and from `session-provider-redis` until it reads a present `null` expiry as passed) until that store's own fix.
 - **Rotation keeps the deadline.** `rotate` copies `Expiration`, so a role switch never extends a session.
 
 ## Best practices
