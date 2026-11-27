@@ -21,6 +21,7 @@ import {
   IConfigurationSchema,
   ConfigVarProtocol,
   ConfigVar,
+  ConfigurationOverlay,
   CONFIGURATION_SOURCES,
   CONFIGURATION_SCHEMA,
 } from '@spinajs/configuration-common';
@@ -35,6 +36,7 @@ import { declaredKeysAt, droppedKeys, keysAt, nearestKey } from './dropped-keys.
 
 import { default as ajvFormats } from 'ajv-formats';
 import { addKeywordPluginsOnUse } from './ajv-plugins.js';
+import { overlaidValue, UNSAFE_PATH_SEGMENTS } from './overlay.js';
 
 const PROTOCOL_REGEXP = /^([a-zA-Z0-9\-]+:\/\/)+(.+)$/gm;
 const COMMON_WEB_PROTOCOLS = ['http://', 'https://', 'ws://', 'wss://', 'ftp://', 'ftps://', 'file://', 'data://', 'blob://', 'mailto:'];
@@ -47,8 +49,6 @@ const LAZY_TARGETS = new WeakMap<object, object>();
 
 // Set while Ajv validates the stored value in place: it writes coerced values back through the proxies.
 let keepUnresolvedVars = false;
-
-const UNSAFE_PATH_SEGMENTS = new Set(['__proto__', 'constructor', 'prototype']);
 
 // _.set skips these keys, but _.get resolves them, so merge() into `__proto__` would write to Object.prototype.
 function assertSafePath(path: string[] | string) {
@@ -97,6 +97,13 @@ function copyForCheck(value: unknown): unknown {
 }
 
 const unwrapLazy = (value: object): object => LAZY_TARGETS.get(value) ?? value;
+
+// One object on the way to an overlay's override: a lazy-var proxy stays lazy, a class instance keeps its prototype.
+function copyOnPath(node: unknown): object {
+  if (typeof node !== 'object' || node === null) return {};
+  const target = LAZY_TARGETS.get(node);
+  return target === undefined ? _.clone(node) : withLazyVars(_.clone(target));
+}
 
 // The file sources tag every root section with the files it came from; a schema closed at the root drops the tag.
 const FILE_TAG = '__file__';
@@ -179,6 +186,9 @@ export class FrameworkConfiguration extends Configuration {
   /** Schemas applied after boot that refused the loaded value, by schema; a read of their module throws. */
   protected RefusedModules = new Map<string, { module: string[]; error: InvalidConfiguration }>();
 
+  /** The registered ConfigurationOverlay, attached once the configuration resolved; undefined when none is registered. */
+  protected Overlay: ConfigurationOverlay | undefined;
+
   private Loading = false;
 
   /** Removed keys already reported, by schema and path: a reload or a polled set() removes the same key again. */
@@ -217,9 +227,33 @@ export class FrameworkConfiguration extends Configuration {
   public get<T>(path: string[] | string, defaultValue?: T): T;
   public get<T>(path: string[] | string, defaultValue?: T): T {
     if (this.RefusedModules.size !== 0) this.throwIfRefused(path);
+    const overlaid = this.Overlay === undefined ? undefined : this.overlaid(this.Overlay, path);
+    if (overlaid !== undefined) return (overlaid.value === undefined ? defaultValue : overlaid.value) as T;
+    return this.merged(path, defaultValue);
+  }
+
+  public override isOverlaid(path: string[] | string): boolean {
+    const segments = _.toPath(path);
+    return segments.length !== 0 && (this.Overlay?.covers(segments) ?? false);
+  }
+
+  private merged<T>(path: string[] | string, defaultValue?: T): T {
     const value = _.get(this.Config, path, defaultValue) as T;
     if (value === null && defaultValue !== undefined && this.isUnresolvedVar(path)) return defaultValue;
     return value;
+  }
+
+  private overlaid(overlay: ConfigurationOverlay, path: string[] | string): { value: unknown } | undefined {
+    const segments = _.toPath(path);
+    if (segments.length === 0 || !overlay.covers(segments)) return undefined;
+    const values = overlay.values();
+    return values === undefined || values.size === 0 ? undefined : overlaidValue(this.Config, segments, values, copyOnPath);
+  }
+
+  // Resolved here, not injected: an overlay reads the configuration, so it cannot be built before it.
+  private attachOverlay(): void {
+    this.Overlay = this.Container.hasRegistered(ConfigurationOverlay) ? this.Container.resolve(ConfigurationOverlay) : undefined;
+    this.Overlay?.attach(this);
   }
 
   private isUnresolvedVar(path: string[] | string) {
@@ -259,6 +293,24 @@ export class FrameworkConfiguration extends Configuration {
   }
 
   /**
+   * The value at `path` as the configuration schemas accept it: coerced, with defaults filled and undeclared keys removed;
+   * a copy of `value` where no schema applies. Throws InvalidConfiguration when `value` would make a configuration module
+   * invalid, and InvalidOperation while the configuration loads. Changes nothing. Whoever serves a checked value (an
+   * overlay) serves the returned value, never `value` itself: `check('mail.enabled', 'false')` returns `false`.
+   */
+  public check(path: string[] | string, value: unknown): unknown {
+    assertSafePath(path);
+    const segments = _.toPath(path);
+    if (segments.length === 0) throw new InvalidArgument('Configuration.check() needs a non-empty path');
+    if (this.ValidationSchemas === undefined || this.Loading) {
+      throw new InvalidOperation(`Configuration ${segments.join('.')} cannot be checked while the configuration loads: its schemas apply once it is loaded`);
+    }
+    const copy = copyForCheck(value);
+    const root = this.checkChange(this.schemasAt(segments), segments, (r) => _.set(r, segments, copy));
+    return root === undefined ? copy : _.get(root, segments);
+  }
+
+  /**
    * Merge existing config value with new options instead overriding
    *
    * @param path - cfg path
@@ -268,7 +320,8 @@ export class FrameworkConfiguration extends Configuration {
     assertSafePath(path);
     const schemas = this.schemasAt(path);
     this.checkChange(schemas, path, (root) => mergeInto(_.get(root, path), copyForCheck(value)));
-    mergeInto(this.get(path), value);
+    if (this.RefusedModules.size !== 0) this.throwIfRefused(path);
+    mergeInto(this.merged(path), value);
     this.applySchemas(schemas);
   }
 
@@ -312,6 +365,7 @@ export class FrameworkConfiguration extends Configuration {
     try {
       this.validate();
       this.configure();
+      this.attachOverlay();
     } catch (e) {
       // DI does not cache a Configuration whose resolve failed: a schema registered later must not be checked against it.
       if (CHECKED.get(this.Container) === this) CHECKED.delete(this.Container);
@@ -346,6 +400,7 @@ export class FrameworkConfiguration extends Configuration {
       await this.loadTree();
       // resolve() checks the first load itself.
       if (this.ValidationSchemas !== undefined) this.checkAll();
+      this.Overlay?.attach(this);
     } catch (e) {
       this.Config = previous;
       throw e;
@@ -371,7 +426,7 @@ export class FrameworkConfiguration extends Configuration {
     mergeConfig(this.Config, _.cloneDeep(config), 'concat');
     mergeConfig(this.Config, { configuration: buildEnvironmentFlags({ APP_ENV: appEnv }) }, 'concat');
 
-    InternalLogger.info({ appEnv: this.get<string>('process.env.APP_ENV') }, 'APP_ENV set to ${appEnv}', 'Configuration');
+    InternalLogger.info({ appEnv: this.merged<string>('process.env.APP_ENV') }, 'APP_ENV set to ${appEnv}', 'Configuration');
 
     /**
      * Package defaults of modules without config files, eg. in a webpack environment.
@@ -613,9 +668,9 @@ export class FrameworkConfiguration extends Configuration {
   }
 
   // Runs `change` on a copy of the modules of `schemas` and throws when one of them would become invalid, so that a
-  // refused change is never applied.
-  private checkChange(schemas: IConfigurationSchema[], path: string[] | string, change: (root: Record<string, unknown>) => void) {
-    if (schemas.length === 0) return;
+  // refused change is never applied. Returns the copy as the schemas left it; undefined when no schema applies.
+  private checkChange(schemas: IConfigurationSchema[], path: string[] | string, change: (root: Record<string, unknown>) => void): Record<string, unknown> | undefined {
+    if (schemas.length === 0) return undefined;
     const top = _.minBy([_.toPath(path), ...schemas.map((s) => _.toPath(s.$configurationModule))], (p) => p.length) ?? [];
     const root = (top.length === 0 ? copyForCheck(this.Config) : _.set({}, top, copyForCheck(_.get(this.Config, top)))) as Record<string, unknown>;
     change(root);
@@ -630,6 +685,7 @@ export class FrameworkConfiguration extends Configuration {
       violations.push(...r.violations);
     }
     this.throwIfInvalid(errors, violations);
+    return root;
   }
 
   // Fills the defaults and coercion of the modules a change that passed checkChange() reached.
@@ -807,8 +863,8 @@ export class FrameworkConfiguration extends Configuration {
       return;
     }
 
-    for (const prop of Object.keys(this.get(['system', 'dirs'], {}))) {
-      const dirs = this.get<unknown>(['system', 'dirs', prop]);
+    for (const prop of Object.keys(this.merged(['system', 'dirs'], {}))) {
+      const dirs = this.merged<unknown>(['system', 'dirs', prop]);
       if (Array.isArray(dirs)) dirs.push(this.dir(`/${this.RunApp}/${prop}`));
     }
   }

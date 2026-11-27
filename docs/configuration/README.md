@@ -26,6 +26,7 @@ npm install @spinajs/configuration
 | [Config-selected services](08-config-selected-services.md) | Pick implementations by name in config: `@AutoinjectService`, `@AutoinjectNamedService`, `@AutoinjectNamedServices`, `service()` |
 | [Replacing the configuration service](09-replacing-the-configuration-service.md) | Subclass `FrameworkConfiguration` (tests, workers), write your own `Configuration`, one per child container |
 | [Browser configuration](10-browser-configuration.md) | `BrowserFrameworkConfiguration` and the `@spinajs/configuration/browser` entry, with no `fs`, `glob` or `ajv` |
+| [Configuration overlays](11-configuration-overlays.md) | Values that differ per unit of work, such as a tenant's overrides: `ConfigurationOverlay`, `isOverlaid()`, `check()`, `ScopedConfigurationSource` |
 
 ## Quick start
 

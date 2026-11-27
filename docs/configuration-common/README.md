@@ -39,6 +39,8 @@ The runtime dependencies are `@spinajs/di` and `luxon` (used by the date variabl
 | `ConfigVariable` | `ConfigVariable`, singleton, root container | `format()`, on its first call | [Custom variables](03-custom-variables.md) |
 | `Configuration` | `Configuration`, singleton | every `@Config`, `@Autoinject(Configuration)`, `DI.resolve(Configuration)` | [The `Configuration` service](04-configuration-service.md) |
 | `ConfigurationSource` | `ConfigurationSource`, singleton | `Configuration.resolve()` | [Configuration sources](05-configuration-sources.md) |
+| `ConfigurationOverlay` | `ConfigurationOverlay`, singleton | `FrameworkConfiguration.resolve()`, consulted by every `get()` of a path it covers | [Configuration overlays](../configuration/11-configuration-overlays.md) |
+| `ScopedConfigurationSource` | `ScopedConfigurationSource`, `SyncService` | the overlay that reads per-scope values | [Configuration overlays](../configuration/11-configuration-overlays.md#scoped-configuration-sources) |
 | `StaticConfigurationSource()` | a factory producing a `ConfigurationSource` class | same as above | [Configuration sources](05-configuration-sources.md#staticconfigurationsource-factory) |
 | `ConfigVarProtocol` | `ConfigVarProtocol`, singleton, root container | `Configuration.load()` | [Config var protocols](06-config-var-protocols.md) |
 | `ConfigVar` | none: returned from `getVar()` | the configuration proxy, on read | [Config var protocols](06-config-var-protocols.md#configvar-lazy-values) |

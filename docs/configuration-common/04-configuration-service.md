@@ -14,6 +14,7 @@
 | `get<T>(path, defaultValue?)` | abstract | value at `path` (`'http.port'` or `['http', 'port']`); `defaultValue` when missing |
 | `set(path, value)` | abstract | overwrite the value at `path` |
 | `merge(path, value)` | abstract | deep-merge `value` into the existing value at `path` |
+| `isOverlaid(path)` | method, `false` by default | whether a registered `ConfigurationOverlay` may answer reads of `path`, so the value can differ per unit of work ([Configuration overlays](../configuration/11-configuration-overlays.md)) |
 | `mergeSource(sourceClass)` | abstract, async | load one `ConfigurationSource` after boot |
 | `load()` | abstract, async | reload from all sources |
 | `onLoad()` | protected abstract | returns extra config to merge after the sources; the hook for subclasses |
