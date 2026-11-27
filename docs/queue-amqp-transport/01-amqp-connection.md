@@ -56,7 +56,9 @@ sequenceDiagram
 | plain name, eg. `rabbitmq.internal` | `amqp` | the value | `port ?? 5672` | `login` / `password` | `options.vhost ?? '/'` | `options.heartbeat`, `.frameMax`, `.locale` |
 | URL, eg. `amqps://user:pass@broker:5671/prod?heartbeat=30` | URL scheme | URL host, IPv6 brackets removed | URL port, else `port`, else `5671` for `amqps` and `5672` otherwise | URL credentials, URL-decoded, when the URL has either; else `login` / `password` | URL path without the leading `/`, kept percent-encoded; `/` when empty | `heartbeat`, `frameMax`, `locale` from the query string, else from `options` |
 
-A `host` with `://` that `new URL()` rejects, or whose URL has an `@` after the host, is not dialled: `resolve()` rejects at once with `InvalidArgument('Queue connection <name> has a host that is not a URL: <not a URL>')`, before any connect or lookup, and nothing is retried. Dialled, the whole value or a piece of its userinfo would have gone to the resolver as the host name. The usual cause is an unencoded `/`, `?`, `#` or `@` in the password, vhost or query: write it percent-encoded (`amqp://user:pa%2Fss@broker`), or set `login` / `password`.
+A `host` with `://` that `new URL()` rejects, or whose URL has an `@` after the host, is not dialled: `resolve()` rejects at once with `InvalidArgument('Queue connection <name> has a host that is not a URL: <not a URL>')`, before any connect or lookup, and nothing is retried. Dialled, the whole value or a piece of its userinfo would have gone to the resolver as the host name. The usual cause is an unencoded `/`, `?` or `#` in the user name or password, or an `@` in the vhost or query: write them percent-encoded (`%2F`, `%3F`, `%23`, `%40`; `amqp://user:pa%2Fss@broker`), or set `login` / `password`.
+
+A `host` without `://` that holds an `@` (`user:password@broker`) is refused the same way, with the hint to write it as `amqp://user:password@broker/vhost` or to set `login` / `password`: dialled, the whole value would have gone to the resolver as the host name.
 
 When neither `username` nor `password` reaches amqplib, amqplib logs in as `guest` / `guest`.
 
