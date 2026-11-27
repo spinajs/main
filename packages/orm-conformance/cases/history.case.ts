@@ -142,14 +142,15 @@ export const HISTORY_CASES = [
     name: 'history-latest-is-the-asked-ids-own',
     seed: EMPTY,
     order: 'ordered',
-    expected: { latest: ['k:k', 'k :k ', 'm:m', 'm :m '], latestBefore: ['k:k', 'k :k ', 'm:m', 'm :m '] },
+    expected: { latest: ['1:1', '2:2'], latestBefore: ['1:1', '2:2'] },
     run: ({ driver }) =>
       tracked(driver, CfUser, async () => {
-        // The trail's subject_id ignores trailing spaces on MySQL and MSSQL, so 'k' and 'k ' match each other there.
+        // The trail's subject_id ignores trailing spaces on MySQL and MSSQL, so '1' and '1 ' match each other there; no
+        // row of the integer key can have '1 ', so asking it reads nothing.
         const event = (id: string, minute: number): AuditInput => ({ kind: 'data', action: 'insert', subject: { type: 'cf_users', id }, data: { after: { Name: id } }, at: new Date(Date.UTC(2026, 9, 1, 12, minute)) });
-        await driver.transaction((tx) => audit().record([event('k', 10), event('k ', 20), event('m ', 10), event('m', 20)], { trail: 'history', mode: 'transactional', transaction: tx, onFailure: 'reject' }));
+        await driver.transaction((tx) => audit().record([event('1', 10), event('1 ', 20), event('2 ', 10), event('2', 20)], { trail: 'history', mode: 'transactional', transaction: tx, onFailure: 'reject' }));
         const history = historyOf(CfUser);
-        const asked = ['k', 'k ', 'm', 'm '];
+        const asked = ['1', '1 ', '2', '2 '];
         const pairs = (found: ReadonlyMap<string, HistoryEntry>): string[] => [...found].map(([id, entry]) => `${id}:${entry.id}`);
         return { latest: pairs(await history.latest(asked)), latestBefore: pairs(await history.latestBefore(asked, new Date(Date.UTC(2026, 9, 1, 12, 30)))) };
       }),
