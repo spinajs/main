@@ -1,10 +1,12 @@
 import { AUTHZ_CONNECTION, AuthzConfigError, AuthzContributor, changeLog } from '@spinajs/authz';
 import type { AuthzContribution } from '@spinajs/authz';
 import { DI, Injectable, Singleton } from '@spinajs/di';
-import { Orm, extractModelDescriptor } from '@spinajs/orm';
+import { MODELS, Orm, extractModelDescriptor } from '@spinajs/orm';
+import type { ModelBase } from '@spinajs/orm';
 
 import { DbChangeLog } from './changelog/db-changelog.js';
 import { entryOf, nameOf, registeredClasses, registeredTypes } from './registry.js';
+import type { ModelClass } from './registry.js';
 
 /**
  * Every list joins authz_assignment (and, with @Parent, authz_resource_ancestor) with the resource table,
@@ -23,12 +25,17 @@ export function checkResourceConnections(orm: Orm): void {
   if (wrong.length > 0) throw new AuthzConfigError(`authz-orm: @AccessResource models must use the authz connection ${JSON.stringify(stores.Options?.Name)} (db.Aliases.${AUTHZ_CONNECTION}), where authz_resource_ancestor and authz_assignment live: ${wrong.join(', ')}`);
 }
 
-/** The ancestor table and the column changelog key a row by one column: the write capture refuses a composite key at every write. */
+/**
+ * The ancestor table and the column changelog key a row by one column: the write capture refuses a composite key at
+ * every write. Every `@Model` class counts, as a subclass resolves to its ancestor's entry without being registered.
+ */
 export function checkResourceKeys(): void {
-  for (const cls of registeredClasses()) {
+  const models: readonly ModelClass[] | null = DI.getRegisteredTypes<ModelBase>(MODELS.key);
+  for (const cls of new Set([...registeredClasses(), ...(models ?? [])])) {
     // Key first: entryOf throws for a registered model without a primary key, which must not fail the boot.
     const keys = extractModelDescriptor(cls)?.PrimaryKey ?? [];
     if (keys.length < 2) continue;
+    // A subclass that added a key column throws here, naming the column.
     const entry = entryOf(cls);
     if (!entry) continue;
     throw new AuthzConfigError(`authz-orm: @AccessResource model ${nameOf(cls)} (resource '${entry.type}') has a composite primary key (${keys.join(', ')}); the ORM write capture, which keeps authz_resource_ancestor and the column changelog, needs a single-column primary key`);

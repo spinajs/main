@@ -1,0 +1,5 @@
+---
+"@spinajs/authz-orm": major
+---
+
+**Breaking:** an application with an ORM model that extends an `@AccessResource` model and adds a key column with `@Primary()` now fails to boot. The authz domain boot throws `AuthzConfigError` naming the subclass, its key columns and the resource it belongs to, and a subclass loaded after the boot is refused with the same error at its first use (any query, write, `.accessible()` list or `authz:rls` run). Before, such a subclass passed the boot's composite-key check, which read only the registered classes, and every authz reader keyed its rows by the parent's first key column: with `Doc` keyed `id` and `TenantDoc extends Doc` keyed `(id, tenant)`, a grant on `doc:d1` listed the `d1` rows of every tenant through `.accessible()`, and `authz:rls` gave the subclass's table no policy at all. Do not add a key column, or make the model one of its own that does not extend the resource, with an `@AccessResource` type of its own and a single-column key. A subclass that adds no key column boots and works as before.

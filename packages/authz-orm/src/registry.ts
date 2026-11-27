@@ -244,12 +244,25 @@ export function entryOf(model: unknown): ResourceEntry | undefined {
   return entry;
 }
 
+/**
+ * A subclass is its registered ancestor's resource, and every reader keys that resource by one column. Refused here,
+ * not only at the domain boot, so a model loaded after the boot fails at its first use too.
+ */
+function checkInheritedKey(model: ModelClass, registered: ModelClass, type: ResourceType, idColumns: readonly string[]): void {
+  const inherited = pkOf(registered);
+  const added = idColumns.filter((c) => !inherited.includes(c)).join(', ');
+  if (added === '') return;
+  throw new AuthzConfigError(`authz-orm: model ${nameOf(model)} extends @AccessResource model ${nameOf(registered)} (resource '${type}') and adds ${added} to its primary key (${idColumns.join(', ')}); a resource is identified by one key column, so rows that differ only in ${added} would be one resource: do not add a key column, or make ${nameOf(model)} a model of its own that does not extend ${nameOf(registered)}, with an @AccessResource type of its own and a single-column key`);
+}
+
 function buildEntry(model: ModelClass): ResourceEntry | undefined {
   const classes = chain(model);
   const registered = classes.find((c) => registrations.has(c));
   if (registered === undefined) return undefined;
   const r = registrations.get(registered)!;
   const where = `${nameOf(model)} (resource '${r.type}')`;
+  const idColumns = Object.freeze(pkOf(model));
+  if (registered !== model) checkInheritedKey(model, registered, r.type, idColumns);
 
   let owner: OwnerColumns | undefined;
   let self: string | undefined;
@@ -283,7 +296,6 @@ function buildEntry(model: ModelClass): ResourceEntry | undefined {
   owner ??= r.owner;
   self ??= r.self;
 
-  const idColumns = Object.freeze(pkOf(model));
   return Object.freeze({
     registered,
     type: r.type,

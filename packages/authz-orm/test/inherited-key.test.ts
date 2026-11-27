@@ -46,7 +46,7 @@ const boot = () => settle(() => new AuthzOrmContributor().contribute('root'));
 const docKeys = (rows: unknown): string[] => (rows as { id: string; tenant: string }[]).map((r) => `${r.id}/${r.tenant}`).sort();
 
 const refusal = (model: string, resource: string, keys: string, added: string) =>
-  new RegExp(`^authz-orm: model ${model}_\\d+_\\d+ extends @AccessResource model ${resource} and adds ${added} to its primary key \\(${keys}\\); a resource is identified by one key column, so rows that differ only in ${added} would be one resource: give ${model}_\\d+_\\d+ an @AccessResource type of its own with a single-column key, or do not add a key column$`);
+  new RegExp(`^authz-orm: model ${model}_\\d+_\\d+ extends @AccessResource model ${resource} and adds ${added} to its primary key \\(${keys}\\); a resource is identified by one key column, so rows that differ only in ${added} would be one resource: do not add a key column, or make ${model}_\\d+_\\d+ a model of its own that does not extend ${resource.split(' ')[0]}, with an @AccessResource type of its own and a single-column key$`);
 
 describe('authz-orm: a subclass of a resource that adds a key column', function () {
   this.timeout(60000);
