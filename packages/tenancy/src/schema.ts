@@ -35,7 +35,8 @@ export const TENANCY_CONFIGURATION_SCHEMA = {
   properties: {
     registry: text,
     access: text,
-    registryCacheMs: { type: 'integer', minimum: 0 },
+    // bounds how long a process that missed a tenant change (a suspension, a deletion) keeps the old record
+    registryCacheMs: { type: 'integer', minimum: 0, maximum: 60000 },
     config: {
       type: 'object',
       // A refusal, not the dropped-key warning of additionalProperties: a misspelt key would silently leave paths open or closed.

@@ -20,6 +20,7 @@ npm install @spinajs/tenancy
 | [Tenant admission and access](04-admission-and-access.md) | `admitTenant` checks that a proposed tenant is known, active and open to the principal; the `TenantAccess` and `TenantResolver` ports |
 | [Running across tenants](05-running-across-tenants.md) | `forEachTenant` runs a job once per tenant, each in its own scope, and reports the failures |
 | [Configuration](06-configuration.md) | Every `tenancy.*` key, its default and the configuration schema |
+| [CLI commands in a tenant](07-cli.md) | `--tenant <id>` and `--all-tenants <reason>` on every `spinajs` command, through `@spinajs/tenancy/cli` |
 | [Configuration overrides per tenant](07-configuration-overrides.md) | A tenant's own values for the configuration paths the application lists in `tenancy.config.overridable`; `loadTenantSettings`, `checkTenantSettings`, `TenantSettingsUnavailable` |
 
 ## Quick start

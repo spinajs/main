@@ -1,7 +1,7 @@
 import { AccessDenied, AuthzConfigError, FALSE, authz, authzStorage, currentPrincipal } from '@spinajs/authz';
 import type { AuthzService, Decision, DenyReason, Permission, Principal, ResourceType } from '@spinajs/authz';
 import { Injectable } from '@spinajs/di';
-import { QueryMiddleware, SelectQueryBuilder, WhereBuilder, captureReadScope, createQuery, extractModelDescriptor, relationSyncOf, supportsRowLocks } from '@spinajs/orm';
+import { DeleteQueryBuilder, QueryMiddleware, SelectQueryBuilder, UpdateQueryBuilder, WhereBuilder, captureReadScope, createQuery, extractModelDescriptor, relationSyncOf, supportsRowLocks } from '@spinajs/orm';
 import type { IQueryStatement, IWhereBuilder, QueryBuilder } from '@spinajs/orm';
 
 import { auditUnscoped, ormDomain, ormLog } from '../host.js';
@@ -10,8 +10,6 @@ import type { AccessMarks } from '../marker.js';
 import type { PlanRow } from '../plan/index.js';
 import { entryOf, nameOf } from '../registry.js';
 import type { ResourceEntry } from '../registry.js';
-import { isUpdateOrDelete } from '../sync-statement.js';
-import type { SyncStatement } from '../sync-statement.js';
 import { AccessFieldMiddleware, accessColumn, accessField } from './access-field.js';
 import { applyWithin, planFilter } from './render.js';
 import { RowFieldsMiddleware, fieldConditions, fieldsColumn } from './row-fields.js';
@@ -21,6 +19,7 @@ type Where = IWhereBuilder<unknown>;
 type Statements = { _statements: IQueryStatement[] };
 type Filter = (where: Where) => void;
 type Sync = NonNullable<ReturnType<typeof relationSyncOf>>;
+type SyncStatement = UpdateQueryBuilder<unknown> | DeleteQueryBuilder<unknown>;
 
 interface ListFilters {
   readonly filters: Filter[];
@@ -83,7 +82,7 @@ function restrictAll(query: QueryBuilder, filters: readonly Filter[]): void {
 
 /** The update or delete a relation list's sync() built itself, undefined for any other builder. */
 function syncOf(query: QueryBuilder): { readonly statement: SyncStatement; readonly sync: Sync } | undefined {
-  if (!isUpdateOrDelete(query)) return undefined;
+  if (!(query instanceof UpdateQueryBuilder || query instanceof DeleteQueryBuilder)) return undefined;
   const sync = relationSyncOf(query);
   return sync === undefined ? undefined : { statement: query, sync };
 }
