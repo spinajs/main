@@ -59,6 +59,14 @@ function unreadableRevocationField(stored: IStoredSession): 'Impersonator' | 'Ex
   return stored.ExternalKey !== undefined && typeof stored.ExternalKey !== 'string' ? 'ExternalKey' : undefined;
 }
 
+/** JSON.parse's SyntaxError and the Map reader's TypeError quote the stored value; decodeSessionData's InvalidArgument names only a type. */
+function withoutStoredText(err: unknown, message: string): unknown {
+  if (err instanceof SyntaxError) {
+    return new SyntaxError(message);
+  }
+  return err instanceof TypeError ? new TypeError(message) : err;
+}
+
 /**
  * Redis-backed session store (ioredis).
  *
@@ -426,13 +434,14 @@ export class RedisSessionStore extends SessionProvider {
     try {
       stored = JSON.parse(raw) as IStoredSession;
       if (!stored || typeof stored !== 'object') {
-        throw new Error(`Session ${sessionId} is not a JSON object`);
+        // The session id is the storage key of a bearer credential, so neither line names it; the subject is not read yet.
+        throw new Error('A stored session value is not a JSON object');
       }
     } catch (err) {
       if (!lenient) {
-        throw err;
+        throw withoutStoredText(err, 'A stored session value is not JSON');
       }
-      this.Log.warn(`Unreadable value of session ${sessionId} skipped`);
+      this.Log.warn('A stored session value is not a JSON object; it is skipped');
       return null;
     }
 
@@ -445,9 +454,9 @@ export class RedisSessionStore extends SessionProvider {
       data = decodeSessionData(stored.Data);
     } catch (err) {
       if (!lenient) {
-        throw err;
+        throw withoutStoredText(err, `A session of ${stored.Subject} has Data that does not decode`);
       }
-      this.Log.warn(`Session ${sessionId} has undecodable Data, read without its Data`);
+      this.Log.warn(`A session of ${stored.Subject} has Data that does not decode; it is read with an empty Data`);
       data = new Map();
     }
 

@@ -1,3 +1,5 @@
+import { createHash, randomBytes } from 'crypto';
+import { inspect } from 'util';
 import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 import { UserSession as Session, encodeSessionData } from '@spinajs/authn-session';
@@ -484,6 +486,107 @@ describe('redis session provider', function () {
       expect(ids(listed)).to.deep.equal(['bad-data']);
       expect(listed[0].Data.size).to.equal(0);
       expect(await store.deleteBySubject(user('u-bad'))).to.equal(1);
+    });
+  });
+
+  describe('log lines and errors name the subject, never the session id or its storage key', () => {
+    /** The storage key of a session id, as the issuer derives it, saved and then stored as `rewrite` gives it. */
+    async function storedAs(store: RedisSessionStore, raw: string, rewrite: (value: Record<string, unknown>) => unknown): Promise<string> {
+      const key = createHash('sha256').update(raw).digest('hex');
+      await store.save(session({ SessionId: key, Subject: user('u-42') }));
+      const value = rewrite(await stored(`session:${key}`));
+      await rawClient().set(`session:${key}`, typeof value === 'string' ? value : JSON.stringify(value));
+      return key;
+    }
+
+    const printed = (args: unknown[]) => [...args.map(String), ...args.map((a) => inspect(a, { depth: null }))].join(' ');
+
+    const STORED_DATA = 'refresh-token-kept-in-the-stored-data';
+    // The Map reviver's TypeError quotes this whole value.
+    const QUOTING_DATA = `{"dataType":"Map","value":["${STORED_DATA}"]}`;
+    const LEVELS = ['trace', 'debug', 'info', 'warn', 'error', 'fatal', 'security', 'success'] as const;
+
+    async function warnings<T>(run: () => Promise<T>): Promise<[T, string[]]> {
+      const log = DI.resolve(Log, ['redis-session-store']);
+      const calls: unknown[][] = [];
+      for (const level of LEVELS) {
+        log[level] = (...args: unknown[]) => {
+          calls.push(args);
+        };
+      }
+      try {
+        return [await run(), calls.map(printed)];
+      } finally {
+        for (const level of LEVELS) {
+          Reflect.deleteProperty(log, level);
+        }
+      }
+    }
+
+    const runsOf = (secret: string) => Array.from({ length: secret.length - 7 }, (_, i) => secret.slice(i, i + 8));
+    const leaks = (text: string, secrets: string[]) => [...secrets, STORED_DATA].flatMap(runsOf).filter((run) => text.includes(run));
+
+    for (const [label, value] of [
+      ['a JSON number', '42'],
+      ['JSON null', 'null'],
+    ] as [string, string][]) {
+      it(`restore of a stored value that is ${label} still throws, and the error names neither the session id nor its storage key`, async () => {
+        const store = await makeProvider(SLIDING);
+        await store.truncate();
+        const raw = randomBytes(24).toString('hex');
+        const key = await storedAs(store, raw, () => value);
+
+        const [error, lines] = await warnings(() => store.restore(key).then(() => undefined, (err: unknown) => err));
+        expect(error).to.be.instanceOf(Error);
+        expect((error as Error).message).to.contain('not a JSON object');
+        expect(leaks(printed([error]), [raw, key]), 'runs of the session id or its storage key').to.deep.equal([]);
+        expect(lines).to.deep.equal([]);
+      });
+    }
+
+    for (const [label, rewrite, type, text] of [
+      ['not JSON', () => `x${STORED_DATA}`, SyntaxError, 'A stored session value is not JSON'],
+      ['JSON whose Data the decoder quotes', (value: Record<string, unknown>) => ({ ...value, Data: QUOTING_DATA }), TypeError, 'A session of user:u-42 has Data that does not decode'],
+    ] as [string, (value: Record<string, unknown>) => unknown, typeof Error, string][]) {
+      it(`restore of a stored value that is ${label} still throws a ${type.name} that quotes none of the stored value`, async () => {
+        const store = await makeProvider(SLIDING);
+        await store.truncate();
+        const raw = randomBytes(24).toString('hex');
+        const key = await storedAs(store, raw, rewrite);
+
+        const [error, lines] = await warnings(() => store.restore(key).then(() => undefined, (err: unknown) => err));
+        expect(error).to.be.instanceOf(type);
+        expect((error as Error).message).to.equal(text);
+        expect(leaks(printed([error]), [raw, key]), 'runs of the session id, its storage key or the stored Data').to.deep.equal([]);
+        expect(lines).to.deep.equal([]);
+      });
+    }
+
+    it('a listing skips a stored value that is not a JSON object with one warning that names neither the session id nor its storage key', async () => {
+      const store = await makeProvider(SLIDING);
+      await store.truncate();
+      const raw = randomBytes(24).toString('hex');
+      const key = await storedAs(store, raw, () => '42');
+
+      const [listed, lines] = await warnings(() => store.listBySubject(user('u-42')));
+      expect(listed).to.deep.equal([]);
+      expect(lines).to.have.length(1);
+      expect(leaks(lines[0], [raw, key]), 'runs of the session id or its storage key').to.deep.equal([]);
+      expect(lines[0]).to.contain('not a JSON object');
+    });
+
+    it('a listing reads a stored value whose Data does not decode with an empty Data and one warning that names the subject, never the session id or its storage key', async () => {
+      const store = await makeProvider(SLIDING);
+      await store.truncate();
+      const raw = randomBytes(24).toString('hex');
+      const key = await storedAs(store, raw, (value) => ({ ...value, Data: QUOTING_DATA }));
+
+      const [listed, lines] = await warnings(() => store.listBySubject(user('u-42')));
+      expect(ids(listed)).to.deep.equal([key]);
+      expect(listed[0].Data.size).to.equal(0);
+      expect(lines).to.have.length(1);
+      expect(leaks(lines[0], [raw, key]), 'runs of the session id or its storage key').to.deep.equal([]);
+      expect(lines[0]).to.contain('user:u-42').and.to.contain('Data');
     });
   });
 });

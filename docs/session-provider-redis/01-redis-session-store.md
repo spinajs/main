@@ -164,8 +164,8 @@ Every key is written under `authn.session.redis.keyPrefix`; ioredis adds the pre
 - **`save` is an upsert without a compare.** It overwrites whatever the key holds. Only `touch` is guarded.
 - **Revocation catches races.** `deleteBySubject` repeats until a pass finds nothing new, so a rotation that saves a new id during a ban is ended too.
 - **Index sets heal themselves.** A member whose row is gone, unreadable or owned by another subject is removed the next time `listBySubject` or `deleteBySubject` reads that set. Nothing scans the sets in the background.
-- **One bad row does not break revocation.** In lookups, `save`, `delete` and `touch`, an unparseable value is skipped with a warning that names the session id, and undecodable `Data` reads as an empty map with the row's own `Subject` kept.
-- **`restore` is strict.** A value that is not JSON, or `Data` that does not decode, throws out of `restore`, and so out of the issuer's restore.
+- **One bad row does not break revocation.** In lookups, `save`, `delete` and `touch`, an unparseable value is skipped with a warning, and undecodable `Data` reads as an empty map with the row's own `Subject` kept and a warning that names the subject. No warning names the session id: it is the storage key of a bearer credential.
+- **`restore` is strict.** A value that is not JSON, or `Data` that does not decode, throws out of `restore`, and so out of the issuer's restore. The error keeps its class (`SyntaxError`, `TypeError`, or the decoder's `InvalidArgument`) but carries a fixed message: the parser's own would quote the stored value.
 - **A Redis outage fails requests, not the boot.** `resolve()` sends no command. While Redis is unreachable, each store call fails once ioredis gives up the command (`maxRetriesPerRequest`).
 - **Connection errors are logged.** `resolve()` attaches an `error` listener to the client that writes to the `redis-session-store` logger.
 - **No Cluster.** `MULTI` spans keys in different hash slots, and `SCAN` reads one node.
