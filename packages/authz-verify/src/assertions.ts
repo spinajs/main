@@ -328,7 +328,7 @@ function boundary(e: Encoder, u: Universe, type: TypeName): Formula[] {
   return out;
 }
 
-export type VerifyCode = 'AZV001' | 'AZV002' | 'AZV003' | 'AZV004' | 'AZV090';
+export type VerifyCode = 'AZV001' | 'AZV002' | 'AZV003' | 'AZV004' | 'AZV007' | 'AZV090';
 
 export interface VerifyDiagnostic {
   readonly code: VerifyCode;
@@ -360,7 +360,9 @@ function diagnose(assertion: Assertion, label: string, v: Verdict, ir: PolicyIR,
   const out: VerifyDiagnostic[] = [];
   const on = (code: VerifyCode, severity: VerifyDiagnostic['severity'], message: string, counterexample?: Counterexample): number => out.push({ code, severity, assertion: label, message, ...(counterexample === undefined ? {} : { counterexample }) });
   if (v.result === 'violated') on('AZV001', 'error', `violated (${v.engine === 'exact' ? 'exact' : `bounded k=${v.bound ?? '?'}`})`, v.counterexample);
-  else if (v.result === 'holds') on('AZV002', 'info', v.engine === 'exact' ? 'holds (exact)' : `verified up to k=${v.bound ?? '?'}`);
+  else if (v.result === 'holds' && v.engine === 'exact') on('AZV002', 'info', 'holds (exact)');
+  // A bounded holds is no proof: a counterexample with more than k objects of a type can still exist.
+  else if (v.result === 'holds') on('AZV007', 'warning', `holds only up to k=${v.bound ?? '?'} (not proven)`);
   else if (v.code === 'AZV090') on('AZV090', options.requireSolver === true ? 'error' : 'warning', `not verified: ${v.message ?? 'solver unavailable'}`);
   else on('AZV003', 'warning', `not decided: ${v.message ?? 'outside both engines'}`);
   if (v.opaque.length > 0) on('AZV003', 'warning', `depends on opaque: ${v.opaque.map((o) => `${o.kind} '${o.name}'`).join(', ')}`);
