@@ -25,6 +25,8 @@ export const TEAMS_CONFIGURATION_SCHEMA = {
       connection: text,
       defaultTtlHours: { type: 'integer', minimum: 1, default: TEAMS_DEFAULTS.defaultTtlHours },
     }),
+    // No default: with tenancy in use the app must say it (TeamsTenancyCheck).
+    tenancy: { type: 'boolean' },
   },
 };
 
