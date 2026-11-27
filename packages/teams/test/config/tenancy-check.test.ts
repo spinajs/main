@@ -4,11 +4,12 @@ import sinon from 'sinon';
 
 import { AuthzContributor } from '@spinajs/authz';
 import type { ResourceRef } from '@spinajs/authz';
+import { bootConfiguration } from '@spinajs/authz-testing';
 import { CONFIGURATION_SCHEMA } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
 import { InvalidOption } from '@spinajs/exceptions';
 
-import { GlobalTeamRootScope, TeamRootScope, TeamsTenancyCheck, checkTeamsTenancy } from '../../src/index.js';
+import { GlobalTeamRootScope, TEAMS_CONFIGURATION_SCHEMA, TeamRootScope, TeamsTenancyCheck, checkTeamsTenancy } from '../../src/index.js';
 
 const expect = chai.expect;
 
@@ -22,6 +23,7 @@ class TenantRoot extends TeamRootScope {
 
 const globalRoot = new GlobalTeamRootScope();
 const tenantRoot = new TenantRoot();
+const UNSET = 'teams.tenancy must be true or false when @spinajs/tenancy is in use: set false to keep teams global';
 
 describe('teams.tenancy', () => {
   afterEach(() => sinon.restore());
@@ -31,8 +33,19 @@ describe('teams.tenancy', () => {
   });
 
   it('must be set once @spinajs/tenancy or the teams bridge is imported', () => {
-    expect(() => checkTeamsTenancy(undefined, true, globalRoot)).to.throw(InvalidOption, 'teams.tenancy must be true or false');
-    expect(() => checkTeamsTenancy(undefined, false, tenantRoot)).to.throw(InvalidOption, 'teams.tenancy must be true or false');
+    expect(() => checkTeamsTenancy(undefined, true, globalRoot)).to.throw(InvalidOption, UNSET);
+    expect(() => checkTeamsTenancy(undefined, false, tenantRoot)).to.throw(InvalidOption, UNSET);
+  });
+
+  it('counts null, as a YAML key without a value gives it, as unset', async () => {
+    const { child, configuration } = await bootConfiguration({ teams: { tenancy: null } }, [TEAMS_CONFIGURATION_SCHEMA]);
+    try {
+      const setting = configuration.get<unknown>(['teams', 'tenancy']);
+      expect(() => checkTeamsTenancy(setting, true, globalRoot)).to.throw(InvalidOption, UNSET);
+    } finally {
+      await child.dispose();
+    }
+    expect(() => checkTeamsTenancy(null, true, globalRoot)).to.throw(InvalidOption, UNSET);
   });
 
   it('must agree with the root scope of the teams', () => {
@@ -54,6 +67,6 @@ describe('teams.tenancy', () => {
     const cache = DI.RootContainer.Cache;
     const read = cache.get.bind(cache);
     sinon.stub(cache, 'get').callsFake((key: Parameters<typeof read>[0], parent?: boolean): unknown => (key === CONFIGURATION_SCHEMA.key ? [{ $configurationModule: 'tenancy' }] : read(key, parent)));
-    expect(() => check?.contribute('root')).to.throw(InvalidOption, 'teams.tenancy must be true or false');
+    expect(() => check?.contribute('root')).to.throw(InvalidOption, UNSET);
   });
 });

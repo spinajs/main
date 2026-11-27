@@ -25,8 +25,9 @@ export const TEAMS_CONFIGURATION_SCHEMA = {
       connection: text,
       defaultTtlHours: { type: 'integer', minimum: 1, default: TEAMS_DEFAULTS.defaultTtlHours },
     }),
-    // No default: with tenancy in use the app must say it (TeamsTenancyCheck).
-    tenancy: { type: 'boolean' },
+    // No default: with tenancy in use the app must say it (TeamsTenancyCheck). 'null' keeps coerceTypes from turning
+    // an empty YAML key into false.
+    tenancy: { type: ['boolean', 'null'] },
   },
 };
 

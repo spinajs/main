@@ -18,8 +18,9 @@ function tenancyImported(): boolean {
  * teams bridge registers; otherwise teams would span tenants.
  */
 export function checkTeamsTenancy(setting: unknown, tenancy: boolean, scope: TeamRootScope): void {
-  if (setting === undefined) {
-    if (tenancy || scope.tenancy) throw new InvalidOption('teams.tenancy must be true or false when @spinajs/tenancy is in use: true puts teams inside tenants (import @spinajs/tenancy-orm/teams), false keeps them global');
+  // null is what a YAML key without a value gives: nobody answered, so it does not count as false.
+  if (setting === undefined || setting === null) {
+    if (tenancy || scope.tenancy) throw new InvalidOption('teams.tenancy must be true or false when @spinajs/tenancy is in use: set false to keep teams global (a team can hold users of several tenants); true needs @spinajs/tenancy-orm/teams');
     return;
   }
   if (typeof setting !== 'boolean') throw new InvalidOption('teams.tenancy must be true or false');
