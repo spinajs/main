@@ -1,11 +1,11 @@
 import { compilePermissionGlob, isPermissionGlob } from '@spinajs/authz';
 import type { Permission } from '@spinajs/authz';
-import type { ObjectRef, OpaqueRef, PolicyIR, RelationName, TupleSubjectRef, TypeName } from '@spinajs/authz-ir';
+import type { ObjectRef, OpaqueRef, PolicyIR, TupleSubjectRef, TypeName } from '@spinajs/authz-ir';
 
 import { ANYONE, RewriteAutomaton, stateKey } from './graph.js';
-import type { Edge, HolderRef, StoredRead } from './graph.js';
-import { explore, implies as exactImplies, onlyVia as exactOnlyVia, reachers, reachersOf } from './monotone.js';
-import type { Reacher } from './monotone.js';
+import type { Edge, StoredRead } from './graph.js';
+import { explore, implies as exactImplies, onlyVia as exactOnlyVia, reachers } from './monotone.js';
+import { namesRelation, selectedReachers } from './select.js';
 import type { Encoder } from './smt/encode.js';
 import { Unsupported, and, not, or } from './smt/formula.js';
 import type { Formula } from './smt/formula.js';
@@ -122,15 +122,8 @@ async function never(ir: PolicyIR, holder: string, glob: string, options: Bounde
   const verdicts: Verdict[] = [];
   const m = new RewriteAutomaton(ir);
   for (const permission of permissionsMatching(ir, glob)) {
-    // An anyone term needs no holder, so whoever the selector names reaches the permission through it. A reacher
-    // is labelled by its relation's first role only, so the relation is matched by every role that holds it, and a
-    // public member of that relation is one of its holders, as the bounded search reads it. The match runs inside
-    // the exploration: it keeps one path per holder key, and a role's key names no relation.
-    const start = m.start(permission);
-    const selected = (h: HolderRef): boolean => h.kind === 'anyone' || matchesHolder(holder, h) || namesRelation(ir, holder, h.type, h.relation);
-    const ex = start === undefined ? undefined : explore(m, start, selected);
-    const hits = ex === undefined ? [] : reachersOf(ir, permission, ex);
-    hits.push(...reachedBehind(ir, permission, holder));
+    // An anyone term needs no holder, so whoever the selector names reaches the permission through it.
+    const { hits, exploration: ex } = selectedReachers(ir, m, permission, holder, true);
     const sure = hits.find((r) => !r.conditional);
     if (sure !== undefined) {
       const counterexample = await confirm(ir, sure.witness, { [permission]: 'allow' }, sure.paths[0]);
@@ -198,27 +191,6 @@ async function exactSeparated(ir: PolicyIR, a: Permission, b: Permission): Promi
     }
   }
   return { result: undecided ? 'unknown' : 'holds', engine: 'exact', opaque };
-}
-
-/** Does a `role:<r>@<t>`, `role:<r>` or `<t>#<rel>` selector name the relation `type#relation`? */
-function namesRelation(ir: PolicyIR, selector: string, type: TypeName, relation: RelationName): boolean {
-  const role = /^role:([^@]+)(?:@(.+))?$/.exec(selector);
-  if (role !== null) return (ir.principal.roles[role[1]] ?? []).some((r) => r.type === type && r.relation === relation && (role[2] === undefined || role[2] === r.type));
-  return selector === `${type}#${relation}`;
-}
-
-/**
- * Reachers whose path reads the relation the selector names behind a subject set: whoever the set holds is its member
- * too. For `public:<t>#<rel>` only the paths that end on a wildcard, as its holder reads them.
- */
-function reachedBehind(ir: PolicyIR, permission: Permission, selector: string): Reacher[] {
-  const a = new RewriteAutomaton(ir);
-  const start = a.start(permission);
-  if (start === undefined) return [];
-  const wildcard = selector.startsWith('public:');
-  const held = wildcard ? selector.slice('public:'.length) : selector;
-  const ex = explore(a, start, undefined, (e) => namesRelation(ir, held, e.type, e.relation));
-  return reachersOf(ir, permission, { ...ex, accepted: ex.accepted.filter((x) => x.behind === true && (!wildcard || x.holder.kind === 'public')) });
 }
 
 /** The relations whose members are members, through subject sets at any depth, of a relation the selector names. */
