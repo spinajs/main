@@ -567,7 +567,9 @@ describe('write capture on sqlite', function () {
       expect(spy.callCount).to.eq(2);
     });
 
-    it('captures an upsert beside a nested transaction that upserts the same model, with the index list read or not, however late the nested call starts', async () => {
+    it('captures an upsert beside a nested transaction that upserts the same model, with the index list read or not, however late the nested call starts', async function () {
+      // 244 transactions; each round has a deadline of its own, so only a slow machine reaches this one.
+      this.timeout(300000);
       const driver = db().Connections.get('sqlite')!;
       const upsert = (email: string) => CapMember.insert({ Email: email, Name: email }, InsertBehaviour.InsertOrIgnore);
       for (const cache of ['cold', 'warm']) {
