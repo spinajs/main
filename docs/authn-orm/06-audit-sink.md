@@ -49,7 +49,7 @@ The identity is the subject only on a trail that leaves `data.identity` alone. A
 
 ## The `authn_audit` table of 3.x
 
-3.x wrote one `authn_audit` row per event through `DbAuthnAuditSink`. 4.0 removes the sink, the `AuthnAudit` model, `AuthnAuditRetention` and `authn:audit-purge`. The initial migration no longer creates the table, and a database that already has it keeps it, unwritten and unpruned, with its rows. Drop it by hand once its history is no longer needed.
+3.x wrote one `authn_audit` row per event through `DbAuthnAuditSink`. 4.0 removes the sink, the `AuthnAudit` model, `AuthnAuditRetention` and `authn:audit-purge`. The initial migration no longer creates the table, and a database that already has it keeps it, unwritten and unpruned, with its rows. Drop it by hand once its history is no longer needed: see [Removed: the `authn_audit` table](../upgrading/4.0.md#removed-the-authn_audit-table-of-spinajsauthn-orm).
 
 ## Related
 
