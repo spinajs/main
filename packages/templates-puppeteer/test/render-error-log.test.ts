@@ -409,6 +409,10 @@ describe('PuppeteerRenderer render errors', function () {
     });
   }
 
+  it('logs the redacted message of an error whose stack cannot be read', () => {
+    for (const entry of renderErrorsOf(runOf('stack trap throws'))) expect(loggedError(entry).message).to.eq('hostile at http://127.0.0.1:9/h');
+  });
+
   it("logs a Node error's code", () => {
     const errors = renderErrorsOf(runOf('enoent'));
     expect(errors).to.have.length(2);
