@@ -25,18 +25,22 @@ const ALICE: AssignmentSubject = { type: 'user', id: 'alice' };
 const VIEWER: RoleDef = { name: 'viewer', extends: [], assignable: true, source: 'test', grants: [{ permission: 'file:read' }] };
 const CONCURRENT = 10;
 
-/** Counts the loads that reach the DB store. */
+/** Counts the loads that reach the DB store; `hold` keeps an answer back after the store answered. It does not answer `inTransaction()`, as a third-party store may not. */
 class CountedAssignments extends AssignmentStore {
   readonly name = 'counted';
   loads = 0;
+  hold?: Promise<void>;
 
   constructor(private readonly inner: AssignmentStore) {
     super();
   }
 
-  forSubjects(subjects: readonly AssignmentSubject[], at: Date): Promise<readonly Assignment[]> {
+  async forSubjects(subjects: readonly AssignmentSubject[], at: Date): Promise<readonly Assignment[]> {
+    const hold = this.hold;
     this.loads++;
-    return this.inner.forSubjects(subjects, at);
+    const rows = await this.inner.forSubjects(subjects, at);
+    await hold;
+    return rows;
   }
 
   holders(role: string, scope: ResourceRef, at: Date): Promise<readonly AssignmentSubject[]> {
@@ -45,6 +49,17 @@ class CountedAssignments extends AssignmentStore {
 
   byId(id: string): Promise<Assignment | null> {
     return this.inner.byId(id);
+  }
+}
+
+/** CountedAssignments that answers `inTransaction()` as the DB store does. */
+class CountedDbAssignments extends CountedAssignments {
+  constructor(private readonly db: DbAssignmentStore) {
+    super(db);
+  }
+
+  inTransaction(): boolean {
+    return this.db.inTransaction();
   }
 }
 
@@ -101,7 +116,7 @@ class CountedRules extends RuleStore {
 }
 
 /** A type-level check, or a check of `resource`: a type-level request refuses rules a DB store may hold. */
-const check = (model: RbacModel, ctx: EvaluationContext, resource: ResourceRef = FILES): Promise<Vote> => Promise.resolve(model.evaluate({ principal: alice, permission: 'file:read', resource }, ctx));
+const check = (model: RbacModel, ctx: EvaluationContext, resource: ResourceRef = FILES, principal = alice): Promise<Vote> => Promise.resolve(model.evaluate({ principal, permission: 'file:read', resource }, ctx));
 
 const request = (clock: ManualClock) => fakeEvaluationContext({ now: clock.now() });
 
@@ -123,12 +138,13 @@ for (const kind of DB_KINDS) {
       await db?.dispose();
     });
 
-    async function rbac(opts: Partial<RbacModelOptions> = {}) {
+    async function rbac(opts: Partial<RbacModelOptions> = {}, store: { readonly answers: boolean } = { answers: true }) {
       const registry = new PermissionRegistryImpl();
       registry.register([{ name: 'file:read' }], 'test');
       registry.freeze();
       const clock = new ManualClock(NOW);
-      const assignments = new CountedAssignments(db.container.resolve(DbAssignmentStore));
+      const dbStore = db.container.resolve(DbAssignmentStore);
+      const assignments = store.answers ? new CountedDbAssignments(dbStore) : new CountedAssignments(dbStore);
       const model = new RbacModel({ roles: new MemoryRoleStore([VIEWER]), assignments, clock, log: { warn: () => undefined }, ...opts });
       await model.init(fakeModelInitContext({ model: 'rbac', permissions: registry }));
       return { model, clock, assignments };
@@ -156,12 +172,44 @@ for (const kind of DB_KINDS) {
         }
       });
 
-      it('store loads: concurrent cold checks load each, a settled answer serves later checks, an expired one is loaded again by each', async () => {
-        const loads = async (model: RbacModel, assignments: CountedAssignments, ctx: () => EvaluationContext): Promise<number> => {
-          const before = assignments.loads;
-          await Promise.all(Array.from({ length: CONCURRENT }, () => check(model, ctx())));
-          return assignments.loads - before;
-        };
+      it('an outside check is loading when a nested transaction makes the same check in the same request: neither waits for the other, however late it starts', async () => {
+        for (let ticks = 0; ticks <= 60; ticks++) {
+          const { model, clock } = await rbac();
+          const ctx = request(clock);
+          const nested = async (): Promise<Vote> => {
+            await microtasks(ticks);
+            return db.driver.transaction(() => check(model, ctx));
+          };
+          const votes = await within(10_000, `an outside assignment check beside a nested one, ${ticks} microtasks later`, Promise.all([check(model, ctx), nested()]));
+          for (const vote of votes) expect(vote.permitWhen).to.deep.equal(TRUE);
+        }
+      });
+
+      it('a check inside a nested transaction does not wait for a load an outside check of the same request started', async () => {
+        const { model, clock, assignments } = await rbac();
+        const ctx = request(clock);
+        let release = (): void => undefined;
+        assignments.hold = new Promise<void>((resolve) => {
+          release = resolve;
+        });
+        const outside = check(model, ctx);
+        await within(10_000, 'the outside load starts', (async () => {
+          while (assignments.loads === 0) await new Promise<void>((resolve) => setImmediate(resolve));
+        })());
+        assignments.hold = undefined;
+        const inside = await within(10_000, 'a nested check while an outside load is held', db.driver.transaction(() => check(model, ctx)));
+        release();
+        expect((await outside).permitWhen).to.deep.equal(TRUE);
+        expect({ inside: inside.permitWhen, loads: assignments.loads }).to.deep.equal({ inside: TRUE, loads: 2 });
+      });
+
+      const loads = async (model: RbacModel, assignments: CountedAssignments, ctx: () => EvaluationContext): Promise<number> => {
+        const before = assignments.loads;
+        await Promise.all(Array.from({ length: CONCURRENT }, () => check(model, ctx())));
+        return assignments.loads - before;
+      };
+
+      it('store loads: outside a transaction concurrent cold checks share one load, also at TTL expiry; inside one each loads', async () => {
         const one = await rbac();
         const shared = request(one.clock);
         const sameRequest = await loads(one.model, one.assignments, () => shared);
@@ -170,8 +218,51 @@ for (const kind of DB_KINDS) {
         const warm = await loads(other.model, other.assignments, () => request(other.clock));
         other.clock.advance(TTL);
         const expired = await loads(other.model, other.assignments, () => request(other.clock));
+        const third = await rbac();
+        const insideTransaction = await db.driver.transaction(() => loads(third.model, third.assignments, () => request(third.clock)));
+
+        expect({ sameRequest, requests, warm, expired, insideTransaction }).to.deep.equal({ sameRequest: 1, requests: 1, warm: 0, expired: 1, insideTransaction: CONCURRENT });
+      });
+
+      it('store loads of a store without inTransaction(): concurrent cold checks load each, a settled answer serves later requests, an expired one is loaded again by each', async () => {
+        const one = await rbac({}, { answers: false });
+        const shared = request(one.clock);
+        const sameRequest = await loads(one.model, one.assignments, () => shared);
+        const other = await rbac({}, { answers: false });
+        const requests = await loads(other.model, other.assignments, () => request(other.clock));
+        const warm = await loads(other.model, other.assignments, () => request(other.clock));
+        other.clock.advance(TTL);
+        const expired = await loads(other.model, other.assignments, () => request(other.clock));
 
         expect({ sameRequest, requests, warm, expired }).to.deep.equal({ sameRequest: CONCURRENT, requests: CONCURRENT, warm: 0, expired: CONCURRENT });
+      });
+
+      it('a grant read inside a transaction that rolls back does not allow a later request', async () => {
+        const BOB: AssignmentSubject = { type: 'user', id: 'bob' };
+        const bob = userPrincipal('bob');
+        const { model, clock } = await rbac();
+        const rollBack = new Error('roll back');
+        let insideTransaction: unknown;
+        const outcome = await db.driver
+          .transaction(async () => {
+            await db.driver
+              .insert()
+              .into('authz_assignment')
+              .values({ id: 'b1', ...subjectToColumns(BOB), subject_key: subjectKeyOf(BOB), role: 'viewer', ...scopeToColumns(GLOBAL), tags: '', expires_at: null, granted_by: null, source: 'db', created_at: NOW });
+            insideTransaction = (await check(model, request(clock), FILES, bob)).permitWhen;
+            throw rollBack;
+          })
+          .then(
+            () => undefined,
+            (e: unknown) => e,
+          );
+        expect(outcome).to.equal(rollBack);
+        const left: unknown[] = await rawQuery(db.driver, "SELECT id FROM authz_assignment WHERE id = 'b1'");
+        expect(left, 'the rollback removed the grant').to.have.length(0);
+        clock.advance(1000);
+        const laterRequest = (await check(model, request(clock), FILES, bob)).permitWhen;
+
+        expect({ insideTransaction, laterRequest }).to.deep.equal({ insideTransaction: TRUE, laterRequest: FALSE });
       });
     });
 

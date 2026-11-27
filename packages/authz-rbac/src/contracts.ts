@@ -121,6 +121,12 @@ export abstract class AssignmentStore {
   abstract holders(role: string, scope: ResourceRef, at: Date): Promise<readonly AssignmentSubject[]>; // AdminGuard last-holder
   /** Expired rows too. AdminGuard and the RBAC write handlers resolve id-only commands (assignment.revoke, tags, expiry) with it. */
   abstract byId(id: string): Promise<Assignment | null>;
+  /**
+   * True when a read made now would run inside an ORM transaction on this store's connection; absent = unknown.
+   * `false` lets concurrent first checks share one `forSubjects` read; `true` keeps the rows out of the
+   * cross-request cache (the transaction may roll back). A store without it keeps both as before.
+   */
+  inTransaction?(): boolean;
   // The write methods below are called only by the RBAC write handlers of AuthzAdmin, inside its transaction.
   assign?(a: Omit<Assignment, 'id' | 'source'>, actor: PrincipalRef, tx: AuthzTx): Promise<Assignment>;
   revoke?(id: string, actor: PrincipalRef, tx: AuthzTx): Promise<void>;
