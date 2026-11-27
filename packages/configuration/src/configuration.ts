@@ -31,6 +31,7 @@ import { mapObject, mergeConfig, mergeInto, parseArgv, pickObjects, pickString, 
 import config, { buildEnvironmentFlags } from './config/configuration.js';
 import { isLayeredSource, type ConfigLayers } from './sources.js';
 import { checkPendingProperties, MANIFEST_SETTINGS, preloadPropertyTypes } from './manifest-runtime.js';
+import { declaredKeysAt, droppedKeys, keysAt, nearestKey } from './dropped-keys.js';
 
 import { default as ajvFormats } from 'ajv-formats';
 import { addKeywordPluginsOnUse } from './ajv-plugins.js';
@@ -94,6 +95,13 @@ function copyForCheck(value: unknown): unknown {
     return undefined;
   });
 }
+
+const unwrapLazy = (value: object): object => LAZY_TARGETS.get(value) ?? value;
+
+// The file sources tag every root section with the files it came from; a schema closed at the root drops the tag.
+const FILE_TAG = '__file__';
+
+const DROPPED_KEY_MESSAGE = 'Configuration key ${path} is not declared by schema ${schema} and was removed${?suggestion}; did you mean ${suggestion}?${/suggestion}';
 
 const decodePointer = (segment: string) => segment.replace(/~1/g, '/').replace(/~0/g, '~');
 
@@ -172,6 +180,9 @@ export class FrameworkConfiguration extends Configuration {
   protected RefusedModules = new Map<string, { module: string[]; error: InvalidConfiguration }>();
 
   private Loading = false;
+
+  /** Removed keys already reported, by schema and path: a reload or a polled set() removes the same key again. */
+  private ReportedDrops = new Set<string>();
 
   public get RootConfig() {
     return this.Config as IConfigLike;
@@ -669,11 +680,30 @@ export class FrameworkConfiguration extends Configuration {
     // Ajv coerces and fills defaults in place, and evaluates `if` before `properties` coerces. Checking the stored value
     // directly would rewrite a refused value (a null guard's null into 0) so that the next check of it passes; only a
     // value whose copy passes gets its defaults and coercion.
-    if (this.Validator.validate(s, copyForCheck(config)) && this.validateInPlace(s, config)) {
-      return { errors: [], violations: [] };
-    }
+    const checked = copyForCheck(config);
+    if (!this.Validator.validate(s, checked)) return this.failureOf(s);
+    // The copy lost what removeAdditional drops; the stored value keeps it until it is validated in place.
+    const dropped = droppedKeys(config, checked, unwrapLazy);
+    if (!this.validateInPlace(s, config)) return this.failureOf(s);
+    this.reportDrops(s, dropped, checked);
+    return { errors: [], violations: [] };
+  }
 
-    return this.failureOf(s);
+  // removeAdditional deletes a key a closed schema does not declare instead of refusing it: a typo would fall back to
+  // the default unseen.
+  private reportDrops(s: IConfigurationSchema, dropped: string[][], validated: unknown) {
+    const module = _.toPath(s.$configurationModule);
+    const schema = schemaNameOf(s);
+    for (const relative of dropped) {
+      const segments = [...module, ...relative];
+      const path = segments.join('.');
+      const seen = JSON.stringify([schema, path]);
+      if ((segments.length === 2 && segments[1] === FILE_TAG) || this.ReportedDrops.has(seen)) continue;
+      this.ReportedDrops.add(seen);
+      const parent = relative.slice(0, -1);
+      const suggestion = nearestKey(relative[relative.length - 1], [...declaredKeysAt(s, parent), ...keysAt(validated, parent, unwrapLazy)]);
+      InternalLogger.warn({ path, schema, ...(suggestion === undefined ? {} : { suggestion }) }, DROPPED_KEY_MESSAGE, 'Configuration');
+    }
   }
 
   private ownersAcceptEmpty(s: IConfigurationSchema): boolean {

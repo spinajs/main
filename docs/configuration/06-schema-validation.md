@@ -10,7 +10,7 @@ At boot, in `FrameworkConfiguration.resolve()`:
 2. **`validate()`** collects the `__configurationSchema__` values of the configuration's container and of every ancestor, nearest first. Schemas that are the same object, or share an `$id`, count once.
 3. For each schema, **`checkModule()`** reads the value at `$configurationModule`:
    - `undefined`: validates `{}`. When that passes, `{}` with the schema defaults is stored at the path, unless no default filled it and another schema over that path refuses an empty section: that schema would judge a section nobody set. When `{}` fails, a warning is logged and the path stays unset.
-   - anything else (`null` included): validates a deep copy first. Only when the copy passes is the stored value validated in place, which applies defaults and coercion.
+   - anything else (`null` included): validates a deep copy first. Only when the copy passes is the stored value validated in place, which applies defaults and coercion. Each key the copy lost to `removeAdditional` is logged once as a warning (see [Removed keys](#removed-keys)).
 4. Violations of all schemas are logged and thrown together as `InvalidConfiguration`. The configuration's resolve rejects and DI does not cache it.
 
 After boot, `registerConfigurationSchema(schema, container)`:
@@ -176,9 +176,28 @@ async function main() {
 void main();
 ```
 
+## Removed keys
+
+Where a schema sets `additionalProperties: false`, the validator's `removeAdditional` deletes every key the schema does not declare instead of refusing it. The configuration logs one warning per deleted key on the `Configuration` logger, with the full path, the schema and, when a declared key is close, a suggestion:
+
+```text
+Configuration key users.emailDomains.apply.registraton is not declared by schema spinajs/users-email-domains.configuration.schema.json and was removed; did you mean registration?
+```
+
+The log entry carries the fields `path`, `schema` and, when there is one, `suggestion`.
+
+- The warning is written for a value that passes. A refused value fails the boot, or the `set()`, with its violations instead.
+- It covers every way a value arrives: config files, other sources such as `@spinajs/configuration-db-source`, `set()`, `merge()`, `mergeSource()`, `load()` and a schema registered after boot.
+- It reports removed keys only. A key under a section no schema declares, or under a schema that does not set `additionalProperties: false` there, is kept and not reported.
+- One warning per schema and key for the life of the configuration: a reload, a repeated `set()` or a polled database row does not repeat it.
+- The `__file__` tag the file sources add to every root section is not reported.
+- A key inside a `oneOf` or `anyOf` of closed objects is removed by every branch that does not declare it, also when another branch does, and is reported like any other removed key. Describe such a value with one object and `propertyNames`, or with `if` / `then`.
+- The path names every object above the key, map keys included: do not use a secret as a map key.
+- To refuse an unknown key instead, list the allowed keys with `propertyNames: { enum: [...] }`, adding `'__file__'` for a root section, as `@spinajs/hooks` does.
+
 ## Important behaviour
 
-- Validation **changes** the config: defaults are filled, types are coerced (`'7'` becomes `7` for an `integer`), and properties outside the schema are removed where the schema sets `additionalProperties: false`.
+- Validation **changes** the config: defaults are filled, types are coerced (`'7'` becomes `7` for an `integer`), and properties outside the schema are removed where the schema sets `additionalProperties: false`. Each removed key is logged as a warning, once per configuration; the boot does not fail.
 - A `ConfigVar` that reads `null` (not ready yet) is never replaced by its coercion: a key typed `string` keeps the var instead of `''`.
 - A failing check leaves the stored value untouched: it is checked on a copy first. Defaults and coercion apply only to a value that passes.
 - `null` counts as configured. `{ mailer: null }` is a violation of an object schema, not an unconfigured module.
