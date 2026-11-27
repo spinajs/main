@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { AUTHZ_CONNECTION } from '@spinajs/authz';
 import type { ScopeAttributeLeaf } from '@spinajs/authz';
 import { Column, Connection, DateTime as DateTimeColumn, Json, Model, ModelBase, Primary } from '@spinajs/orm';
@@ -16,6 +17,15 @@ export interface ScopeAttributeFields {
   readonly value_num: number | null;
   readonly updated_by: string | null;
   readonly updated_at: DateTime;
+}
+
+/**
+ * The `id` of the leaf row `path` of the scope node `(scopeType, scopeId)`: the SHA-256 hex of the JSON array of the
+ * three, as `authz_rebac_tuple.tuple_key` is built. `scopeId` is `''` for `$global`, as the row stores it.
+ */
+export function scopeAttributeId(scopeType: string, scopeId: string, path: string): string {
+  // JSON escapes quotes, backslashes, control characters and lone surrogates, so no two triples give one text.
+  return createHash('sha256').update(JSON.stringify([scopeType, scopeId, path])).digest('hex');
 }
 
 @Connection(AUTHZ_CONNECTION)
