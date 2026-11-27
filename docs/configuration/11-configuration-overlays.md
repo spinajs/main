@@ -60,4 +60,4 @@ export class RegionOverlay extends ConfigurationOverlay {
 
 ## Scoped configuration sources
 
-`ScopedConfigurationSource` (a `SyncService`) holds configuration values per scope (`tenant:acme`) loaded ahead of the reads; an overlay reads them with `valuesOf(scope)`.
+`ScopedConfigurationSource` (a `SyncService`) holds configuration values per scope (`tenant:acme`) loaded ahead of the reads; an overlay reads them with `valuesOf(scope)`. `@spinajs/configuration-db-source` is one: `ScopedDbConfiguration` holds the rows whose `Scope` is not `shared` ([Rows of one scope](../configuration-db-source/01-database-source.md#rows-of-one-scope)).

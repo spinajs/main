@@ -11,6 +11,7 @@ import { Log, Logger } from '@spinajs/log';
 import { UpdateConfigDto } from '../dto/update-config-dto.js';
 import { SchemaCompileError, validateEntryValue } from '../validation.js';
 import { updateEntry } from '../write.js';
+import { requestScope } from '../scope.js';
 // Registers the access resource and the system-principal opt-in: the controller scan imports this file, and an app may never import the package entry.
 import '../bootstrap.js';
 
@@ -34,6 +35,9 @@ function present(entry: DbConfig) {
  * `@spinajs/configuration-db-source`. Entries themselves are created by code
  * that exposes config options ( `expose: true` ), so this api intentionally does
  * NOT allow creating or deleting arbitrary entries - only tuning their values.
+ *
+ * It serves the shared rows (`Scope` `'shared'`) to a request outside any tenant scope and refuses every route
+ * inside one (`ConfigScopeRefused`, 403): a tenant's overrides are written through its settings, which are checked.
  *
  * Writes are persisted to the database only. The running application picks up
  * the change through the db-source watch poll, and only for entries with
@@ -61,7 +65,7 @@ export class ConfigurationController extends BaseController {
   @Get('/')
   @Access('configuration:read', { fields: 'filter' })
   public async list(@Query() group?: string) {
-    const query = group ? DbConfig.where('Group', group) : DbConfig.query();
+    const query = (group ? DbConfig.where('Group', group) : DbConfig.query()).where('Scope', requestScope());
     const entries = await query.accessible('configuration:read');
     return new Ok(entries.map((e) => present(e)));
   }
@@ -151,11 +155,13 @@ export class ConfigurationController extends BaseController {
     return new ServerError({ error: { message: `configuration schema '${err.Slug}' is invalid` } });
   }
 
-  /** The entry by slug, loaded as SYSTEM, once `caller` holds each permission on it; otherwise 404, so slugs are not probed. */
+  /** The shared entry by slug, loaded as SYSTEM, once `caller` holds each permission on it; otherwise 404, so slugs are not probed. */
   private async entryFor(caller: Principal, slug: string, permissions: readonly Permission[]): Promise<DbConfig> {
     const service = authz();
-    const entry = await service.runAs(SYSTEM, 'configuration-http:load', () => DbConfig.where('Slug', slug).first());
-    if (!entry) throw new ResourceNotFound(`configuration entry ${slug} not found`);
+    const scope = requestScope();
+    const entry = await service.runAs(SYSTEM, 'configuration-http:load', () => DbConfig.where('Slug', slug).where('Scope', scope).first());
+    // MySQL compares Scope without case, so the query alone could answer a SHARED row.
+    if (!entry || entry.Scope !== scope) throw new ResourceNotFound(`configuration entry ${slug} not found`);
     const ref = { type: 'configuration', id: String(entry.Id) };
     for (const permission of permissions) {
       if (!(await service.can(caller, permission, ref, entry))) throw new ResourceNotFound(`configuration entry ${slug} not found`);

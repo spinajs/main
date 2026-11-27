@@ -8,6 +8,7 @@ const CONFIGURATION_SCHEMA = {
   properties: {
     connection: { type: 'string', default: 'default' },
     table: { type: 'string', default: 'configuration' },
+    scopedTtlMs: { type: 'integer', minimum: 0, default: 60000 },
   },
 };
 

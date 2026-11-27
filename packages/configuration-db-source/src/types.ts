@@ -4,6 +4,8 @@ import type { IConfigurationFileOptions } from './file.js';
 export interface IConfiguratioDbSourceConfig {
   connection: string;
   table: string;
+  /** How old the rows of one scope may be before a read of them starts reading them again; 0 = only when the configuration loads. */
+  scopedTtlMs?: number;
 }
 
 export type ConfigurationEntryType = 'number' | 'float' | 'string' | 'json' | 'date' | 'datetime' | 'time' | 'boolean' | 'time-range' | 'date-range' | 'datetime-range' | 'range' | 'oneOf' | 'manyOf' | 'file';
@@ -21,6 +23,9 @@ export interface IConfigurationEntry {
   // int, float, string, json, date, time, datetime, boolean
   // if json, it will be parset as such
   Type: ConfigurationEntryType;
+
+  /** SHARED_SCOPE (or absent, before the Scope column existed) for a shared row. */
+  Scope?: string;
 }
 
 export interface IConfigurationEntryMeta {

@@ -8,3 +8,6 @@ export class ConfigFileRejected extends BadRequest {}
 
 /** The update scope of the principal matched no row, so nothing was written. */
 export class ConfigWriteRefused extends Forbidden {}
+
+/** The request runs inside a tenant scope (or across all tenants), where the api serves no row. */
+export class ConfigScopeRefused extends Forbidden {}

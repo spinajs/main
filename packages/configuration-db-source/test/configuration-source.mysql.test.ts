@@ -7,6 +7,7 @@ import type { IDriverOptions, OrmDriver } from '@spinajs/orm';
 
 import '../src/index.js';
 import { migrateAndSignal } from './support/db.js';
+import { scopeMigrationCases } from './support/scope-migration.js';
 import { typedRowCases } from './support/typed-rows.js';
 
 /**
@@ -89,4 +90,6 @@ async function dropTables(): Promise<void> {
     async () => DI.get(Orm)!.Connections.get('mysql')!,
     () => new Promise((resolve) => setTimeout(resolve, 1000)),
   );
+
+  scopeMigrationCases(async () => DI.get(Orm)!.Connections.get('mysql')!);
 });
