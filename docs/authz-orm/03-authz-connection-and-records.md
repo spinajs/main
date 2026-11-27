@@ -46,7 +46,7 @@ Migration `AuthzResourceAncestor_2026_10_14_00_00_00`, record `AncestorRecord`. 
 
 Migration `AuthzScopeAttribute_2026_10_02_00_00_00` creates it, `AuthzScopeAttributeKey_2026_11_25_00_00_00` gives it the key `id`; record `ScopeAttributeRecord`. One row per scalar leaf of a scope node's attributes. The unique index `authz_scope_attribute_leaf` on `(scope_type, scope_id, path)` keeps one row per leaf. One key column is what the ORM write capture and row history need to follow a table.
 
-On MySQL the four key columns compare byte for byte (`utf8mb4_0900_bin`, or `utf8mb4_bin` on a server without it): scopes and paths that differ only by case, accents, trailing blanks or Unicode normal form are different leaves, as on PostgreSQL and SQLite.
+On MySQL the four key columns get a binary collation: `utf8mb4_0900_bin` (MySQL 8), which compares byte for byte, or `utf8mb4_bin` on a server without it (MySQL 5.7, MariaDB), which ignores trailing blanks. Scopes and paths that differ only by case, accents or Unicode normal form are different leaves on every server, as on PostgreSQL and SQLite; ones that differ only by trailing blanks are one leaf on MySQL 5.7 and MariaDB, as before the upgrade. `DbScopeAttributeStore` refuses a scope type, scope id or path that is not well-formed UTF-16 (a lone surrogate, which every driver would store as U+FFFD).
 
 | Column | Type | Meaning |
 | --- | --- | --- |
