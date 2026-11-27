@@ -224,5 +224,13 @@ describe('schedule instances', () => {
       expect((await service.prune(by)).orphanedSchedules).to.eq(2);
       expect(await ScheduleModel.where('Name', 'gone')).to.have.length(0);
     });
+
+    it('stores a run of the global instance with a NULL tenant whatever encoding it was given', async () => {
+      await scheduler();
+      const service = await DI.resolve(SchedulerService);
+      const parent = await queuedRun('per-instance', T, { Status: 'failed', Tenant: '' });
+      const { runId } = await service.retry(parent.Id, { triggeredBy: { kind: 'user', id: '1' } });
+      expect((await RunModel.where('Id', runId).first()).Tenant).to.eq(null);
+    });
   });
 });

@@ -590,7 +590,7 @@ export class DefaultSchedulerService extends SchedulerService {
     const run = await RunModel.create({
       Id: uuidv4(),
       Schedule: def.name,
-      Tenant: o.tenant ?? null,
+      Tenant: o.tenant || null,
       Trigger: o.trigger,
       TriggeredBy: o.triggeredBy,
       ParentRunId: o.parentRunId ?? null,
