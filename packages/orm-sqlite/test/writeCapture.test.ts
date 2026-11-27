@@ -5,8 +5,8 @@ import 'mocha';
 import { DateTime } from 'luxon';
 import sinon from 'sinon';
 import { InvalidOperation, NotSupported } from '@spinajs/exceptions';
-import { Connection, DeleteQueryBuilder, InsertBehaviour, InsertQueryBuilder, Model, ModelBase, Primary, QueryContext, SelectQueryBuilder, SoftDelete, SqlExpressions, UpdateQueryBuilder, WriteCaptureLimitExceeded, WriteObserver, createQuery, extractModelDescriptor, insertedKeys } from '@spinajs/orm';
-import type { CaptureInterest, CapturedWrite, WriteStatement } from '@spinajs/orm';
+import { Connection, DeleteQueryBuilder, InsertBehaviour, InsertQueryBuilder, Model, ModelBase, Primary, QueryContext, QueryMiddleware, SelectQueryBuilder, SoftDelete, SqlExpressions, UpdateQueryBuilder, ValueConverter, WriteCaptureLimitExceeded, WriteObserver, createQuery, extractModelDescriptor, insertedKeys } from '@spinajs/orm';
+import type { CaptureInterest, CapturedWrite, QueryBuilder, WriteStatement } from '@spinajs/orm';
 import { Configuration } from '@spinajs/configuration';
 import { db } from './common.js';
 import { bootUow, captureStatements, registerUowConnection, rows, UowClient, UowOrder, UowOrderItem, UowOrderTag, UowTag } from './uowFixture.js';
@@ -74,6 +74,28 @@ class CapSoft extends ModelBase {
   public DeletedAt: DateTime;
 }
 
+/** Not idempotent on the database form: a key read raw must go through fromDB before a where converts it again. */
+class ReversedDigits extends ValueConverter {
+  public toDB(value: unknown): unknown {
+    return Number(String(value).split('').reverse().join(''));
+  }
+
+  public fromDB(value: unknown): unknown {
+    return Number(String(value).split('').reverse().join(''));
+  }
+}
+
+@Connection('sqlite')
+@Model('cap_keyed')
+class CapKeyed extends ModelBase {
+  @Primary()
+  public Id: number;
+
+  public Grp: string;
+
+  public Name: string;
+}
+
 // A BLOB key holds bytes, which have no key text, and text, which has.
 @Connection('sqlite')
 @Model('cap_blob')
@@ -138,7 +160,7 @@ const fixture = { writes: [] as CapturedWrite[], inTransaction: [] as boolean[],
 
 class FixtureObserver extends WriteObserver {
   interest({ model }: WriteStatement): CaptureInterest | undefined {
-    return [CapMember, CapPair, CapSoft, CapBlob, CapGen, CapNote, CapTrig, CapWr, CapDesc].some((m) => model === m) ? { columns: '*', transactional: fixture.transactional } : undefined;
+    return [CapMember, CapPair, CapSoft, CapBlob, CapGen, CapNote, CapTrig, CapWr, CapDesc, CapKeyed].some((m) => model === m) ? { columns: '*', transactional: fixture.transactional } : undefined;
   }
 
   prepare(statement: WriteStatement): void {
@@ -355,6 +377,44 @@ describe('write capture on sqlite', function () {
     expect(statements.filter((s) => s.context !== QueryContext.Select).map((s) => [s.expression, s.bindings])).to.deep.eq([['UPDATE `uow_tag` SET `Name` = ? WHERE ( `Name` = ? ) AND 1 = 0', ['x', 'blue']]]);
   });
 
+  it('confines a captured delete with a limit to the keys its key select read', async () => {
+    await UowTag.insert({ Name: 'red' });
+    const { statements, restore } = captureStatements();
+    try {
+      // The bundled sqlite has no DELETE ... LIMIT, so only the compiled statement is checked.
+      await expect(UowTag.destroy().where('Name', 'red').take(1)).to.be.rejected;
+    } finally {
+      restore();
+    }
+
+    expect(statements.filter((s) => s.context !== QueryContext.Select).map((s) => s.expression)).to.deep.eq(['DELETE FROM `uow_tag` WHERE ( `Name` = ? ) AND `Id` IN (?) LIMIT ?']);
+  });
+
+  it('confines each captured statement to its own keys while another one runs between its key select and its write', async () => {
+    for (const Name of ['red', 'blue']) await UowTag.insert({ Name });
+    let held = false;
+    class Between extends QueryMiddleware {
+      public order = 92;
+      afterQueryCreation(): void {}
+      async beforeQueryExecution(query: QueryBuilder): Promise<void> {
+        if (held || query.Model !== UowTag || !(query instanceof UpdateQueryBuilder)) return;
+        held = true;
+        await UowTag.update({ Name: 'b2' }).where('Name', 'blue');
+      }
+    }
+    DI.register(Between).as(QueryMiddleware);
+    DI.uncache(Array.ofType(QueryMiddleware));
+    try {
+      await UowTag.update({ Name: 'a2' }).where('Name', 'red');
+    } finally {
+      DI.unregister(Between);
+      DI.uncache(Array.ofType(QueryMiddleware));
+    }
+
+    expect((await rows<{ Name: string }>('uow_tag')).map((r) => r.Name)).to.deep.eq(['a2', 'b2']);
+    expect(recorder.writes.slice(-2).map((w) => w.rows.map((r) => [r.id, r.after?.Name]))).to.deep.eq([[['2', 'b2']], [['1', 'a2']]]);
+  });
+
   describe('on models of its own', () => {
     before(() => DI.register(FixtureObserver).as(WriteObserver));
 
@@ -386,6 +446,27 @@ describe('write capture on sqlite', function () {
       fixture.writes = [];
       fixture.inTransaction = [];
       fixture.prepared = [];
+    });
+
+    it('confines a write to the keys it read when the key column converts its values', async () => {
+      await db().Connections.get('sqlite')!.schema().raw('CREATE TABLE cap_keyed (Id INTEGER PRIMARY KEY, Grp TEXT, Name TEXT)');
+      await db().reloadTableInfo();
+      extractModelDescriptor(CapKeyed)!.Converters.set('Id', { Class: ReversedDigits });
+      await db().Connections.get('sqlite')!.schema().raw("INSERT INTO cap_keyed VALUES (12, 'a', 'one'), (34, 'a', 'two'), (21, 'b', 'three')");
+      const { statements, restore } = captureStatements();
+      try {
+        await CapKeyed.update({ Name: 'mine' }).where('Grp', 'a');
+      } finally {
+        restore();
+        extractModelDescriptor(CapKeyed)!.Converters.delete('Id');
+      }
+
+      expect(statements.filter((s) => s.context === QueryContext.Update).map((s): unknown[] => s.bindings)).to.deep.eq([['mine', 'a', 12, 34]]);
+      expect((await rows<{ Id: number; Name: string }>('cap_keyed')).map((r) => [r.Id, r.Name])).to.deep.eq([
+        [12, 'mine'],
+        [21, 'three'],
+        [34, 'mine'],
+      ]);
     });
 
     it('hands every hook the kind of the write together with its own builder', async () => {
