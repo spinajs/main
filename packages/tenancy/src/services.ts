@@ -45,9 +45,13 @@ function lookup(registry: TenantRegistry, proposal: TenantProposal): Promise<Ten
   return 'slug' in proposal ? registry.find({ slug: proposal.slug }) : registry.find({ domain: proposal.domain });
 }
 
+function mayEnter(access: TenantAccess, principal: Principal, record: TenantRecord): Promise<boolean> {
+  return principal.authenticated === true ? access.canEnter(principal, record) : access.admitsVisitor(principal, record);
+}
+
 /**
- * The record of a proposed tenant, once the registry knows it, it is active and, for an authenticated principal,
- * `TenantAccess.canEnter` holds.
+ * The record of a proposed tenant, once the registry knows it, it is active and, when a principal is given,
+ * `TenantAccess.canEnter` (authenticated) or `TenantAccess.admitsVisitor` (not authenticated) holds.
  *
  * @throws TenantUnavailable with the reason 'unknown', 'inactive' or 'forbidden'
  */
@@ -57,7 +61,7 @@ export async function admitTenant(proposal: TenantProposal, principal?: Principa
 
   if (!record) throw new TenantUnavailable('unknown', 'no such tenant');
   if (record.state !== 'active') throw new TenantUnavailable('inactive', `tenant "${record.id}" is ${record.state}`);
-  if (principal?.authenticated === true && !(await services.access.canEnter(principal, record))) {
+  if (principal !== undefined && !(await mayEnter(services.access, principal, record))) {
     throw new TenantUnavailable('forbidden', `${principal.type}:${principal.id} may not enter tenant "${record.id}"`);
   }
   return record;

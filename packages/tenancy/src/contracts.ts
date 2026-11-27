@@ -50,7 +50,16 @@ export abstract class TenantResolver {
 }
 
 export abstract class TenantAccess {
+  /** May an authenticated principal enter the tenant: is it a member. */
   public abstract canEnter(principal: Principal, tenant: TenantRecord): Promise<boolean>;
+
+  /**
+   * Asked by `admitTenant` instead of `canEnter` for a principal that is not authenticated (anonymous, `UNATTENDED`).
+   * The default admits it, so a tenant's public pages work; override it to close a tenant to visitors.
+   */
+  public admitsVisitor(_principal: Principal, _tenant: TenantRecord): Promise<boolean> {
+    return Promise.resolve(true);
+  }
 }
 
 export interface TenantRunFailure {
