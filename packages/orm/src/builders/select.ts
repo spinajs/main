@@ -15,7 +15,7 @@ import type { IOrmRelation } from '../relations.js';
 import { relationOf } from '../relation-registry.js';
 import { isNullOrWhitespace } from '@spinajs/util';
 import { extractModelDescriptor } from '../descriptor.js';
-import { DataException, InvalidCursor, StreamNotSupported } from '../exceptions.js';
+import { DataException, InvalidCursor, OrmException, StreamNotSupported } from '../exceptions.js';
 import { applyKeysetPredicate, assertKeysetNotNull, decodeCursor, keysetColumns, keysetFamilies, keysetOfSorts, keysetPage, keysetValues } from '../keyset.js';
 import type { KeysetColumn } from '../keyset.js';
 import { sqlDialectOf } from '../sql-dialect.js';
@@ -951,6 +951,8 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
   private async _cursorRefused(columns: KeysetColumn[], values: unknown[], side: 'after' | 'before'): Promise<boolean> {
     // with the model's row filters: on a database that refuses a value per row, rows the caller may not read must not decide
     const probe = new SelectQueryBuilder<T>(this._container, this._driver, this._model);
+    // a row filter can be switched on by a per-query mark (authz-orm's accessible/within, tenancy-orm's acrossTenants)
+    runCloneHooks(this, probe);
     probe.setTable(this._table);
     if (this._database) {
       probe.database(this._database);
@@ -972,7 +974,11 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
       await probe.asRaw();
       return false;
     } catch (err) {
-      return err instanceof DataException;
+      // a middleware's refusal says nothing about the cursor; another database error (an aborted transaction) keeps the page's error
+      if (err instanceof OrmException) {
+        return err instanceof DataException;
+      }
+      throw err;
     }
   }
 

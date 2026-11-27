@@ -1,7 +1,7 @@
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
 import '@spinajs/log';
-import { Archived, Connection, DataException, InvalidCursor, Model, ModelBase, Orm, Primary, QueryContext, QueryMiddleware, SelectQueryBuilder, SoftDelete } from '@spinajs/orm';
+import { Archived, Connection, DataException, InvalidCursor, Model, ModelBase, Orm, Primary, QueryContext, QueryMiddleware, SelectQueryBuilder, SelectQueryExtension, SoftDelete } from '@spinajs/orm';
 import type { QueryBuilder } from '@spinajs/orm';
 import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
@@ -67,6 +67,72 @@ class ShiftTenantFilter extends QueryMiddleware {
   }
 }
 
+/** `B` itself; `_Row` lets a merged builder declaration use its row type, as tenancy-orm's `SameQuery` does. */
+type SameQuery<B, _Row> = B;
+
+declare module '@spinajs/orm' {
+  interface ISelectQueryBuilder<T> {
+    keysetConfined(): SameQuery<this, T>;
+  }
+  interface SelectQueryBuilder<T> {
+    keysetConfined(): SameQuery<this, T>;
+    KeysetConfined?: boolean;
+  }
+}
+
+/** A per-query mark that follows a clone, as authz-orm's `.accessible()` and tenancy-orm's `.acrossTenants()` do. */
+class KeysetConfineExtension extends SelectQueryExtension {
+  public readonly name = 'keyset-confine';
+  public readonly methods = {
+    keysetConfined(this: QueryBuilder): QueryBuilder {
+      if (this instanceof SelectQueryBuilder) this.KeysetConfined = true;
+      return this;
+    },
+  };
+
+  public onClone(source: QueryBuilder, clone: QueryBuilder): void {
+    if (source instanceof SelectQueryBuilder && clone instanceof SelectQueryBuilder) clone.KeysetConfined = source.KeysetConfined;
+  }
+}
+
+@Connection('pglite')
+@Model('pgl_keyset_shift')
+class PglConfinedShift extends ModelBase {
+  @Primary()
+  public Id: number;
+  public Tenant: number;
+  public Day: number;
+  public Slot: number;
+}
+
+@Connection('pglite')
+@Model('pgl_keyset_shift')
+class PglGuardedShift extends ModelBase {
+  @Primary()
+  public Id: number;
+  public Tenant: number;
+  public Day: number;
+  public Slot: number;
+}
+
+class ShiftRefused extends Error {}
+
+/** Confines a marked select to tenant 1 and leaves an unmarked one alone, as authz-orm's list filter does. */
+class MarkedTenantFilter extends QueryMiddleware {
+  public afterQueryCreation(): void {}
+  public beforeQueryExecution(query: QueryBuilder): void {
+    if (query instanceof SelectQueryBuilder && query.KeysetConfined === true) query.where('Tenant', 1);
+  }
+}
+
+/** Refuses an unmarked select of its model, as authz-orm's guard does under `APP_ENV=test`. */
+class UnmarkedShiftGuard extends QueryMiddleware {
+  public afterQueryCreation(): void {}
+  public beforeQueryExecution(query: QueryBuilder): void {
+    if (query instanceof SelectQueryBuilder && query.Model === PglGuardedShift && query.KeysetConfined !== true) throw new ShiftRefused('an unmarked select of PglGuardedShift');
+  }
+}
+
 async function rejectionOf(promise: Promise<unknown>): Promise<Error> {
   try {
     await promise;
@@ -100,6 +166,9 @@ describe('paginate() on PGlite', function () {
     DI.register(PgliteKeysetConf).as(Configuration);
     DI.register(PgliteOrmDriver).as('orm-driver-pglite');
     DI.register(ShiftTenantFilter).as(QueryMiddleware);
+    DI.register(MarkedTenantFilter).as(QueryMiddleware);
+    DI.register(UnmarkedShiftGuard).as(QueryMiddleware);
+    DI.register(KeysetConfineExtension).as(SelectQueryExtension);
     orm = await DI.resolve(Orm);
     const driver = orm.Connections.get('pglite') as PgliteOrmDriver;
     await driver.executeOnDb('CREATE TABLE pgl_keyset ("Id" int PRIMARY KEY, "Score" int NOT NULL, "Name" text NOT NULL)', [], QueryContext.Schema);
@@ -118,6 +187,9 @@ describe('paginate() on PGlite', function () {
   after(async () => {
     await orm?.dispose();
     DI.unregister(ShiftTenantFilter);
+    DI.unregister(MarkedTenantFilter);
+    DI.unregister(UnmarkedShiftGuard);
+    DI.unregister(KeysetConfineExtension);
     DI.unregister(PgliteKeysetConf);
     DI.clearCache();
   });
@@ -228,22 +300,27 @@ describe('paginate() on PGlite', function () {
       forged = withValues(next!, [2, 0, 0]);
     });
 
-    async function answerTo(): Promise<string> {
+    type Page = (after: string) => Promise<unknown>;
+    const shifts: Page = (after) => PglShift.query().paginate({ orderBy, limit: 1, after });
+    const confined: Page = (after) => PglConfinedShift.query().keysetConfined().paginate({ orderBy, limit: 1, after });
+    const guarded: Page = (after) => PglGuardedShift.query().keysetConfined().paginate({ orderBy, limit: 1, after });
+
+    async function answerTo(page: Page = shifts): Promise<string> {
       const execute = sinon.stub(orm!.Connections.get('pglite')!, 'execute').callThrough();
       execute.onFirstCall().rejects(new DataException('conversion failed'));
       try {
-        const err = await rejectionOf(PglShift.query().paginate({ orderBy, limit: 1, after: forged }));
+        const err = await rejectionOf(page(forged));
         return err instanceof InvalidCursor ? 'InvalidCursor' : err.constructor.name;
       } finally {
         execute.restore();
       }
     }
 
-    async function answerWith(row: string): Promise<string> {
+    async function answerWith(row: string, page: Page = shifts): Promise<string> {
       const driver = orm!.Connections.get('pglite') as PgliteOrmDriver;
       await driver.executeOnDb(row, [], QueryContext.Insert);
       try {
-        return await answerTo();
+        return await answerTo(page);
       } finally {
         await driver.executeOnDb('DELETE FROM pgl_keyset_shift_rows WHERE "Day" = 2', [], QueryContext.Delete);
       }
@@ -265,6 +342,34 @@ describe('paginate() on PGlite', function () {
     it('answers the same whether or not an archived row refuses the value', async () => {
       expect(await answerWith(refusedSlot(1, 1, 'ArchivedAt'))).to.eq('DataException');
     });
+
+    it('keeps to the rows a per-query mark of the page lets it read', async () => {
+      expect(await answerWith(refusedSlot(1, 1), confined)).to.eq('InvalidCursor');
+      expect(await answerWith(refusedSlot(1, 2), confined)).to.eq('DataException');
+    });
+
+    it('blames the cursor under a middleware that refuses an unmarked select', async () => {
+      expect(await answerWith(refusedSlot(1, 1), guarded)).to.eq('InvalidCursor');
+    });
+
+    it('lets a middleware refusal of the probe through instead of answering for the database', async () => {
+      const guard = sinon.stub(UnmarkedShiftGuard.prototype, 'beforeQueryExecution').callThrough();
+      guard.onSecondCall().throws(new ShiftRefused('the probe'));
+      try {
+        expect(await answerWith(refusedSlot(1, 1), guarded)).to.eq('ShiftRefused');
+      } finally {
+        guard.restore();
+      }
+    });
+  });
+
+  it('keeps the data error of a page that aborted its transaction, where the probe cannot run', async () => {
+    const driver = orm!.Connections.get('pglite')!;
+    const { next } = await PglMood.select().paginate({ orderBy: [['Mood', 'asc']], limit: 1 });
+
+    const err = await rejectionOf(driver.transaction(() => PglMood.select().paginate({ orderBy: [['Mood', 'asc']], limit: 1, after: withFirstValue(next!, 'sleepy') })));
+
+    expect(err).to.be.instanceOf(DataException);
   });
 
   it('keeps a data error of a page without a cursor as it is, without a probe', async () => {
