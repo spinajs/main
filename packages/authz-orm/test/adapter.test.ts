@@ -1,7 +1,7 @@
 import * as chai from 'chai';
 import 'mocha';
 
-import { AuthzConfigError, GLOBAL, ResourceAdapter, SYSTEM, currentPrincipal } from '@spinajs/authz';
+import { AuthzConfigError, GLOBAL, ResourceAdapter, SYSTEM, currentPrincipal, runWithPrincipal } from '@spinajs/authz';
 import type { Principal } from '@spinajs/authz';
 import { DI } from '@spinajs/di';
 import type { ModelBase } from '@spinajs/orm';
@@ -16,6 +16,19 @@ const expect = chai.expect;
 
 const user = (id: string): Principal => ({ type: 'user', id, authenticated: true, source: 'test', attributes: {} });
 const agent: Principal = { type: 'agent', id: 'alice', authenticated: true, source: 'test', attributes: {} };
+
+/** Rejects with `what` when `work` has not settled after `ms`, so a hang fails its own test instead of reaching mocha's timeout. */
+async function within<T>(ms: number, what: string, work: Promise<T>): Promise<T> {
+  let timer: NodeJS.Timeout | undefined;
+  const expired = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(() => reject(new Error(`${what}: still running after ${ms} ms`)), ms);
+  });
+  try {
+    return await Promise.race([work, expired]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 describe('OrmResourceAdapter', function () {
   this.timeout(60000);
@@ -81,6 +94,24 @@ describe('OrmResourceAdapter', function () {
       afterEach(async () => {
         await db.clear();
         await dropAncestorTable(db, dialect);
+      });
+
+      it('load and ancestors settle beside a nested transaction that asks for the same ref in the same request, however late it starts', async () => {
+        const driver = db.driver(dialect);
+        const ref = { type: 'task', id: '7' };
+        for (const what of ['load', 'ancestors'] as const) {
+          const call = () => (what === 'load' ? adapter.load(ref) : adapter.ancestors(ref));
+          for (let ticks = 0; ticks <= 60; ticks++) {
+            const nested = async (): Promise<void> => {
+              for (let i = 0; i < ticks; i++) await Promise.resolve();
+              await driver.transaction(async () => {
+                await call();
+              });
+            };
+            await within(10000, `${what} beside a nested ${what} of the same ref, ${ticks} microtasks later`, runWithPrincipal(user('u1'), () => driver.transaction(() => Promise.all([call(), nested()]))));
+          }
+        }
+        expect(await runWithPrincipal(user('u1'), () => adapter.ancestors(ref))).to.deep.equal([ref, { type: 'project', id: 'p1' }, { type: 'org', id: 'o1' }, GLOBAL]);
       });
 
       it('lists the registered types and accepts their rows only', async () => {

@@ -12,8 +12,20 @@ import { findRows } from './rows.js';
 const MEMO = 'authz-orm:';
 const KINDS = ['read', 'create', 'update', 'delete'] as const;
 
-/** Memoised per request store (none outside a store); a rejection is not kept. */
-function memo<T>(key: string, load: () => Promise<T>): Promise<T> {
+class SettledRow {
+  constructor(readonly value: unknown) {}
+}
+
+class SettledAncestors {
+  constructor(readonly value: readonly ResourceRef[] | null) {}
+}
+
+/**
+ * Memoised per request store (none outside a store) in a `Settled` box; a rejection is not kept. Only a settled answer
+ * is shared: a caller inside a savepoint that awaited another caller's read still in flight would wait for a statement
+ * queued behind that savepoint, so calls that overlap read each.
+ */
+async function memo<T>(key: string, Settled: new (value: T) => { readonly value: T }, load: () => Promise<T>): Promise<T> {
   let cache: Map<string, unknown> | undefined;
   try {
     cache = requestScope().cache;
@@ -21,14 +33,11 @@ function memo<T>(key: string, load: () => Promise<T>): Promise<T> {
     cache = undefined;
   }
   if (cache === undefined) return load();
-  const hit = cache.get(key) as Promise<T> | undefined;
-  if (hit !== undefined) return hit;
-  const p = load();
-  cache.set(key, p);
-  p.catch(() => {
-    if (cache!.get(key) === p) cache!.delete(key);
-  });
-  return p;
+  const hit = cache.get(key);
+  if (hit instanceof Settled) return hit.value;
+  const value = await load();
+  cache.set(key, new Settled(value));
+  return value;
 }
 
 const typeLevel = (ref: ResourceRef): readonly ResourceRef[] => Object.freeze([Object.freeze({ type: ref.type }), GLOBAL]);
@@ -61,7 +70,7 @@ export class OrmResourceAdapter extends ResourceAdapter<ModelBase> {
 
   ancestors(ref: ResourceRef): Promise<readonly ResourceRef[] | null> {
     if (ref.id === undefined || ref.id === null) return Promise.resolve(typeLevel(ref));
-    return memo(`${MEMO}ancestors:${resourceKey(ref)}`, async () => (await this.ancestorsMany([ref])).get(resourceKey(ref)) ?? null);
+    return memo(`${MEMO}ancestors:${resourceKey(ref)}`, SettledAncestors, async () => (await this.ancestorsMany([ref])).get(resourceKey(ref)) ?? null);
   }
 
   async ancestorsMany(refs: readonly ResourceRef[]): Promise<ReadonlyMap<string, readonly ResourceRef[] | null>> {
@@ -87,7 +96,7 @@ export class OrmResourceAdapter extends ResourceAdapter<ModelBase> {
 
   load(ref: ResourceRef): Promise<unknown | null> {
     if (ref.id === undefined || ref.id === null) return Promise.resolve(null);
-    return memo(`${MEMO}row:${resourceKey(ref)}`, async () => (await findRows([ref])).get(resourceKey(ref))?.row ?? null);
+    return memo(`${MEMO}row:${resourceKey(ref)}`, SettledRow, async () => (await findRows([ref])).get(resourceKey(ref))?.row ?? null);
   }
 
   async loadMany(refs: readonly ResourceRef[]): Promise<ReadonlyMap<string, unknown>> {

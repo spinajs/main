@@ -194,18 +194,49 @@ describe('authz-rbac model: AssignmentCache', () => {
   });
 
   describe('per request (ctx.cache)', () => {
-    it('one context reads the store once, also while the load is in flight, and then answers without IO', async () => {
+    it('a read that overlaps a load still in flight loads for itself; once one settled the context answers without IO', async () => {
       const { store, cache } = setup([row('a1', alice)]);
       store.manual = true;
       const ctx = request();
       const p1 = cache.read([alice], ctx);
       const p2 = cache.read([alice], ctx);
+      const p3 = cache.read([alice], request());
       await settle();
-      expect(store.calls).to.have.length(1);
-      store.calls[0].resolve();
-      expect(ids(await p1)).to.deep.equal(['a1']);
-      expect(ids(await p2)).to.deep.equal(['a1']);
+      expect(store.calls).to.have.length(3);
+      for (const call of store.calls) call.resolve();
+      for (const p of [p1, p2, p3]) expect(ids(await p)).to.deep.equal(['a1']);
       expect(ids(now(cache.read([alice], ctx)))).to.deep.equal(['a1']);
+      expect(ids(now(cache.read([alice], request())))).to.deep.equal(['a1']);
+      expect(store.calls).to.have.length(3);
+    });
+
+    it('a context does not keep the rows of a load that was in flight when an invalidate arrived', async () => {
+      const { store, cache } = setup([row('a1', alice)]);
+      store.manual = true;
+      const ctx = request();
+      const stale = cache.read([alice], ctx);
+      await settle();
+      cache.invalidate(['subject:user:alice']);
+      store.calls[0].resolve([]);
+      expect(await stale).to.deep.equal([]);
+      store.manual = false;
+      const again = cache.read([alice], ctx);
+      expect(isThenable(again)).to.equal(true);
+      expect(ids(await again)).to.deep.equal(['a1']);
+    });
+
+    it('an older read of a context never replaces the rows of a newer one', async () => {
+      const { store, cache } = setup([row('a1', alice)]);
+      store.manual = true;
+      const ctx = request();
+      const older = cache.read([alice], ctx);
+      const fresher = cache.read([alice], ctx, { fresh: true });
+      await settle();
+      store.calls[1].resolve([row('a2', alice)]);
+      expect(ids(await fresher)).to.deep.equal(['a2']);
+      store.calls[0].resolve([row('a1', alice)]);
+      await older;
+      expect(ids(now(cache.read([alice], ctx)))).to.deep.equal(['a2']);
     });
 
     it('a context that read its rows answers without IO after the cross-request entry expired', async () => {
@@ -310,25 +341,25 @@ describe('authz-rbac model: AssignmentCache', () => {
   });
 
   describe('failed loads', () => {
-    it('a failed load rejects every caller that shares it and is not cached', async () => {
+    it('a failed load rejects its own caller only and is not cached; the next read goes to the store', async () => {
       const { store, cache } = setup([row('a1', alice)]);
       store.manual = true;
       const ctx = request();
       const p1 = cache.read([alice], ctx);
-      const p2 = cache.read([alice], request());
+      const p2 = cache.read([alice], ctx);
       await settle();
-      expect(store.calls).to.have.length(1);
+      expect(store.calls).to.have.length(2);
       store.calls[0].reject(new Error('db down'));
-      for (const p of [p1, p2]) {
-        const err = await Promise.resolve(p).then(
-          () => undefined,
-          (e: Error) => e,
-        );
-        expect(err?.message).to.equal('db down');
-      }
+      const err = await Promise.resolve(p1).then(
+        () => undefined,
+        (e: Error) => e,
+      );
+      expect(err?.message).to.equal('db down');
+      store.calls[1].reject(new Error('db down'));
+      await Promise.resolve(p2).catch(() => undefined);
       store.manual = false;
       expect(ids(await cache.read([alice], ctx))).to.deep.equal(['a1']);
-      expect(store.calls).to.have.length(2);
+      expect(store.calls).to.have.length(3);
     });
 
     it('a store that throws synchronously rejects, and the next read tries again', async () => {

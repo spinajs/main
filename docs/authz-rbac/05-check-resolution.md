@@ -66,6 +66,8 @@ sequenceDiagram
 
 Without a membership store the `setsOf` read is skipped; without a rule store, `forPath` is.
 
+The request (`ctx.cache`) keeps a `setsOf` answer per member key list once it was read, until the next `RbacModel.invalidate`. A check that finds the read still in flight reads for itself, and a failed read is not kept.
+
 ### Lists, summaries and covers
 
 - `RbacModel.listPlan()` runs the gather and the steps through `cap`, then `rbacListPlan` turns the state into `rbac.assignment` terms ([List filter term](01-list-filter-term.md)). Any live rule that can match the permission and type fails the plan.
@@ -87,7 +89,7 @@ Without a membership store the `setsOf` read is skipped; without a rule store, `
 | Request memo (`ctx.cache`) | One request; also outlives the TTL inside it | none |
 | Cross-request entries | `authz.rbac.cache.assignmentsTtlSeconds` | `authz.rbac.cache.maxSubjects` subjects, least recently used first |
 
-- A cache miss reads `AssignmentStore.forSubjects(missing subjects, now)` once for all missing subjects. Concurrent requests join a read in flight.
+- A cache miss reads `AssignmentStore.forSubjects(missing subjects, now)` once for all missing subjects. Both levels keep rows only once the read settled; a check that finds a read still in flight reads for itself, so concurrent first checks of one subject read it each, and so do the checks running when its entry expires. Sharing a read in flight would hang a check inside a nested `transaction()` that waited for a read queued behind its own savepoint ([Transactions](../orm/08-transactions.md)).
 - Rows only expire, so rows read at `t` serve any request at or after `t`; `collect` re-checks expiry against the request's instant.
 - `RbacModel.invalidate(tags)`, called by the engine for every `AuthzChange`:
 

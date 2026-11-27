@@ -1,12 +1,26 @@
 import { expect } from 'chai';
 import * as sinon from 'sinon';
 import { DateTime } from 'luxon';
-import { SYSTEM } from '@spinajs/authz';
+import { SYSTEM, runWithPrincipal } from '@spinajs/authz';
 import type { Principal } from '@spinajs/authz';
 import { DefaultQueueService } from '@spinajs/queue';
 
 import { UserMetadata, UserMetadataOwnerRelation } from '../src/index.js';
+import { userModel } from '../src/model-token.js';
 import { bootUsersDb, registerUsersTestHost, releaseUsersHost, seedUser, setIdentityFlags } from './support/users-db.js';
+
+/** Rejects with `what` when `work` has not settled after `ms`, so a hang fails its own test instead of reaching mocha's timeout. */
+async function within<T>(ms: number, what: string, work: Promise<T>): Promise<T> {
+  let timer: NodeJS.Timeout | undefined;
+  const expired = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(() => reject(new Error(`${what}: still running after ${ms} ms`)), ms);
+  });
+  try {
+    return await Promise.race([work, expired]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 const OWNER_UUID = '0b8f7e7a-41f1-4b67-9c3e-6a1d2c3b4e5f';
 const OTHER_UUID = '6f1c1c55-3c1e-4a8f-9b9a-2f4f0c1d2e3a';
@@ -117,6 +131,20 @@ describe('user.metadata owner relation on the database', function () {
   afterEach(() => {
     sinon.restore();
     releaseUsersHost();
+  });
+
+  it('settles beside a nested transaction that asks the same in the same request, however late it starts', async () => {
+    const { user } = await seedUser({ login: 'owner-relation-nested' });
+    const owner = principal('user', user.Uuid);
+    const holds = () => new UserMetadataOwnerRelation().holds(owner, { type: 'user.metadata' }, row(user.Id));
+    for (let ticks = 0; ticks <= 60; ticks++) {
+      const nested = async (): Promise<boolean> => {
+        for (let i = 0; i < ticks; i++) await Promise.resolve();
+        return userModel().transaction(holds);
+      };
+      const both = runWithPrincipal(owner, () => userModel().transaction(() => Promise.all([holds(), nested()])));
+      expect(await within(10000, `holds() beside a nested holds(), ${ticks} microtasks later`, both)).to.deep.eq([true, true]);
+    }
   });
 
   it('holds for the owner of a row while its account exists, never once it is soft deleted', async () => {

@@ -67,7 +67,7 @@ The adapter has no config keys. The tables it reads live on the connection `db.A
 ## Important behaviour
 
 - **Ancestors come from the table, not the columns.** A check reads `authz_resource_ancestor`. A row written outside the ORM has no ancestor rows until `authz:ancestors-rebuild` runs, so grants on its parents do not reach it ([The ancestor table](06-ancestor-table.md)).
-- **Answers are cached per request.** Inside a request store (`requestScope()`), `ancestors()` and `load()` keep their answer per ref for the rest of the request. A rejected load is not kept. Outside a request store nothing is cached.
+- **Answers are cached per request.** Inside a request store (`requestScope()`), `ancestors()` and `load()` keep their answer per ref for the rest of the request. A rejected load is not kept. An answer is shared once it has been read: two calls for one ref that overlap read it each, since one of them may hold a savepoint that the other's read waits behind (see [Transactions](../orm/08-transactions.md#important-behaviour)). Outside a request store nothing is cached.
 - **Rows load as `SYSTEM`.** `findRows()` runs under `runWithPrincipal(SYSTEM, …)`, so the runtime guard and any app scoping do not filter the adapter's own reads. The caller keeps its principal.
 - **An impossible id is a miss.** Before it binds an id, the adapter asks the ORM's `lookupValue()` whether the key column can hold it: a non-numeric id on an integer column, or a non-UUID on a UUID column, is a missing row, never a failed query.
 - **A create is checked against the parent.** A new row has no id yet: check `task:create` on the parent ref, `{ type: 'project', id }`. The ORM checks nothing on insert.
