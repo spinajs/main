@@ -9,7 +9,7 @@
 1. **Boot.** `DefaultSessionIssuer.Store` is injected by `@AutoinjectService('authn.session', SessionProvider)`. It picks the `SessionProvider` class whose name equals `authn.session.service`. DI awaits `DynamoDbSessionProvider.resolve()`, which builds the client, creates the table when it is missing and turns on its TTL when it is off (see [Client and table provisioning](02-client-and-table-provisioning.md)).
 2. **`save(session)`** sends one `PutItemCommand` (an upsert). A session with no `Expiration` first gets one from `applyInitialExpiration()`, which asks the configured `SessionExpirationProvider`. A `pending` session without `Expiration` throws `InvalidOperation('A pending session must carry its own expiration ...')`.
 3. **`restore(sessionId)`** sends a strongly consistent `GetItemCommand`. It returns `null` when the item is missing, has no readable `Subject`, or is expired (`Expiration <= now`). An item with no `Data`, or `Data` that does not decode, also gives `null` and logs a warning.
-4. **`touch(session)`** renews `Expiration` through `applyRenewedExpiration()` and sends one conditional `UpdateItemCommand` that writes `Expiration` and `Data` only. The condition: the item exists, its stored `State` equals the caller's `State`, and it is not expired. It returns `true` when the expiration changed and was written, `false` when the condition failed or the expiration did not change.
+4. **`touch(session)`** renews `Expiration` through `applyRenewedExpiration()` and sends one conditional `UpdateItemCommand` that writes `Expiration` and `Data` only. The condition: the item exists, its stored `State` equals the caller's `State`, it is not expired, and its `ImpersonatorId` and `ExternalKey` still hold the values the caller's session carries (checked only for the ones it carries). It returns `true` when the expiration changed and was written, `false` when the condition failed or the expiration did not change.
 5. **`delete(sessionId)`** sends one `DeleteItemCommand` with `ReturnValues: 'ALL_OLD'`. It returns `true` only when this call removed the item.
 6. **`deleteBySubject(subject, opts)`** and **`listBySubject(subject, opts)`** scan the table (see [Subject lookup](03-subject-lookup.md)). `deleteBySubject` returns how many live sessions it ended; `listBySubject` returns live sessions only.
 7. **`truncate()`** scans every `SessionId` and deletes the items one by one. It keeps the table.
@@ -76,13 +76,16 @@ Key schema: `SessionId` (`HASH`, type `S`). No secondary indexes. TTL attribute:
 | --- | --- | --- |
 | `SessionId` | `S` | Storage key: `sha256(raw id)` as hex. |
 | `Subject` | `S` | Owner as a principal key, `type:id`, with `:` and `%` in the type escaped as `%3A` and `%25` (`{ type: 'user', id: '77' }` is `user:77`). While impersonating, the target. |
-| `ImpersonatorId` | `S` | Impersonator as a principal key. Absent when nobody impersonates. |
+| `ImpersonatorId` | `S` | Impersonator as a principal key. Only an absent attribute means nobody impersonates. Any other value that is not a principal key with a non-empty type and id (another type such as `N` or `NULL`, `''`, `'admin'`, `':admin'`, `'user:'`) makes the session count as expired. |
+| `ExternalKey` | `S` | The IdP session the login came from, `sha256(provider + '\0' + sid)`; read by `deleteByExternalKey` (back-channel logout). Only an absent attribute means none. A value that is not of type `S` makes the session count as expired; any string, `''` included, is a key. |
 | `State` | `S` | `active` or `pending`. Any other value reads as `pending`. |
 | `Creation` | `S` | Creation instant, ISO 8601. |
 | `Expiration` | `N` | Absolute expiration in epoch **seconds** (fractional, so the millisecond is kept). Absent means the session never expires. |
 | `Data` | `S` | Session data as JSON, written by `encodeSessionData` (keeps `Map`, `Set` and luxon `DateTime`). |
 
 An item without a readable `Subject` reads as absent.
+
+An unreadable `ImpersonatorId` or `ExternalKey` is fail-closed because the revocations match on them: `deleteBySubject(admin, { includeImpersonations: true })` and `deleteByExternalKey` filter on the exact `S` value, so they cannot find such an item. Every reader treats it as expired instead: `restore` answers `null`, listings leave it out, `touch` does not extend it, and `deleteBySubject(subject)` deletes it without counting it. The item itself stays until that subject revocation or its TTL. Each read logs a warning naming the subject and the attribute, never the session id.
 
 ## Services and extension points
 
@@ -92,7 +95,7 @@ An item without a readable `Subject` reads as absent.
 | `DynamoDBClient` | Not in DI. Built by the protected `createClient(cfg)` in `resolve()`. | `new DynamoDBClient(cfg)` | none | Override `createClient` ([page](02-client-and-table-provisioning.md)). |
 | Table provisioning | Protected `checkSessionTable()`, `createSessionTable()`, `isTimeToLiveEnabled()`, `updateTimeToLive()`, called by `resolve()`. | Provisioned table keyed by `SessionId`, TTL on `Expiration` | none | Override these methods ([page](02-client-and-table-provisioning.md)). |
 | Subject lookup | Protected `matching()` and `scan()`, called by `listBySubject` and `deleteBySubject`. | Strongly consistent paged `Scan` with a filter | none | Override `matching` ([page](03-subject-lookup.md)). |
-| Item decoding | Protected `toSession(item, lenient)` and `instant(value)`. | The item layout above | none | Override to read extra attributes; call `super.toSession()` first. |
+| Item decoding | Protected `toSession(item, lenient)`, `expirationOf(item, subject)` and `instant(value)`. | The item layout above | none | Override to read extra attributes; call `super.toSession()` first. |
 | `SessionExpirationProvider` | `@AutoinjectService('authn.session.expiration', ...)` on the `SessionProvider` base; consumed, not owned. | `SlidingCappedExpiration` | `AbsoluteExpiration`, `SlidingExpiration` | Set `authn.session.expiration.service`; see [`@spinajs/authn`](../authn-session/README.md). |
 
 The protected members a subclass can read: `Table`, `AwsConfig`, `ConfigPath`, `ReadCapacityUnits`, `WriteCapacityUnits`, `DynamoDb` (the client, set in `resolve()`), `Log` (logger `dynamo-session-store`) and, from the base, `Expiration`.
@@ -132,7 +135,7 @@ export class AuditedDynamoSessionStore extends DynamoDbSessionProvider {
 - **Expiry is judged in Node, not by DynamoDB.** TTL deletion is eventual, so `restore`, `listBySubject` and `touch` treat `Expiration <= now` as gone even while the item still exists.
 - **`Expiration` is stored in epoch seconds,** the unit DynamoDB TTL reads, so TTL eventually removes expired items.
 - **An `Expiration` that is not a number counts as passed.** `instant()` maps it to epoch 0.
-- **`touch` never changes ownership or state.** It writes `Expiration` and `Data` only; `Subject`, `ImpersonatorId` and `State` stay as stored. A row that turned `pending`, was deleted, or expired between the caller's read and the write is not extended and not re-created.
+- **`touch` never changes ownership or state.** It writes `Expiration` and `Data` only; `Subject`, `ImpersonatorId` and `State` stay as stored. A row that turned `pending`, was deleted, expired, or had the `ImpersonatorId` or `ExternalKey` the caller read rewritten between the caller's read and the write is not extended and not re-created.
 - **`touch` never writes an item without `State`.** The condition fails and `touch` returns `false`.
 - **`touch` on a never-expiring session** (no `Expiration`, strategy returns `undefined`) removes nothing, writes `Data` and returns `false`.
 - **`save` is an unconditional overwrite.** It does not check that the item exists or its state.
