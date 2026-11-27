@@ -210,7 +210,7 @@ const files = await generateClientFiles({ manifest, next: true, hooks: ['react-q
 
 `next: true` writes `client.next.ts`, and with it `client.server.ts` and `client.keys.ts`, so it needs neither `server` nor `hooks`. The file is server-safe: no `'use client'`, no React. It calls `revalidateTag` and `updateTag` from `next/cache` and imports no Next type: the `next` fetch option is typed structurally. `@spinajs/client` lists `next >=16.0.0` as an optional peer. Next 16 made the second argument of `revalidateTag` required, so the helpers do not type-check against Next 15.
 
-**Build with `next build --webpack`.** The generated files import each other as `./client.js`, and Next 16's default bundler, Turbopack, cannot resolve that to `client.ts`. Until a generator option for the import extension lands, use webpack with the `extensionAlias` setting in [Bundling](#bundling) below.
+**Build with `next build --webpack`.** The generated files import each other as `./client.js`, and Next 16's default bundler, Turbopack, cannot resolve that to `client.ts`. Until a generator option for the import extension lands, use webpack with the `extensionAlias` setting in the **Bundling** item below.
 
 | Export | What it does |
 | --- | --- |

@@ -152,7 +152,7 @@ For a new app, after installing the packages you use (`@spinajs/di`, `@spinajs/h
    The environment wins over the config file. `system.manifest.path` defaults to `app.manifest.json` and is relative to the working directory.
 4. **Run** the app. Ship `app.manifest.json` with `lib/`. Where the app's directory is not the one the manifest was built in, set `SPINAJS_MANIFEST_ROOT` ([Runtime modes](manifest/README.md#runtime-modes)).
 
-An app that ships without `node_modules` (a single-file bundle) is shown in [Single-file bundle](manifest/README.md#single-file-bundle) and [the example app](http-socket-example/11-bundle.md).
+An app that ships without `node_modules` (a single-file bundle) is shown in [Bundle](manifest/README.md#bundle) and [the example app](http-socket-example/11-bundle.md).
 
 ### When to rebuild the manifest
 
