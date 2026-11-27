@@ -1,6 +1,6 @@
 # Lifecycle hooks and commander access
 
-`CliCommand` has three hooks you override: `onCreation` to change the raw commander command before it parses, and `onPreAction` / `onPostAction` to run code around `execute()`. The commander classes and types you need in them are re-exported from `@spinajs/cli`.
+`CliCommand` has three hooks you override: `onCreation` to change the raw commander command before it parses, and `onPreAction` / `onPostAction` to run code before and after `execute()`. A `CliCommandHook` wraps `execute()` of every command. The commander classes and types you need in them are re-exported from `@spinajs/cli`.
 
 ## How it works
 
@@ -46,6 +46,7 @@ sequenceDiagram
 | `CliCommand.onCreation(command: CommanderCommand): void \| Promise<void>` | method on the command instance | no-op | none | Override; may be async, `Cli` awaits it before the command parses |
 | `CliCommand.onPreAction(thisCommand, actionCommand): void \| Promise<void>` | method on the command instance | no-op | none | Override; may be async, commander awaits it |
 | `CliCommand.onPostAction(thisCommand, actionCommand): void \| Promise<void>` | method on the command instance | no-op | none | Override; may be async, commander awaits it |
+| `CliCommandHook` (`order`, `options()`, `aroundExecute(command, next)`) | `DI.resolve(Array.ofType(CliCommandHook))`, once per run before the program is built | none registered | `TenantCliHook` of `@spinajs/tenancy/cli` | Register a subclass with `@Injectable(CliCommandHook)` in a file of `system.dirs.cli`; the lowest `order` runs outermost |
 
 ### Re-exported commander API
 
@@ -148,6 +149,40 @@ export class ImportProductsCommand extends CliCommand {
   }
 }
 ```
+
+### `CliCommandHook`: wrap the action of every command
+
+A hook wraps `execute()` of every command, of every package, with one function, and may add options that every command accepts. It is the only place where code can run *around* an action: `onPreAction` and `onPostAction` run before and after it, so an `AsyncLocalStorage` scope set there does not reach `execute()`. `@spinajs/tenancy/cli` uses it for `--tenant` and `--all-tenants`.
+
+```ts
+import { Injectable } from '@spinajs/di';
+import { CliCommandHook } from '@spinajs/cli';
+import type { CliHookCommand, IOption } from '@spinajs/cli';
+
+// in a file of a folder listed in system.dirs.cli: the CLI imports it with the commands
+@Injectable(CliCommandHook)
+export class TimingHook extends CliCommandHook {
+  public override readonly order = 0;
+
+  public override options(): readonly IOption[] {
+    return [{ flags: '--timing', description: 'print how long the command took' }];
+  }
+
+  public async aroundExecute<T>(command: CliHookCommand, next: () => Promise<T>): Promise<T> {
+    const started = Date.now();
+    try {
+      return await next();
+    } finally {
+      if (command.options.timing === true) console.log(`${command.name}: ${Date.now() - started} ms`);
+    }
+  }
+}
+```
+
+- `command.options` holds the command's parsed options merged with those of every command above it; the program's options win, and a hook option is always the program's value (or `undefined`), never a command's own option of the same name or its default.
+- Hook options belong to the program, so they are accepted before and after the command name. A command that declares an option of the same name never receives a value for it.
+- A hook that throws stops the run before `execute()`; the bin exits with `-1`. A command that fails to resolve fails before any hook runs.
+- With no hook registered, every command runs as before and an option a hook would add is unknown.
 
 ## Important behaviour
 
