@@ -264,6 +264,30 @@ for (const kind of DB_KINDS) {
 
         expect({ insideTransaction, laterRequest }).to.deep.equal({ insideTransaction: TRUE, laterRequest: FALSE });
       });
+
+      it('a revoke read inside a transaction that rolls back does not deny a later request', async () => {
+        const { model, clock } = await rbac();
+        const rollBack = new Error('roll back');
+        let insideTransaction: unknown;
+        const outcome = await db.driver
+          .transaction(async () => {
+            await rawQuery(db.driver, "DELETE FROM authz_assignment WHERE id = 'a1'", [], QueryContext.Delete);
+            model.invalidate([`subject:${subjectKeyOf(ALICE)}`]);
+            insideTransaction = (await check(model, request(clock))).permitWhen;
+            throw rollBack;
+          })
+          .then(
+            () => undefined,
+            (e: unknown) => e,
+          );
+        expect(outcome).to.equal(rollBack);
+        const back: unknown[] = await rawQuery(db.driver, "SELECT id FROM authz_assignment WHERE id = 'a1'");
+        expect(back, 'the rollback restored the grant').to.have.length(1);
+        clock.advance(1000);
+        const laterRequest = (await check(model, request(clock))).permitWhen;
+
+        expect({ insideTransaction, laterRequest }).to.deep.equal({ insideTransaction: FALSE, laterRequest: TRUE });
+      });
     });
 
     describe('the request memo of DbMembershipStore.setsOf', () => {
