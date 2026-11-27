@@ -25,4 +25,4 @@ export function reasonOf(reason: unknown, operation: string): string {
   return text;
 }
 
-export const messageOf =(err: unknown): string => (err instanceof Error ? err.message : String(err));
+export const messageOf = (err: unknown): string => (err instanceof Error ? err.message : String(err));
