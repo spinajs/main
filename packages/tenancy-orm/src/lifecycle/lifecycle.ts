@@ -1,6 +1,6 @@
 import { DI, Injectable } from '@spinajs/di';
 import { DbClock } from '@spinajs/durable';
-import { InvalidArgument, InvalidOperation, NotSupported, ResourceDuplicated } from '@spinajs/exceptions';
+import { ConcurrencyConflict, InvalidArgument, InvalidOperation, NotSupported, ResourceDuplicated } from '@spinajs/exceptions';
 import { isTenantId, tenantRef } from '@spinajs/tenancy';
 import type { TenantPlacement, TenantRecord } from '@spinajs/tenancy';
 import { DateTime } from 'luxon';
@@ -8,15 +8,16 @@ import { isDeepStrictEqual } from 'node:util';
 
 import { TenantModel } from '../models/TenantModel.js';
 import { toTenantRecord } from '../records.js';
+import { canTransition } from '../state-machine.js';
 import { TenantStateService } from '../states.js';
-import { announce, inTenant, messageOf, refuseTenantScope } from './announce.js';
+import { announce, inTenant, messageOf, reasonOf, refuseTenantScope } from './announce.js';
 import { TenantLifecycle, TenantSeeder } from './contracts.js';
 import type { ExportReport, MigrationReport, TenantProvisionInput } from './contracts.js';
 import { assertDomainsFree, normalizeDomains } from './domains.js';
 import { LIFECYCLE_LEASE_MS, claimLifecycle } from './lease.js';
 import type { LifecycleLease } from './lease.js';
 import { requireRow, writeLifecycle } from './record.js';
-import type { LifecycleOperation, LifecycleOperationKind, TenantLifecycleState } from './state.js';
+import type { LifecycleOperation, LifecycleOperationKind, TenantLifecycleState, TenantSuspension } from './state.js';
 
 const NAME_MAX = 128;
 
@@ -87,12 +88,16 @@ export class DefaultTenantLifecycle extends TenantLifecycle {
     return this.operate(plan.id, 'provision', undefined, body, (current) => this.assertResumable(current, plan));
   }
 
-  public suspend(_id: string, _reason: string): Promise<void> {
-    return Promise.reject(new NotSupported('tenancy-orm: suspend() arrives with v4-tl-02a-suspend-resume'));
+  public async suspend(id: string, reason: string): Promise<void> {
+    refuseTenantScope('suspend');
+    const why = reasonOf(reason, 'suspend');
+    await DI.resolve(DbClock).sync();
+    await this.moveSuspension(id, 'suspended', { reason: why, at: iso(this.now()) });
   }
 
-  public resume(_id: string): Promise<void> {
-    return Promise.reject(new NotSupported('tenancy-orm: resume() arrives with v4-tl-02a-suspend-resume'));
+  public async resume(id: string): Promise<void> {
+    refuseTenantScope('resume');
+    await this.moveSuspension(id, 'active', null);
   }
 
   public async migrate(id: string): Promise<MigrationReport> {
@@ -166,6 +171,38 @@ export class DefaultTenantLifecycle extends TenantLifecycle {
     await steps.step('activate', async () => {
       if ((await requireRow(id)).state !== 'active') await (await this.states()).transition(id, 'active');
     });
+  }
+
+  /**
+   * One compare-and-set of the state that carries the suspension record. It takes no lease, so it never waits for a
+   * running operation and never writes the lifecycle record that operation holds. The row reads only choose the
+   * refusal and the statement's condition decides; once replicas serve reads, they must still read the primary.
+   */
+  protected async moveSuspension(id: string, to: 'active' | 'suspended', suspension: TenantSuspension | null): Promise<void> {
+    const row = await requireRow(id);
+    await this.admitSuspension(row, to);
+    if (!(await row.writeSuspension(to, suspension))) {
+      await this.admitSuspension(await requireRow(id), to);
+      throw new ConcurrencyConflict(`tenancy-orm: tenant "${id}" changed while it was moved to ${to}; try again`);
+    }
+    await announce(id);
+  }
+
+  protected async admitSuspension(row: TenantModel, to: 'active' | 'suspended'): Promise<void> {
+    if (to === 'suspended') {
+      if (row.state === 'suspended') {
+        // A suspension whose process died before it announced the change is announced by the call that repeats it.
+        await announce(row.id);
+        throw new InvalidOperation(`tenancy-orm: tenant "${row.id}" is already suspended`);
+      }
+      if (!canTransition(row.state, to)) throw new InvalidOperation(`tenancy-orm: tenant "${row.id}" cannot go from ${row.state} to suspended`);
+      return;
+    }
+    if (row.state !== 'suspended') throw new InvalidOperation(`tenancy-orm: tenant "${row.id}" is ${row.state}; only a suspended tenant resumes`);
+    const running = row.lifecycleRecord().operation;
+    if (running?.kind === 'delete') {
+      throw new InvalidOperation(`tenancy-orm: the deletion of tenant "${row.id}" started at ${running.startedAt}; a deletion is finished, not resumed`);
+    }
   }
 
   protected async leased<T>(id: string, fn: (lease: LifecycleLease) => Promise<T>): Promise<T> {
