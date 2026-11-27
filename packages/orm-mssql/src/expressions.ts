@@ -33,4 +33,9 @@ export class MsSqlSqlExpressions extends SqlExpressions {
 
     return `(DATEADD(${checked.unit}, -${checked.amount}, SYSDATETIMEOFFSET()))`;
   }
+
+  // The lock is a table hint, which MsSqlSelectQueryCompiler writes after the table.
+  public rowLock(): string {
+    return '';
+  }
 }

@@ -1,5 +1,5 @@
 import { MsSqlSqlExpressions } from './expressions.js';
-import { DatetimeValueConverter, DefaultValueBuilder, NowExpression, DeleteQueryCompiler, TableAliasCompiler, OnDuplicateQueryCompiler, OrderByQueryCompiler, TableQueryCompiler, ColumnQueryCompiler, InsertQueryCompiler, QueryContext, OrmDriver, IColumnDescriptor, TableExistsCompiler, LimitQueryCompiler, IDriverOptions, ISupportedFeature, IsolationLevel, ITransactionContext, ITransactionOptions, InSetStatement, InStatement, StartsWithStatement, IdentifierQuoter, TruncateTableQueryCompiler, CreateDatabaseCompiler, DropDatabaseCompiler, CreateViewCompiler, LiteralQuoter, EventQueryCompiler, DropEventQueryCompiler, TextWrapper, ServerResponseMapper, DbServerResponse, AlterTableQueryCompiler, AlterColumnQueryCompiler, SqlExpressions, LiveForeignKey, LiveIndex, groupIndexColumns, referentialRule, SqlDialect, MigrationLock, WhereStatement } from '@spinajs/orm';
+import { DatetimeValueConverter, DefaultValueBuilder, NowExpression, DeleteQueryCompiler, SelectQueryCompiler, TableAliasCompiler, OnDuplicateQueryCompiler, OrderByQueryCompiler, TableQueryCompiler, ColumnQueryCompiler, InsertQueryCompiler, QueryContext, OrmDriver, IColumnDescriptor, TableExistsCompiler, LimitQueryCompiler, IDriverOptions, ISupportedFeature, IsolationLevel, ITransactionContext, ITransactionOptions, InSetStatement, InStatement, StartsWithStatement, IdentifierQuoter, TruncateTableQueryCompiler, CreateDatabaseCompiler, DropDatabaseCompiler, CreateViewCompiler, LiteralQuoter, EventQueryCompiler, DropEventQueryCompiler, TextWrapper, ServerResponseMapper, DbServerResponse, AlterTableQueryCompiler, AlterColumnQueryCompiler, SqlExpressions, LiveForeignKey, LiveIndex, groupIndexColumns, referentialRule, SqlDialect, MigrationLock, WhereStatement } from '@spinajs/orm';
 import type { InsertQueryBuilder } from '@spinajs/orm';
 import { MSSQL_SQL_DIALECT } from './sql-dialect.js';
 export { MSSQL_SQL_DIALECT } from './sql-dialect.js';
@@ -8,7 +8,7 @@ import { Injectable, NewInstance } from '@spinajs/di';
 import { IsoDatetimeValueConverter, SqlDriver, SqlTruncateTableQueryCompiler, UnsupportedEventQueryCompiler, UnsupportedDropEventQueryCompiler, RowQueue } from '@spinajs/orm-sql';
 import mssql from 'mssql';
 import { IIndexInfo, ITableColumnInfo } from './types.js';
-import { MsSqlTableExistsCompiler, MsSqlLimitCompiler, MsSqlOrderByCompiler, MsSqlTableQueryCompiler, MsSqlColumnQueryCompiler, MsSqlDefaultValueBuilder, MsSqlInsertQueryCompiler, MsSqlDeleteQueryCompiler, MsSqlTableAliasCompiler, MsSqlOnDuplicateQueryCompiler, MsSqlCreateDatabaseQueryCompiler, MsSqlDropDatabaseQueryCompiler, MsSqlCreateViewCompiler, MsSqlAlterTableQueryCompiler, MsSqlAlterColumnQueryCompiler } from './compilers.js';
+import { MsSqlTableExistsCompiler, MsSqlLimitCompiler, MsSqlOrderByCompiler, MsSqlTableQueryCompiler, MsSqlColumnQueryCompiler, MsSqlDefaultValueBuilder, MsSqlInsertQueryCompiler, MsSqlDeleteQueryCompiler, MsSqlSelectQueryCompiler, MsSqlTableAliasCompiler, MsSqlOnDuplicateQueryCompiler, MsSqlCreateDatabaseQueryCompiler, MsSqlDropDatabaseQueryCompiler, MsSqlCreateViewCompiler, MsSqlAlterTableQueryCompiler, MsSqlAlterColumnQueryCompiler } from './compilers.js';
 import { BracketIdentifierQuoter, MsSqlInSetStatement, MsSqlInStatement, MsSqlLiteralQuoter, MsSqlNowExpression, MsSqlStartsWithStatement, MsSqlTextWrapper, MsSqlWhereStatement } from './statements.js';
 import { mapMsSqlError } from './errors.js';
 import { MsSqlMigrationLock } from './migration-lock.js';
@@ -295,6 +295,7 @@ export class MsSqlOrmDriver extends SqlDriver {
     this.Container.register(MsSqlNowExpression).as(NowExpression);
     this.Container.register(MsSqlInsertQueryCompiler).as(InsertQueryCompiler);
     this.Container.register(MsSqlDeleteQueryCompiler).as(DeleteQueryCompiler);
+    this.Container.register(MsSqlSelectQueryCompiler).as(SelectQueryCompiler);
     this.Container.register(MsSqlServerResponseMapper).as(ServerResponseMapper);
     this.Container.register(MsSqlTableAliasCompiler).as(TableAliasCompiler);
     this.Container.register(IsoDatetimeValueConverter).as(DatetimeValueConverter);
