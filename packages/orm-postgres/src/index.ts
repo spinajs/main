@@ -260,11 +260,16 @@ export class PostgresOrmDriver extends SqlDriver {
         result = await txContext.connection.query(finalQuery, params);
       } else {
         const client = await this.acquireClient();
+        let abandoned = false;
 
         try {
           result = await client.query(finalQuery, params);
+        } catch (err) {
+          // Without the server's answer (pg's query_timeout) the statement may still run on this session: pooled, the next caller would queue behind it.
+          abandoned = !(err instanceof pg.DatabaseError);
+          throw err;
         } finally {
-          client.release();
+          client.release(abandoned);
         }
       }
 
