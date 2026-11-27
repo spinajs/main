@@ -231,9 +231,16 @@ async function isolated(ir: PolicyIR, type: TypeName, except: readonly string[],
   return combine(verdicts, ir);
 }
 
+/** The object of `type` the principal's grants sit under, and the one the resource lies under: a resource of `type` is its own. */
+function sides(u: Universe, type: TypeName): [ObjectRef, ObjectRef] {
+  const [first, second] = u.objects[type];
+  if (second === undefined) throw new Unsupported(`isolated(${type}) needs k >= 2`);
+  if (u.resource.type !== type) return [first, second];
+  return u.resource.id === first.id ? [second, u.resource] : [first, u.resource];
+}
+
 function boundary(e: Encoder, u: Universe, type: TypeName): Formula[] {
-  const [t1, t2] = u.objects[type];
-  if (t2 === undefined) throw new Unsupported(`isolated(${type}) needs k >= 2`);
+  const [t1, t2] = sides(u, type);
   const inside = (o: ObjectRef): Formula => and(e.under(o, t1), not(e.under(o, t2)));
   const out: Formula[] = [and(e.under(u.resource, t2), not(e.under(u.resource, t1)))];
   for (const [name, t] of [...e.tuples]) {
