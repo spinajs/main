@@ -9,7 +9,7 @@ SQLite is the driver with `RETURNING` (`insertReturning: true`), so it reads gen
    - `.returning(columns)` sets `Returning` and switches to `QueryContext.InsertReturning`. It throws `NotSupported` on drivers without `insertReturning`; SQLite has it.
    - `.onDuplicate(columns?)` switches to `QueryContext.Upsert` and returns an `OnDuplicateQueryBuilder`. Without `columns`, the conflict target is the model's columns flagged `Unique`. `.update(columns)` names the columns to overwrite.
 2. **Compile.** `toDB()` resolves `InsertQueryCompiler`: `SqliteInsertQueryCompiler.compile()` joins `into()`, `columns()`, `values()`, `upsort()` and `returning()`:
-   - `into()`: ``INSERT [OR IGNORE] [OR REPLACE] INTO `table` ``.
+   - `into()`: ``INSERT [OR IGNORE] [OR REPLACE] INTO [`database`.]`table` [as `alias`]``, through `TableAliasCompiler` like select, update and delete: `database(name)`, `into(table, name)` or the connection's `Database` qualifies the table with an attached database, and `setAlias()` adds the alias.
    - `columns()` / `values()`: an auto-increment primary key is left out when no row supplies it, else rendered `NULL` in the rows that do not; `null` renders `NULL`. SQLite has no `DEFAULT` inside `VALUES`, so `undefined` is handled per column:
      - no row supplies the column: it is left out, and the table default applies;
      - some rows supply it: the others render `NULL` when the column is known (model inserts) to be nullable without a default; otherwise compiling throws `InvalidArgument('insert into <t>: a row has no value for column <c> ...')`.
