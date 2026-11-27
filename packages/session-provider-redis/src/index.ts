@@ -68,6 +68,25 @@ function withoutStoredText(err: unknown, message: string): unknown {
 }
 
 /**
+ * ioredis copies a failed command's arguments onto its error as `command`, and onto each queued
+ * error of a transaction in `previousErrors`: session keys, stored values, the AUTH password.
+ * There is no client option to leave them out.
+ */
+function withoutCommand<T>(err: T): T {
+  if (err instanceof Error) {
+    Reflect.deleteProperty(err, 'command');
+    if ('previousErrors' in err && Array.isArray(err.previousErrors)) {
+      for (const previous of err.previousErrors) {
+        if (previous instanceof Error) {
+          Reflect.deleteProperty(previous, 'command');
+        }
+      }
+    }
+  }
+  return err;
+}
+
+/**
  * Redis-backed session store (ioredis).
  *
  * Keys (under the connection `keyPrefix`):
@@ -93,7 +112,7 @@ export class RedisSessionStore extends SessionProvider {
 
   public async resolve() {
     this.Client = this.createClient();
-    this.Client.on('error', (err: Error) => this.Log.error(err, 'Redis connection error'));
+    this.Client.on('error', (err: Error) => this.Log.error(withoutCommand(err), 'Redis connection error'));
   }
 
   public async dispose() {
@@ -107,56 +126,60 @@ export class RedisSessionStore extends SessionProvider {
     }
   }
 
-  public async restore(sessionId: string): Promise<ISession | null> {
-    const raw = await this.Client.get(this.sessionKey(sessionId));
-    if (!raw) {
-      return null;
-    }
+  public restore(sessionId: string): Promise<ISession | null> {
+    return this.run(async () => {
+      const raw = await this.Client.get(this.sessionKey(sessionId));
+      if (!raw) {
+        return null;
+      }
 
-    const session = this.toSession(sessionId, raw);
-    if (!session) {
-      return null;
-    }
+      const session = this.toSession(sessionId, raw);
+      if (!session) {
+        return null;
+      }
 
-    if (this.isExpired(session)) {
-      await this.delete(sessionId);
-      return null;
-    }
+      if (this.isExpired(session)) {
+        await this.delete(sessionId);
+        return null;
+      }
 
-    return session;
+      return session;
+    });
   }
 
-  public async save(session: ISession): Promise<void> {
-    if (session.Expiration === undefined) {
-      this.applyInitialExpiration(session);
-    }
-
-    const key = this.sessionKey(session.SessionId);
-    const previousRaw = await this.Client.get(key);
-    const previous = previousRaw ? this.toSession(session.SessionId, previousRaw, true) : null;
-
-    const stored: IStoredSession = {
-      Subject: principalKey(session.Subject),
-      Impersonator: session.Impersonator ? principalKey(session.Impersonator) : undefined,
-      State: session.State,
-      Creation: session.Creation.toISO()!,
-      Expiration: session.Expiration ? session.Expiration.toISO()! : undefined,
-      Data: encodeSessionData(session.Data),
-      ...(session.ExternalKey !== undefined ? { ExternalKey: session.ExternalKey } : {}),
-    };
-
-    const sets = this.indexSetsOf(session).map((s) => s.key);
-    const multi = this.Client.multi().set(key, JSON.stringify(stored));
-    this.expireAt(multi, key, session.Expiration);
-    for (const set of sets) {
-      multi.sadd(set, session.SessionId);
-    }
-    for (const old of previous ? this.indexSetsOf(previous) : []) {
-      if (!sets.includes(old.key)) {
-        multi.srem(old.key, session.SessionId);
+  public save(session: ISession): Promise<void> {
+    return this.run(async () => {
+      if (session.Expiration === undefined) {
+        this.applyInitialExpiration(session);
       }
-    }
-    await this.exec(multi);
+
+      const key = this.sessionKey(session.SessionId);
+      const previousRaw = await this.Client.get(key);
+      const previous = previousRaw ? this.toSession(session.SessionId, previousRaw, true) : null;
+
+      const stored: IStoredSession = {
+        Subject: principalKey(session.Subject),
+        Impersonator: session.Impersonator ? principalKey(session.Impersonator) : undefined,
+        State: session.State,
+        Creation: session.Creation.toISO()!,
+        Expiration: session.Expiration ? session.Expiration.toISO()! : undefined,
+        Data: encodeSessionData(session.Data),
+        ...(session.ExternalKey !== undefined ? { ExternalKey: session.ExternalKey } : {}),
+      };
+
+      const sets = this.indexSetsOf(session).map((s) => s.key);
+      const multi = this.Client.multi().set(key, JSON.stringify(stored));
+      this.expireAt(multi, key, session.Expiration);
+      for (const set of sets) {
+        multi.sadd(set, session.SessionId);
+      }
+      for (const old of previous ? this.indexSetsOf(previous) : []) {
+        if (!sets.includes(old.key)) {
+          multi.srem(old.key, session.SessionId);
+        }
+      }
+      await this.exec(multi);
+    });
   }
 
   /**
@@ -164,43 +187,47 @@ export class RedisSessionStore extends SessionProvider {
    * live and is stored in the caller's State (SR-07), through a
    * compare-and-set on the value it read; a lost race reads again.
    */
-  public async touch(session: ISession): Promise<boolean> {
-    const current = session.Expiration;
-    this.applyRenewedExpiration(session);
-    const key = this.sessionKey(session.SessionId);
+  public touch(session: ISession): Promise<boolean> {
+    return this.run(async () => {
+      const current = session.Expiration;
+      this.applyRenewedExpiration(session);
+      const key = this.sessionKey(session.SessionId);
 
-    for (let attempt = 0; attempt < TOUCH_ATTEMPTS; attempt++) {
-      const raw = await this.Client.get(key);
-      const row = raw ? this.toSession(session.SessionId, raw, true) : null;
-      if (!raw || !row || row.State !== session.State || this.isExpired(row)) {
-        session.Expiration = current;
-        return false;
+      for (let attempt = 0; attempt < TOUCH_ATTEMPTS; attempt++) {
+        const raw = await this.Client.get(key);
+        const row = raw ? this.toSession(session.SessionId, raw, true) : null;
+        if (!raw || !row || row.State !== session.State || this.isExpired(row)) {
+          session.Expiration = current;
+          return false;
+        }
+
+        // The row keeps its own identity fields.
+        const next = JSON.stringify({ ...(JSON.parse(raw) as IStoredSession), Expiration: session.Expiration?.toISO() ?? undefined, Data: encodeSessionData(session.Data) });
+        const written = await this.Client.eval(TOUCH_SCRIPT, 1, key, raw, next, session.Expiration ? String(session.Expiration.toMillis()) : '');
+        if (Number(written) === 1) {
+          return !this.expirationEquals(current, session.Expiration);
+        }
       }
 
-      // The row keeps its own identity fields.
-      const next = JSON.stringify({ ...(JSON.parse(raw) as IStoredSession), Expiration: session.Expiration?.toISO() ?? undefined, Data: encodeSessionData(session.Data) });
-      const written = await this.Client.eval(TOUCH_SCRIPT, 1, key, raw, next, session.Expiration ? String(session.Expiration.toMillis()) : '');
-      if (Number(written) === 1) {
-        return !this.expirationEquals(current, session.Expiration);
-      }
-    }
-
-    session.Expiration = current;
-    throw new Error(`Session touch lost ${TOUCH_ATTEMPTS} races in a row`);
+      session.Expiration = current;
+      throw new Error(`Session touch lost ${TOUCH_ATTEMPTS} races in a row`);
+    });
   }
 
-  public async delete(sessionId: string): Promise<boolean> {
-    const key = this.sessionKey(sessionId);
-    const raw = await this.Client.get(key);
-    // Quiet: this read only finds the index sets, and restore deletes through here a row it has just logged.
-    const row = raw ? this.toSession(sessionId, raw, true, true) : null;
+  public delete(sessionId: string): Promise<boolean> {
+    return this.run(async () => {
+      const key = this.sessionKey(sessionId);
+      const raw = await this.Client.get(key);
+      // Quiet: this read only finds the index sets, and restore deletes through here a row it has just logged.
+      const row = raw ? this.toSession(sessionId, raw, true, true) : null;
 
-    const multi = this.Client.multi().del(key);
-    for (const set of row ? this.indexSetsOf(row) : []) {
-      multi.srem(set.key, sessionId);
-    }
-    const [deleted] = await this.exec(multi);
-    return deleted === 1;
+      const multi = this.Client.multi().del(key);
+      for (const set of row ? this.indexSetsOf(row) : []) {
+        multi.srem(set.key, sessionId);
+      }
+      const [deleted] = await this.exec(multi);
+      return deleted === 1;
+    });
   }
 
   /**
@@ -208,109 +235,117 @@ export class RedisSessionStore extends SessionProvider {
    * up, so a row saved during the call (a rotation racing a ban) also ends.
    * Only rows that are live when read count.
    */
-  public async deleteBySubject(subject: IdentityRef, opts?: { includeImpersonations?: boolean; except?: string }): Promise<number> {
-    const seen = new Set<string>();
-    let count = 0;
+  public deleteBySubject(subject: IdentityRef, opts?: { includeImpersonations?: boolean; except?: string }): Promise<number> {
+    return this.run(async () => {
+      const seen = new Set<string>();
+      let count = 0;
 
-    for (;;) {
-      const found = await this.lookup(subject, opts?.includeImpersonations, (id) => id !== opts?.except && !seen.has(id));
-      if (found.ids.length === 0) {
-        return count;
-      }
-      found.ids.forEach((id) => seen.add(id));
+      for (;;) {
+        const found = await this.lookup(subject, opts?.includeImpersonations, (id) => id !== opts?.except && !seen.has(id));
+        if (found.ids.length === 0) {
+          return count;
+        }
+        found.ids.forEach((id) => seen.add(id));
 
-      const multi = this.Client.multi();
-      for (const row of found.rows) {
-        multi.del(this.sessionKey(row.SessionId));
-        for (const set of this.indexSetsOf(row)) {
-          multi.srem(set.key, row.SessionId);
+        const multi = this.Client.multi();
+        for (const row of found.rows) {
+          multi.del(this.sessionKey(row.SessionId));
+          for (const set of this.indexSetsOf(row)) {
+            multi.srem(set.key, row.SessionId);
+          }
+        }
+        this.prune(multi, found.stale);
+        const results = await this.exec(multi);
+
+        // Each matched row queued its DEL first, then its SREMs.
+        let at = 0;
+        for (const row of found.rows) {
+          if (Number(results[at]) === 1 && !this.isExpired(row)) {
+            count++;
+          }
+          at += 1 + this.indexSetsOf(row).length;
         }
       }
-      this.prune(multi, found.stale);
-      const results = await this.exec(multi);
-
-      // Each matched row queued its DEL first, then its SREMs.
-      let at = 0;
-      for (const row of found.rows) {
-        if (Number(results[at]) === 1 && !this.isExpired(row)) {
-          count++;
-        }
-        at += 1 + this.indexSetsOf(row).length;
-      }
-    }
+    });
   }
 
-  public async listBySubject(subject: IdentityRef, opts?: { includeImpersonations?: boolean }): Promise<ISession[]> {
-    const found = await this.lookup(subject, opts?.includeImpersonations, () => true);
-    const live = found.rows.filter((s) => !this.isExpired(s));
-    const expired = found.rows.filter((s) => this.isExpired(s));
+  public listBySubject(subject: IdentityRef, opts?: { includeImpersonations?: boolean }): Promise<ISession[]> {
+    return this.run(async () => {
+      const found = await this.lookup(subject, opts?.includeImpersonations, () => true);
+      const live = found.rows.filter((s) => !this.isExpired(s));
+      const expired = found.rows.filter((s) => this.isExpired(s));
 
-    if (expired.length > 0 || found.stale.length > 0) {
-      const multi = this.Client.multi();
-      for (const row of expired) {
-        multi.del(this.sessionKey(row.SessionId));
-        for (const set of this.indexSetsOf(row)) {
-          multi.srem(set.key, row.SessionId);
+      if (expired.length > 0 || found.stale.length > 0) {
+        const multi = this.Client.multi();
+        for (const row of expired) {
+          multi.del(this.sessionKey(row.SessionId));
+          for (const set of this.indexSetsOf(row)) {
+            multi.srem(set.key, row.SessionId);
+          }
         }
+        this.prune(multi, found.stale);
+        await this.exec(multi);
       }
-      this.prune(multi, found.stale);
-      await this.exec(multi);
-    }
 
-    return live;
+      return live;
+    });
   }
 
   /** List-then-delete over the external set, repeated as deleteBySubject; members whose row is gone or carries another key are pruned. */
-  public async deleteByExternalKey(externalKey: string): Promise<number> {
-    const set = this.externalIndexKey(externalKey);
-    const seen = new Set<string>();
-    let count = 0;
+  public deleteByExternalKey(externalKey: string): Promise<number> {
+    return this.run(async () => {
+      const set = this.externalIndexKey(externalKey);
+      const seen = new Set<string>();
+      let count = 0;
 
-    for (;;) {
-      const ids = (await this.Client.smembers(set)).filter((id) => !seen.has(id));
-      if (ids.length === 0) {
-        return count;
-      }
-      ids.forEach((id) => seen.add(id));
-
-      const values = await this.Client.mget(...ids.map((id) => this.sessionKey(id)));
-      const rows: ISession[] = [];
-      const stale: [string, string][] = [];
-      ids.forEach((id, i) => {
-        const raw = values[i];
-        const row = raw ? this.toSession(id, raw, true) : null;
-        if (row && row.ExternalKey === externalKey) {
-          rows.push(row);
-        } else {
-          stale.push([set, id]);
+      for (;;) {
+        const ids = (await this.Client.smembers(set)).filter((id) => !seen.has(id));
+        if (ids.length === 0) {
+          return count;
         }
-      });
+        ids.forEach((id) => seen.add(id));
 
-      const multi = this.Client.multi();
-      for (const row of rows) {
-        multi.del(this.sessionKey(row.SessionId));
-        for (const s of this.indexSetsOf(row)) {
-          multi.srem(s.key, row.SessionId);
+        const values = await this.Client.mget(...ids.map((id) => this.sessionKey(id)));
+        const rows: ISession[] = [];
+        const stale: [string, string][] = [];
+        ids.forEach((id, i) => {
+          const raw = values[i];
+          const row = raw ? this.toSession(id, raw, true) : null;
+          if (row && row.ExternalKey === externalKey) {
+            rows.push(row);
+          } else {
+            stale.push([set, id]);
+          }
+        });
+
+        const multi = this.Client.multi();
+        for (const row of rows) {
+          multi.del(this.sessionKey(row.SessionId));
+          for (const s of this.indexSetsOf(row)) {
+            multi.srem(s.key, row.SessionId);
+          }
+        }
+        this.prune(multi, stale);
+        const results = await this.exec(multi);
+
+        let at = 0;
+        for (const row of rows) {
+          if (Number(results[at]) === 1 && !this.isExpired(row)) {
+            count++;
+          }
+          at += 1 + this.indexSetsOf(row).length;
         }
       }
-      this.prune(multi, stale);
-      const results = await this.exec(multi);
-
-      let at = 0;
-      for (const row of rows) {
-        if (Number(results[at]) === 1 && !this.isExpired(row)) {
-          count++;
-        }
-        at += 1 + this.indexSetsOf(row).length;
-      }
-    }
+    });
   }
 
-  public async truncate(): Promise<void> {
-    // Only keys this store owns (session rows and index sets); never a blind FLUSHDB.
-    await this.scanSessionKeys(async (keys) => {
-      await this.Client.del(...keys);
-    }, this.keyPatterns());
+  public truncate(): Promise<void> {
+    return this.run(async () => {
+      // Only keys this store owns (session rows and index sets); never a blind FLUSHDB.
+      await this.scanSessionKeys(async (keys) => {
+        await this.Client.del(...keys);
+      }, this.keyPatterns());
+    });
   }
 
   protected createClient(): Redis {
@@ -513,6 +548,15 @@ export class RedisSessionStore extends SessionProvider {
       multi.pexpireat(key, expiration.toMillis());
     } else {
       multi.persist(key);
+    }
+  }
+
+  /** Every public method that talks to Redis runs its body here, so its own later calls cannot skip the strip. */
+  protected async run<T>(fn: () => Promise<T>): Promise<T> {
+    try {
+      return await fn();
+    } catch (err) {
+      throw withoutCommand(err);
     }
   }
 
