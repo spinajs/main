@@ -74,6 +74,20 @@ describe('spinajs authz:verify', function () {
     expect(json.results[2].verdict).to.include({ result: 'unknown', code: 'AZV005' });
   });
 
+  it('fails a holder that is not a string with AZV005, and an unknown permission and holder with AZV006 alone, under either --fail-on', async () => {
+    for (const failOn of ['error', 'warning'] as const) {
+      lines = [];
+      process.exitCode = undefined;
+      await run('refused.assertions.js', { failOn });
+      expect(lines).to.deep.equal([
+        'fail AZV005 never(["folder#viewer"], folder:read)  ["folder#viewer"] names no role or relation of the policy',
+        'fail AZV006 never(folder#viewr, folder:raed)       folder:raed names no permission of the policy',
+        '2 error(s), 0 warning(s), 0 info',
+      ]);
+      expect(process.exitCode, `--fail-on ${failOn}`).to.equal(1);
+    }
+  });
+
   it('prints one json line', async () => {
     await run('violated.assertions.js', { format: 'json' });
     expect(lines).to.have.length(1);

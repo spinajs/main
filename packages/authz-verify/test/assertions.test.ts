@@ -27,6 +27,8 @@ function partnerInvoices(): PolicyIR {
 const NOTE = 'holds for principals without a ceiling: a ceiling whose permissions list invoice:approve and not invoice:read denies invoice:read where invoice:approve stays allowed (implies(a, b, { narrowed: true }) checks it)';
 const codes = (results: AssertionResult[]): string[] => results.flatMap((r) => r.diagnostics.map((d) => `${d.code} ${d.severity} ${d.assertion}: ${d.message}`));
 const unavailable: VerifyOptions = { solver: () => Promise.resolve(undefined) };
+/** What a plain JavaScript assertions file can write where `name` belongs. */
+const notStrings = (name: string): unknown[] => [[name], 42, { name }, null, undefined, Object(name), Symbol(name)];
 
 describe('defineAssertions', () => {
   it('builds assertions with the kit and labels them', () => {
@@ -147,6 +149,31 @@ describe('assertions that name a permission the policy does not have', () => {
     expect(codes([r])).to.deep.equal(['AZV006 error never(public, invoice:aprove): invoice:aprove names no permission of the policy']);
     expect(r.verdict.opaque).to.deep.equal([]);
   });
+
+  it('refuse a permission or an isolated type that is not a string, and throw nothing', async () => {
+    const set = defineAssertions(({ implies, isolated, never, onlyVia, separated }) => [
+      ...notStrings('invoice:read').flatMap((v) => [
+        Object.assign(never({ holder: 'public', permission: 'invoice:read' }), { permission: v }),
+        Object.assign(implies('invoice:read', 'invoice:read'), { a: v }),
+        Object.assign(implies('invoice:approve', 'invoice:read'), { b: v }),
+        Object.assign(separated('invoice:read', 'invoice:approve'), { a: v }),
+        Object.assign(separated('invoice:read', 'invoice:approve'), { b: v }),
+        Object.assign(onlyVia('invoice:read', ['role:accountant']), { permission: v }),
+      ]),
+      ...notStrings('org').map((type) => Object.assign(isolated('org'), { type })),
+    ]);
+    const results = await verifyAssertions(monotoneInvoices(), set, unavailable);
+    expect(results.map((r) => `${r.verdict.result} ${r.diagnostics.map((d) => d.code).join(' ')}`)).to.deep.equal(new Array<string>(49).fill('unknown AZV006'));
+    expect(codes([...results.slice(0, 6), ...results.slice(42, 43)])).to.deep.equal([
+      'AZV006 error never(public, ["invoice:read"]): ["invoice:read"] names no permission of the policy',
+      'AZV006 error implies(["invoice:read"], invoice:read): ["invoice:read"] names no permission of the policy',
+      'AZV006 error implies(invoice:approve, ["invoice:read"]): ["invoice:read"] names no permission of the policy',
+      'AZV006 error separated(["invoice:read"], invoice:approve): ["invoice:read"] names no permission of the policy',
+      'AZV006 error separated(invoice:read, ["invoice:read"]): ["invoice:read"] names no permission of the policy',
+      'AZV006 error onlyVia(["invoice:read"], [role:accountant]): ["invoice:read"] names no permission of the policy',
+      'AZV006 error isolated(["org"]): ["org"] names no type of the policy',
+    ]);
+  });
 });
 
 describe('assertions that name a holder the policy does not have', () => {
@@ -236,6 +263,30 @@ describe('assertions that name a holder the policy does not have', () => {
       'AZV002 info onlyVia(doc:read, [anyone:doc#abac_permit_doc_read]): holds (exact)',
       'AZV090 warning isolated(doc, except anyone:doc#abac_permit_doc_read): not verified: z3-solver is not installed; non-monotone assertions are not verified',
     ]);
+  });
+
+  it('refuse a holder that is not a string, which a plain JavaScript assertions file can write, and throw nothing', async () => {
+    const set = defineAssertions(({ never, onlyVia, isolated }) =>
+      notStrings('role:accountant').flatMap((v) => [
+        Object.assign(never({ holder: 'role:accountant', permission: 'invoice:read' }), { holder: v }),
+        Object.assign(onlyVia('invoice:read', []), { holders: ['role:accountant@org', v] }),
+        Object.assign(isolated('org'), { except: [v] }),
+      ]),
+    );
+    const results = await verifyAssertions(monotoneInvoices(), set, unavailable);
+    expect(results.map((r) => `${r.verdict.result} ${r.diagnostics.map((d) => d.code).join(' ')}`)).to.deep.equal(new Array<string>(21).fill('unknown AZV005'));
+    expect(codes(results.filter((r) => r.assertion.kind === 'never'))).to.deep.equal(
+      ['["role:accountant"]', '42', '{"name":"role:accountant"}', 'null', 'undefined', '"role:accountant"', 'Symbol(role:accountant)'].map((v) => `AZV005 error never(${v}, invoice:read): ${v} names no role or relation of the policy`),
+    );
+    expect(codes(results.slice(1, 3))).to.deep.equal([
+      'AZV005 error onlyVia(invoice:read, [role:accountant@org, ["role:accountant"]]): ["role:accountant"] names no role or relation of the policy',
+      'AZV005 error isolated(org, except ["role:accountant"]): ["role:accountant"] names no role or relation of the policy',
+    ]);
+  });
+
+  it('report only AZV006 for an assertion with both an unknown permission and an unknown holder', async () => {
+    const [r] = await verifyAssertions(monotoneInvoices(), defineAssertions(({ never }) => [never({ holder: 'role:clrek', permission: 'invoice:raed' })]), unavailable);
+    expect([r.verdict.result, ...codes([r])]).to.deep.equal(['unknown', 'AZV006 error never(role:clrek, invoice:raed): invoice:raed names no permission of the policy']);
   });
 });
 
