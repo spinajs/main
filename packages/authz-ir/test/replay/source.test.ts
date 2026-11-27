@@ -3,7 +3,7 @@ import { expect } from 'chai';
 import { AuthzConfigError } from '@spinajs/authz';
 import type { ChangeRecord } from '@spinajs/authz';
 
-import { HistoricalTupleSource, IREvaluator, MemoryChangeLog, ReplayBudgetExceeded, ReplayHistory, StoreUnreadable, TupleSourceGap } from '../../src/index.js';
+import { HistoricalTupleSource, IREvaluator, MemoryChangeLog, ReplayBudgetExceeded, ReplayHistory, StoreUnreadable, TupleSourceGap, changeLogKeyState } from '../../src/index.js';
 import type { ChangeLogRead, CurrentItem, HistoryContributor, HistoryEdge, ObjectRef, RelationDef, TupleSubjectRef } from '../../src/index.js';
 import { docsIR } from '../fixtures/docs.js';
 
@@ -179,7 +179,7 @@ async function setup() {
 }
 
 async function source(log: MemoryChangeLog, contributors: HistoryContributor[], l = limits): Promise<HistoricalTupleSource> {
-  return new HistoricalTupleSource(docsIR(), T, contributors, await ReplayHistory.load(log, T, ['tuple', 'column'], l));
+  return new HistoricalTupleSource(docsIR(), T, contributors, await ReplayHistory.load(log, T, ['tuple', 'column'], l), changeLogKeyState);
 }
 
 async function subjects(s: HistoricalTupleSource, object: ObjectRef, relation: string): Promise<string[]> {
@@ -275,8 +275,8 @@ describe('HistoricalTupleSource', () => {
     const tuples = new Expiring(log);
     await tuples.add({ ...editor('u1'), until: ms(-5_000).toISOString() } as Tuple, ms(-30 * MIN));
     const history = await ReplayHistory.load(log, T, ['tuple'], limits);
-    expect(await subjects(new HistoricalTupleSource(docsIR(), T, [tuples], history, ms(-10_000)), doc('d1'), 'editor')).to.deep.equal(['user:u1']);
-    expect(await subjects(new HistoricalTupleSource(docsIR(), T, [tuples], history), doc('d1'), 'editor')).to.deep.equal([]);
+    expect(await subjects(new HistoricalTupleSource(docsIR(), T, [tuples], history, changeLogKeyState, ms(-10_000)), doc('d1'), 'editor')).to.deep.equal(['user:u1']);
+    expect(await subjects(new HistoricalTupleSource(docsIR(), T, [tuples], history, changeLogKeyState), doc('d1'), 'editor')).to.deep.equal([]);
   });
 
   it("compares a contributor's images at its own precision, not the history's", async () => {
@@ -352,7 +352,7 @@ describe('HistoricalTupleSource', () => {
   it('refuses a contributor whose kind the history did not scan', async () => {
     const { log, tuples } = await setup();
     const history = await ReplayHistory.load(log, T, ['column'], limits);
-    expect(() => new HistoricalTupleSource(docsIR(), T, [tuples], history)).to.throw(AuthzConfigError, /tuple/);
+    expect(() => new HistoricalTupleSource(docsIR(), T, [tuples], history, changeLogKeyState)).to.throw(AuthzConfigError, /tuple/);
   });
 
   it('lists in reverse an object whose column pointed at the subject at T and moved since', async () => {

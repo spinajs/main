@@ -1,7 +1,7 @@
-import type { ChangeKind, ChangeRecord, Permission, ResourceRef, ResourceType } from '@spinajs/authz';
+import type { ChangeKind, Permission, ResourceRef, ResourceType } from '@spinajs/authz';
 
 import type { CaveatDef, ObjectRef, OpaqueRef, PolicyIR, RelationDef, RelationName, Rewrite, TupleSubjectRef, TypeName } from '../ir.js';
-import type { KeyState } from './history.js';
+import type { KeyState, ReplayChange } from './ports.js';
 
 /**
  * A row a store holds now: its changelog key, its image in the payload shape the store logs, and what it relates. Two
@@ -43,7 +43,7 @@ export interface HistoryContributor {
    * Decodes a change of this kind into the edges it touches: a column `put` touches the old target and the new one.
    * Throws `StoreUnreadable` for a change it cannot decode, which makes every read of the kind a gap.
    */
-  edges(change: ChangeRecord): readonly HistoryEdge[];
+  edges(change: ReplayChange): readonly HistoryEdge[];
   /** Projects an image to the subject at T, or undefined when not live at T (expiry). Throws `StoreUnreadable` for an image it cannot decode: the key is a gap. */
   subjectAt(image: unknown, at: Date): TupleSubjectRef | undefined;
   /**
@@ -52,7 +52,7 @@ export interface HistoryContributor {
    * the projected states, as `stateAt` links changes by op: a column `put` from `null` becomes an `add`, one to `null`
    * a `remove` of the old target. `source` is the read's: one changelog key can hold several columns' changes.
    */
-  project?(change: ChangeRecord, source: RelationDef['source']): ChangeRecord | undefined;
+  project?(change: ReplayChange, source: RelationDef['source']): ReplayChange | undefined;
   /**
    * The relations of `type` whose union a read of `relation` is, read in its place (the ORM's `parent` over several
    * `@Parent` columns); undefined reads the relation whole. None (`[]`) makes the read a gap, not an empty set.
@@ -86,7 +86,7 @@ export interface StoredPolicySplicer {
    * The item a change touches; a kind's changes come from every store of it, and a store's items are only its own. Every
    * change a splicer's stores log must name its store: one that answers undefined makes every store of the kind a gap.
    */
-  edge(change: ChangeRecord): StoredEdge | undefined;
+  edge(change: ReplayChange): StoredEdge | undefined;
   splice(at: StoredPlaceholder, items: ReadonlyArray<{ key: string; state: KeyState }>, ir: PolicyIR): { term: Rewrite; caveats?: Record<string, CaveatDef>; opaque?: OpaqueRef[] };
 }
 
@@ -123,7 +123,7 @@ export abstract class HistoryContributors implements HistoryContributor {
   abstract coverageType(object: ObjectRef): ResourceType | undefined;
   abstract current(object: ObjectRef, relation: RelationName, source: RelationDef['source']): Promise<CurrentItem<TupleSubjectRef>[]>;
   abstract currentReverse(subject: TupleSubjectRef, relation: RelationName, objectType: TypeName, source: RelationDef['source']): Promise<CurrentItem<ObjectRef>[]>;
-  abstract edges(change: ChangeRecord): readonly HistoryEdge[];
+  abstract edges(change: ReplayChange): readonly HistoryEdge[];
   abstract subjectAt(image: unknown, at: Date): TupleSubjectRef | undefined;
 }
 
@@ -132,6 +132,6 @@ export abstract class StoredPolicySplicers implements StoredPolicySplicer {
   abstract readonly kind: 'rule' | 'policy';
   abstract locate(opaqueName: string, type: TypeName, relation: RelationName, ir: PolicyIR): StoredPlaceholder | undefined;
   abstract current(store: string): Promise<Array<{ key: string; image: unknown }>>;
-  abstract edge(change: ChangeRecord): StoredEdge | undefined;
+  abstract edge(change: ReplayChange): StoredEdge | undefined;
   abstract splice(at: StoredPlaceholder, items: ReadonlyArray<{ key: string; state: KeyState }>, ir: PolicyIR): { term: Rewrite; caveats?: Record<string, CaveatDef>; opaque?: OpaqueRef[] };
 }

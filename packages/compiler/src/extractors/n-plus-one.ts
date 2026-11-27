@@ -2,7 +2,7 @@ import ts from 'typescript';
 import type { ExtractorContext } from '../context.js';
 import { iterationCallback, iterations, type Iteration } from '../flow/iteration.js';
 import { chainOf, QueryTracer, unwrap, type QueryValue } from '../flow/query-values.js';
-import { isModelType, isRelationType, ORM } from '../model-members.js';
+import { isRelationType, modelOf, ORM, relationOf } from '../model-members.js';
 import { extendsFrameworkClass, isDeclaredIn } from '../schema/framework-members.js';
 
 type Code = 'ORM101' | 'ORM102';
@@ -63,8 +63,7 @@ function isIgnored(loop: ts.Node, code: Code): boolean {
 }
 
 function relationMember(checker: ts.TypeChecker, owner: ts.Type, name: string): boolean {
-  if (!isModelType(checker, owner)) return false;
-  const property = owner.getProperty(name);
+  const property = modelOf(checker, owner)?.getProperty(name);
   return !!property && isRelationType(checker, checker.getNonNullableType(checker.getTypeOfSymbol(property)));
 }
 
@@ -89,7 +88,8 @@ function relationPath(checker: ts.TypeChecker, item: ts.Identifier): Array<{ pat
     const access = current.parent;
     const owner = checker.getNonNullableType(checker.getTypeAtLocation(current));
     current = outer(access);
-    if (access.name.text === 'Value' && extendsFrameworkClass(checker, owner, 'SingleRelation', ORM)) continue;
+    const relation = relationOf(checker, owner);
+    if (access.name.text === 'Value' && relation && extendsFrameworkClass(checker, relation, 'SingleRelation', ORM)) continue;
     if (!relationMember(checker, owner, access.name.text)) break;
     path.push(access.name.text);
     out.push({ path: path.join('.'), node: access, current });
@@ -165,7 +165,7 @@ function isSelectBuilder(type: ts.Type): boolean {
 function isQuery(checker: ts.TypeChecker, tracer: QueryTracer, operand: ts.Expression): boolean {
   const chain = chainOf(operand);
   const last = chain?.calls[chain.calls.length - 1];
-  if (chain && last?.name === 'populate' && isRelationType(checker, checker.getNonNullableType(checker.getTypeAtLocation(chain.root)))) return true;
+  if (chain && last?.name === 'populate' && relationOf(checker, checker.getNonNullableType(checker.getTypeAtLocation(chain.root)))) return true;
   if (tracer.traced(operand)?.pending) return !chain?.calls.some((c) => NOT_READS.has(c.name));
   return isSelectBuilder(checker.getTypeAtLocation(operand));
 }

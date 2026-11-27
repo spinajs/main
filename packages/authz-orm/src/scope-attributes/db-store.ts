@@ -8,7 +8,7 @@ import { DateTime } from 'luxon';
 // Registers DbChangeLog for apps that import only the scope-attributes entry: writes append to it.
 import '../changelog/index.js';
 import { requireTransaction, selectFrom } from '../records.js';
-import { SCOPE_ATTRIBUTE_TABLE, SCOPE_ATTRIBUTE_VERSION_TABLE, ScopeAttributeRecord, ScopeAttributeVersionRecord } from './records.js';
+import { SCOPE_ATTRIBUTE_TABLE, SCOPE_ATTRIBUTE_VERSION_TABLE, ScopeAttributeRecord, ScopeAttributeVersionRecord, scopeAttributeId } from './records.js';
 
 // value_text varchar(255); value_num decimal(20,6) holds 14 digits before the point.
 const TEXT_MAX = 255;
@@ -84,7 +84,8 @@ function leafChanges(ref: ResourceRef, stored: ReadonlyMap<string, StoredLeaf>, 
 }
 
 /**
- * Scope attributes in table authz_scope_attribute (migration AuthzScopeAttribute_2026_10_02_00_00_00), on the
+ * Scope attributes in table authz_scope_attribute (migrations AuthzScopeAttribute_2026_10_02_00_00_00 and
+ * AuthzScopeAttributeKey_2026_11_25_00_00_00), on the
  * connection db.Aliases.authz names. Not registered by default: register the class under both
  * ScopeAttributeStore and WritableScopeAttributeStore. Writes run only inside the ORM transaction of an
  * AuthzAdmin batch (AuthzTx.driver) on that connection.
@@ -124,7 +125,7 @@ export class DbScopeAttributeStore extends WritableScopeAttributeStore {
     const set = Object.entries(change?.set ?? {});
     const remove = [...(change?.remove ?? [])];
     for (const [path, v] of set) {
-      if (path === '' || path.length > SCOPE_ATTRIBUTE_LIMITS.path) throw new AuthzConfigError(`DbScopeAttributeStore: path ${JSON.stringify(path)} does not fit ${SCOPE_ATTRIBUTE_TABLE}.path`);
+      if (path === '' || !path.isWellFormed() || path.length > SCOPE_ATTRIBUTE_LIMITS.path) throw new AuthzConfigError(`DbScopeAttributeStore: path ${JSON.stringify(path)} does not fit ${SCOPE_ATTRIBUTE_TABLE}.path`);
       if (!isLeaf(v)) throw new AuthzConfigError(`DbScopeAttributeStore: ${JSON.stringify(path)} holds ${String(v)}, not a scalar`);
       if (JSON.stringify(v).length > SCOPE_ATTRIBUTE_LIMITS.json) throw new AuthzConfigError(`DbScopeAttributeStore: the value at ${JSON.stringify(path)} does not fit ${SCOPE_ATTRIBUTE_TABLE}.value_json`);
     }
@@ -141,7 +142,8 @@ export class DbScopeAttributeStore extends WritableScopeAttributeStore {
     if (doomed.length > 0) await ScopeAttributeRecord.destroy().where(key).whereIn('path', doomed);
     const updated_at = DateTime.now();
     const updated_by = principalKey(actor).slice(0, BY_MAX);
-    await ScopeAttributeRecord.insert(set.map(([path, v]) => ({ ...key, path, value_json: v, value_text: textOf(v), value_num: typeof v === 'number' && Math.abs(v) < NUM_MAX ? v : null, updated_by, updated_at })));
+    // Plain objects: a model instance refuses the '' scope_id holds for $global, a NOT NULL column outside the key.
+    await ScopeAttributeRecord.insert(set.map(([path, v]) => ({ id: scopeAttributeId(key.scope_type, key.scope_id, path), ...key, path, value_json: v, value_text: textOf(v), value_num: typeof v === 'number' && Math.abs(v) < NUM_MAX ? v : null, updated_by, updated_at })));
     await changeLog().append(leafChanges(ref, stored, removed, set, principalKey(actor)));
     return removed.length + set.length;
   }
@@ -180,8 +182,9 @@ interface Key {
   readonly scope_id: string;
 }
 
+/** A lone surrogate reaches every database as U+FFFD: two such ids would be one scope, under ids that match neither. */
 function keyOf(ref: ResourceRef): Key {
-  if (ref === null || typeof ref !== 'object' || typeof ref.type !== 'string' || ref.type === '' || (ref.id != null && typeof ref.id !== 'string')) throw new AuthzConfigError(`DbScopeAttributeStore needs a resource ref, got ${JSON.stringify(ref)}`);
+  if (ref === null || typeof ref !== 'object' || typeof ref.type !== 'string' || ref.type === '' || !ref.type.isWellFormed() || (ref.id != null && (typeof ref.id !== 'string' || !ref.id.isWellFormed()))) throw new AuthzConfigError(`DbScopeAttributeStore needs a resource ref, got ${JSON.stringify(ref)}`);
   return { scope_type: ref.type, scope_id: ref.id ?? '' };
 }
 
