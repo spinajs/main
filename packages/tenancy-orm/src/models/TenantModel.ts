@@ -55,4 +55,16 @@ export class TenantModel extends ModelBase<TenantModel> {
   public suspensionRecord(): TenantSuspension | undefined {
     return readSuspension(this.id, this.suspension);
   }
+
+  /**
+   * Moves the tenant from the state this row was read in to `to` and writes `suspension` in the same statement, so a
+   * state and its reason never part; false when another call moved the tenant first.
+   */
+  public async writeSuspension(to: 'active' | 'suspended', suspension: TenantSuspension | null): Promise<boolean> {
+    const result = await TenantModel.update({ state: to, suspension, updated_at: DateTime.utc() }).where('id', this.id).where('state', this.state);
+    if (result.RowsAffected !== 1) return false;
+    this.state = to;
+    this.suspension = suspension;
+    return true;
+  }
 }
