@@ -148,6 +148,34 @@ describe('Authorizer.accessPlan: a plan kept beyond its request', () => {
     expect((await a.accessPlan(alice, 'doc:read', 'doc', undefined, scope)).kind).to.equal('none');
   });
 
+  it('a plan that read a memoised nested answer while the nested check still ran ends with its grant (review SX36B-RV-F2)', async () => {
+    const bob = principal('user', 'bob');
+    const expiry = new Date(clock.now.getTime() + 5_000);
+    const live = (): Vote => (clock.now.getTime() < expiry.getTime() ? { model: 'n', permitWhen: TRUE, denyWhen: FALSE, cacheable: true, validUntil: expiry } : { model: 'n', permitWhen: FALSE, denyWhen: FALSE, cacheable: true });
+    let checks = 0;
+    const listPlan = async (_req: ListPlanRequest, ctx: EvaluationContext) => {
+      const hit = ctx.cache.get('bob');
+      let answer: Promise<boolean>;
+      if (hit instanceof Promise) answer = hit.then((v: unknown) => v === true);
+      else {
+        checks++;
+        answer = ctx.check({ principal: bob, permission: 'doc:write', resource: { type: 'doc', id: 'd1' } }).then((d) => d.allowed);
+        ctx.cache.set('bob', answer);
+      }
+      return (await answer) ? { kind: 'all' } : { kind: 'abstain' };
+    };
+    const a = make([new KeptModel('n', { vote: live, listPlan })]);
+    const scope = { cache: new Map<string, unknown>() };
+    const [, second] = await Promise.all([a.accessPlan(alice, 'doc:read', 'doc', undefined, scope), a.accessPlan(alice, 'doc:other', 'doc', undefined, scope)]);
+
+    expect(checks).to.equal(1);
+    expect(second.kind === 'filter' ? second.validUntil?.getTime() : undefined).to.equal(expiry.getTime());
+    expect(cacheOf(second).ttlMs).to.equal(5_000);
+    expect(cacheOf(second).tags).to.include('subject:user:bob');
+    clock.advance(6_000);
+    expect((await a.accessPlan(alice, 'doc:other', 'doc', undefined, scope)).kind).to.equal('none');
+  });
+
   it('keeps nothing once the request saw a fault a model caught', async () => {
     const m = kept('a', async (req: ListPlanRequest, ctx: EvaluationContext) => {
       if (req.permission.name === 'doc:other') await ctx.ancestors({ type: 'folder', id: 'x' }).catch(() => null);
