@@ -323,10 +323,13 @@ const LONE_QUOTE = /^['"`[]$/;
 const OR_TOKEN = /^(x?or|\|\|)$/i;
 
 /**
- * Whether `sql` has an OR (XOR, MySQL's `||`) outside parentheses and quoted text. An unbalanced quote or parenthesis
- * (a backslash escape this does not read) counts as one: a group too many costs nothing, one too few leaks rows.
+ * Whether `sql` may have an OR (XOR, MySQL's `||`) outside parentheses and quoted text. It answers yes whenever it
+ * cannot rule one out: an unbalanced quote or parenthesis, a comment or a backslash counts as one.
  */
 function hasTopLevelOr(sql: string): boolean {
+  // comments and backslash escapes are not read: grouping costs nothing, a missed OR leaks rows
+  if (/--|\/\*|#|\\/.test(sql)) return true;
+
   let depth = 0;
   for (const [part] of sql.matchAll(SQL_TOKENS)) {
     if (part === '(') depth++;

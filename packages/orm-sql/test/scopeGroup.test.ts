@@ -55,6 +55,14 @@ describe('default scopes are ANDed with the rest of the where clause as one grou
     expect(scoped(sqb().from('t').whereNull('deleted_at')).where(RawQuery.create('`or` = 1 AND color = 2')).toDB().expression).to.equal('SELECT * FROM `t` WHERE `deleted_at` IS NULL AND `or` = 1 AND color = 2');
   });
 
+  it('groups raw text it cannot read: a comment or a backslash escape may hide an OR', () => {
+    const grouped = (raw: string) => scoped(sqb().from('t').whereNull('deleted_at')).where(RawQuery.create(raw)).toDB().expression;
+    expect(grouped('1 = 0 /* ( */ OR 1 = 1 /* ) */')).to.equal('SELECT * FROM `t` WHERE `deleted_at` IS NULL AND ( 1 = 0 /* ( */ OR 1 = 1 /* ) */ )');
+    expect(grouped('1 = 0 -- (\nOR 1 = 1 -- )\n')).to.equal('SELECT * FROM `t` WHERE `deleted_at` IS NULL AND ( 1 = 0 -- (\nOR 1 = 1 -- )\n )');
+    // MySQL reads the backslash as an escape: '\'' is one quote and the ORs stand outside any string
+    expect(grouped("title = '\\'' OR 1 = 1 OR title = '\\''")).to.equal("SELECT * FROM `t` WHERE `deleted_at` IS NULL AND ( title = '\\'' OR 1 = 1 OR title = '\\'' )");
+  });
+
   it('keeps an AND-only clause as it was, in its own order', () => {
     const query = sqb().from('t').where('a', 1);
     scoped(query.whereNull('deleted_at')).where(function () {

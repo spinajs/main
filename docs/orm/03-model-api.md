@@ -180,7 +180,7 @@ its connections and `OrmConnectionMissing` (with `connection`) when no connectio
 - `getOrCreate(pk, data)` uses `pk` only for the lookup. The new model gets its key from `data` or from the database.
 - `getOrNew(data)` with no key or `Unique` column in `data`, and `getOrCreate(null, data)` on a model without `Unique` columns, add no condition and return the first row of the table.
 - `findOrFail()` throws a plain `Error`, not `OrmNotFoundException`.
-- Select builders of a `@SoftDelete` model filter `DeletedAt IS NULL`, and of an `@Archived` model `ArchivedAt IS NULL`, when the column is in the reflected table. The filters are ANDed with the query's conditions as one group, so a top-level `orWhere()` or raw `OR` does not return deleted or archived rows. `withDeleted()` and `withArchived()` remove the filter, not a `whereNull()` the query wrote itself. Delete builders are not archive-filtered.
+- Select builders of a `@SoftDelete` model filter `DeletedAt IS NULL`, and of an `@Archived` model `ArchivedAt IS NULL`, when the column is in the reflected table. The filters are ANDed with the query's conditions as one group, so a top-level `orWhere()` or raw `OR` does not return deleted or archived rows; raw text is grouped whenever an `OR` in it cannot be ruled out (a comment or a backslash included). `withDeleted()` and `withArchived()` remove the filter, not a `whereNull()` the query wrote itself. Delete builders are not archive-filtered.
 - `archive()` writes every column from `toSql()`, not only `ArchivedAt`.
 - `refresh()` copies columns only; loaded relations keep their values.
 - `exists()` is declared on `ModelBase` without a parameter; the bound method reads `pk`. Call it through `IModelStatic` or a cast.

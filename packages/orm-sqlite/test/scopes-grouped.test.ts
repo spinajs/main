@@ -127,6 +127,11 @@ describe('soft-delete and archive scopes stay apart from the query conditions', 
     expect(sql(query())).to.eq('SELECT * FROM `sg_item` WHERE `DeletedAt` IS NULL AND `ArchivedAt` IS NULL AND ( 1 = 0 OR 1 = 1 )');
   });
 
+  it('a raw OR behind a comment with parentheses returns no deleted and no archived row', async () => {
+    expect(titles(await SgItem.where(RawQuery.create('1 = 0 /* ( */ OR 1 = 1 /* ) */')))).to.deep.eq(['a', 'b', 'c']);
+    expect(titles(await SgItem.where(RawQuery.create('1 = 0 -- (\nOR 1 = 1 -- )\n')))).to.deep.eq(['a', 'b', 'c']);
+  });
+
   it('a query without an OR compiles as before', () => {
     expect(sql(SgItem.where('Title', 'a'))).to.eq('SELECT * FROM `sg_item` WHERE `DeletedAt` IS NULL AND `ArchivedAt` IS NULL AND `Title` = ?');
     expect(
