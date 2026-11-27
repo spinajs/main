@@ -85,7 +85,7 @@ Key schema: `SessionId` (`HASH`, type `S`). No secondary indexes. TTL attribute:
 
 An item without a readable `Subject` (a principal key with a non-empty type and id) reads as absent.
 
-An unreadable `ImpersonatorId` or `ExternalKey` is fail-closed because the revocations match on them: `deleteBySubject(admin, { includeImpersonations: true })` and `deleteByExternalKey` filter on the exact `S` value, so they cannot find such an item. Every reader treats it as expired instead: `restore` answers `null`, listings leave it out, `touch` does not extend it, and `deleteBySubject(subject)` deletes it without counting it. The item itself stays until that subject revocation or its TTL. Each read logs a warning naming the subject and the attribute, never the session id.
+An unreadable `ImpersonatorId` or `ExternalKey` is fail-closed because the revocations match on them: `deleteBySubject(admin, { includeImpersonations: true })` and `deleteByExternalKey` filter on the exact `S` value, so they cannot find such an item. Every reader treats it as expired instead: `restore` answers `null`, listings leave it out, and `touch` does not extend it when the caller's session carries the attribute. A revocation that finds the item through another attribute deletes it without counting it: `deleteBySubject(subject)`, and the impersonator revocation or the IdP logout when the attribute it matches on is the readable one. So does `delete(id)` (logout). The revocation whose attribute is unreadable cannot find the item, so the item stays until one of those or its TTL. Each read logs a warning naming the subject and the attribute, never the session id.
 
 ## Services and extension points
 
