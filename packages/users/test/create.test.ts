@@ -277,6 +277,8 @@ describe('create(user, roles?)', function () {
 
     afterEach(() => {
       DI.unregister(DeleteRecorder);
+      // An asValue registration survives DI.clearCache(), and the bootstrapper only fills an empty key.
+      DI.register(User).asValue(RBAC_USER_MODEL, true);
     });
 
     it('is deleted through the metadata and user models, so a write observer sees both deletes', async () => {
@@ -330,7 +332,6 @@ describe('create(user, roles?)', function () {
         await nothingWritten('othertable');
       } finally {
         DI.unregister(OtherTableUser);
-        DI.register(User).asValue(RBAC_USER_MODEL, true);
       }
     });
   });
