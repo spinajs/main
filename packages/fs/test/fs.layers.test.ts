@@ -199,4 +199,15 @@ describe('fs provider layers', function () {
     await Promise.resolve(container.resolve(Array.ofType(FsProviderLayer)));
     expect(layeredFs(published, container)).to.equal(published);
   });
+
+  it('a child container applies the root container layers first, then its own, each class once', () => {
+    DI.register(AToB).as(FsProviderLayer);
+    const published = publishedFs('layer-a')!;
+    const child = DI.child();
+    child.register(BToA).as(FsProviderLayer);
+    child.register(AToB).as(FsProviderLayer);
+
+    expect(layeredFs(published, child)).to.equal(published);
+    expect(applied).to.deep.equal(['AToB', 'BToA']);
+  });
 });

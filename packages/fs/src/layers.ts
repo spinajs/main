@@ -35,8 +35,25 @@ function replacementsOf(type: Registered, container: IContainer): Registered[] {
   return chain;
 }
 
-// Array.ofType leaves factories and @NewInstance() classes out of its result: a layer skipped that way would hand out the published provider.
+/**
+ * The layers of every container from the root down to `container`. A container that registers layers of its own hides
+ * its ancestors' list from `Array.ofType`, so each such ancestor's list is resolved where it was registered.
+ */
 function layersOf(container: IContainer): FsProviderLayer[] {
+  const lists = [layersIn(container)];
+  let owner: IContainer | undefined = container;
+  while (owner && !owner.Registry.ownsRegistration(FsProviderLayer)) owner = owner.Parent;
+  for (let hidden = owner?.Parent; hidden; hidden = hidden.Parent) {
+    if (hidden.Registry.ownsRegistration(FsProviderLayer)) lists.unshift(layersIn(hidden));
+  }
+  // A class registered at several levels runs once, at its place in the farthest list, as the nearest container's instance.
+  const byClass = new Map<unknown, FsProviderLayer>();
+  for (const layer of lists.flat()) byClass.set(layer.constructor, layer);
+  return [...byClass.values()];
+}
+
+// Array.ofType leaves factories and @NewInstance() classes out of its result: a layer skipped that way would hand out the published provider.
+function layersIn(container: IContainer): FsProviderLayer[] {
   const registered = (container.getRegisteredTypes(Array.ofType(FsProviderLayer)) ?? []).map((type) => replacementsOf(type, container));
   const layers: FsProviderLayer[] | Promise<FsProviderLayer[]> = registered.every((chain) => chain.every(isConstructor)) ? container.resolve(Array.ofType(FsProviderLayer)) : [];
   if (isPromise(layers)) {
