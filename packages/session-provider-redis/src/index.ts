@@ -447,7 +447,7 @@ export class RedisSessionStore extends SessionProvider {
       Subject: subject,
       Impersonator: refOf(stored.Impersonator),
       State: stored.State === 'active' ? 'active' : 'pending',
-      Creation: DateTime.fromISO(stored.Creation),
+      Creation: this.creationOf(stored.Creation),
       Expiration: stored.Expiration === undefined ? undefined : this.instant(stored.Expiration),
       Data: data,
       ExternalKey: typeof stored.ExternalKey === 'string' ? stored.ExternalKey : undefined,
@@ -457,6 +457,12 @@ export class RedisSessionStore extends SessionProvider {
   /** Only an absent Expiration means "never": a present value that is not ISO text naming a valid instant counts as already passed. */
   protected instant(value: unknown): DateTime {
     // luxon reads the number 2099 as the ISO year 2099; the store only ever writes text.
+    const at = typeof value === 'string' ? DateTime.fromISO(value) : undefined;
+    return at?.isValid ? at : DateTime.fromMillis(0);
+  }
+
+  /** An unreadable Creation is past every lifetime cap; left invalid, SlidingCappedExpiration renews to an invalid instant that touch writes as "never". */
+  protected creationOf(value: unknown): DateTime {
     const at = typeof value === 'string' ? DateTime.fromISO(value) : undefined;
     return at?.isValid ? at : DateTime.fromMillis(0);
   }
