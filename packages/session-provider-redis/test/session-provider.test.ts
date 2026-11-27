@@ -150,6 +150,23 @@ describe('redis session provider', function () {
       await rawClient().set(`session:${id}`, JSON.stringify(raw));
       expect(ids(await store.listBySubject(user('u-42')))).to.deep.equal(['r-unreadable-absent']);
     });
+
+    it('an unreadable Creation never turns a capped session into one that never expires', async () => {
+      const store = await makeProvider({ service: 'SlidingCappedExpiration', ttl: 60, maxLifetime: 600 });
+      await store.truncate();
+      for (const [label, value] of [['empty text', ''], ['absent', undefined], ['zero', 0], ['no date', 'x']] as [string, unknown][]) {
+        const id = `r-creation-${label.replace(/\W+/g, '-')}`;
+        await store.save(session({ SessionId: id, Subject: user('u-42') }));
+        const raw = await stored(`session:${id}`);
+        raw.Creation = value;
+        await rawClient().set(`session:${id}`, JSON.stringify(raw));
+
+        const restored = await store.restore(id);
+        expect(restored, label).to.not.be.null;
+        await store.touch(restored!);
+        expect(await store.restore(id), `${label}: renewed past its cap`).to.equal(null);
+      }
+    });
   });
 
   describe('3.0 key layout', () => {
