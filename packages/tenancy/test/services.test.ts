@@ -10,6 +10,7 @@ import {
   ConfigTenantRegistry,
   MemoryTenantRegistry,
   PrincipalAttributeTenantAccess,
+  TenantAccess,
   TenantIterationAborted,
   TenantRegistry,
   TenantSwitchDenied,
@@ -107,6 +108,16 @@ describe('tenancy services', () => {
     expect((await tenantRegistry()).inner).to.be.instanceOf(ConfigTenantRegistry);
     expect(await tenantAccess()).to.be.instanceOf(PrincipalAttributeTenantAccess);
     expect(await tenantRegistry()).to.eq(await tenantRegistry());
+  });
+
+  it('takes AuthzTenantAccess when it is registered and tenancy.access is unset', async () => {
+    class AuthzTenantAccess extends PrincipalAttributeTenantAccess {}
+    app = await tenancyApp({}, (container) => container.register(AuthzTenantAccess).as(TenantAccess));
+    expect(await tenantAccess()).to.be.instanceOf(AuthzTenantAccess);
+    await app.dispose();
+
+    app = await tenancyApp({ access: 'PrincipalAttributeTenantAccess' }, (container) => container.register(AuthzTenantAccess).as(TenantAccess));
+    expect((await tenantAccess()).constructor).to.eq(PrincipalAttributeTenantAccess);
   });
 
   it('picks the registry named by tenancy.registry and refuses an unknown name', async () => {

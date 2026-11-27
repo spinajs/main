@@ -1,7 +1,9 @@
 import 'mocha';
 import { expect } from 'chai';
 import { SYSTEM, currentPrincipal, requestScope, runWithPrincipal } from '@spinajs/authz';
-import { currentTenant, runAcrossTenants, runInTenant } from '../src/index.js';
+import type { IAuthzAsyncStorage } from '@spinajs/authz';
+import { applyTenantScope, currentTenant, runAcrossTenants, runInTenant, tenantScopeOf } from '../src/index.js';
+import type { ITenantAsyncStorage } from '../src/index.js';
 
 function authzCache(): Map<string, unknown> {
   const cache = requestScope().cache;
@@ -49,5 +51,19 @@ describe('tenant scope and the authz principal share one store', () => {
     expect(seen.acrossAll).to.not.eq(seen.outer);
     expect(seen.outerAfter).to.eq(seen.outer);
     expect([...seen.outer.keys()]).to.deep.eq(['outer']);
+  });
+
+  it('drops the authz request cache when applyTenantScope changes a store, and keeps it when the scope stays', () => {
+    // Typed by authz's own store interface: a rename there fails this test when it compiles.
+    const key: keyof IAuthzAsyncStorage = 'AuthzCache';
+    const store: ITenantAsyncStorage & Record<string, unknown> = { [key]: new Map<string, unknown>([['decision', true]]) };
+
+    applyTenantScope(store, tenantScopeOf('acme'));
+    expect(store[key]).to.eq(undefined);
+
+    const kept = new Map<string, unknown>();
+    store[key] = kept;
+    applyTenantScope(store, tenantScopeOf('acme'));
+    expect(store[key]).to.eq(kept);
   });
 });

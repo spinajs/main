@@ -39,7 +39,7 @@ sequenceDiagram
 
 ### The default access check
 
-`PrincipalAttributeTenantAccess.canEnter` is `true` when `principal.attributes.tenants` is an array that holds the tenant id. Any other value (missing, a string) refuses.
+`PrincipalAttributeTenantAccess.canEnter` is `true` when `principal.attributes.tenants` is an array that holds the tenant id. Any other value (missing, a string) refuses. When `@spinajs/tenancy-orm/authz` is imported, `AuthzTenantAccess` is the default instead: it asks authz for `tenant:enter` on `tenant:<id>` ([Tenants in authz](../tenancy-orm/10-authz.md)).
 
 ### Proposals and resolvers
 
@@ -68,7 +68,7 @@ This package ships no resolver and does not call one. [`@spinajs/tenancy-http`](
 
 | Key | Type | Default | Allowed values | Meaning |
 | --- | --- | --- | --- | --- |
-| `tenancy.access` | string | `'PrincipalAttributeTenantAccess'` | a class registered under `TenantAccess` | The access check `admitTenant` asks |
+| `tenancy.access` | string | `'AuthzTenantAccess'` when registered, else `'PrincipalAttributeTenantAccess'` | a class registered under `TenantAccess` | The access check `admitTenant` asks |
 | `tenancy.registry` | string | `'ConfigTenantRegistry'` | a class registered under `TenantRegistry` | The registry `admitTenant` looks tenants up in; see [Tenant registries](03-tenant-registries.md) |
 
 ```ts
@@ -81,7 +81,7 @@ tenancy: {
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
 | --- | --- | --- | --- | --- |
-| `TenantAccess` | `TenantAccess`, named registrations (`@Injectable(TenantAccess)`); resolved by name from `tenancy.access` once per `TenancyServices` | `PrincipalAttributeTenantAccess` | none shipped | Register your class under `TenantAccess` and set `tenancy.access` to its name. Extend `PrincipalAttributeTenantAccess` and call `super.canEnter` to keep the attribute rule. |
+| `TenantAccess` | `TenantAccess`, named registrations (`@Injectable(TenantAccess)`); resolved by name from `tenancy.access` once per `TenancyServices` | `AuthzTenantAccess` when registered, else `PrincipalAttributeTenantAccess` | none shipped | Register your class under `TenantAccess` and set `tenancy.access` to its name. Extend `PrincipalAttributeTenantAccess` and call `super.canEnter` to keep the attribute rule. |
 | `TenantResolver` | `TenantResolver`; this package registers none and resolves none | none in this package | the resolvers of `@spinajs/tenancy-http` | Extend `TenantResolver`. For HTTP, register a class named `<Name>TenantResolver` under `TenantResolver` and list `<name>` in `tenancy.http.resolvers` (see [`@spinajs/tenancy-http`](../tenancy-http/README.md)); elsewhere, call it yourself. |
 
 `tenantAccess(container = DI.RootContainer)` returns the configured `TenantAccess`. Register a replacement before the first `tenantRegistry()`, `tenantAccess()`, `admitTenant()` or `forEachTenant()` call in the container: `TenancyServices` resolves both names once.
@@ -162,7 +162,7 @@ export async function handleInvoiceJob(job: InvoiceJob, sender: Principal): Prom
 ## Important behaviour
 
 - `TenantAccess` is asked for an authenticated principal only. With no principal, an anonymous or an unattended one, `admitTenant` admits every active tenant. Decide at the entry point whether that is allowed.
-- `SYSTEM` from `@spinajs/principal` is authenticated and has no `attributes.tenants`, so the default access check refuses it. Code running as `SYSTEM` calls `admitTenant` without a principal, or the access check must allow it.
+- `SYSTEM` from `@spinajs/principal` is authenticated and has no `attributes.tenants`, so the attribute check refuses it (authz allows it, so `AuthzTenantAccess` admits it). Code running as `SYSTEM` calls `admitTenant` without a principal, or the access check must allow it.
 - `admitTenant` reads through the registry cache: behind a cacheable registry, a tenant suspended in the store is admitted until the TTL passes or `invalidate(id)` runs.
 - `admitTenant` checks `state === 'active'` only; `forEachTenant` with other states does not go through it.
 

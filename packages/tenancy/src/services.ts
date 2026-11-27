@@ -9,6 +9,9 @@ import { TenantUnavailable } from './errors.js';
 import { TENANCY_DEFAULTS } from './schema.js';
 import { isTenantId } from './scope.js';
 
+// @spinajs/tenancy-orm/authz registers AuthzTenantAccess: importing it makes authz decide who enters.
+const DEFAULT_ACCESS: readonly string[] = ['AuthzTenantAccess', TENANCY_DEFAULTS.access];
+
 /** The registry and the access check a container's configuration names; one instance per container. */
 export class TenancyServices extends AsyncService {
   @Autoinject(Container)
@@ -24,7 +27,7 @@ export class TenancyServices extends AsyncService {
   public async resolve(): Promise<void> {
     const inner = await resolveNamedService(this.Container, 'tenancy.registry', TenantRegistry, { default: TENANCY_DEFAULTS.registry });
     this.registry = new CachedTenantRegistry(inner, () => this.CacheMs);
-    this.access = await resolveNamedService(this.Container, 'tenancy.access', TenantAccess, { default: TENANCY_DEFAULTS.access });
+    this.access = await resolveNamedService(this.Container, 'tenancy.access', TenantAccess, { default: (registered) => DEFAULT_ACCESS.find((name) => registered.includes(name)) });
     await super.resolve();
   }
 }

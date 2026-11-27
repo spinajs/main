@@ -28,6 +28,7 @@ import '@spinajs/tenancy-orm';
 | [Tenant models](02-tenant-models.md) | `@Tenant()` models whose statements are confined to the current tenant by `TenantScopeMiddleware` |
 | [Across tenants](03-across-tenants.md) | `.acrossTenants(reason)` widens one select, update or delete to every tenant |
 | [Transactions](04-transactions.md) | One tenant scope per transaction on a connection with tenant settings |
+| [Tenants in authz](10-authz.md) | `@spinajs/tenancy-orm/authz`: tenant roles, `tenant:enter`, `tenantsOf()` |
 
 ## Quick start
 
