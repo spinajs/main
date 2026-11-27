@@ -127,6 +127,8 @@ export interface Nested {
   readonly tags: Set<string>;
   /** The earliest validUntil of the nested decisions: no decision above them is valid longer. */
   until: Date | undefined;
+  /** The records of the call trees whose ctx.cache values this tree read: it rests on them as on its own nested checks. */
+  memos: Set<Nested> | undefined;
 }
 
 /** Who the models run with. */

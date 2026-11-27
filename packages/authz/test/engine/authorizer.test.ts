@@ -576,10 +576,12 @@ describe('Authorizer', () => {
       await a.check({ principal: alice, permission: 'doc:read' }, scope);
       await a.check({ principal: alice, permission: 'doc:write' }, scope);
       await a.check({ principal: alice, permission: 'doc:read' });
-      expect(caches.a[0]).to.not.equal(caches.b[0]);
-      expect(caches.a[0]).to.equal(caches.a[1]);
-      expect(caches.a[2]).to.not.equal(caches.a[0]);
+      // Each context gets a view of its own, so the memo is compared by what it holds.
       expect(caches.a[0].get('k')).to.equal('a');
+      expect(caches.b[0].get('k')).to.equal('b');
+      caches.a[1].set('second', true);
+      expect(caches.a[0].get('second')).to.equal(true);
+      expect(caches.a[2].has('second')).to.equal(false);
       expect([...scope.cache.keys()].every((k) => k.startsWith('\u0000'))).to.equal(true);
     });
 

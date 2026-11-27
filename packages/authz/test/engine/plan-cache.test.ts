@@ -148,6 +148,58 @@ describe('Authorizer.accessPlan: a plan kept beyond its request', () => {
     expect((await a.accessPlan(alice, 'doc:read', 'doc', undefined, scope)).kind).to.equal('none');
   });
 
+  it('a plan that read a settled nested answer while its writer still ran another nested check ends with that check (review SX36B-RV-F2)', async () => {
+    const bob = principal('user', 'bob');
+    const carol = principal('user', 'carol');
+    const carolUntil = new Date(clock.now.getTime() + 3_000);
+    const untilOf = new Map([
+      ['bob', new Date(clock.now.getTime() + 5_000)],
+      ['carol', carolUntil],
+    ]);
+    const live = (req: { principal: { id: string } }): Vote => {
+      const until = untilOf.get(req.principal.id);
+      return until !== undefined && clock.now.getTime() < until.getTime() ? { model: 'n', permitWhen: TRUE, denyWhen: FALSE, cacheable: true, validUntil: until } : { model: 'n', permitWhen: FALSE, denyWhen: FALSE, cacheable: true };
+    };
+    const writes = async (ctx: EvaluationContext, who: typeof bob) => (await ctx.check({ principal: who, permission: 'doc:write', resource: { type: 'doc', id: 'd1' } })).allowed;
+    let memoSet!: () => void;
+    let memoRead!: () => void;
+    let writerDone!: () => void;
+    const set = new Promise<void>((resolve) => (memoSet = resolve));
+    const read = new Promise<void>((resolve) => (memoRead = resolve));
+    const done = new Promise<void>((resolve) => (writerDone = resolve));
+    let checks = 0;
+    // The reader takes bob's settled answer while the writer has carol's check still to make, and ends after it.
+    const listPlan = async (_req: ListPlanRequest, ctx: EvaluationContext) => {
+      const hit = ctx.cache.get('bob');
+      if (typeof hit === 'boolean') {
+        memoRead();
+        await done;
+        return hit ? { kind: 'all' } : { kind: 'abstain' };
+      }
+      checks++;
+      const bobWrites = await writes(ctx, bob);
+      ctx.cache.set('bob', bobWrites);
+      memoSet();
+      await read;
+      const allowed = bobWrites && (await writes(ctx, carol));
+      writerDone();
+      return allowed ? { kind: 'all' } : { kind: 'abstain' };
+    };
+    const a = make([new KeptModel('n', { vote: live, listPlan })]);
+    const scope = { cache: new Map<string, unknown>() };
+    const first = a.accessPlan(alice, 'doc:read', 'doc', undefined, scope);
+    await set;
+    const second = await a.accessPlan(alice, 'doc:other', 'doc', undefined, scope);
+    await first;
+
+    expect(checks).to.equal(1);
+    expect(second.kind === 'filter' ? second.validUntil?.getTime() : undefined).to.equal(carolUntil.getTime());
+    expect(cacheOf(second).ttlMs).to.equal(3_000);
+    expect(cacheOf(second).tags).to.include.members(['subject:user:bob', 'subject:user:carol']);
+    clock.advance(4_000);
+    expect((await a.accessPlan(alice, 'doc:other', 'doc', undefined, scope)).kind).to.equal('none');
+  });
+
   it('keeps nothing once the request saw a fault a model caught', async () => {
     const m = kept('a', async (req: ListPlanRequest, ctx: EvaluationContext) => {
       if (req.permission.name === 'doc:other') await ctx.ancestors({ type: 'folder', id: 'x' }).catch(() => null);

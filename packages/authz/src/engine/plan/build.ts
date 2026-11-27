@@ -13,6 +13,7 @@ import type { PlanAnswer } from '../plan.js';
 import { settleWithin } from '../run.js';
 import { deepFreeze, describeError } from '../vote.js';
 import { hostFor } from '../context/host.js';
+import { settleMemos } from '../context/memo.js';
 import { relation } from '../context/request.js';
 import { ceilingOf } from '../pipeline/delegate.js';
 import { admits, contextCacheKey, earliest, principalCacheId } from '../support/misc.js';
@@ -51,6 +52,7 @@ export async function buildPlan(engine: Engine, d: Delegation, def: PermissionDe
   const label = `${def.name} on ${quote(type)}`;
   const models = route.models.filter((m) => admits(m, runAs));
   const answers = await Promise.all(models.map((m) => modelPlan(engine, m, req, new ModelContext(host, m.name, run.scope, run.instant, 0, undefined, contextCacheKey(m.name, cacheId, 'listPlan')), label)));
+  settleMemos(run.nested);
   const until = earliest([ceiling.expiresAt, run.nested.until]);
   const bounds = { ...(within ? { within } : {}), ...(until ? { validUntil: until } : {}) };
   const plan = combinePlans(answers, bounds);

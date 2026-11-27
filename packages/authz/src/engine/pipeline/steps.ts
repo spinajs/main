@@ -21,6 +21,7 @@ import type { Pipeline, Settled } from '../run.js';
 import { describeError } from '../vote.js';
 import { markFault, remember, scopeFaulted } from '../cache/store.js';
 import { hostFor } from '../context/host.js';
+import { settleMemos } from '../context/memo.js';
 import { envOf, requestOf, subjectEnv } from '../context/request.js';
 import { admits, contextCacheKey, earliest, mergeRoles } from '../support/misc.js';
 import { logAt } from '../support/plumbing.js';
@@ -215,6 +216,7 @@ type Reason = { readonly reason: DenyReason | undefined; readonly uncacheable: b
 
 /** Step 15: the outcome, its fault and cache marks, finish and the store. */
 export function conclude(engine: Engine, v: Voted, c: Combination, f: FieldsStep, r: Reason): Checked {
+  settleMemos(v.run.nested);
   const outcome = outcomeOf(v, c, f, r);
   const faulted = faultedOf(engine, v, c, f);
   if (faulted) markFaulted(engine, v);

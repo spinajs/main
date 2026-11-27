@@ -541,6 +541,182 @@ describe('B14: decision caches (L1 per request, L2 across requests)', () => {
       });
     });
 
+    describe('a decision resting on a nested answer the model memoised in ctx.cache ends with that answer', () => {
+      const carol = principal('user', 'carol');
+      const T0 = fakeClock().now.getTime();
+      const expiry = new Date(T0 + 5_000);
+      type Grants = Readonly<Record<string, { readonly until: Date; readonly effect?: 'deny'; readonly after?: Promise<void> }>>;
+      /** Each grantee may write until its grant ends (or, for 'deny', is refused until then); alice may read when every grantee `asks` names may write, and memoises each settled answer under the grantee's id. */
+      const memoising = (clock: FakeClock, grants: Grants, asks: (req: DecisionRequest) => readonly Principal[], checks: string[]) => {
+        const answerOf = async (ctx: EvaluationContext, grantee: Principal): Promise<boolean> => {
+          const hit = ctx.cache.get(grantee.id);
+          if (typeof hit === 'boolean') return hit;
+          checks.push(grantee.id);
+          const allowed = (await ctx.check({ principal: grantee, permission: 'doc:write', resource: D1, env: {} })).allowed;
+          ctx.cache.set(grantee.id, allowed);
+          return allowed;
+        };
+        const vote = async (req: DecisionRequest, ctx: EvaluationContext): Promise<Vote> => {
+          const grant = grants[req.principal.id];
+          if (grant) {
+            if (grant.after) await grant.after;
+            const live = clock.now.getTime() < grant.until.getTime();
+            if (grant.effect === 'deny') return live ? pass('m', FALSE, { denyWhen: TRUE, validUntil: grant.until }) : pass('m', TRUE);
+            return live ? pass('m', TRUE, { validUntil: grant.until }) : pass('m', FALSE);
+          }
+          const answers = await Promise.all(asks(req).map((p) => answerOf(ctx, p)));
+          return pass('m', answers.every((x) => x) ? TRUE : FALSE);
+        };
+        return { vote, answerOf };
+      };
+      const built = (grants: Grants, asks: (req: DecisionRequest) => readonly Principal[] = () => [bob]) => {
+        const clock = fakeClock();
+        const cache = new RecordingCache({ clock: clock.clock });
+        const checks: string[] = [];
+        const { vote } = memoising(clock, grants, asks, checks);
+        const a = new Authorizer({ domain: 'root', registry, models: [new StaticModel('m', { vote })], adapters: [new FakeAdapter(['doc', 'folder'], { rows: rows() })], clock: clock.clock, cache });
+        return { a, cache, clock, checks };
+      };
+      const stored = (cache: RecordingCache, on: ResourceRef) => cache.sets.filter((s) => s.decision.principal.id === 'alice' && s.decision.resource.id === on.id).at(-1);
+
+      it('B14: a memoised nested allow bounds the decision that reads it and is not served after the grant ended (review SX36-RV-F2)', async () => {
+        const { a, cache, clock, checks } = built({ bob: { until: expiry } });
+        const scope = fresh();
+        expect((await a.check(read(alice, D1), scope)).allowed).to.equal(true);
+        clock.advance(1_000);
+        const d2 = await a.check(read(alice, D2), scope);
+        expect(d2.allowed).to.equal(true);
+        // Inside its bound the memo still saves the nested check.
+        expect(checks).to.deep.equal(['bob']);
+        expect(d2.validUntil?.getTime()).to.equal(expiry.getTime());
+        expect(stored(cache, D2)?.ttlMs).to.equal(4_000);
+        expect(stored(cache, D2)?.tags).to.include('subject:user:bob');
+        clock.advance(5_000);
+        expect((await a.check(read(alice, D2), scope)).allowed).to.equal(false);
+        expect(checks).to.deep.equal(['bob', 'bob']);
+        expect((await a.check(read(alice, D2), fresh())).allowed).to.equal(false);
+      });
+
+      it('B14: a memoised nested deny that ends is asked again after its cause ended', async () => {
+        const { a, cache, clock, checks } = built({ bob: { until: expiry, effect: 'deny' } });
+        const scope = fresh();
+        expect((await a.check(read(alice, D1), scope)).allowed).to.equal(false);
+        expect((await a.check(read(alice, D2), scope)).allowed).to.equal(false);
+        expect(checks).to.deep.equal(['bob']);
+        expect(stored(cache, D2)?.ttlMs).to.equal(5_000);
+        clock.advance(6_000);
+        expect((await a.check(read(alice, D2), scope)).allowed).to.equal(true);
+        expect(checks).to.deep.equal(['bob', 'bob']);
+      });
+
+      it('B14: of two memoised nested answers the earlier bound wins', async () => {
+        const asks = (req: DecisionRequest) => (req.resource.id === 'd1' ? [bob] : req.resource.id === 'd2' ? [carol] : [bob, carol]);
+        const { a, cache, checks } = built({ bob: { until: expiry }, carol: { until: new Date(T0 + 3_000) } }, asks);
+        const scope = fresh();
+        await a.check(read(alice, D1), scope);
+        await a.check(read(alice, D2), scope);
+        const both = await a.check({ principal: alice, permission: 'folder:read', resource: F1 }, scope);
+        expect(both.allowed).to.equal(true);
+        expect(checks).to.deep.equal(['bob', 'carol']);
+        expect(both.validUntil?.getTime()).to.equal(T0 + 3_000);
+        expect(stored(cache, F1)?.ttlMs).to.equal(3_000);
+        expect(stored(cache, F1)?.tags).to.include.members(['subject:user:bob', 'subject:user:carol']);
+      });
+
+      it('B14: two overlapping decisions that found no settled answer each check for themselves and are both bounded', async () => {
+        const { a, cache, checks } = built({ bob: { until: expiry } });
+        const scope = fresh();
+        const [d1, d2] = await Promise.all([a.check(read(alice, D1), scope), a.check(read(alice, D2), scope)]);
+        expect(checks).to.deep.equal(['bob', 'bob']);
+        expect([d1.validUntil?.getTime(), d2.validUntil?.getTime()]).to.deep.equal([expiry.getTime(), expiry.getTime()]);
+        expect([stored(cache, D1)?.ttlMs, stored(cache, D2)?.ttlMs]).to.deep.equal([5_000, 5_000]);
+      });
+
+      it('B14: a decision that read a settled answer while its writer still ran another nested check rests on that check too', async () => {
+        let openCarol!: () => void;
+        let openDave!: () => void;
+        const dave = principal('user', 'dave');
+        const asks = (req: DecisionRequest) => (req.resource.id === 'd1' ? [bob, carol] : [bob, dave]);
+        const { a, cache, checks } = built(
+          {
+            bob: { until: expiry },
+            carol: { until: new Date(T0 + 3_000), after: new Promise<void>((resolve) => (openCarol = resolve)) },
+            dave: { until: new Date(T0 + 10_000), after: new Promise<void>((resolve) => (openDave = resolve)) },
+          },
+          asks,
+        );
+        const scope = fresh();
+        const turn = () => new Promise<void>((resolve) => setImmediate(resolve));
+        const first = a.check(read(alice, D1), scope);
+        await turn();
+        // The second decision reads bob's answer while the first still waits on carol, and ends after the first.
+        const second = a.check(read(alice, D2), scope);
+        await turn();
+        openCarol();
+        await first;
+        openDave();
+        const d2 = await second;
+        expect(checks).to.deep.equal(['bob', 'carol', 'dave']);
+        expect(d2.validUntil?.getTime()).to.equal(T0 + 3_000);
+        expect(stored(cache, D2)?.ttlMs).to.equal(3_000);
+        expect(stored(cache, D2)?.tags).to.include('subject:user:carol');
+      });
+
+      it('B14: a nested answer a preload memoised bounds the decisions that read it', async () => {
+        const clock = fakeClock();
+        const cache = new RecordingCache({ clock: clock.clock });
+        const checks: string[] = [];
+        const { vote, answerOf } = memoising(clock, { bob: { until: expiry } }, () => [bob], checks);
+        class Preloading extends StaticModel {
+          async preload(p: Principal, ctx?: EvaluationContext): Promise<void> {
+            if (ctx && p.id === alice.id) await answerOf(ctx, bob);
+          }
+        }
+        const a = new Authorizer({ domain: 'root', registry, models: [new Preloading('m', { vote })], adapters: [new FakeAdapter(['doc', 'folder'], { rows: rows() })], clock: clock.clock, cache });
+        const scope = fresh();
+        await a.preload(alice, scope);
+        const d1 = await a.check(read(alice, D1), scope);
+        expect(checks).to.deep.equal(['bob']);
+        expect(d1.validUntil?.getTime()).to.equal(expiry.getTime());
+        expect(stored(cache, D1)?.ttlMs).to.equal(5_000);
+      });
+
+      it('B14: the memo lives in the request scope: another request asks again', async () => {
+        const { a, checks } = built({ bob: { until: expiry } });
+        await a.check(read(alice, D1), fresh());
+        await a.check(read(alice, D2), fresh());
+        expect(checks).to.deep.equal(['bob', 'bob']);
+      });
+
+      it('B14: a memoised value that no nested check produced shortens nothing, and ctx.cache keeps the Map surface', async () => {
+        let loads = 0;
+        const surface: unknown[] = [];
+        const m = new StaticModel('m', {
+          vote: async (_req: DecisionRequest, ctx: EvaluationContext) => {
+            if (!ctx.cache.has('load')) {
+              loads++;
+              ctx.cache.set('load', Promise.resolve(1)).set('other', 2);
+            }
+            ctx.cache.delete('other');
+            surface.push(ctx.cache.size, [...ctx.cache.keys()], [...ctx.cache.values()].length, [...ctx.cache].length, [...ctx.cache.entries()].length);
+            ctx.cache.forEach((_v, k, map) => surface.push(k, map === ctx.cache));
+            // A Map member the memo view does not override would read the view's own empty storage.
+            const own = Reflect.ownKeys(Reflect.getPrototypeOf(ctx.cache) ?? {});
+            surface.push(Reflect.ownKeys(Map.prototype).every((k) => k === Symbol.toStringTag || own.includes(k)));
+            return pass('m', TRUE);
+          },
+        });
+        const { a, cache } = setup([m]);
+        const scope = fresh();
+        await a.check(read(alice, D1), scope);
+        const d2 = await a.check(read(alice, D2), scope);
+        expect(loads).to.equal(1);
+        expect(d2.validUntil).to.equal(undefined);
+        expect(cache.sets.map((s) => s.ttlMs)).to.deep.equal([60_000, 60_000]);
+        expect(surface.slice(0, 8)).to.deep.equal([1, ['load'], 1, 1, 1, 'load', true, true]);
+      });
+    });
+
     it('B14: a decision resting on a nested decision served from the L2 stays out of the L2, as the nested tags are unknown (review P2)', async () => {
       const m = new StaticModel('m', {
         vote: async (req: DecisionRequest, ctx: EvaluationContext) => {

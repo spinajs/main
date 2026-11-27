@@ -71,7 +71,7 @@ Build filters with the exported helpers: `TRUE`, `FALSE`, `and(...)`, `or(...)`,
 | `conditions` | The domain's `ConditionCompiler` ([Conditions](07-conditions.md)). |
 | `relation(type, name)` | The `RelationResolver` of a relation. |
 | `check(req)` | A nested check; its tags flow into the outer decision's cache entry. |
-| `cache` | A per-request, per-model, per-principal `Map` for memos. |
+| `cache` | A per-request, per-model, per-principal `Map` for memos; a value rests on the nested checks its decision made. |
 | `trace(step)` | Adds a step to an `explain()` trace. |
 
 ## Registration
@@ -182,7 +182,7 @@ Route it with `authz: { combine: { types: { payout: { algorithm: 'unanimous', mo
 
 - **Throw on missing or failed data; never vote "no".** A thrown or timed-out vote is indeterminate (`model_error`): it fails closed and is never cached. A "no" vote looks like a clean answer and gets cached.
 - **Memoise the promise of a load in `ctx.cache`, or memoise nothing.** A placeholder written before the load settles is read by a concurrent check as a clean answer.
-- **Never memoise a `ctx.check()` answer in `ctx.cache`.** The engine already keeps nested decisions in the L1 of the request. A memoised answer brings neither its tags nor its `validUntil` to the next decision, which is then cached as if it rested on nothing: past the nested grant's expiry, and past its revocation.
+- **A memoised `ctx.check()` answer keeps what it rested on.** Each `ctx.cache` value carries the tags and the earliest `validUntil` of the nested checks its decision made, preload included. A decision that reads the value rests on them as if it had made the check, and the value is gone once that `validUntil` has passed: the next read misses and the check runs again. A value whose decision made no nested check is kept as it was. Every member that returns values counts as a read, `size` and iteration included, so iterate the memo only when the decision rests on all of it. A value carries `cacheable: false` and unknown tags of those nested checks too: a decision that reads it is then not cached, or not in the L2. The bound belongs to the `ctx.cache` entry, not to what is inside it. A `ctx.check()` answer put into a value an earlier decision stored (a `Map`, an object or an array under one key), or kept anywhere outside `ctx.cache` (a field of the model, a closure), is not seen: a decision that reads it is cached as if it rested on nothing, and stays allowed after the nested grant ends or is revoked. Store each nested answer, once it has settled, under a key of its own: ``ctx.cache.set(`check:${grantee.id}`, await ctx.check(...))``, never `answers.set(grantee.id, ...)` and never the promise of a check still running. Each context gets its own view of the memo, so two decisions of a request share the entries, not the `Map` object. Read the memo through its methods; `structuredClone` and `util.inspect` see the view's own, empty storage.
 - **Key every cache on everything the answer depends on**: principal state, permission, resource, scope, version. A missing part leaks one answer into another request.
 - **Never derive a cacheable vote from `principal.identity` or `env`**; the cache key holds neither. Set `cacheable: false` on such a vote.
 - **Report reasons with priorities.** One `denies[]` entry per deny source, each with `reason.priority` (lower wins) and, for ties, `sortKey`.
