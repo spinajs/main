@@ -31,9 +31,10 @@ Limits of this version:
   and filter arguments, an application's own resolver) fails the registration: cache such a route with scope
   `'principal'`. An action that takes `@Req()` or `@Res()` fails the registration too.
   http also passes `req`, `res` and `next` after the declared arguments: an action with more parameters than declared
-  arguments fails the registration, but one that reads them through a default or rest parameter or `arguments` cannot
-  be seen. A `'tenant'` or `'shared'` action must not read the request at all; it takes what it needs as `@Query`,
-  `@Param` or `@Header` arguments.
+  arguments fails the registration, but one that reads them through a default or rest parameter, `arguments`, or under
+  a method decorator that wraps the action (`@Measure()` of `@spinajs/log`, whose wrapper takes `...args`) cannot be
+  seen. A `'tenant'` or `'shared'` action must not read the request at all, whatever decorates it; it takes what it
+  needs as `@Query`, `@Param` or `@Header` arguments.
 - A route that reads the request body (`@Body`, a form, a file, the raw body, `@ContentDigest`, `@RequestStream`)
   fails the registration on every scope, per principal too: a GET body is in no key.
 - A `'tenant'` route fails the registration unless something puts the tenant into the key: `@spinajs/tenancy-http`,
@@ -54,6 +55,10 @@ Limits of this version:
   that describe the body (`Content-Language`, `Content-Disposition`, `Last-Modified`, `Link`, `Cache-Control`,
   `Expires`, `Vary`), on every scope: a route's `X-Request-Id`, CSRF token or rate-limit value belongs to one request
   or session, and one principal has many. A header like that is set by a middleware, which sets it again on a hit.
+  A download keeps its filename (`Content-Disposition`) and a route's `Cache-Control: public, max-age=120` stays. Any
+  other header the route sets itself is missing on a hit, also per principal: a total count such as `X-Total-Count`
+  (the admin user list of `@spinajs/users-http` sends one) belongs in the body, or the route is not cached; a client
+  that pages by that header breaks on its second request.
 - The key holds no build or version of the application: a reply cached before a deployment is served after it until
   its ttl, and two versions behind one shared store exchange their replies. Invalidate the route's tags on deploy, or
   register a `ResponseCacheKeyPart` that returns the build id.
