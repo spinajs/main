@@ -24,7 +24,7 @@
     "rimraf": "./node_modules/rimraf/bin.js",
     "clean": "rimraf lib/ && rimraf tsconfig.tsbuildinfo",
     "pretest": "npm run compile",
-    "test": "ts-mocha -p tsconfig.json --exit \"test/**/*.test.ts\"",
+    "test": "ts-mocha -p tsconfig.json --exit \"test/*.test.ts\" && ts-mocha -p tsconfig.json --exit \"test/lifecycle/*.test.ts\"",
     "coverage": "c8 npm run test",
     "format": "prettier --write \"src/**/*.ts\"",
     "lint": "cd ../.. && npm run lint -- packages/tenancy-orm",
@@ -53,6 +53,7 @@
   "dependencies": {
     "@spinajs/configuration": "3.0.23",
     "@spinajs/di": "3.0.23",
+    "@spinajs/durable": "3.0.23",
     "@spinajs/exceptions": "3.0.23",
     "@spinajs/orm": "3.0.23",
     "@spinajs/tenancy": "3.0.23",
@@ -60,6 +61,10 @@
   },
   "devDependencies": {
     "@spinajs/log": "3.0.23",
+    "@spinajs/orm-mssql": "3.0.23",
+    "@spinajs/orm-mysql": "3.0.23",
+    "@spinajs/orm-pglite": "3.0.23",
+    "@spinajs/orm-postgres": "3.0.23",
     "@spinajs/orm-sqlite": "3.0.23",
     "@spinajs/testing": "3.0.23",
     "@types/luxon": "^3.4.2"
