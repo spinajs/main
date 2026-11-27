@@ -171,4 +171,4 @@ DI.register(SlowHandlerHook).as(QueueMessageHook);
 - [Job tracking](03-job-tracking.md): how `Initiator` becomes the row owner.
 - [Tracking hooks](07-tracking-hooks.md): the other hook, around the queue's own database queries.
 - [Multiple implementations](../di/06-multiple-implementations.md): `Array.ofType` and registration order.
-- [Queue tenant scope](../tenancy/01-queue-tenant-scope.md): the hook that carries the tenant with a message.
+- `TenantQueueHook` of `@spinajs/tenancy/queue`: the hook that carries the tenant with a message.
