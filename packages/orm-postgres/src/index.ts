@@ -15,6 +15,7 @@ import { PostgresDatetimeValueConverter, PostgresJsonValueConverter } from './co
 import { normalizePostgresPlan } from './explain.js';
 import type { QueryPlan } from '@spinajs/orm';
 import { PostgresMigrationLock } from './migration-lock.js';
+import { CancellableClient, sendCancelRequest } from './cancel.js';
 
 export * from './compilers.js';
 export * from './expressions.js';
@@ -265,6 +266,9 @@ export class PostgresOrmDriver extends SqlDriver {
         } catch (err) {
           // Without the server's answer (pg's query_timeout) the statement may still run on this session: pooled, the next caller would queue behind it.
           abandoned = !(err instanceof pg.DatabaseError);
+          if (abandoned) {
+            void this.cancelAbandoned(client);
+          }
           throw err;
         } finally {
           client.release(abandoned);
@@ -340,6 +344,9 @@ export class PostgresOrmDriver extends SqlDriver {
       }
     } catch (err) {
       failed = true;
+      if (!(err instanceof pg.DatabaseError)) {
+        void this.cancelAbandoned(client);
+      }
       throw mapError(err);
     } finally {
       try {
@@ -352,6 +359,27 @@ export class PostgresOrmDriver extends SqlDriver {
         client.release(failed || connectionLost);
       }
     }
+  }
+
+  /**
+   * Asks the server to stop the statement of a client that is destroyed without the server's answer, so its backend
+   * does not run on beside the pool's replacement. Never rejects; resolves once the request is sent or has failed.
+   *
+   * @returns undefined when there is nothing to cancel: the socket is closed, the client has no key, or the option is off
+   */
+  protected cancelAbandoned(client: pg.PoolClient): Promise<void> | undefined {
+    const enabled = (this.Options.Options as Record<string, unknown> | undefined)?.CancelAbandonedStatements !== false;
+    const key = enabled && client instanceof CancellableClient ? client.cancelKey : undefined;
+    if (!key) {
+      return undefined;
+    }
+
+    return sendCancelRequest(client.host, client.port, key, this.resolvedPoolOptions().AcquireTimeout).then((err) => {
+      if (err) {
+        this.Log?.debug({ error: err, connection: this.Options.Name }, 'could not cancel an abandoned statement on ${connection}');
+      }
+      return undefined;
+    });
   }
 
   /** Taking the client explicitly, instead of letting `Pool.query` do it out of sight, is what makes `orm_pool_acquire_seconds` a real number. */
@@ -470,6 +498,7 @@ export class PostgresOrmDriver extends SqlDriver {
       // when no options are given, so it is kept here.
       options: `${process.env.PGOPTIONS ?? ''} -c TimeZone=UTC`.trim(),
       types: UTC_TYPES,
+      Client: CancellableClient,
     };
   }
 
