@@ -114,7 +114,7 @@ The decision reports one reason: the lowest `priority`, then the lowest `sortKey
 | `no_access` | 400 | Core: no model permits. |
 | `role_too_low`, `tag_missing`, `provenance` | 410, 420, 430 | RBAC. |
 | `needs_subject` | 500 | A model whose deny needs the row when none was given. |
-| `model_error` | 900 | Core: an indeterminate vote, a failed combinator, binder or field step. |
+| `model_error` | 900 | Core: an indeterminate vote, a failed combinator, binder or field step; a `checkAll` entry whose row load failed or whose check threw. |
 | `residual_false` | 900 | Core: the row did not match the residual. |
 | `invalid_request` | 500 (not listed) | Core: a `checkAll` entry with an unregistered permission or a wrong type. |
 
