@@ -48,6 +48,7 @@ export default {
 - A store failure is not fatal for checks: `EmailVerification` logs it and runs the verifier live.
 - `loadLists()` reads each set with `SMEMBERS`. It is not one atomic snapshot across sources, but each source is consistent.
 - `keyPrefix` isolates apps that share a Redis; give each app its own.
+- Errors from the store, and the connection error it logs, carry no `command` (ioredis puts the failed command's keys, values and an `AUTH` password there), also on each `previousErrors` item; class, `name` and `message` are ioredis's own.
 
 ## Services and extension points
 

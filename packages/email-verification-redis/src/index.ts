@@ -23,6 +23,20 @@ const splitMember = (m: string): [ListKind, string] => {
 };
 
 /**
+ * ioredis copies a failed command's arguments onto its error as `command`, and onto each queued
+ * error of a transaction in `previousErrors`: keys with the checked domain, stored values, the AUTH password.
+ * There is no client option to leave them out.
+ */
+function withoutCommand<T>(err: T): T {
+  if (!(err instanceof Error)) return err;
+  Reflect.deleteProperty(err, 'command');
+  if ('previousErrors' in err && Array.isArray(err.previousErrors)) {
+    for (const previous of err.previousErrors) if (previous instanceof Error) Reflect.deleteProperty(previous, 'command');
+  }
+  return err;
+}
+
+/**
  * Redis-backed store (ioredis). One set per list source, plus an index set of sources.
  * replaceSource builds a temporary set and RENAMEs it over the live one, so a reader
  * sees the old set or the new set.
@@ -39,7 +53,7 @@ export class RedisEmailVerificationStore extends EmailVerificationStore {
 
   public async resolve(): Promise<void> {
     this.Client = this.createClient();
-    this.Client.on('error', (err: Error) => this.Log.error(err, 'Redis connection error'));
+    this.Client.on('error', (err: Error) => this.Log.error(withoutCommand(err), 'Redis connection error'));
     await super.resolve();
   }
 
@@ -64,89 +78,112 @@ export class RedisEmailVerificationStore extends EmailVerificationStore {
     if (!settled) client.disconnect();
   }
 
-  public async getVerdict(verifier: string, domain: string): Promise<CachedVerdict | null> {
-    const raw = await this.Client.get(`verdict:${verifier}:${domain}`);
-    if (raw === null) return null;
-    try {
-      const parsed = JSON.parse(raw) as CachedVerdict | null;
-      return parsed && VERDICTS.has(parsed.result) ? parsed : null;
-    } catch {
-      return null;
-    }
-  }
-
-  public async setVerdict(verifier: string, domain: string, verdict: CachedVerdict, ttlSeconds: number): Promise<void> {
-    if (ttlSeconds <= 0) return;
-    await this.Client.set(`verdict:${verifier}:${domain}`, JSON.stringify(verdict), 'PX', ttlSeconds * 1000);
-  }
-
-  public async loadLists(): Promise<ListEntry[]> {
-    const entries: ListEntry[] = [];
-    for (const m of await this.Client.smembers(INDEX)) {
-      const [kind, source] = splitMember(m);
-      for (const domain of await this.Client.smembers(listKey(kind, source))) entries.push({ domain, kind, source });
-    }
-    return entries;
-  }
-
-  public async listVersion(): Promise<string> {
-    return (await this.Client.get(VERSION)) ?? '0';
-  }
-
-  public async upsertEntries(entries: readonly ListEntry[]): Promise<void> {
-    if (entries.length === 0) return;
-    const bySource = new Map<string, { kind: ListKind; source: string; domains: string[] }>();
-    for (const e of entries) {
-      const m = member(e.kind, e.source);
-      let group = bySource.get(m);
-      if (!group) bySource.set(m, (group = { kind: e.kind, source: e.source, domains: [] }));
-      group.domains.push(e.domain);
-    }
-    const tx = this.Client.multi();
-    for (const [m, g] of bySource) {
-      for (const part of chunk(g.domains, BATCH)) tx.sadd(listKey(g.kind, g.source), ...part);
-      tx.sadd(INDEX, m);
-    }
-    tx.incr(VERSION);
-    await this.exec(tx);
-  }
-
-  public async removeEntries(kind: ListKind, domains: readonly string[], source: string): Promise<void> {
-    const tx = this.Client.multi();
-    for (const part of chunk([...domains], BATCH)) tx.srem(listKey(kind, source), ...part);
-    tx.incr(VERSION);
-    await this.exec(tx);
-  }
-
-  public async replaceSource(source: string, kind: ListKind, domains: readonly string[]): Promise<void> {
-    const key = listKey(kind, source);
-    if (domains.length === 0) {
-      await this.exec(this.Client.multi().del(key).srem(INDEX, member(kind, source)).incr(VERSION));
-      return;
-    }
-    const tmp = `${key}:tmp:${randomUUID()}`;
-    try {
-      let first = true;
-      for (const part of chunk([...domains], BATCH)) {
-        const tx = this.Client.multi().sadd(tmp, ...part);
-        // The TTL goes in with the first batch so a crash mid-load cannot leave the temporary set forever.
-        if (first) tx.pexpire(tmp, TMP_TTL_MS);
-        first = false;
-        await this.exec(tx);
+  public getVerdict(verifier: string, domain: string): Promise<CachedVerdict | null> {
+    return this.run(async () => {
+      const raw = await this.Client.get(`verdict:${verifier}:${domain}`);
+      if (raw === null) return null;
+      try {
+        const parsed = JSON.parse(raw) as CachedVerdict | null;
+        return parsed && VERDICTS.has(parsed.result) ? parsed : null;
+      } catch {
+        return null;
       }
-      await this.exec(this.Client.multi().rename(tmp, key).persist(key).sadd(INDEX, member(kind, source)).incr(VERSION));
+    });
+  }
+
+  public setVerdict(verifier: string, domain: string, verdict: CachedVerdict, ttlSeconds: number): Promise<void> {
+    return this.run(async () => {
+      if (ttlSeconds <= 0) return;
+      await this.Client.set(`verdict:${verifier}:${domain}`, JSON.stringify(verdict), 'PX', ttlSeconds * 1000);
+    });
+  }
+
+  public loadLists(): Promise<ListEntry[]> {
+    return this.run(async () => {
+      const entries: ListEntry[] = [];
+      for (const m of await this.Client.smembers(INDEX)) {
+        const [kind, source] = splitMember(m);
+        for (const domain of await this.Client.smembers(listKey(kind, source))) entries.push({ domain, kind, source });
+      }
+      return entries;
+    });
+  }
+
+  public listVersion(): Promise<string> {
+    return this.run(async () => (await this.Client.get(VERSION)) ?? '0');
+  }
+
+  public upsertEntries(entries: readonly ListEntry[]): Promise<void> {
+    return this.run(async () => {
+      if (entries.length === 0) return;
+      const bySource = new Map<string, { kind: ListKind; source: string; domains: string[] }>();
+      for (const e of entries) {
+        const m = member(e.kind, e.source);
+        let group = bySource.get(m);
+        if (!group) bySource.set(m, (group = { kind: e.kind, source: e.source, domains: [] }));
+        group.domains.push(e.domain);
+      }
+      const tx = this.Client.multi();
+      for (const [m, g] of bySource) {
+        for (const part of chunk(g.domains, BATCH)) tx.sadd(listKey(g.kind, g.source), ...part);
+        tx.sadd(INDEX, m);
+      }
+      tx.incr(VERSION);
+      await this.exec(tx);
+    });
+  }
+
+  public removeEntries(kind: ListKind, domains: readonly string[], source: string): Promise<void> {
+    return this.run(async () => {
+      const tx = this.Client.multi();
+      for (const part of chunk([...domains], BATCH)) tx.srem(listKey(kind, source), ...part);
+      tx.incr(VERSION);
+      await this.exec(tx);
+    });
+  }
+
+  public replaceSource(source: string, kind: ListKind, domains: readonly string[]): Promise<void> {
+    return this.run(async () => {
+      const key = listKey(kind, source);
+      if (domains.length === 0) {
+        await this.exec(this.Client.multi().del(key).srem(INDEX, member(kind, source)).incr(VERSION));
+        return;
+      }
+      const tmp = `${key}:tmp:${randomUUID()}`;
+      try {
+        let first = true;
+        for (const part of chunk([...domains], BATCH)) {
+          const tx = this.Client.multi().sadd(tmp, ...part);
+          // The TTL goes in with the first batch so a crash mid-load cannot leave the temporary set forever.
+          if (first) tx.pexpire(tmp, TMP_TTL_MS);
+          first = false;
+          await this.exec(tx);
+        }
+        await this.exec(this.Client.multi().rename(tmp, key).persist(key).sadd(INDEX, member(kind, source)).incr(VERSION));
+      } catch (err) {
+        await this.Client.del(tmp).catch(() => undefined);
+        throw err;
+      }
+    });
+  }
+
+  public getMeta(key: string): Promise<string | null> {
+    return this.run(() => this.Client.get(`meta:${key}`));
+  }
+
+  public setMeta(key: string, value: string): Promise<void> {
+    return this.run(async () => {
+      await this.Client.set(`meta:${key}`, value);
+    });
+  }
+
+  /** Every public method that talks to Redis runs its body here, so a call added to it later cannot skip the strip. */
+  protected async run<T>(fn: () => Promise<T>): Promise<T> {
+    try {
+      return await fn();
     } catch (err) {
-      await this.Client.del(tmp).catch(() => undefined);
-      throw err;
+      throw withoutCommand(err);
     }
-  }
-
-  public async getMeta(key: string): Promise<string | null> {
-    return this.Client.get(`meta:${key}`);
-  }
-
-  public async setMeta(key: string, value: string): Promise<void> {
-    await this.Client.set(`meta:${key}`, value);
   }
 
   protected async exec(tx: ChainableCommander): Promise<void> {
