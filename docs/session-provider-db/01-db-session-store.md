@@ -27,8 +27,8 @@
 
 ### Touch, `touch(session)`
 
-1. `SessionProvider.applyRenewedExpiration()` computes the new expiration. A `pending` session keeps its expiration.
-2. One `UPDATE` writes `Expiration` and `Data` where `SessionId` matches, the stored `State` equals `session.State`, and the stored `Expiration` is `NULL` or in the future.
+1. `SessionProvider.applyRenewedExpiration()` computes the new expiration. A `pending` session keeps its expiration: when its view carries none (`undefined`), the `UPDATE` writes only `Data` and the row keeps the stored `Expiration`.
+2. One `UPDATE` writes `Data`, and `Expiration` except in the case above, where `SessionId` matches, the stored `State` equals `session.State`, and the stored `Expiration` is `NULL` or in the future.
 3. When no row was updated, the store restores `session.Expiration` to its old value and returns `false`.
 4. Otherwise it returns `true` when the expiration changed, `false` when it stayed the same.
 

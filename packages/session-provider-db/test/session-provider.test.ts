@@ -173,6 +173,34 @@ describe('db session provider', function () {
       expect(after.Expiration!.toMillis()).to.equal(fixed.toMillis());
     });
 
+    it('SR-07 touch of a pending view without Expiration writes its Data and keeps the stored expiration, never NULL', async () => {
+      const store = await makeProvider({ service: 'SlidingExpiration', ttl: 60 });
+      await store.truncate();
+
+      const fixed = DateTime.now().plus({ minutes: 5 }).startOf('second');
+      await store.save(new Session({ SessionId: 'k-pending-bare', Subject: user('u-1'), State: 'pending', Expiration: fixed, Data: new Map() }));
+
+      expect(await store.touch(new Session({ SessionId: 'k-pending-bare', Subject: user('u-1'), State: 'pending', Data: new Map([['Ip', '203.0.113.7']]) }))).to.be.false;
+
+      const [row] = (await (await sessionConnection()).select().from('user_sessions').where('SessionId', 'k-pending-bare')) as Array<{ Expiration: unknown }>;
+      expect(row.Expiration, 'NULL would mean the pending session never expires').to.not.be.null;
+      const after = (await store.restore('k-pending-bare'))!;
+      expect(after.Expiration!.toMillis()).to.equal(fixed.toMillis());
+      expect(after.Data.get('Ip')).to.equal('203.0.113.7');
+    });
+
+    it('touch of an active session a never-expiring strategy renews writes NULL over its stored expiration', async () => {
+      const store = await bootStore({ expiration: { service: NeverExpiration.name } });
+      await store.truncate();
+      await store.save(new Session({ SessionId: 'k-active-never', Subject: user('u-1'), State: 'active', Expiration: DateTime.now().plus({ minutes: 5 }), Data: new Map() }));
+
+      expect(await store.touch(new Session({ SessionId: 'k-active-never', Subject: user('u-1'), State: 'active', Expiration: DateTime.now().plus({ minutes: 5 }), Data: new Map() }))).to.be.true;
+
+      const [row] = (await (await sessionConnection()).select().from('user_sessions').where('SessionId', 'k-active-never')) as Array<{ Expiration: unknown }>;
+      expect(row.Expiration).to.be.null;
+      expect((await store.restore('k-active-never'))!.Expiration).to.be.undefined;
+    });
+
     it('deleteBySubject counts only live rows, and also deletes the expired ones', async () => {
       const store = await makeProvider({ service: 'SlidingExpiration', ttl: 60 });
       await store.truncate();
