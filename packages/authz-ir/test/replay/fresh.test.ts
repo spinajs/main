@@ -3,7 +3,7 @@ import { expect } from 'chai';
 import fc from 'fast-check';
 import type { Condition, Principal } from '@spinajs/authz';
 
-import { IREvaluator, MemoryChangeLog, MemoryTupleSource, canonicalize, policyHash, replayDecision } from '../../src/index.js';
+import { IREvaluator, MemoryChangeLog, MemoryTupleSource, canonicalize, changeLogReplay, policyHash, replayDecision } from '../../src/index.js';
 import type { PolicyIR, PrincipalFacts, Rewrite } from '../../src/index.js';
 import { CANDIDATES, irAndTuples } from './arbitraries.js';
 import type { World } from './arbitraries.js';
@@ -106,7 +106,7 @@ describe('replay property P3', function () {
           if (w.flip) await switches.set('k', { store: 's', open: (open = !open) }, at);
         }
 
-        const report = await replayDecision(record, { log, loadPolicy: (h) => Promise.resolve(h === policyHash(ir) ? canonicalize(ir) : undefined), contributors: [store], splicers: [switches], limits: LIMITS, now: () => t + HOUR });
+        const report = await replayDecision(record, { ...changeLogReplay(log), loadPolicy: (h) => Promise.resolve(h === policyHash(ir) ? canonicalize(ir) : undefined), contributors: [store], splicers: [switches], limits: LIMITS, now: () => t + HOUR });
         expect(report.replay, JSON.stringify({ missing: report.missing, divergence: report.divergence })).to.equal('faithful');
         expect(report.evidence).to.equal(captured ? 'inputs-hash' : 'outcome');
         expect(report.outcome.replayed).to.equal(truth);

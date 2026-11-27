@@ -16,15 +16,16 @@ const OFFSET = /^([+-])(\d{2}):(\d{2})$/;
 /**
  * Reads the `TimeZone` connection option.
  *
- * `SYSTEM` (the default) keeps the server's zone and reads and writes datetimes in the zone of the node process,
- * so the two must be the same zone. A named zone such as `Europe/Warsaw` is refused: mysql2 reads datetimes only
- * in the process zone, in UTC or at a fixed offset.
+ * Unset means `UTC`, what every 3.x release did, so rows a 3.x application stored read back unchanged.
+ * `SYSTEM` keeps the server's zone and reads and writes datetimes in the zone of the node process, so the two
+ * must be the same zone. A named zone such as `Europe/Warsaw` is refused: mysql2 reads datetimes only in the
+ * process zone, in UTC or at a fixed offset.
  *
  * @param option - the `TimeZone` value of the connection
  * @param connection - the connection name, for the error
  */
 export function mySqlSessionZone(option: string | undefined, connection: string): IMySqlSessionZone {
-  const value = (option ?? 'SYSTEM').trim();
+  const value = (option ?? 'UTC').trim();
   const upper = value.toUpperCase();
 
   if (upper === 'SYSTEM') {
