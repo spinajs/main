@@ -82,6 +82,7 @@ describe('authz-orm guard: an OR connector makes a select a list', function () {
       it("flags an orWhere on the primary key after the soft-delete and archive statements: bob's row is not returned", async () => {
         expect(await settle(() => Task.query().orWhere('id', 't1'))).to.be.instanceOf(AuthzConfigError);
         expect(await settle(() => Task.query().withDeleted().orWhere('id', 't1'))).to.be.instanceOf(AuthzConfigError);
+        expect(await settle(() => Task.query().orWhere('id', 't1').whereNull('deleted_at'))).to.be.instanceOf(AuthzConfigError);
       });
 
       it('flags a primary-key load widened by an orWhere on the soft-delete column', async () => {
