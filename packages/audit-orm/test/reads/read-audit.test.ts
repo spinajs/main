@@ -14,6 +14,7 @@ import { DIALECTS, TestDb } from '../support/db.js';
 import type { Dialect } from '../support/db.js';
 import { forgetAuditReads } from '../../src/reads/rules.js';
 import { TestAuditStore, recorded, resetTrail } from '../support/trail.js';
+import { within } from '../support/deadline.js';
 
 chai.use(chaiAsPromised);
 const expect = chai.expect;
@@ -218,6 +219,7 @@ class NamedTrail extends AuditTrailTableMigration {
 }
 
 const pause = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
+const DEADLINE_MS = 10000;
 
 const RETRY = { attempts: 2, delay: '1ms' };
 const AUDIT = {
@@ -634,6 +636,21 @@ describe('read auditing', function () {
         });
         await expect(failing).to.be.rejectedWith('caller failed');
         expect(await searched()).to.have.length(dialect === 'sqlite' || dialect === 'pglite' ? 2 : 4);
+      });
+
+      it('records an audited read beside a nested transaction that reads too, however late the nested call starts', async () => {
+        const driver = db.driver(dialect);
+        // A nested call that starts after the outer select ran, before its record reached the driver, is the one that hung.
+        for (let ticks = 0; ticks <= 10; ticks++) {
+          const nested = async (): Promise<void> => {
+            for (let i = 0; i < ticks; i++) await Promise.resolve();
+            await driver.transaction(async () => {
+              await Visit.query().where('Id', 2);
+            });
+          };
+          await within(DEADLINE_MS, `an audited read beside a nested transaction that reads, ${ticks} microtasks later`, driver.transaction(() => Promise.all([Visit.query().where('Id', 1), nested()])));
+        }
+        expect(await searched()).to.have.length(22);
       });
 
       it('returns an audited read inside a transaction, and its record commits', async () => {

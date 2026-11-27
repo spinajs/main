@@ -9,6 +9,7 @@ import { DI } from '@spinajs/di';
 import { FrameworkLogger } from '@spinajs/log';
 import { TableAuditStore } from '../src/index.js';
 import { DIALECTS, TestDb } from './support/db.js';
+import { within } from './support/deadline.js';
 
 chai.use(chaiAsPromised);
 const expect = chai.expect;
@@ -32,6 +33,7 @@ const SPARE = { Driver: 'orm-driver-sqlite', Name: 'spare', Filename: ':memory:'
 const CONFIRM_TIMEOUT_MS = 3000;
 // Drivers that serve one outermost transaction at a time (supportedFeatures().concurrentTransactions === false).
 const SINGLE: readonly string[] = ['sqlite', 'pglite'];
+const DEADLINE_MS = 10000;
 
 class CountingStore extends TableAuditStore {
   static calls = 0;
@@ -181,6 +183,22 @@ describe('TableAuditStore', function () {
 
       const input = { kind: 'read', action: 'patient.read' } as const;
 
+      it('keeps both of two parallel writes of one transaction, in call order where they share its connection', async () => {
+        const driver = db.driver(dialect);
+        const parallel = (mode: 'confirmed' | 'transactional') =>
+          within(
+            DEADLINE_MS,
+            `two parallel ${mode} writes of one transaction`,
+            driver.transaction(() => Promise.all(['a', 'b'].map((action) => audit().record({ kind: 'custom', action: `${mode}.${action}` }, mode === 'transactional' ? { trail, mode, transaction: driver } : { trail, mode })))),
+          );
+        await parallel('transactional');
+        await parallel('confirmed');
+        const actions = (await db.rows(dialect, tableOf(dialect))).map((r) => String(r.action));
+        expect(actions.slice(0, 2)).to.deep.eq(['transactional.a', 'transactional.b']);
+        // A pooled driver writes a confirmed event on a connection of its own, in no order against the other one.
+        expect(SINGLE.includes(dialect) ? actions.slice(2) : actions.slice(2).sort()).to.deep.eq(['confirmed.a', 'confirmed.b']);
+      });
+
       if (SINGLE.includes(dialect)) {
         it("joins the caller's transaction with a confirmed event: gone when it rolls back, kept when it commits", async () => {
           const driver = db.driver(dialect);
@@ -214,9 +232,15 @@ describe('TableAuditStore', function () {
           expect(lines).to.deep.eq([[lostOf(dialect), 'audit: trail ${trail} lost ${count} event(s): ${ids}']]);
         });
 
-        it('runs parallel joined confirmed writes of one transaction one after another', async () => {
-          await db.driver(dialect).transaction(() => Promise.all(['a', 'b'].map((action) => audit().record({ kind: 'custom', action }, { trail }))));
-          expect((await db.rows(dialect, tableOf(dialect))).map((r) => r.action)).to.have.members(['a', 'b']);
+        it('records beside a nested transaction that records too, the first to reach the driver first', async () => {
+          const driver = db.driver(dialect);
+          await within(
+            DEADLINE_MS,
+            'a joined record beside a nested transaction that records',
+            driver.transaction(() => Promise.all([audit().record({ kind: 'custom', action: 'outer' }, { trail }), driver.transaction(() => audit().record({ kind: 'custom', action: 'inner' }, { trail }))])),
+          );
+          // record() resolves its store before it writes; the nested call takes its savepoint at once.
+          expect((await db.rows(dialect, tableOf(dialect))).map((r) => r.action)).to.deep.eq(['inner', 'outer']);
         });
 
         it('keeps the row of a parallel joined write when the other one fails', async () => {
