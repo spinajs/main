@@ -140,9 +140,19 @@ Each helper resolves a provider with `provider(fileSystem)` and calls the instan
   - an entry whose path resolves outside the destination (`../x`, `a/../../x`, `..\x`);
   - an absolute name (`/x`, `C:\x`, `C:x`, `\\server\share\x`);
   - a symbolic link, or any other entry that is not a file or a directory (zip has no hard-link entries);
+  - an encrypted entry, or one compressed with a method other than stored or deflate;
   - a name the [path rules](07-middlewares.md#path-normalisation) refuse: a NUL byte, or a segment that holds `:` or ends in `.` or a space.
 
-  A write that fails after the check (the destination is a file, an entry lies below an entry that is a file) rejects with `IOFail` naming the destination or the entry; entries written before it stay. Backslashes in entry names are separators on every platform. Names that differ only by case are written to one file on a case-insensitive disk, and the later entry wins. The entries are streamed to disk one at a time; the archive is never held in memory.
+  Before it writes each entry, it also checks real paths against links already on disk:
+  - An entry is refused, naming it, when its own path is a symbolic link or junction.
+  - It is also refused when the nearest existing folder above it resolves outside the destination's real path.
+  - A link inside the destination that points to another place inside it is followed.
+  - The destination may itself be a link: its real path is the root.
+  - Not covered: a link that someone creates inside the destination while the unzip runs, between this check and the write. Do not unzip into a folder where others can write during the unzip.
+
+  A write that fails after the check (the destination is a file, an entry lies below an entry that is a file, a broken compressed stream) rejects with `IOFail` naming the destination or the entry. The failing entry's file is removed, but the entries written before it stay extracted.
+
+  There is no limit on the size or ratio of what an archive extracts to, and the CRC of an entry is not verified: check an untrusted archive's size first. Backslashes in entry names are separators on every platform. Names that differ only by case are written to one file on a case-insensitive disk, and the later entry wins. An archive comment of any length and bytes after the archive are allowed. The entries are streamed to disk one at a time; the archive is never held in memory.
 
 ```ts
 try {
