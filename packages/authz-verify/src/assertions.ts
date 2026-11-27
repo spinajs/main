@@ -219,6 +219,7 @@ function holderAdmits(ir: PolicyIR, selectors: readonly string[], mode: 'without
 /**
  * `isolated(type)`, bounded: two objects t1, t2 of `type`; the resource lies under t2 and not t1, and every tuple
  * naming the principal sits on an object under t1 and not t2. Any permission allowed then crosses the boundary.
+ * A public grant names no principal, so it reaches every one wherever it sits and crosses unless `except` lists it.
  */
 async function isolated(ir: PolicyIR, type: TypeName, except: readonly string[], options: BoundedOptions): Promise<Verdict> {
   if (!Object.prototype.hasOwnProperty.call(ir.types, type)) return { result: 'unknown', engine: 'bounded', opaque: opaqueOf(ir), message: `no type ${type}` };
@@ -230,7 +231,7 @@ async function isolated(ir: PolicyIR, type: TypeName, except: readonly string[],
       continue;
     }
     verdicts.push(
-      await bounded(ir, { checks: [{ permission, allowed: true }], admit: (t, u) => t.subject.id !== '*' && without(t, u), extra: (e, u) => boundary(e, u, type) }, options),
+      await bounded(ir, { checks: [{ permission, allowed: true }], admit: without, extra: (e, u) => boundary(e, u, type) }, options),
     );
   }
   return combine(verdicts, ir);
