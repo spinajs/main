@@ -1,3 +1,5 @@
+import { AsyncLocalStorage } from 'node:async_hooks';
+import { ROOT_CONTEXT, context } from '@opentelemetry/api';
 import { v4 as uuidv4 } from 'uuid';
 import { AsyncService, Autoinject, DI, IInstanceCheck, Injectable, PerInstanceCheck } from '@spinajs/di';
 import { Log, Logger } from '@spinajs/log-common';
@@ -44,6 +46,11 @@ export interface SchedulerInstanceOptions {
    * sync then never orphans or rewrites schedule rows (see `DefinitionSyncOptions.owner`). Default true.
    */
   syncOwner?: boolean;
+}
+
+// A tick owes nothing to the request or command that woke it: no request store (tenant, principal, authz answers), no trace parent.
+function detached<T>(loop: (fn: () => T) => T, fn: () => T): T {
+  return loop(() => DI.resolve(AsyncLocalStorage).exit(() => context.with(ROOT_CONTEXT, fn)));
 }
 
 interface NewRun {
@@ -117,6 +124,8 @@ export class Scheduler extends AsyncService implements IInstanceCheck {
   protected running = false;
   protected stopping = false;
   protected ticking: Promise<void> | undefined;
+  // Not the context of whoever wakes the loop later: that may hold a request, a trace or an open transaction.
+  protected readonly loopContext = AsyncLocalStorage.snapshot();
   /** Database time of the last tick. */
   protected lastTickAt: number | undefined;
   /** Next occurrence of each `runOn: 'all'` schedule on this replica. */
@@ -157,7 +166,7 @@ export class Scheduler extends AsyncService implements IInstanceCheck {
   }
 
   public tickOnce(): Promise<void> {
-    this.ticking ??= this.doTick().finally(() => (this.ticking = undefined));
+    this.ticking ??= detached(this.loopContext, () => this.doTick()).finally(() => (this.ticking = undefined));
     return this.ticking;
   }
 
@@ -211,10 +220,12 @@ export class Scheduler extends AsyncService implements IInstanceCheck {
 
   protected schedule(delayMs: number): void {
     if (this.timer !== undefined) this.Timers.clearTimeout(this.timer);
-    this.timer = this.Timers.setTimeout(() => {
-      this.timer = undefined;
-      void this.timerTick();
-    }, delayMs);
+    this.timer = detached(this.loopContext, () =>
+      this.Timers.setTimeout(() => {
+        this.timer = undefined;
+        void this.timerTick();
+      }, delayMs),
+    );
   }
 
   protected async timerTick(): Promise<void> {

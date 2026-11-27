@@ -36,8 +36,8 @@ A failed attempt follows the schedule's rules: it is retried under its `retry` p
 
 - **Admission happens at the start of each attempt.** A tenant suspended while a run is in progress does not stop that run: it ends inside its tenant. Its next attempt or run is refused.
 - **No principal.** `admitTenant` gets none, so `TenantAccess.canEnter` is not asked, and the body runs as no principal (authz answers `UNATTENDED`). Which tenant a run enters is decided by the scheduler's own rows, not by a caller.
-- **The scope covers the body**: its steps, the work it starts and does not await, its `catch` and `finally`, and the listeners it adds to `ctx.signal`, whoever aborts the run. The next run in the process starts from its own instance. The claim, the journal, the finalizers and the `ScheduleRun*` events run outside the scope, in the async context of whoever last woke the loop.
-- **Every loop process imports the hook.** Without any `ScheduleRunHook` the scheduler refuses the runs of tenant instances (the attempt fails with `InvalidOperation`); with another package's hook but not this one, a tenant run executes in the async context of whoever last woke the loop: that request's tenant and principal.
+- **The scope covers the body**: its steps, the work it starts and does not await, its `catch` and `finally`, and the listeners it adds to `ctx.signal`, whoever aborts the run. The next run in the process starts from its own instance. The claim, the journal, the finalizers and the `ScheduleRun*` events run outside the scope, with no request store, no trace parent and no transaction, whoever woke the loop: no tenant scope and no principal.
+- **Every loop process imports the hook.** Without any `ScheduleRunHook` the scheduler refuses the runs of tenant instances (the attempt fails with `InvalidOperation`); with another package's hook but not this one, a tenant run executes with no tenant scope, whoever woke the loop, and its tenant models throw `TenantRequired`.
 - **Inline runs** (`SchedulerService.runInline`) are not wrapped: they keep the scope of their caller.
 
 ## Related
