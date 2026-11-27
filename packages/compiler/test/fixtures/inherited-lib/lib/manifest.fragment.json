@@ -102,6 +102,27 @@
         { "name": "feed.renamed", "payload": { "text": "T" } }
       ],
       "source": { "file": "src/sockets.ts", "line": 4, "col": 1, "package": "inherited-lib" }
+    },
+    {
+      "id": "inherited-lib:GuardedFeedSocket",
+      "className": "GuardedFeedSocket",
+      "prefix": "",
+      "access": ["feed:read"],
+      "fields": "filter",
+      "policies": [[{ "type": "SocketAccessPolicy", "options": ["class"] }]],
+      "commands": [
+        {
+          "name": "feed.peek",
+          "handler": "peek",
+          "payload": { "text": "void" },
+          "result": { "text": "T" },
+          "options": {},
+          "policies": [],
+          "source": { "file": "src/sockets.ts", "line": 16, "col": 3, "package": "inherited-lib" }
+        }
+      ],
+      "events": [],
+      "source": { "file": "src/sockets.ts", "line": 14, "col": 1, "package": "inherited-lib" }
     }
   ],
   "socketContracts": [],
