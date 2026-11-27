@@ -40,6 +40,17 @@ const ERR_ARITY = "ERR wrong number of arguments for 'get' command";
 const ABORTED = 'Command aborted due to connection close';
 const CLOSED = 'Connection is closed.';
 const TX_ABORTED = 'Redis transaction was aborted';
+const redactedUnknown = (name: string) => `ERR unknown command '${name}', with args beginning with: <redacted>`;
+
+/** Redis 6.2+ and 7 quote each argument as `'%.*s' ` until 128 characters are written. */
+function unknownCommand(name: string, args: string[]): Reply {
+  let list = '';
+  for (const arg of args) {
+    if (list.length >= 128) break;
+    list += `'${arg.slice(0, 128 - list.length)}' `;
+  }
+  return error(`ERR unknown command '${name.slice(0, 128)}', with args beginning with: ${list}`);
+}
 
 type Answer = Reply | ((args: string[], queued: number) => Reply | undefined);
 type Override = Record<string, Answer>;
@@ -90,7 +101,7 @@ function json(value: unknown): string {
     }) ?? ''
   );
 }
-const printed = (value: unknown) => [inspect(value, { depth: 8, showHidden: true }), json(value)].join(' ');
+const printed = (value: unknown) => [inspect(value, { depth: null, showHidden: true }), json(value)].join(' ');
 
 const LEVELS = ['trace', 'debug', 'info', 'warn', 'error', 'fatal', 'security', 'success'] as const;
 
@@ -161,6 +172,17 @@ const CELLS: ICell[] = [
     { op, fails: 'EXEC: aborted (nil)', over: { exec: '*-1\r\n' }, type: 'Error', message: TX_ABORTED },
   ]),
   { op: 'replaceSource', fails: 'the swap MULTI: RENAME READONLY, EXECABORT', over: { rename: error(READONLY) }, type: 'ReplyError', message: EXECABORT, previous: READONLY },
+  { op: 'getVerdict', fails: 'GET: unknown command', over: { get: (args) => unknownCommand('get', args) }, type: 'ReplyError', message: redactedUnknown('get') },
+  { op: 'setVerdict', fails: 'SET: unknown command', over: { set: (args) => unknownCommand('set', args) }, type: 'ReplyError', message: redactedUnknown('set') },
+  { op: 'setMeta', fails: 'SET of the list origin: unknown command', over: { set: (args) => unknownCommand('set', args) }, type: 'ReplyError', message: redactedUnknown('set') },
+  {
+    op: 'upsertEntries',
+    fails: 'MULTI: a queued SADD unknown command, EXECABORT',
+    over: { sadd: (args) => unknownCommand('sadd', args) },
+    type: 'ReplyError',
+    message: EXECABORT,
+    previous: redactedUnknown('sadd'),
+  },
   ...Object.keys(OPS).map(
     (op): ICell => ({ op, fails: 'AUTH: WRONGPASS', over: { auth: error(WRONGPASS) }, type: 'ReplyError', message: WRONGPASS, previous: transactions.includes(op) ? WRONGPASS : undefined, password: true }),
   ),
@@ -217,6 +239,25 @@ describe('errors that leave the redis email verification store carry none of the
     }
   });
 
+  it("Redis's unknown-command reply quotes the domain and the list token in the message, so the redaction tests are not vacuous", async () => {
+    const client = new Redis({ host: '127.0.0.1', port: fake.port, keyPrefix: 'ev:', lazyConnect: true, retryStrategy: () => null });
+    try {
+      fake.rule = replies({ get: (args) => unknownCommand('get', args), set: (args) => unknownCommand('set', args) });
+      const get = await client.get(`verdict:dns:${DOMAIN}`).then(
+        () => undefined,
+        (err: unknown) => err,
+      );
+      expect(get).to.have.property('message', `ERR unknown command 'get', with args beginning with: 'ev:verdict:dns:${DOMAIN}' `);
+      const set = await client.set(`meta:sync:${SOURCE}:origin`, ORIGIN).then(
+        () => undefined,
+        (err: unknown) => err,
+      );
+      expect(set).to.have.property('message').that.includes(LIST_TOKEN);
+    } finally {
+      client.disconnect();
+    }
+  });
+
   for (const cell of CELLS) {
     it(`${cell.op}, ${cell.fails}: ${cell.type} "${cell.message}" without command`, async () => {
       fake.rule = replies(cell.over);
@@ -245,6 +286,10 @@ describe('errors that leave the redis email verification store carry none of the
       }
       expect(failure.cause, 'no cause').to.equal(undefined);
       expect(leaks(printed(failure)), 'runs of the domain, the list token or the password').to.deep.equal([]);
+      for (const item of cell.previous ? [failure, ...(previous as Error[])] : [failure]) {
+        expect(item.stack?.split('\n')[0], 'the first line of the stack').to.equal(`${item.name}: ${item.message}`);
+        expect(leaks(String(item.stack)), 'in a stack').to.deep.equal([]);
+      }
       expect(lines.flatMap(leaks), 'in a log line').to.deep.equal([]);
     });
   }
