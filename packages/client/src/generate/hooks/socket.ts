@@ -1,7 +1,7 @@
-import type { SocketControllerEntry, TypeRef } from '@spinajs/manifest';
+import type { SocketCommandEntry, SocketControllerEntry, TypeRef } from '@spinajs/manifest';
 import { companionHeader, manifestHashCheck, siblingSpecifier, type SiblingImports } from '../companion.js';
 import type { ClientModel } from '../model.js';
-import { contractName } from '../socket.js';
+import { commandFields, contractName } from '../socket.js';
 import { literal, type TypeContext } from '../ts-type.js';
 import { withUseClient } from './directive.js';
 import { DEFAULT_KEY_PREFIX } from './shared.js';
@@ -67,13 +67,18 @@ function contractHooks(controller: SocketControllerEntry, model: ClientModel): S
   const contract = contractName(controller.prefix, controller.className);
   const key = contract.slice(0, -'Contract'.length);
   const base = pascal(key);
+  // the item type of the contract's AsyncIterable<…>, which emitContract redacts by the same rule
+  const itemOf = (c: SocketCommandEntry): Printed => {
+    const item = print(c.result);
+    return commandFields(controller, c) && item.type !== 'void' ? { type: `Redacted<${item.type}>`, names: [...item.names, 'Redacted'].sort() } : item;
+  };
   return {
     controller,
     contract,
     key,
     socketType: `${/^[0-9]/.test(base) ? '_' : ''}${base}Socket`,
     events: controller.events.map((e) => ({ event: e.name, hookName: `use${base}${pascal(e.name)}Event`, latestName: `use${base}${pascal(e.name)}Latest`, payload: print(e.payload) })),
-    streams: controller.commands.filter((c) => c.stream).map((c) => ({ command: c.name, hookName: `use${base}${pascal(c.name)}Stream`, payload: print(c.payload), item: print(c.result) })),
+    streams: controller.commands.filter((c) => c.stream).map((c) => ({ command: c.name, hookName: `use${base}${pascal(c.name)}Stream`, payload: print(c.payload), item: itemOf(c) })),
   };
 }
 

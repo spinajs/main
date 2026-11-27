@@ -1,4 +1,4 @@
-import type { SocketControllerEntry } from '@spinajs/manifest';
+import type { SocketCommandEntry, SocketControllerEntry } from '@spinajs/manifest';
 import { propertyKey, type TypeContext } from './ts-type.js';
 
 export function contractName(prefix: string, className: string): string {
@@ -7,12 +7,15 @@ export function contractName(prefix: string, className: string): string {
   return `${/^[0-9]/.test(camel) ? '_' : ''}${camel}Contract`;
 }
 
+/** The `fields` http-socket applies to a command: its own `@SocketAccess` rule's, else its controller's. */
+export function commandFields(controller: SocketControllerEntry, command: SocketCommandEntry): SocketCommandEntry['fields'] {
+  return command.access ? command.fields : controller.fields;
+}
+
 export function emitContract(controller: SocketControllerEntry, ctx: TypeContext): string {
   const commands = controller.commands.map((c) => {
     const type = ctx.typeOf(c.result);
-    // http-socket applies the command's own @SocketAccess rule, else the controller's
-    const fields = c.access ? c.fields : controller.fields;
-    const result = fields && type !== 'void' ? ctx.redacted(type) : type;
+    const result = commandFields(controller, c) && type !== 'void' ? ctx.redacted(type) : type;
     return `${propertyKey(c.name)}: [${ctx.typeOf(c.payload)}, ${c.stream ? `AsyncIterable<${result}>` : result}]`;
   });
   const events = controller.events.map((e) => `${propertyKey(e.name)}: ${ctx.typeOf(e.payload)}`);
