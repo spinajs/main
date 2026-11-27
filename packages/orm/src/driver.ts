@@ -1,7 +1,7 @@
 import { Log } from '@spinajs/log-common';
 /* eslint-disable prettier/prettier */
 import { ModelToSqlConverter, NowExpression, ObjectToSqlConverter } from './interfaces.js';
-import type { IColumnDescriptor, IDriverOptions, IPoolOptions, ISupportedFeature, IsolationLevel, ITransactionContext, ITransactionOptions } from './interfaces.js';
+import type { IColumnDescriptor, IDriverOptions, IPoolOptions, ISupportedFeature, IsolationLevel, ITransactionContext, ITransactionLevel, ITransactionOptions } from './interfaces.js';
 import { SyncService, DI, Container, Autoinject } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 import { UpdateQueryBuilder, SelectQueryBuilder, IndexQueryBuilder, DeleteQueryBuilder, InsertQueryBuilder, SchemaQueryBuilder, TruncateTableQueryBuilder, RawQuery, SessionSettingsQueryBuilder } from './builders.js';
@@ -62,6 +62,9 @@ export abstract class OrmDriver<T extends IDriverOptions = IDriverOptions> exten
    * inherits it.
    */
   protected TransactionStorage = new AsyncLocalStorage<ITransactionContext | undefined>();
+
+  /** The savepoint level of this async path. Entered only by a nested `transaction()`, so a driver that takes no savepoint never enables it. */
+  private readonly LevelStorage = new AsyncLocalStorage<ITransactionLevel>();
 
   /**
    * Isolation levels this driver honours. Empty by default: a driver that declares nothing
@@ -178,6 +181,7 @@ export abstract class OrmDriver<T extends IDriverOptions = IDriverOptions> exten
    */
   public releaseTransactionStorage(): void {
     this.TransactionStorage.disable();
+    this.LevelStorage.disable();
   }
 
   /**
@@ -579,7 +583,10 @@ export abstract class OrmDriver<T extends IDriverOptions = IDriverOptions> exten
    *
    * Calling it again while a transaction is already in scope on this async path does **not**
    * open a second, independent transaction: it takes a savepoint, so a failing nested block
-   * rolls back only its own work.
+   * rolls back only its own work. Savepoints taken from one level run one at a time, in call
+   * order, and the level's other statements wait while one is open. Nothing a level queued runs
+   * after it ends: a savepoint is released, and the transaction commits or rolls back, only once
+   * the savepoints and statements of its queue ran.
    * Callbacks queued with {@link afterCommit} run after the outermost commit, before this resolves.
    * On a driver whose `supportedFeatures().concurrentTransactions` is `false`, outermost calls
    * run one at a time, in call order.
@@ -596,25 +603,106 @@ export abstract class OrmDriver<T extends IDriverOptions = IDriverOptions> exten
 
     // already inside a transaction — nest with a savepoint rather than opening a second one
     if (active) {
-      const name = `sp_${++active.depth}`;
-      // Savepoints of one transaction run one after another, so everything queued past this
-      // mark was queued inside this savepoint.
-      const queued = active.afterCommit?.length ?? 0;
-
-      await this._savepoint(active, name);
-
-      try {
-        const result = await cb(this);
-        await this._releaseSavepoint(active, name);
-        return result;
-      } catch (err) {
-        active.afterCommit?.splice(queued);
-        await this._rollbackToSavepoint(active, name);
-        throw err;
-      }
+      return this._nested(active, cb);
     }
 
     return this._outermost(cb, options);
+  }
+
+  private async _nested<R>(active: ITransactionContext, cb: TransactionCallback<R>): Promise<R> {
+    const level = this._levelOf(active);
+    const close = await this._openOn(level);
+    const inner: ITransactionLevel = { transaction: active, parent: level, held: false, waiting: [], running: new Set() };
+
+    try {
+      return await this.LevelStorage.run(inner, () => this._savepointScope(active, inner, cb));
+    } finally {
+      inner.ended = true;
+      close();
+    }
+  }
+
+  /** Waits for the turn of `level` and for the statements running there; the result ends the turn. */
+  private async _openOn(level: ITransactionLevel): Promise<() => void> {
+    if (level.held) await this._waitTurn(level, true);
+    else level.held = true;
+    // sqlite3 runs one handle's statements in parallel: one sent just before SAVEPOINT could run after it
+    await Promise.allSettled(level.running);
+    return () => this._passTurn(level);
+  }
+
+  private _waitTurn(level: ITransactionLevel, savepoint: boolean): Promise<void> {
+    return new Promise<void>((resolve) => level.waiting.push({ savepoint, resume: resolve }));
+  }
+
+  /** The statements queued before the next savepoint start now; that savepoint then holds the turn. */
+  private _passTurn(level: ITransactionLevel): void {
+    for (let next = level.waiting.shift(); next !== undefined; next = level.waiting.shift()) {
+      next.resume();
+      if (next.savepoint) return;
+    }
+    level.held = false;
+  }
+
+  /** Until no savepoint is open on `level` and none of its statements runs or waits. */
+  private async _settle(level: ITransactionLevel): Promise<void> {
+    while (level.held || level.running.size > 0) {
+      if (level.held) await this._waitTurn(level, false);
+      // a statement the same hand-over resumed behind this waiter is tracked one reaction later
+      await Promise.allSettled(level.running);
+    }
+  }
+
+  private async _savepointScope<R>(active: ITransactionContext, inner: ITransactionLevel, cb: TransactionCallback<R>): Promise<R> {
+    const name = `sp_${++active.depth}`;
+    // Savepoints of one transaction run one after another, so everything queued past this
+    // mark was queued inside this savepoint.
+    const queued = active.afterCommit?.length ?? 0;
+
+    await this._savepoint(active, name);
+
+    try {
+      const result = await cb(this);
+      await this._settle(inner);
+      await this._releaseSavepoint(active, name);
+      return result;
+    } catch (err) {
+      await this._settle(inner);
+      active.afterCommit?.splice(queued);
+      await this._rollbackToSavepoint(active, name);
+      throw err;
+    }
+  }
+
+  /** The level a statement of this async path belongs to: its savepoint's, or the nearest enclosing one still open. */
+  private _levelOf(ctx: ITransactionContext): ITransactionLevel {
+    let level = this.LevelStorage.getStore();
+    if (level === undefined || level.transaction !== ctx) return (ctx.level ??= { transaction: ctx, held: false, waiting: [], running: new Set() });
+    while (level.ended === true && level.parent !== undefined) level = level.parent;
+    return level;
+  }
+
+  /** Runs a statement of `ctx` once no savepoint is open on its level, and tracks it until it settles. */
+  private _inTurn<R>(ctx: ITransactionContext, run: () => Promise<R>): Promise<R> {
+    const level = this._levelOf(ctx);
+    return level.held ? this._waitTurn(level, false).then(() => this._track(level, run)) : this._track(level, run);
+  }
+
+  private _track<R>(level: ITransactionLevel, run: () => Promise<R>): Promise<R> {
+    const running = run();
+    const settled: Promise<unknown> = running.then(
+      () => level.running.delete(settled),
+      () => level.running.delete(settled),
+    );
+    level.running.add(settled);
+    return running;
+  }
+
+  /** Nothing that entered the turn queue of `ctx` may run after its COMMIT or ROLLBACK: it runs first, and `end` starts in the step that found the queue empty. */
+  private async _drainTransaction(ctx: ITransactionContext, end: () => Promise<void>): Promise<void> {
+    const level = ctx.level;
+    while (level !== undefined && (level.held || level.running.size > 0)) await this._settle(level);
+    return end();
   }
 
   private async _outermost<R>(cb: TransactionCallback<R>, options?: ITransactionOptions, settings?: SessionSettings): Promise<R> {
@@ -644,12 +732,14 @@ export abstract class OrmDriver<T extends IDriverOptions = IDriverOptions> exten
   }
 
   /**
-   * Drivers route every statement through this. Outside a transaction, statements that carry session settings run in a
-   * transaction of their own: the settings are transaction-local, so they never stay on a pooled connection.
-   * Without providers `run` starts synchronously, so a driver's own statement ordering is unchanged.
+   * Drivers route every statement through this. Inside a transaction a statement waits while a savepoint is open on its
+   * level. Outside one, statements that carry session settings run in a transaction of their own: the settings are
+   * transaction-local, so they never stay on a pooled connection. Without providers and without an open savepoint `run`
+   * starts synchronously, so a driver's own statement ordering is unchanged.
    */
   protected withSessionSettings<R>(run: () => Promise<R>): Promise<R> {
-    if (this.TransactionStorage.getStore() !== undefined) return run();
+    const active = this.TransactionStorage.getStore();
+    if (active !== undefined) return this._inTurn(active, run);
     const providers = this._sessionSettingsProviders();
     if (providers.length === 0) return run();
     return this._mergeSessionSettings(providers).then((settings) => (settings === undefined ? run() : this._outermost(run, undefined, settings)));
@@ -679,10 +769,10 @@ export abstract class OrmDriver<T extends IDriverOptions = IDriverOptions> exten
         if (apply !== undefined) await this.execute(apply);
         return cb(this);
       });
-      await this._commit(ctx);
+      await this._drainTransaction(ctx, () => this._commit(ctx));
     } catch (err) {
       // swallow a rollback failure so it cannot mask whatever actually went wrong
-      await this._rollback(ctx).catch(() => undefined);
+      await this._drainTransaction(ctx, () => this._rollback(ctx).catch(() => undefined));
       throw err;
     } finally {
       await this._dispose(ctx);

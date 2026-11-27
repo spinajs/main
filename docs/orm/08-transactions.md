@@ -9,10 +9,10 @@
 3. It reads the ambient context from the driver's `AsyncLocalStorage` (`OrmDriver.CurrentTransaction`).
 4. **No transaction in scope:** on a driver whose `supportedFeatures().concurrentTransactions` is `false` (SQLite), the call first waits for the outermost transactions queued before it on this driver. Then the driver's `_begin(options)` opens one and returns an `ITransactionContext` with `depth = 0`. The callback runs inside `AsyncLocalStorage.run(ctx, ...)` and receives the driver.
 5. Every statement executed inside the callback reads the context and runs on the transaction's connection. Nothing is passed by hand.
-6. The callback resolves: `_commit(ctx)`. The callback or the commit throws: `_rollback(ctx)`, and the original error is rethrown. A failing rollback is swallowed so it cannot hide that error.
+6. The callback settles; the driver waits until every savepoint and statement already waiting for its turn in this transaction ran. The callback resolves: `_commit(ctx)`. The callback or the commit throws: `_rollback(ctx)`, and the original error is rethrown. A failing rollback is swallowed so it cannot hide that error.
 7. `_dispose(ctx)` releases the connection, exactly once, on every path.
 8. Callbacks queued with `afterCommit()` run in registration order, outside the transaction. Then `transaction()` resolves with the callback's return value.
-9. **A transaction already in scope:** the call takes a savepoint named `sp_<n>` with `_savepoint()`, runs the callback, then `_releaseSavepoint()` on success or `_rollbackToSavepoint()` on a throw, and rethrows. The enclosing transaction stays open.
+9. **A transaction already in scope:** the call waits for its turn on the same level (the enclosing transaction or savepoint): until no other savepoint is open there, in call order, and the statements already running there settled. It then takes a savepoint named `sp_<n>` with `_savepoint()`, runs the callback, waits for everything the callback started on the new level (its statements and its own nested calls), then `_releaseSavepoint()` on success or `_rollbackToSavepoint()` on a throw, and rethrows. The enclosing transaction stays open. While the savepoint is open, a statement of the enclosing level waits for it to end.
 
 ```mermaid
 sequenceDiagram
@@ -92,18 +92,21 @@ await driver.transaction(async () => reserveStock(orderId), { isolation: 'SERIAL
 | `TransactionCallback<R>` | `(driver: OrmDriver) => Promise<R>`; its result becomes the result of `transaction()`. |
 | `IsolationLevel` | `'READ UNCOMMITTED' \| 'READ COMMITTED' \| 'REPEATABLE READ' \| 'SERIALIZABLE'`. |
 | `ITransactionOptions` | `{ isolation?: IsolationLevel }`. |
-| `ITransactionContext` | `connection?` (driver handle, absent for a single shared handle such as SQLite), `depth` (savepoints taken so far), `IdentityMap?` (shared by every `save()` in the transaction), `afterCommit?` (queued callbacks, owned by `OrmDriver`). |
+| `ITransactionContext` | `connection?` (driver handle, absent for a single shared handle such as SQLite), `depth` (savepoints taken so far), `IdentityMap?` (shared by every `save()` in the transaction), `afterCommit?` (queued callbacks, owned by `OrmDriver`), `level?` (the outermost `ITransactionLevel`, owned by `OrmDriver`). |
+| `ITransactionLevel` | One level of a transaction, the outermost one or a savepoint: `parent?` (the level the savepoint was taken from), `held` (a savepoint taken from it is open), `waiting` (statements and savepoints waiting for that savepoint to end, in arrival order), `running` (its statements in flight), `ended?`. Owned by `OrmDriver`. |
 | `ITransaction` | `{ commit(); rollback() }`. Exported, but no `@spinajs/orm` API returns it; use `transaction()`. |
 | `MigrationTransactionMode` | `None`, `PerMigration`, `PerRun`. See [Migrations](10-migrations.md). |
 
 ## Important behaviour
 
 - **The context is per driver.** Each `OrmDriver` instance has its own `AsyncLocalStorage`. A query on another connection inside the callback does not join the transaction and is not rolled back with it.
-- **The callback's promise is the boundary.** Commit runs once the callback resolves. A statement you start but do not await can run after commit and dispose. A continuation that outlives its transaction callback keeps that transaction's context, so on SQLite it bypasses the writer gate and can join a later transaction: await everything inside the callback.
+- **The callback's promise is the boundary.** Commit runs once the callback resolves. Savepoints and statements already waiting for their turn when the callback settles run before the commit or rollback, and end with it. A statement that reaches the driver only after the commit started (one issued after an `await` the callback did not wait for) runs after commit and dispose. A continuation that outlives its transaction callback keeps that transaction's context, so on SQLite it bypasses the writer gate and can join a later transaction: await everything inside the callback.
 - **A builder joins when it executes, not when it is built.** Builders run when awaited; one created before `transaction()` and awaited inside the callback runs in the transaction.
 - **Nesting is savepoints, never a second transaction.** A failing nested call rolls back only its own work; catch its error to keep the outer transaction alive. An uncaught error unwinds every level.
-- **Drivers without concurrent transactions queue outermost calls.** When `supportedFeatures().concurrentTransactions` is `false` (SQLite), an outermost `transaction()` waits until the previous one on the same driver has committed or rolled back; calls run in call order. Nested calls are savepoints and never wait. The queue moves on before `afterCommit` callbacks run, so a callback may open a transaction of its own. A transaction callback that waits for work started on another async path of the same driver, where that work needs its own outermost transaction, never resolves.
-- **Savepoints assume sequential work.** Savepoint names come from an incrementing counter on the shared context, and `afterCommit` bookkeeping assumes savepoints of one transaction run one after another. Do not run nested `transaction()` or `save()` calls concurrently inside one transaction.
+- **Drivers without concurrent transactions queue outermost calls.** When `supportedFeatures().concurrentTransactions` is `false` (SQLite), an outermost `transaction()` waits until the previous one on the same driver has committed or rolled back; calls run in call order. Nested calls are savepoints and never wait for this queue. The queue moves on before `afterCommit` callbacks run, so a callback may open a transaction of its own. A transaction callback that waits for work started on another async path of the same driver, where that work needs its own outermost transaction, never resolves.
+- **Savepoints of one transaction take turns.** Nested `transaction()` and `save()` calls started together inside one transaction (`Promise.all`) run one after another, in call order, and a statement of the transaction issued while a savepoint is open waits until that savepoint is released or rolled back. A rollback therefore undoes only its own savepoint's statements. The turn is per level: a savepoint inside a savepoint waits only for its siblings. No level ends while its queue holds work: a savepoint is released only after the nested calls it started, and the transaction commits or rolls back only after the savepoints and statements waiting in it ran; when one of several parallel saves fails, the others still run and are rolled back with the transaction. There is no way to leave the queue: a call whose caller stopped waiting for it (a timeout race) still runs in its turn and commits or rolls back with the transaction.
+- **Work that waits for its own savepoint never resolves.** A savepoint callback must not await work of the enclosing transaction that sends a statement after the savepoint began, including work started before it whose first statement comes after an `await` (a query builder's hooks, an async helper): that statement waits for the savepoint to end. A transaction callback must not return while a nested call it started waits for something that happens only after `transaction()` returned: the commit waits for that call. A statement callback (the function a driver passes to `withSessionSettings`) must not open a savepoint: the savepoint waits for the running statement. No error is raised; on SQLite the hang also holds every other transaction of the process. Nothing is logged either: the call never settles, and a request that never returns while its transaction stays open is the sign. Look in that request's transaction for the shapes above and for a promise shared while still in flight (the next rule).
+- **Share a result between callers only once it has settled.** Work that a savepoint awaits while it holds its turn must not wait for a statement another caller issued on the enclosing level: that statement runs only after the savepoint ends. A cache, a request memo or a once-per-transaction guard that hands a later caller the promise of a read or write still in flight does exactly that when the later caller is inside a savepoint. Keep the settled result instead, and let a caller that finds the work still running do it itself (two overlapping first calls then read twice); see the example under Patterns and antipatterns.
 - **`afterCommit` callbacks never run for rolled-back work.** A rollback of the outermost transaction, or a failed commit, drops every queued callback. A rolled-back savepoint drops the callbacks queued since it began. A released savepoint keeps them for the outermost commit.
 - **`afterCommit` errors are logged, not thrown.** A failing callback is logged on the driver's log and the next one still runs. `transaction()` still resolves with the callback's value.
 - **`afterCommit` callbacks run outside the transaction.** `CurrentTransaction` is `undefined` inside them, and the connection is already released.
@@ -140,17 +143,40 @@ await Invoice.transaction(async (driver) => {
 ```
 
 ```ts
-// Don't: concurrent savepoints on one transaction.
+// Works: the saves take turns, each in its own savepoint, so one failure undoes only its own rows.
 await Order.transaction(async () => {
-  await Promise.all(orders.map((o) => o.save()));
+  await Promise.allSettled(orders.map((o) => o.save()));
 });
 
-// Do
+// Don't: perms' query reaches the driver after the savepoint began, so it waits for the savepoint, which waits for perms.
+// Do: const perms = await loadPermissions(user); before the nested call.
 await Order.transaction(async () => {
-  for (const o of orders) {
-    await o.save();
-  }
+  const perms = loadPermissions(user);           // an async helper: its query runs after an await
+  await Order.transaction(async () => {
+    if ((await perms).canWrite) await order.save();
+  });
 });
+```
+
+```ts
+// Don't: the nested call awaits the read the outer call started, which is queued behind the nested call's savepoint.
+const reads = new Map<string, Promise<Setting[]>>();
+const settingsOf = (name: string): Promise<Setting[]> => {
+  let read = reads.get(name);
+  if (read === undefined) reads.set(name, (read = (async () => Setting.where('Name', name))()));
+  return read;
+};
+await Setting.transaction(() => Promise.all([settingsOf('mail'), Setting.transaction(() => settingsOf('mail'))]));
+
+// Do: keep what was read; a call that finds the read still running reads for itself.
+const known = new Map<string, Setting[]>();
+const settledSettingsOf = async (name: string): Promise<Setting[]> => {
+  const settled = known.get(name);
+  if (settled !== undefined) return settled;
+  const rows = await Setting.where('Name', name);
+  known.set(name, rows);
+  return rows;
+};
 ```
 
 ```ts

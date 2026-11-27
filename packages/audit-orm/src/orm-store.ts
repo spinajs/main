@@ -10,12 +10,6 @@ export const quoted = (v: string): string => JSON.stringify(v);
 // `instanceof` alone narrows to OrmDriver<any>.
 const isDriver = (v: unknown): v is OrmDriver => v instanceof OrmDriver;
 
-// Per caller transaction: the last joined insert. OrmDriver.transaction() expects the savepoints of one transaction to
-// run one after another, and parallel confirmed writes of one caller would interleave them. A confirmed audit write
-// raised from inside a joined insert (a query middleware on the trail table) would wait for its own turn forever, as
-// joined writes have no deadline: whatever audits builder writes must leave trail tables out.
-const joinedTails = new WeakMap<object, Promise<void>>();
-
 /** The driver a write goes to: the handed one for a transactional write (`store` names the store in its errors), else the connection the write names, else the trail's. */
 export function writeDriver(write: AuditAppend, store: string): OrmDriver {
   const { trail, transaction } = write;
@@ -33,18 +27,15 @@ export function joinsCallerOn(trail: TrailConfig, connection: string | undefined
 
 /**
  * Inserts the rows of `write` into `table` on `driver`. Inside a transaction the write was not handed (a joined confirmed
- * write) the insert waits for the joined inserts before it and runs in a savepoint. An error of the insert itself passes
- * through as it is; a failure of the savepoint is an `AuditWriteFailed` of its own.
+ * write) the insert runs in a savepoint, which takes its turn with the other savepoints of that transaction. An error of
+ * the insert itself passes through as it is; a failure of the savepoint is an `AuditWriteFailed` of its own.
  */
 export function insertForWrite(driver: OrmDriver, write: AuditAppend, table: string, rows: readonly Record<string, unknown>[]): Promise<void> {
-  const joined = write.transaction === undefined ? driver.CurrentTransaction : undefined;
-  if (joined === undefined) return insertRows(driver, table, rows);
-  const turn = (joinedTails.get(joined) ?? Promise.resolve()).then(() => inSavepoint(driver, write, table, rows));
-  joinedTails.set(
-    joined,
-    turn.catch(() => undefined),
-  );
-  return turn;
+  // A chain of joined writes of our own would deadlock against the ORM's turn queue: a record inside a nested
+  // transaction would wait for one queued behind that transaction's savepoint. Whatever audits builder writes must
+  // leave trail tables out, or each joined insert raises another one.
+  if (write.transaction !== undefined || driver.CurrentTransaction === undefined) return insertRows(driver, table, rows);
+  return inSavepoint(driver, write, table, rows);
 }
 
 // The savepoint keeps a failed insert from aborting the caller's transaction on Postgres.

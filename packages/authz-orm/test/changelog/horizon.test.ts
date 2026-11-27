@@ -23,6 +23,19 @@ const T1 = new Date('2026-01-01T00:00:00.000Z');
 const T2 = new Date('2026-02-01T00:00:00.000Z');
 const T3 = new Date('2026-03-01T00:00:00.000Z');
 
+/** Rejects with `what` when `work` has not settled after `ms`, so a hang fails its own test instead of reaching mocha's timeout. */
+async function within<T>(ms: number, what: string, work: Promise<T>): Promise<T> {
+  let timer: NodeJS.Timeout | undefined;
+  const expired = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(() => reject(new Error(`${what}: still running after ${ms} ms`)), ms);
+  });
+  try {
+    return await Promise.race([work, expired]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function rejection(p: Promise<unknown>): Promise<Error> {
   try {
     await p;
@@ -218,7 +231,7 @@ describe('changelog horizon', function () {
         expect((await log.coveredSince('policy'))!.getTime()).to.be.within(before, inside);
       });
 
-      it('two parallel lost() calls of one transaction both resolve, leave one marker and the transaction commits', async () => {
+      it('two parallel lost() calls of one transaction both resolve, leave markers of each kind and the transaction commits', async () => {
         await recordCoverage(['policy'], ['doc'], [], T1);
         await driver.transaction(async () => {
           await log.append([{ kind: 'policy', op: 'remove', key: 'p' }]);
@@ -226,10 +239,37 @@ describe('changelog horizon', function () {
           await log.append([{ kind: 'policy', op: 'add', key: 'q' }]);
         });
         expect((await log.since(0)).map((c) => c.key)).to.deep.equal(['p', 'q']);
-        expect((await LostRecord.all()).map((r) => [r.kind, r.resource_type]).sort()).to.deep.equal([
-          ['column', 'doc'],
-          ['policy', ''],
-        ]);
+        // Overlapping calls do not wait for each other's marker, so the two of `column doc` may write one each.
+        expect([...new Set((await LostRecord.all()).map((r) => `${r.kind}#${r.resource_type}`))].sort()).to.deep.equal(['column#doc', 'policy#']);
+      });
+
+      it('lost() after a marker of the transaction was written inserts no second one', async () => {
+        await recordCoverage(['policy'], [], [], T1);
+        await driver.transaction(async () => {
+          await log.lost('policy', undefined, 'first');
+          await driver.transaction(() => log.lost('policy', undefined, 'nested'));
+          await log.lost('policy', undefined, 'again');
+        });
+        expect(await LostRecord.all()).to.have.length(1);
+      });
+
+      it('lost() beside a nested transaction that calls lost() of the same kind settles, before and after the first marker, however late the nested call starts', async () => {
+        await recordCoverage(['policy'], [], [], T1);
+        const rounds = { cold: 0, warm: 0 };
+        for (const start of ['cold', 'warm'] as const) {
+          for (let ticks = 0; ticks <= 60; ticks++) {
+            // A new instance checks for the marker table first; a warm one inserts at once.
+            const lost = start === 'cold' ? new DbChangeLog() : log;
+            const nested = async (): Promise<void> => {
+              for (let i = 0; i < ticks; i++) await Promise.resolve();
+              await driver.transaction(() => lost.lost('policy', undefined, 'inner'));
+            };
+            await within(10000, `lost() beside a nested lost(), ${start}, ${ticks} microtasks later`, driver.transaction(() => Promise.all([lost.lost('policy', undefined, 'outer'), nested()])));
+            rounds[start]++;
+          }
+        }
+        expect(rounds).to.deep.equal({ cold: 61, warm: 61 });
+        expect((await LostRecord.all()).length).to.be.at.least(122);
       });
 
       it('a marker that a savepoint rolled back is written again by the next lost() of the transaction', async () => {

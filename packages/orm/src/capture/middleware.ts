@@ -89,20 +89,17 @@ function changesOf(before: ReadonlyMap<string, CapturedRow>, after: ReadonlyMap<
 const isUpsert = (query: InsertQueryBuilder): boolean => query.Ignore === true || query.Replace || query.Update;
 
 // Keyed by the model's column list, which the ORM replaces whenever it reloads the table (a migration that touched it).
-const indexCache = new WeakMap<object, Promise<LiveIndex[] | undefined>>();
+// Only a list already read is shared: an upsert inside a savepoint that awaited another caller's read still in flight
+// would wait for a statement queued behind its own savepoint.
+const indexCache = new WeakMap<object, { readonly indexes: LiveIndex[] | undefined }>();
 
-function indexesOf(query: InsertQueryBuilder, plan: Plan): Promise<LiveIndex[] | undefined> {
-  const read = async () => query.Driver.tableIndexes?.(plan.table);
+async function indexesOf(query: InsertQueryBuilder, plan: Plan): Promise<LiveIndex[] | undefined> {
   const key = extractModelDescriptor(plan.statement.model)?.Columns;
-  if (!key) return read();
-  const cached =
-    indexCache.get(key) ??
-    read().catch((e: unknown) => {
-      indexCache.delete(key);
-      throw e;
-    });
-  indexCache.set(key, cached);
-  return cached;
+  const cached = key === undefined ? undefined : indexCache.get(key);
+  if (cached !== undefined) return cached.indexes;
+  const indexes = await query.Driver.tableIndexes?.(plan.table);
+  if (key !== undefined) indexCache.set(key, { indexes });
+  return indexes;
 }
 
 /**

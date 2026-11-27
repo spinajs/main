@@ -164,6 +164,19 @@ class RelationObserver extends WriteObserver {
   }
 }
 
+/** Rejects with `what` when `work` has not settled after `ms`, so a hang fails its own test instead of reaching mocha's timeout. */
+async function within<T>(ms: number, what: string, work: Promise<T>): Promise<T> {
+  let timer: NodeJS.Timeout | undefined;
+  const expired = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(() => reject(new Error(`${what}: still running after ${ms} ms`)), ms);
+  });
+  try {
+    return await Promise.race([work, expired]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 const selectsOn = (statements: { context: QueryContext; expression: string }[], table: string) => statements.filter((s) => s.context === QueryContext.Select && s.expression.includes(table)).length;
 
 describe('write capture on sqlite', function () {
@@ -552,6 +565,28 @@ describe('write capture on sqlite', function () {
       }
 
       expect(spy.callCount).to.eq(2);
+    });
+
+    it('captures an upsert beside a nested transaction that upserts the same model, with the index list read or not, however late the nested call starts', async function () {
+      // 244 transactions; each round has a deadline of its own, so only a slow machine reaches this one.
+      this.timeout(300000);
+      const driver = db().Connections.get('sqlite')!;
+      const upsert = (email: string) => CapMember.insert({ Email: email, Name: email }, InsertBehaviour.InsertOrIgnore);
+      for (const cache of ['cold', 'warm']) {
+        for (let ticks = 0; ticks <= 60; ticks++) {
+          // A reload gives the model a new column list, so the next upsert reads the index list again.
+          await db().reloadTableInfo();
+          if (cache === 'warm') await upsert(`${cache}${ticks}w`);
+          const nested = async (): Promise<void> => {
+            for (let i = 0; i < ticks; i++) await Promise.resolve();
+            await driver.transaction(async () => {
+              await upsert(`${cache}${ticks}i`);
+            });
+          };
+          await within(10000, `an upsert beside a nested upsert, ${cache} index list, ${ticks} microtasks later`, driver.transaction(() => Promise.all([upsert(`${cache}${ticks}o`), nested()])));
+        }
+      }
+      expect((await CapMember.all()).filter((m) => m.Email.endsWith('i') || m.Email.endsWith('o'))).to.have.length(244);
     });
 
     it('bounds the rows an upsert reads by db.WriteCapture.MaxRows', async () => {
