@@ -14,6 +14,12 @@ export abstract class FsProviderLayer {
 
 /** `provider` as the registered layers hand it out; `provider` itself when none is registered. */
 export function layeredFs(provider: fs, container: IContainer = DI.RootContainer): fs {
+  // Array.ofType never reads values, and hasRegistered does not see them.
+  for (let c: IContainer | undefined = container; c; c = c.Parent) {
+    if (c.Registry.hasValue(getTypeName(FsProviderLayer))) {
+      throw new InvalidOperation('An FsProviderLayer registered with asValue() cannot run: register the layer class as a singleton (@Injectable(FsProviderLayer))');
+    }
+  }
   if (!container.hasRegistered(FsProviderLayer)) return provider;
   let layered = provider;
   for (const layer of layersOf(container)) layered = layer.wrap(layered);

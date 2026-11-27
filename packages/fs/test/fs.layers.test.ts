@@ -210,4 +210,11 @@ describe('fs provider layers', function () {
     expect(layeredFs(published, child)).to.equal(published);
     expect(applied).to.deep.equal(['AToB', 'BToA']);
   });
+
+  it('a layer registered with asValue() throws instead of being skipped', () => {
+    const container = DI.child();
+    container.register(new Redirect()).asValue('FsProviderLayer');
+
+    expect(() => layeredFs(publishedFs('layer-a')!, container)).to.throw(InvalidOperation, /asValue\(\) cannot run/);
+  });
 });
