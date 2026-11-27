@@ -544,6 +544,24 @@ describe('redis session provider', function () {
       });
     }
 
+    for (const [label, rewrite, type, text] of [
+      ['not JSON', () => `x${STORED_DATA}`, SyntaxError, 'A stored session value is not JSON'],
+      ['JSON whose Data the decoder quotes', (value: Record<string, unknown>) => ({ ...value, Data: QUOTING_DATA }), TypeError, 'A session of user:u-42 has Data that does not decode'],
+    ] as [string, (value: Record<string, unknown>) => unknown, typeof Error, string][]) {
+      it(`restore of a stored value that is ${label} still throws a ${type.name} that quotes none of the stored value`, async () => {
+        const store = await makeProvider(SLIDING);
+        await store.truncate();
+        const raw = randomBytes(24).toString('hex');
+        const key = await storedAs(store, raw, rewrite);
+
+        const [error, lines] = await warnings(() => store.restore(key).then(() => undefined, (err: unknown) => err));
+        expect(error).to.be.instanceOf(type);
+        expect((error as Error).message).to.equal(text);
+        expect(leaks(printed([error]), [raw, key]), 'runs of the session id, its storage key or the stored Data').to.deep.equal([]);
+        expect(lines).to.deep.equal([]);
+      });
+    }
+
     it('a listing skips a stored value that is not a JSON object with one warning that names neither the session id nor its storage key', async () => {
       const store = await makeProvider(SLIDING);
       await store.truncate();
