@@ -13,7 +13,7 @@ The engine caches decisions at two levels and drops them by tag when authorizati
 ### Storing
 
 4. A decision is stored only when it is cacheable: no vote is `cacheable: false`, no model faulted, no `env`-bound or `identity`-bound ref, and the TTL is positive.
-5. The TTL is `min(authz.cache.ttlSeconds, validUntil - now)`. Models set `validUntil` from expiring grants, so a decision never outlives the grant it rests on. A decision that rests on a model's nested `ctx.check()` takes the earliest `validUntil` of those nested decisions as well, at every depth; a nested expiry that cannot be read keeps it out of both caches.
+5. The TTL is `min(authz.cache.ttlSeconds, validUntil - now)`. Models set `validUntil` from expiring grants, so a decision never outlives the grant it rests on. A decision that rests on a model's nested `ctx.check()` takes the earliest `validUntil` of those nested decisions as well, at every depth; a nested expiry that cannot be read keeps it out of both caches. A nested answer a model memoised in `ctx.cache` is not seen by the engine and bounds nothing (see [Writing a model](08-writing-a-model.md#important-behaviour)).
 6. The L2 entry carries tags: `*`, `model:<name>` per routed model, `subject:<type:id>` (and `link:<id>`) for the principal, its companions and its `onBehalfOf` chain, and `scope:<type:id>` for the resource and each ancestor (`scope:*` for a type-level check).
 
 ### Invalidating

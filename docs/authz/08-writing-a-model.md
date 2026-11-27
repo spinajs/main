@@ -181,6 +181,7 @@ Route it with `authz: { combine: { types: { payout: { algorithm: 'unanimous', mo
 
 - **Throw on missing or failed data; never vote "no".** A thrown or timed-out vote is indeterminate (`model_error`): it fails closed and is never cached. A "no" vote looks like a clean answer and gets cached.
 - **Memoise the promise of a load in `ctx.cache`, or memoise nothing.** A placeholder written before the load settles is read by a concurrent check as a clean answer.
+- **Never memoise a `ctx.check()` answer in `ctx.cache`.** The engine already keeps nested decisions in the L1 of the request. A memoised answer brings neither its tags nor its `validUntil` to the next decision, which is then cached as if it rested on nothing: past the nested grant's expiry, and past its revocation.
 - **Key every cache on everything the answer depends on**: principal state, permission, resource, scope, version. A missing part leaks one answer into another request.
 - **Never derive a cacheable vote from `principal.identity` or `env`**; the cache key holds neither. Set `cacheable: false` on such a vote.
 - **Report reasons with priorities.** One `denies[]` entry per deny source, each with `reason.priority` (lower wins) and, for ties, `sortKey`.
