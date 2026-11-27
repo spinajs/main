@@ -1,20 +1,142 @@
 /* eslint-disable security/detect-non-literal-fs-filename */
 import { IOFail, ResourceDuplicated } from '@spinajs/exceptions';
 import { constants, createReadStream, createWriteStream, existsSync, readFileSync, Stats, WriteStream } from 'fs';
-import { rm, stat, readdir, rename, mkdir, access, open, appendFile, readFile, copyFile } from 'node:fs/promises';
+import { rm, stat, readdir, rename, mkdir, access, open, appendFile, readFile, copyFile, lstat, realpath } from 'node:fs/promises';
 import { DateTime } from 'luxon';
 import { Injectable, PerInstanceCheck } from '@spinajs/di';
 import { fs, IFsLocalOptions, IFsUploadOptions, IStat, IWriteStreamOptions, IZipResult } from './interfaces.js';
 import { basename, dirname, isAbsolute, join, parse, relative, resolve as pathResolve } from 'path';
 import { Log, Logger } from '@spinajs/log-common';
 import type { Archiver } from 'archiver';
+import type { File, Open } from 'unzipper';
+import type {} from './typings/unzipper.js';
 import { cp, FileHandle } from 'fs/promises';
+import { Readable } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
 import { toArray } from '@spinajs/util';
 import { getFs } from './helpers.js';
 import { lazyImport } from './lazy-import.js';
+import { archiveEntryTarget, findEndRecord, isWithin } from './archive.js';
 
 const loadArchiver = lazyImport(() => import('archiver'));
 const loadUnzipper = lazyImport(() => import('unzipper'));
+
+// Positional reads: unzipper destroys each entry's stream, and destroying a FileHandle stream closes the handle.
+function rangeStream(handle: FileHandle, start: number, end: number): Readable {
+  let position = start;
+  const fill = async (stream: Readable, size: number) => {
+    const length = Math.min(size, end - position);
+    if (length <= 0) {
+      stream.push(null);
+      return;
+    }
+    const { bytesRead, buffer } = await handle.read(Buffer.alloc(length), 0, length, position);
+    position += bytesRead;
+    stream.push(bytesRead > 0 ? buffer.subarray(0, bytesRead) : null);
+  };
+
+  return new Readable({
+    read(size) {
+      fill(this, size).catch((err: unknown) => this.destroy(err instanceof Error ? err : new IOFail(String(err))));
+    },
+  });
+}
+
+/**
+ * Extracts the zip file `srcPath` into `destination`. Every entry of the central directory is checked before the first
+ * one is written, and each is written to its checked path, never to the name its local header carries (it may differ).
+ *
+ * @param archive - the archive's name in errors
+ * @throws IOFail when the archive cannot be read, an entry is refused (see {@link archiveEntryTarget}) or a write fails
+ */
+async function extractArchive(archive: string, srcPath: string, destination: string, openArchive: typeof Open): Promise<void> {
+  // one handle for the directory and every entry: unzipper's Open.file reopens the file per entry, 4 to 6 times slower
+  const handle = await open(srcPath, 'r').catch((err: unknown) => {
+    throw new IOFail(`Cannot read zip file ${archive}`, err);
+  });
+
+  try {
+    let entries: File[];
+    try {
+      entries = await readCentralDirectory(handle, openArchive);
+    } catch (err) {
+      throw new IOFail(`Cannot read zip file ${archive}`, err);
+    }
+
+    const targets = entries.map((entry) => ({ entry, ...archiveEntryTarget(archive, destination, entry) }));
+
+    let realRoot: string;
+    try {
+      await mkdir(destination, { recursive: true });
+      realRoot = await realpath(destination);
+    } catch (err) {
+      throw new IOFail(`Cannot unzip ${archive}: cannot create the destination ${destination}`, err);
+    }
+
+    for (const { entry, target, isDirectory } of targets) {
+      await assertNoLinkOnDisk(archive, entry.path, realRoot, target, isDirectory);
+      await writeEntry(archive, entry, target, isDirectory);
+    }
+  } finally {
+    await handle.close();
+  }
+}
+
+async function readCentralDirectory(handle: FileHandle, openArchive: typeof Open): Promise<File[]> {
+  const { size } = await handle.stat();
+  // unzipper looks for the end record in the last 80 bytes only, so a comment over 58 bytes hid it
+  const tail = Buffer.alloc(Math.min(size, 22 + 0xffff));
+  await handle.read(tail, 0, tail.length, size - tail.length);
+  const end = findEndRecord(tail, size - tail.length);
+  if (end === -1) throw new IOFail('no end of central directory record');
+
+  const directory = await openArchive.custom(
+    {
+      size: () => Promise.resolve(size),
+      stream: (start, length) => rangeStream(handle, start, length ? Math.min(start + length, size) : size),
+    },
+    { tailSize: tail.length - end },
+  );
+  return directory.files;
+}
+
+// Names were checked; this checks real paths, for links that were on disk before the unzip. A link swapped in between
+// this check and the write is not caught: whoever can write into the destination during the unzip is out of scope.
+async function assertNoLinkOnDisk(archive: string, entryPath: string, realRoot: string, target: string, isDirectory: boolean): Promise<void> {
+  const refuse = (reason: string) => new IOFail(`Cannot unzip ${archive}: entry ${JSON.stringify(entryPath)} ${reason}`);
+  const own = await lstat(target).catch(() => undefined);
+  if (own?.isSymbolicLink()) throw refuse('is a link on disk');
+
+  let existing = isDirectory ? target : dirname(target);
+  for (;;) {
+    const real = await realpath(existing).catch(() => undefined);
+    if (real !== undefined) {
+      if (!isWithin(realRoot, real)) throw refuse('resolves outside the destination through a link on disk');
+      return;
+    }
+    if (dirname(existing) === existing) return;
+    existing = dirname(existing);
+  }
+}
+
+async function writeEntry(archive: string, entry: File, target: string, isDirectory: boolean): Promise<void> {
+  let opened = false;
+  try {
+    if (isDirectory) {
+      await mkdir(target, { recursive: true });
+      return;
+    }
+    await mkdir(dirname(target), { recursive: true });
+    const out = createWriteStream(target).once('open', () => {
+      opened = true;
+    });
+    await pipeline(entry.stream(), out);
+  } catch (err) {
+    // the file this entry opened is empty or cut short; a file it never opened is not its to remove
+    if (opened) await rm(target, { force: true }).catch(() => undefined);
+    throw new IOFail(`Cannot unzip ${archive}: cannot write entry ${JSON.stringify(entry.path)}`, err);
+  }
+}
 
 /**
  * Abstract layer for file operations.
@@ -436,22 +558,10 @@ export class fsNative<T extends IFsLocalOptions> extends fs {
     const dst = dstFs.resolvePath(destPath);
     const { default: unzipper } = await loadUnzipper();
 
-    return new Promise<string>((resolve, reject) => {
-      const rStream = createReadStream(srcPath);
+    // unzipper.Extract streams the local headers, which do not say which entries are links
+    await extractArchive(path, srcPath, dst, unzipper.Open);
 
-      // without this handler a source read error is an unhandled stream 'error'
-      // event and CRASHES the process instead of rejecting
-      rStream.on('error', (err) => reject(new IOFail(`Cannot read zip file ${path}`, err)));
-
-      rStream.pipe(
-        unzipper
-          .Extract({
-            path: dst,
-          })
-          .on('close', () => resolve(dst))
-          .on('error', (err) => reject(new IOFail(`Cannot unzip file ${path}`, err))),
-      );
-    });
+    return dst;
   }
 
   protected async doIsDir(path: string): Promise<boolean> {
