@@ -42,8 +42,8 @@ export function refusedByHook(err: unknown, action: string, status: 400 | 403 = 
   return hookRefusedAnswer(refusal.code, status);
 }
 
-/** An instant to the second, as the credential tables keep it; null for none. */
-export const instant = (d: Date | undefined): string | null => (d ? new Date(Math.floor(d.getTime() / 1000) * 1000).toISOString() : null);
+/** An instant to the second, as the credential tables keep it; null for none and for an invalid Date (a stored value no converter read). */
+export const instant = (d: Date | undefined): string | null => (d && !Number.isNaN(d.getTime()) ? new Date(Math.floor(d.getTime() / 1000) * 1000).toISOString() : null);
 
 /**
  * The 401 answer with AUTHN_FAILURE_BODY. `retryAfterSeconds` (a throttled login, A06) becomes Retry-After; a

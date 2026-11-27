@@ -60,7 +60,7 @@ Field rules for `POST /user/keys`:
 | `scope` | Refused (400 `invalid_scope`): a user key takes no scope here. |
 | `proof` | `challengeId` (at most 600 characters) and `signature` (at most 128 characters) of a register challenge of this user. |
 
-**Key entry:** `{ "kid", "name", "alg", "jwk", "thumbprint", "scope", "createdAt", "expiresAt", "lastUsedAt", "revokedAt", "revoked", "expired" }`. Instants are ISO 8601 to the second, absent values `null`, and `jwk` holds the public members only (`kty`, `crv`, `x`, and `y` for P-256).
+**Key entry:** `{ "kid", "name", "alg", "jwk", "thumbprint", "scope", "createdAt", "expiresAt", "lastUsedAt", "revokedAt", "revoked", "expired" }`. Instants are ISO 8601 to the second, absent values `null`, and `jwk` holds the public members only (`kty`, `crv`, `x`, and `y` for P-256). A key whose stored expiry or revocation is [no readable datetime](../authn-keys/03-key-store.md#unreadable-expires_at-or-revoked_at) gives that instant as `null` with `expired` or `revoked` set to `true`.
 
 ## Configuration
 

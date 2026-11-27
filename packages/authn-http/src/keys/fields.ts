@@ -88,6 +88,7 @@ export function keyEntry(r: KeyRecord, now: Date): Record<string, unknown> {
     lastUsedAt: instant(r.lastUsedAt),
     revokedAt: instant(r.revokedAt),
     revoked: r.revokedAt !== undefined,
-    expired: r.expiresAt !== undefined && r.expiresAt.getTime() <= now.getTime(),
+    // An unreadable expiry is an invalid Date, which compares false both ways: it counts as expired.
+    expired: r.expiresAt !== undefined && !(r.expiresAt.getTime() > now.getTime()),
   };
 }
