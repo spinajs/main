@@ -3,7 +3,7 @@ import type { Permission } from '@spinajs/authz';
 import type { ObjectRef, OpaqueRef, PolicyIR, RelationName, TupleSubjectRef, TypeName } from '@spinajs/authz-ir';
 
 import { ANYONE, RewriteAutomaton, stateKey } from './graph.js';
-import type { Edge, StoredRead } from './graph.js';
+import type { Edge, HolderRef, StoredRead } from './graph.js';
 import { explore, implies as exactImplies, onlyVia as exactOnlyVia, reachers, reachersOf } from './monotone.js';
 import type { Reacher } from './monotone.js';
 import type { Encoder } from './smt/encode.js';
@@ -122,11 +122,14 @@ async function never(ir: PolicyIR, holder: string, glob: string, options: Bounde
   const verdicts: Verdict[] = [];
   const m = new RewriteAutomaton(ir);
   for (const permission of permissionsMatching(ir, glob)) {
+    // An anyone term needs no holder, so whoever the selector names reaches the permission through it. A reacher
+    // is labelled by its relation's first role only, so the relation is matched by every role that holds it, and a
+    // public member of that relation is one of its holders, as the bounded search reads it. The match runs inside
+    // the exploration: it keeps one path per holder key, and a role's key names no relation.
     const start = m.start(permission);
-    const ex = start === undefined ? undefined : explore(m, start);
-    // An anyone term needs no holder, so whoever the selector names reaches the permission through it; a public
-    // member of the relation the selector names is one of its holders, as the bounded search reads it.
-    const hits = (ex === undefined ? [] : reachersOf(ir, permission, ex)).filter((r) => r.holder.kind === 'anyone' || matchesHolder(holder, r.holder) || (r.holder.kind === 'public' && namesRelation(ir, holder, r.holder.type, r.holder.relation)));
+    const selected = (h: HolderRef): boolean => h.kind === 'anyone' || matchesHolder(holder, h) || namesRelation(ir, holder, h.type, h.relation);
+    const ex = start === undefined ? undefined : explore(m, start, selected);
+    const hits = ex === undefined ? [] : reachersOf(ir, permission, ex);
     hits.push(...reachedBehind(ir, permission, holder));
     const sure = hits.find((r) => !r.conditional);
     if (sure !== undefined) {
