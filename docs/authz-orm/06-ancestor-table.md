@@ -82,7 +82,7 @@ What a move costs. Every process that hears the change drops:
 
 - every cached decision on a moved row and on every resource below it, at any depth;
 - every cached type-level decision of the domain and of its child domains;
-- past 1000 moved rows in one write, every cached decision of the domain and of its child domains.
+- past 1000 moved rows in one write (or 1000 keys of an upsert the capture could not read), every cached decision of the domain and of its child domains.
 
 Decisions on resources outside the moved subtrees stay. A bulk move of N rows is one message with N tags (one with `*` past 1000), so moving many rows with one statement or `reparent()` costs one publish; a loop of single-row updates costs one per statement.
 
