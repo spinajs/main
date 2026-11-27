@@ -78,8 +78,8 @@ async function selectsDuring(fn: () => PromiseLike<unknown>): Promise<string[]> 
   const seen: string[] = [];
   const stub = sinon.stub(driver, 'execute').callsFake((builder: Builder<unknown>) => {
     if (builder instanceof SelectQueryBuilder) {
-      const out = builder.toDB();
-      seen.push((Array.isArray(out) ? out[0] : out).expression);
+      const { expression } = builder.toDB();
+      if (expression !== null) seen.push(expression);
     }
     return original(builder);
   });
