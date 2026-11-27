@@ -7,7 +7,7 @@ Each `queue.connections` entry with `service: 'AmqpQueueClient'` becomes one `Am
 1. **Selection.** `DefaultQueueService` (`@spinajs/queue`) injects `queue.connections` with `@AutoinjectService('queue.connections', QueueClient)`. For each entry DI finds the `QueueClient` registration whose class name equals `service`, here `AmqpQueueClient`.
 2. **Factory.** DI resolves `AmqpQueueClient` with the entry as the option. The [client factory](06-client-factory.md) runs: it sets `clientId` to `<app.name>-<APP_ENV>-<name>` unless the entry has one, calls `new AmqpQueueClient(...)`, then `resolve()`.
 3. **Target.** `connect()` clears the per-connection assert caches and calls `buildConnectionTarget()`, which turns `host`, `port`, `login`, `password` and the vhost into an amqplib `Options.Connect` object. See [Connect target](#connect-target).
-4. **Connect.** `createConnection(target, socketOptions)` calls `amqp.connect()`. `socketOptions` is `{ clientProperties: { connection_name: ClientId }, ...options }`. Any failure becomes `UnexpectedServerError('Cannot connect to AMQP queue server at <host>')`.
+4. **Connect.** `createConnection(target, socketOptions)` calls `amqp.connect()`. `socketOptions` is `{ clientProperties: { connection_name: ClientId }, ...options }`. Any failure becomes `UnexpectedServerError('Cannot connect to AMQP queue server at <broker>')`, `<broker>` as in [Logged broker address](#logged-broker-address); its cause holds only the client error's `name`, `code` and redacted message.
 5. **Listeners.** The client logs connection `error` events and calls `onConnectionLost()` on `close`.
 6. **Channels.** It opens a confirm channel for publishing (`PublishChannel`) and a plain channel for consuming (`ConsumeChannel`), gives both `error` and `close` listeners (`watchChannel()`), then sets `prefetch(options.prefetch ?? 1)` on the consume channel.
 7. **Ready.** `IsConnected` turns `true`. `replaySubscriptions()` restarts every known consumer and `flushPendingEmits()` publishes messages buffered while disconnected. When opening the channels or replaying a consumer fails, `IsConnected` turns `false` again and the connection is closed before the error is rethrown.
@@ -58,6 +58,10 @@ sequenceDiagram
 | value with `://` that `new URL()` rejects | `amqp` | the whole value | `port ?? 5672` | `login` / `password` | `options.vhost ?? '/'` | `options.heartbeat`, `.frameMax`, `.locale` |
 
 When neither `username` nor `password` reaches amqplib, amqplib logs in as `guest` / `guest`.
+
+### Logged broker address
+
+The `Connecting to AMQP queue at ...` line (`info`, on every connect and reconnect) and the connect error print the broker without credentials and query: a URL `host` as scheme, host, port and vhost (`amqps://user:pass@broker:5671/prod?heartbeat=30` prints `amqps://broker:5671/prod`), a value that `new URL()` rejects as `<not a URL>`, and any other `host` as `amqp://<host>:<port>/<options.vhost>`. A vhost segment longer than 16 characters or with other characters than letters, digits, `.`, `_`, `~` and `-` (a percent-encoded `/%2F`, for one) prints as `***`. Prefer `login` / `password` over credentials in the URL.
 
 ## Configuration
 
