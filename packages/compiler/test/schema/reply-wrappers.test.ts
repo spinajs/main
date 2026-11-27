@@ -39,6 +39,9 @@ describe('reply wrappers are http responses by their declaring package', () => {
     }
     expect(refsOf('ImportedAsReplies')).to.deep.equal({ Fine: payload.Ok, Missing: payload.NotFound, OkAlias: payload.Ok });
   });
+  it('unwraps a type alias of an http reply to the type argument the alias passes', () => {
+    expect(refsOf('AliasedReplies')).to.deep.equal({ MissingPayload: payload.NotFound, PromisedMissingPayload: payload.NotFound, OkList: { text: 'Payload[]' } });
+  });
   it('leaves a generic subclass of an http reply bare: its type argument need not be the payload', () => {
     expect(refsOf('GenericSubclassReplies')).to.deep.equal({ MyGenericOk: { text: 'MyGenericOk' } });
   });

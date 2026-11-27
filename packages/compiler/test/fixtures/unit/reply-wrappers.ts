@@ -115,6 +115,14 @@ export interface ImportedAsReplies {
   OkAlias: OkAlias<Payload>;
 }
 
+type MissingPayload = Http.NotFound<Payload>;
+type OkList<T> = Http.Ok<T[]>;
+export interface AliasedReplies {
+  MissingPayload: MissingPayload;
+  PromisedMissingPayload: Promise<MissingPayload>;
+  OkList: OkList<Payload>;
+}
+
 export interface HttpFolderReplies {
   Ok: InHttpFolder.Ok<Payload>;
   NotFound: InHttpFolder.NotFound<Payload>;
