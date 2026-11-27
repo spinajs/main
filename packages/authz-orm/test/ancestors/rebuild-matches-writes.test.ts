@@ -16,7 +16,7 @@ const expect = chai.expect;
 
 type M = typeof ModelBase & { insert(v: object | object[]): Promise<unknown>; update(v: object): { where(...a: unknown[]): Promise<unknown> }; destroy(pk: unknown): Promise<unknown> };
 
-describe('authz:ancestors-rebuild writes what the write observer wrote', function () {
+describe('authz:ancestors-rebuild writes what the write observer wrote, for one type per table', function () {
   this.timeout(60000);
   let db: TestDb;
   let pg = false;
@@ -55,7 +55,7 @@ describe('authz:ancestors-rebuild writes what the write observer wrote', functio
       const rebuild = () => Object.assign(new AncestorsRebuildCommand(), { Orm: db.orm }).execute();
       const verify = () => Object.assign(new AncestorsVerifyCommand(), { Orm: db.orm }).execute();
 
-      it('agrees row for row for every kind of model, and removes what the writes left stale', async () => {
+      it('agrees row for row for the kinds of model listed here, and removes what the writes left stale', async () => {
         // A model with no parents.
         const Org = (await db.define({ name: 'Org', columns: {}, decorate: (c) => AccessResource('org')(c) }, dialect)) as M;
         // A typed parent.
