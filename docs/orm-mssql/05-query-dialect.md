@@ -23,6 +23,7 @@ SELECT ... FROM [shop].[dbo].[orders] as [#orders#] WHERE ... = @p0 ORDER BY [Pa
 
 | Builder call | Class | T-SQL |
 | --- | --- | --- |
+| `driver.select().from('t').forUpdate()` / `.forShare()` | `MsSqlSelectQueryCompiler` | `SELECT * FROM <table> WITH (UPDLOCK, ROWLOCK) ...` / `WITH (REPEATABLEREAD, ROWLOCK)`: a table hint after the table; the locks last until the transaction ends |
 | `driver.del().from('t').where(...).take(n)` | `MsSqlDeleteQueryCompiler` | `DELETE TOP (n) FROM <table> WHERE ...` (no `TOP` without a limit) |
 | `whereInSet('Roles', ['admin'])` | `MsSqlInSetStatement` | `(CHARINDEX(?, ',' + ISNULL([Roles], '') + ',') > 0)`, bound `',admin,'` |
 | `whereNotInSet('Roles', ['admin', 'editor'])` | `MsSqlInSetStatement` | `(NOT (...) AND NOT (...))` |
@@ -53,6 +54,7 @@ All registered in the driver's child container by `MsSqlOrmDriver.resolve()`; no
 | Table names | `TableAliasCompiler` | `MsSqlTableAliasCompiler` | `SqlTableAliasCompiler` (no schema) | Implement `TableAliasCompiler.compile(builder, tbl?)`, register `.as(TableAliasCompiler)`. |
 | Paging | `LimitQueryCompiler`, new instance | `MsSqlLimitCompiler` | `SqlLimitQueryCompiler` (`LIMIT`, not T-SQL) | Extend `SqlLimitQueryCompiler`, override `compile()`. The builder passed in is the select builder, so `getSorts()` is available. |
 | Sorting | `OrderByQueryCompiler`, new instance | `MsSqlOrderByCompiler` (every sort, direction normalized to `ASC` / `DESC`) | `SqlOrderByQueryCompiler` (every sort, direction as given) | Extend `SqlOrderByQueryCompiler`, override `compile()`, register `.as(OrderByQueryCompiler)`. |
+| Selects | `SelectQueryCompiler`, new instance | `MsSqlSelectQueryCompiler` (row locks as table hints) | `SqlSelectQueryCompiler` (a lock clause after the select, not T-SQL) | Extend `SqlSelectQueryCompiler`, override `from()`. |
 | Deletes | `DeleteQueryCompiler`, new instance | `MsSqlDeleteQueryCompiler` | `SqlDeleteQueryCompiler` (`LIMIT`, not T-SQL) | Extend `SqlDeleteQueryCompiler`, override `compile()` or `from()`. |
 | Set membership | `InSetStatement`, new instance | `MsSqlInSetStatement` | `SqlInSetStatement` (portable `=` and `LIKE` patterns) | Extend `InSetStatement`, implement `build()` and `clone()`, register `.as(InSetStatement)`. |
 | `whereIn()` lists | `InStatement`, new instance | `MsSqlInStatement` (`listThreshold = 200`, `OPENJSON`) | `SqlInStatement` (always `IN (?, ...)`) | Extend `SqlInStatement`; set `listThreshold`, override `listExpression(column)` and `listBinding(values)`. |
