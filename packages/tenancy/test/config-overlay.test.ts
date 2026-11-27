@@ -283,7 +283,7 @@ describe('tenant configuration overrides', () => {
     expect(await runInTenant('acme', async () => config.get('mail.from'))).to.equal('new@acme.test');
   });
 
-  it('reads a failing registry again one tenancy.registryCacheMs after a failed refresh, sharing one read, with one warning per failure', async () => {
+  it('reads a failing registry again one tenancy.registryCacheMs after a failed refresh, once per interval also for reads a microtask apart, with one warning per failure', async () => {
     class FailingRegistry extends MemoryTenantRegistry {
       public down = false;
       public calls = 0;
@@ -299,10 +299,10 @@ describe('tenant configuration overrides', () => {
     const settings = new TenantSettings(registry, () => 100, (tenant) => void failures.push(tenant), () => now);
     await settings.load('acme');
     registry.down = true;
-    const readFor = async (n: number) => {
+    const readFor = async (n: number, tick: () => Promise<unknown> = () => new Promise(setImmediate)) => {
       for (let i = 0; i < n; i++) {
         expect(settings.settingsOf('acme')).to.deep.equal({ plan: 'pro' });
-        await new Promise(setImmediate);
+        await tick();
       }
     };
 
@@ -314,6 +314,10 @@ describe('tenant configuration overrides', () => {
     now = 200;
     await readFor(50);
     expect([registry.calls, failures.length]).to.deep.equal([3, 2]);
+    now = 300;
+    await readFor(50, () => Promise.resolve());
+    await new Promise(setImmediate);
+    expect([registry.calls, failures.length]).to.deep.equal([4, 3]);
   });
 
   it('picks up a tenant changed by another process once the registry cache of tenancy.registryCacheMs lets it through', async () => {
