@@ -8,7 +8,7 @@
  */
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
-import { Connection, HasMany, Model, ModelBase, Orm, OrphanPolicy, Primary, QueryContext, Relation, WriteObserver } from '@spinajs/orm';
+import { Connection, createQuery, HasMany, InsertQueryBuilder, Model, ModelBase, Orm, OrphanPolicy, Primary, QueryContext, Relation, WriteObserver } from '@spinajs/orm';
 import type { CaptureInterest, CapturedWrite, WriteStatement } from '@spinajs/orm';
 import '@spinajs/log';
 import { expect } from 'chai';
@@ -98,7 +98,7 @@ describe('mysql write capture of a save through another connection on the same s
     await admin.connect();
     for (const database of [ROOT_DATABASE, ITEM_DATABASE]) await admin.schema().createDatabase(database);
     await sql(`CREATE TABLE \`${ROOT_DATABASE}\`.shared_order (Id INT AUTO_INCREMENT PRIMARY KEY, Total INT NOT NULL)`);
-    await sql(`CREATE TABLE \`${ITEM_DATABASE}\`.shared_item (Id INT AUTO_INCREMENT PRIMARY KEY, Sku VARCHAR(8) NOT NULL, Qty INT NOT NULL, order_id INT NOT NULL)`);
+    for (const database of [ROOT_DATABASE, ITEM_DATABASE]) await sql(`CREATE TABLE \`${database}\`.shared_item (Id INT AUTO_INCREMENT PRIMARY KEY, Sku VARCHAR(8) NOT NULL, Qty INT NOT NULL, order_id INT NOT NULL)`);
 
     DI.clearCache();
     DI.register(SharedServerConf).as(Configuration);
@@ -109,7 +109,7 @@ describe('mysql write capture of a save through another connection on the same s
 
   beforeEach(async () => {
     await sql(`TRUNCATE TABLE \`${ROOT_DATABASE}\`.shared_order`);
-    await sql(`TRUNCATE TABLE \`${ITEM_DATABASE}\`.shared_item`);
+    for (const database of [ROOT_DATABASE, ITEM_DATABASE]) await sql(`TRUNCATE TABLE \`${database}\`.shared_item`);
     const own = connection('shared-b');
     if (!(own instanceof MySqlOrmDriver)) throw new Error('shared-b is not a MySQL connection');
     // Through the pool, not schema(): a schema statement runs on a connection of its own.
@@ -127,8 +127,8 @@ describe('mysql write capture of a save through another connection on the same s
 
   const first = { Id: 1, Sku: 'A', Qty: 1, order_id: 1 };
 
-  // The row is written by raw SQL on the root connection, inside its transaction: a save's insert of a model of another
-  // database is not qualified on this base, and the capture's key select is only needed by the update and the delete.
+  // The row is written by raw SQL on the root connection, inside its transaction, so these two tests exercise the key
+  // select alone: a save's insert of it would fail earlier on the parent, in the capture's read of the inserted row.
   async function savedWithItem() {
     const order = new SharedOrder({ Total: 1 });
     await order.save();
@@ -160,5 +160,28 @@ describe('mysql write capture of a save through another connection on the same s
 
     expect(captured()).to.deep.equal([['delete', [{ id: '1', before: first, after: undefined }]]]);
     expect(await items()).to.deep.equal([]);
+  });
+
+  it('reads the row a save inserted through the root connection in the model database', async () => {
+    await connection('shared-a').transaction(async () => {
+      const order = new SharedOrder({ Total: 1 });
+      order.attach(new SharedItem({ Sku: 'A', Qty: 1 }));
+      await order.save();
+    });
+
+    expect(captured()).to.deep.equal([['insert', [{ id: '1', before: undefined, after: first }]]]);
+    expect(await items()).to.deep.equal([first]);
+  });
+
+  it('reads the rows of an upsert in the database the statement names', async () => {
+    await sql(`INSERT INTO \`${ROOT_DATABASE}\`.shared_item (Id, Sku, Qty, order_id) VALUES (1, 'R', 7, 1)`);
+    await sql(`INSERT INTO \`${ITEM_DATABASE}\`.shared_item (Id, Sku, Qty, order_id) VALUES (1, 'A', 1, 1)`);
+
+    await createQuery(SharedItem, InsertQueryBuilder).query.database(ROOT_DATABASE).values({ Id: 1, Sku: 'R', Qty: 8, order_id: 1 }).onDuplicate().update(['Qty']);
+
+    const root = { Id: 1, Sku: 'R', Qty: 7, order_id: 1 };
+    expect(captured()).to.deep.equal([['insert', [{ id: '1', before: root, after: { ...root, Qty: 8 } }]]]);
+    expect(await admin.executeOnDb(`SELECT * FROM \`${ROOT_DATABASE}\`.shared_item`, [], QueryContext.Select)).to.deep.equal([{ ...root, Qty: 8 }]);
+    expect(await items()).to.deep.equal([first]);
   });
 });
