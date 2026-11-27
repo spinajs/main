@@ -120,8 +120,6 @@ function assertNoLinkOut(t: TenantFsTarget, shown: string): void {
  * paths; the wrapped provider's actions run inside the action, below them, where no middleware runs again.
  */
 export class TenantFs extends fs {
-  private readonly prepared = new Set<string>();
-
   constructor(
     public readonly inner: fs,
     private readonly settings: () => TenantFsSettings,
@@ -225,7 +223,7 @@ export class TenantFs extends fs {
   protected async doList(path: string): Promise<string[]> {
     const t = this.target(path);
     // A tenant that never wrote has no prefix directory yet: it has no entries.
-    if (t.prefix !== undefined && !this.prepared.has(t.prefix) && !(await t.fs.dirExists(t.prefix))) return [];
+    if (t.prefix !== undefined && !(await t.fs.dirExists(t.prefix))) return [];
     return t.fs.list(t.path);
   }
 
@@ -239,10 +237,9 @@ export class TenantFs extends fs {
     return t.fs.mkdir(t.path);
   }
 
-  protected async doRm(path: string): Promise<void> {
+  protected doRm(path: string): Promise<void> {
     const t = this.target(path);
-    await t.fs.rm(t.path);
-    if (t.prefix !== undefined && t.path === t.prefix) this.prepared.delete(t.prefix);
+    return t.fs.rm(t.path);
   }
 
   protected async doCopy(path: string, dest: string, dstFs?: fs): Promise<void> {
@@ -292,13 +289,10 @@ export class TenantFs extends fs {
     return t.fs.signedUrl(t.path, opts);
   }
 
-  // A local provider does not create missing parent directories: the tenant's prefix is made once, before its first write.
+  // Made before every write: a local provider creates no parent directory, and an operator may remove the prefix.
   private async writable(path: string): Promise<TenantFsTarget> {
     const target = this.target(path);
-    if (target.prefix !== undefined && !this.prepared.has(target.prefix)) {
-      await target.fs.mkdir(target.prefix);
-      this.prepared.add(target.prefix);
-    }
+    if (target.prefix !== undefined) await target.fs.mkdir(target.prefix);
     return target;
   }
 
@@ -447,30 +441,32 @@ export class TenantFsLayer extends FsProviderLayer {
 
 /**
  * Refuses an action on a prefixed provider outside a tenant scope, before any other middleware runs; inside a tenant, an
- * action that reaches a listed provider's shared files (publishedFs(), a kept instance), and an unzip into a tenant's
- * whole root, where the archive's '../other-tenant' entries pass the extractor's own check.
+ * action that reaches tenants' files without the view (a listed provider's shared files through publishedFs() or a kept
+ * instance, another tenant's dedicated provider), and an unzip into a tenant's whole root (defence in depth: the
+ * extractor skips '../' entries; lifted once `@spinajs/fs` checks entry names itself).
  */
 @Injectable(FsMiddleware)
 export class TenantFsGuard extends FsMiddleware {
   public override order = -1000;
 
-  @Config('tenancy.fs.prefixed', { defaultValue: [] })
-  protected Prefixed!: unknown;
+  @Config('tenancy.fs', { defaultValue: {} })
+  protected Section!: unknown;
 
   public override isEnabled(provider: fs): boolean {
-    return provider instanceof TenantFs || this.listed(provider.Name);
+    return provider instanceof TenantFs || this.tenantFiles(provider.Name, undefined);
   }
 
   public before(ctx: FsActionContext): Promise<void> {
     const providers = [ctx.fs, ...ctx.targets.map((target) => target.fs)];
-    const shared = providers.filter((provider) => !(provider instanceof TenantFs) && this.listed(provider.Name));
+    const scope = tenantScope();
+    const tenant = scope?.kind === 'tenant' ? scope.tenant.id : undefined;
+    const shared = providers.filter((provider) => !(provider instanceof TenantFs) && this.tenantFiles(provider.Name, tenant));
     if (shared.length > 0) assertTenantFsLayerLast();
     for (const provider of providers) {
       if (provider instanceof TenantFs) tenantOf(provider.Name);
     }
-    const scope = tenantScope();
-    if (shared.length > 0 && scope?.kind === 'tenant') {
-      throw new InvalidOperation(`fs "${shared[0].Name}" keeps files per tenant, and this ${ctx.action} in tenant "${scope.tenant.id}" reached its shared files; look the provider up by name (getFs) instead of publishedFs() or a kept instance`);
+    if (shared.length > 0 && tenant !== undefined) {
+      throw new InvalidOperation(`fs "${shared[0].Name}" holds tenants' files, and this ${ctx.action} in tenant "${tenant}" reached them without the tenant's view (publishedFs(), a kept instance or another tenant's dedicated provider); use getFs() of the listed provider`);
     }
     const destination = ctx.action === 'unzip' ? ctx.targets[1] : undefined;
     const mapped = destination?.fs instanceof TenantFs ? destination.fs.target(destination.path) : undefined;
@@ -480,7 +476,9 @@ export class TenantFsGuard extends FsMiddleware {
     return Promise.resolve();
   }
 
-  private listed(name: string): boolean {
-    return Array.isArray(this.Prefixed) && this.Prefixed.includes(name);
+  // A listed provider's shared files, and every dedicated provider but the one of `tenant`.
+  private tenantFiles(name: string, tenant: string | undefined): boolean {
+    const { prefixed, dedicated } = tenantFsSettings(this.Section);
+    return prefixed.has(name) || [...dedicated.values()].some((own) => [...own].some(([owner, provider]) => provider === name && owner !== tenant));
   }
 }
