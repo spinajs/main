@@ -49,7 +49,9 @@ function sql(query: { toDB(): ICompilerOutput | ICompilerOutput[] }): string {
 async function correct(statement: string): Promise<number[]> {
   const driver = db().Connections.get('sqlite');
   if (!(driver instanceof SqliteOrmDriver)) throw new Error('the sqlite connection is not registered');
-  return ids((await driver.executeOnDb(statement, [], QueryContext.Select)) as { Id: number }[]);
+  const rows = await driver.executeOnDb(statement, [], QueryContext.Select);
+  if (!Array.isArray(rows)) throw new Error('executeOnDb returned no rows');
+  return rows.map((r: { Id: unknown }) => Number(r.Id)).sort((a, b) => a - b);
 }
 
 const bOrQ = function (this: IWhereBuilder<unknown>) {
