@@ -77,6 +77,12 @@ export abstract class PlanTermCompiler {
    * `ctx.principals`). Without it, a term is something the database cannot evaluate (AUTHZ020).
    */
   renderSql?(args: unknown, ctx: RlsSqlContext): string;
+  /**
+   * For a cache that keeps the filtered rows per principal: the decision tags (`subject:`, `link:`, `model:`, `scope:`,
+   * `*`) the term's SQL rests on besides the rows of the filtered table and the plan's own tags. Undefined for args it
+   * cannot describe; a term without this method can never be described, and nothing it filters is cached.
+   */
+  cacheTags?(args: unknown): readonly string[] | undefined;
 }
 
 /**

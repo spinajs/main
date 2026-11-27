@@ -1,4 +1,4 @@
-import { AuthzConfigError } from '@spinajs/authz';
+import { AuthzConfigError, principalKey } from '@spinajs/authz';
 import { Injectable, Singleton } from '@spinajs/di';
 import { Wrapper } from '@spinajs/orm';
 import type { IWhereBuilder } from '@spinajs/orm';
@@ -26,6 +26,11 @@ function principalsOf(args: unknown, op: string): PrincipalArg[] {
     throw new AuthzConfigError(`authz-orm: ${op} args must be { principals: { type, id }[] }, got ${JSON.stringify(args)}`);
   }
   return list;
+}
+
+/** A relation term reads the row and its args: who the principals are is what can change its rows besides the row. */
+function subjectTags(args: unknown, op: string): string[] {
+  return principalsOf(args, op).map((p) => `subject:${principalKey(p)}`);
 }
 
 function columnsOf(row: PlanRow, name: 'owner' | 'self'): Columns {
@@ -80,6 +85,10 @@ export class RelationOwnerTerm extends PlanTermCompiler {
   renderSql(_args: unknown, ctx: RlsSqlContext): string {
     return sessionPrincipalsMatch(ctx, sessionColumns(ctx, 'owner', '@Owner()'));
   }
+
+  cacheTags(args: unknown): readonly string[] {
+    return subjectTags(args, this.op);
+  }
 }
 
 /** The row is one of the user principals (`users` model, design §5). */
@@ -94,6 +103,10 @@ export class RelationSelfTerm extends PlanTermCompiler {
 
   renderSql(_args: unknown, ctx: RlsSqlContext): string {
     return sessionPrincipalsMatch(ctx, { column: sessionColumns(ctx, 'self', '@Self()').column });
+  }
+
+  cacheTags(args: unknown): readonly string[] {
+    return subjectTags(args, this.op);
   }
 }
 
@@ -115,5 +128,9 @@ export class RelationColumnTerm extends PlanTermCompiler {
     const relation = (args as { relation?: unknown } | null)?.relation;
     if (typeof relation !== 'string' || relation === '' || relation === 'owner' || relation === 'self') throw new AuthzConfigError(`authz-orm: ${this.op} args must be { relation, principals }, got ${JSON.stringify(args)}`);
     return sessionPrincipalsMatch(ctx, sessionColumns(ctx, relation, `@Relation('${relation}')`));
+  }
+
+  cacheTags(args: unknown): readonly string[] {
+    return subjectTags(args, this.op);
   }
 }
