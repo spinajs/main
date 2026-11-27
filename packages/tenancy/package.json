@@ -9,6 +9,10 @@
       "types": "./lib/index.d.ts",
       "import": "./lib/index.js"
     },
+    "./scheduler": {
+      "types": "./lib/scheduler.d.ts",
+      "import": "./lib/scheduler.js"
+    },
     "./queue": {
       "types": "./lib/queue.d.ts",
       "import": "./lib/queue.js"
@@ -56,16 +60,23 @@
     "@spinajs/principal": "3.0.23"
   },
   "peerDependencies": {
-    "@spinajs/queue": "3.0.23"
+    "@spinajs/queue": "3.0.23",
+    "@spinajs/scheduler": "3.0.23"
   },
   "peerDependenciesMeta": {
     "@spinajs/queue": {
+      "optional": true
+    },
+    "@spinajs/scheduler": {
       "optional": true
     }
   },
   "devDependencies": {
     "@spinajs/authz": "3.0.23",
+    "@spinajs/orm": "3.0.23",
+    "@spinajs/orm-sqlite": "3.0.23",
     "@spinajs/queue": "3.0.23",
+    "@spinajs/scheduler": "3.0.23",
     "@spinajs/testing": "3.0.23"
   },
   "spinajs": {

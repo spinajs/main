@@ -18,6 +18,10 @@ The scope lives in the request store the framework already shares, so `runAs` ke
 - `admitTenant(proposal, principal)` answers the record of a tenant that is known, active and open to the principal, or throws `TenantUnavailable`.
 - `forEachTenant(fn, { concurrency, states })` runs `fn` in every tenant and reports the failures.
 
+## Scheduler
+
+`import '@spinajs/tenancy/scheduler'` (needs `@spinajs/scheduler`) registers a run hook: a run of a tenant's schedule instance executes inside that tenant once the registry still knows it as active (an unknown, provisioning, suspended, deleting or deleted tenant fails the attempt with `TenantUnavailable`), and a run of a global schedule executes with no tenant scope. The tenant is the one of the instance the run belongs to, never the scope of the code that drives or wakes the loop; the run starts from an empty request store, so it runs as no principal. `RunContext.tenant` names the tenant inside the task. Import it in every process that runs the scheduler loop: without a run hook the scheduler refuses the runs of tenant instances.
+
 ## Queue
 
 `import '@spinajs/tenancy/queue'` (needs `@spinajs/queue`) registers a message hook: a message emitted inside a tenant scope carries it in the header `x-spinajs-tenant`, and its handler runs in that scope, also after a retry or a redelivery. A value the caller or a hook of a higher order wrote under that name is replaced: the hook writes after them. The header is as trustworthy as the broker: whoever can publish to it, or call `QueueClient.emit()` directly, can name any tenant. `@Job({ tenancy: 'required' })` refuses a message that names no single tenant (dead-lettered, reason `tenant_required`); `@Job({ tenancy: 'none' })` always runs with no scope.

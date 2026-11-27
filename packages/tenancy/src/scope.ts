@@ -96,14 +96,16 @@ export function onTenantScopeChange(guard: TenantScopeGuard): () => void {
 
 /**
  * Replaces the ambient scope for `fn`, whatever it is. For entry-point glue only (a queue consumer, a scheduler run),
- * which carries the scope of a unit of work that started elsewhere; not exported from the package root.
+ * which carries the scope of a unit of work that started elsewhere; not exported from the package root. With
+ * `inherit: false` the store starts empty: a unit of work that owes nothing to the code it happens to run inside (a
+ * scheduler run has no request) takes along no principal, request id or other key of it.
  */
-export async function establishTenantScope<T>(scope: TenantScope | undefined, fn: () => Promise<T>): Promise<T> {
+export async function establishTenantScope<T>(scope: TenantScope | undefined, fn: () => Promise<T>, options: { inherit?: boolean } = {}): Promise<T> {
   const from = tenantScope();
   for (const guard of guards) guard(from, scope);
 
   const als = storage();
-  const store: TenantStore = { ...als.getStore() };
+  const store: TenantStore = options.inherit === false ? {} : { ...als.getStore() };
   leaveScope(store);
   if (scope) store.Tenant = scope;
   return als.run(store, async () => fn());
