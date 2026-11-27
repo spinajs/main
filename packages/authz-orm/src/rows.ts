@@ -3,7 +3,7 @@ import type { ResourceRef } from '@spinajs/authz';
 import { ModelBase } from '@spinajs/orm';
 
 import { idLookup, idText } from './ids.js';
-import { classesOf, entryOf } from './registry.js';
+import { classesOf, entryOf, requireSingleKey } from './registry.js';
 import type { ModelClass } from './registry.js';
 
 export interface FoundRow {
@@ -31,6 +31,7 @@ export async function findRows(refs: readonly ResourceRef[]): Promise<Map<string
       // spinajs-orm-ignore ORM102: one whereIn query per model class registered for the type
       for (const cls of classesOf(type)) {
         const entry = entryOf(cls)!;
+        requireSingleKey(cls, entry);
         const wanted = [...ids].filter((id) => !out.has(resourceKey({ type, id })));
         const values = wanted.map((id) => idLookup(cls, entry.idColumn, id)).filter((v) => v !== undefined);
         if (values.length === 0) continue;

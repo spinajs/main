@@ -2,14 +2,17 @@ import * as chai from 'chai';
 import 'mocha';
 import sinon from 'sinon';
 
-import { AuthzConfigError, ScopeForgetter, TRUE, authzStorage, changeLog, runWithPrincipal } from '@spinajs/authz';
+import { AuthzConfigError, SYSTEM, ScopeForgetter, TRUE, authzStorage, changeLog, runWithPrincipal } from '@spinajs/authz';
 import type { AccessPlan, AdminContext, AuthzEvent, AuthzTx, Decision, Principal, ResourceRef } from '@spinajs/authz';
-import { testHost } from '@spinajs/authz-testing';
+import { StaticModel, testHost } from '@spinajs/authz-testing';
+import type { IContainer } from '@spinajs/di';
 import { ModelBase, Primary } from '@spinajs/orm';
 
+import { OrmResourceAdapter } from '../src/adapter.js';
 import { AuthzOrmContributor } from '../src/contributor.js';
 import { AccessResource, Owner, entryOf, registerAccessResource } from '../src/index.js';
 import { setMarks } from '../src/marker.js';
+import { ormRelations } from '../src/relations.js';
 import { rlsResources } from '../src/rls/index.js';
 import { createAncestorTable, dropAncestorTable } from './support/ancestors.js';
 import { TestDb } from './support/db.js';
@@ -24,6 +27,7 @@ class NoopForgetter extends ScopeForgetter {
 }
 
 const alice: Principal = { type: 'user', id: 'alice', authenticated: true, source: 'test', attributes: {} };
+const bob: Principal = { type: 'user', id: 'bob', authenticated: true, source: 'test', attributes: {} };
 // Alice may read doc d1, which in the subclass's table is two rows: tenant t1's (hers) and tenant t2's (bob's).
 const withinD1: AccessPlan = { kind: 'filter', permit: 'all', deny: [], within: [{ type: 'doc', id: 'd1' }] };
 const decided = { allowed: true, permission: 'doc:read', resource: { type: 'doc', id: 'd1' }, residual: TRUE } as unknown as Decision;
@@ -159,13 +163,38 @@ describe('authz-orm: a subclass of a resource that adds a key column', function 
         expect(read).to.be.instanceOf(AuthzConfigError);
       });
 
+      const lineOf = async (model: M, id: string): Promise<ModelBase> => {
+        const rows = (await runWithPrincipal(SYSTEM, async () => await model.query())) as (ModelBase & { id: string })[];
+        return rows.find((r) => r.id === id)!;
+      };
+
       describe('a composite-key resource registered after the boot, which the boot check never saw', () => {
         let Late: M;
 
         beforeEach(async () => {
           sinon.stub(await (await testHost.domains()).service('root'), 'accessPlan').resolves(withinO1);
           Late = (await db.define({ name: 'Late', columns: { order_id: 'TEXT', owner_id: 'TEXT' }, primary: ['order_id', 'id'], rows: ORDER_O1 }, dialect)) as M;
-          registerAccessResource(Late, 'late');
+          registerAccessResource(Late, 'late', { owner: 'owner_id' });
+        });
+
+        it("a point check refuses a row of it: keyed by order_id alone, alice's line l1 and bob's line l2 are both late:o1", async () => {
+          const adapter = new OrmResourceAdapter();
+          for (const id of ['l1', 'l2']) {
+            const line = await lineOf(Late, id);
+            expect(() => adapter.refOf(line)).to.throw(AuthzConfigError, compositeRefusal(Late, 'late'));
+          }
+        });
+
+        it("the owner relation refuses it for a subject row: bob's line l2 would answer for late:o1", async () => {
+          const owner = ormRelations().find((r) => r.type === 'late' && r.relation === 'owner')!;
+          const l2 = await lineOf(Late, 'l2');
+          expect(await settle(async () => await owner.holds(bob, { type: 'late', id: 'o1' }, l2))).to.be.instanceOf(AuthzConfigError).with.property('message', compositeRefusal(Late, 'late'));
+        });
+
+        it("a load by ref refuses it: late:o1 would load alice's line l1 for the owner and the attribute terms", async () => {
+          expect(await settle(() => new OrmResourceAdapter().load({ type: 'late', id: 'o1' }))).to.be.instanceOf(AuthzConfigError).with.property('message', compositeRefusal(Late, 'late'));
+          const owner = ormRelations().find((r) => r.type === 'late' && r.relation === 'owner')!;
+          expect(await settle(async () => await owner.holds(alice, { type: 'late', id: 'o1' }))).to.be.instanceOf(AuthzConfigError).with.property('message', compositeRefusal(Late, 'late'));
         });
 
         it(".accessible() and the other list methods refuse it: keyed by order_id alone, a grant on order o1 would list bob's line l2", async () => {
@@ -179,6 +208,33 @@ describe('authz-orm: a subclass of a resource that adds a key column', function 
           const query = Late.query();
           setMarks(query, { accessible: 'late:read' });
           expect(await settle(() => runWithPrincipal(alice, async () => await query))).to.be.instanceOf(AuthzConfigError).with.property('message', compositeRefusal(Late, 'late'));
+        });
+      });
+
+      describe('a composite-key class registered after the boot under a type the domain booted with', () => {
+        it("authz.check refuses a row of it and a ref of its key: alice's grant on doc:o1 would cover bob's line", async () => {
+          const ds = await testHost.domains();
+          const cfg = testHost.config();
+          cfg.set(['authz', 'domains', 'point'], { combine: { default: { algorithm: 'deny-overrides', models: ['grants'] } }, cache: { maxEntries: 0 } });
+          // Domain boot refuses @AccessResource models off the authz connection, so the alias follows the dialect.
+          const authz = db.orm.Connections.get('authz')!;
+          db.orm.Connections.set('authz', db.driver(dialect));
+          const container: IContainer = ds.create('point', 'root');
+          try {
+            testHost.activate(container, 'point', new StaticModel({ name: 'grants', votes: { 'doc:update@doc:o1': { permitWhen: TRUE } } }));
+            const service = await ds.service('point');
+            const LateDoc = (await db.define({ name: 'LateDoc', columns: { order_id: 'TEXT', owner_id: 'TEXT' }, primary: ['order_id', 'id'], rows: ORDER_O1 }, dialect)) as M;
+            registerAccessResource(LateDoc, 'doc', { owner: 'owner_id' });
+            const l2 = await lineOf(LateDoc, 'l2');
+            expect(await settle(() => service.check({ principal: alice, permission: 'doc:update', resource: l2 }))).to.be.instanceOf(AuthzConfigError).with.property('message', compositeRefusal(LateDoc, 'doc'));
+            expect(await settle(() => service.check({ principal: alice, permission: 'doc:update', resource: { type: 'doc', id: 'o1' } }))).to.be.instanceOf(AuthzConfigError).with.property('message', compositeRefusal(LateDoc, 'doc'));
+            const owner = ormRelations().find((r) => r.type === 'doc' && r.relation === 'owner')!;
+            expect(await settle(async () => await owner.holds(bob, { type: 'doc', id: 'o1' }, l2))).to.be.instanceOf(AuthzConfigError).with.property('message', compositeRefusal(LateDoc, 'doc'));
+          } finally {
+            await container.dispose();
+            db.orm.Connections.set('authz', authz);
+            cfg.unset(['authz', 'domains', 'point']);
+          }
         });
       });
 

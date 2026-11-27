@@ -3,7 +3,7 @@ import type { Principal, ResourceRef, ResourceType } from '@spinajs/authz';
 import { ModelBase } from '@spinajs/orm';
 
 import { idText } from './ids.js';
-import { classesOf, entryOf, namedRelation, registeredTypes } from './registry.js';
+import { classesOf, entryOf, namedRelation, registeredTypes, requireSingleKey } from './registry.js';
 import { findRows } from './rows.js';
 
 type Row = ModelBase & Record<string, unknown>;
@@ -13,6 +13,7 @@ async function rowFor(type: ResourceType, ref: ResourceRef, subject: unknown): P
   if (ref.id === undefined || ref.id === null) return null;
   if (subject instanceof ModelBase) {
     const entry = entryOf(subject.constructor);
+    if (entry) requireSingleKey(subject.constructor, entry);
     if (entry?.type === type && idText((subject as Row)[entry.idColumn]) === String(ref.id)) return subject as Row;
   }
   return ((await findRows([ref])).get(resourceKey(ref))?.row as Row | undefined) ?? null;

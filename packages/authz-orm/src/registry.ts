@@ -245,7 +245,7 @@ export function entryOf(model: unknown): ResourceEntry | undefined {
 }
 
 /**
- * The ancestor table, the column changelog and the list filters key a row by `idColumn` alone. Not refused in
+ * The ancestor table, the column changelog, the list filters and the point checks key a row by `idColumn` alone. Not refused in
  * entryOf: the boot reports the class, and the guard's single-object rule reads a composite entry.
  */
 export function requireSingleKey(model: unknown, entry: ResourceEntry): void {
