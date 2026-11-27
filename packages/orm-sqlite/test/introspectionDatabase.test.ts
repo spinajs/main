@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Configuration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
-import { Connection, DefaultMigrationService, InsertBehaviour, Model, ModelBase, Orm, Primary, QueryContext, WriteObserver } from '@spinajs/orm';
+import { Connection, createQuery, DefaultMigrationService, InsertBehaviour, InsertQueryBuilder, Model, ModelBase, Orm, Primary, QueryContext, WriteObserver } from '@spinajs/orm';
 import type { CaptureInterest, CapturedWrite, OrmMigrationService, RowChange, WriteStatement } from '@spinajs/orm';
 import { expect } from 'chai';
 import _ from 'lodash';
@@ -17,6 +17,15 @@ class AttachedConf extends ConnectionConf {
   public async resolve(): Promise<void> {
     await super.resolve();
     _.set(this.Config, 'db.Connections[0].Database', 's');
+  }
+}
+
+// `sqlite-shared` names `s`; its writes run on `sqlite`, which has `s` attached and no Database of its own.
+class SharedServerConf extends ConnectionConf {
+  public async resolve(): Promise<void> {
+    await super.resolve();
+    _.set(this.Config, 'db.Connections[0].SharedServer', 'memory');
+    _.set(this.Config, 'db.Connections[1]', { Driver: 'orm-driver-sqlite', Filename: ':memory:', Name: 'sqlite-shared', SharedServer: 'memory', Database: 's' });
   }
 }
 
@@ -171,6 +180,16 @@ describe('sqlite introspection of a table in an attached database', function () 
 
       expect((await sqlite().tableIndexes('p_up', 's')).filter((i) => !i.primary).map((i) => [i.name, i.columns])).to.deep.equal([['sqlite_autoindex_p_up_1', ['Code']]]);
       expect((await sqlite().tableInfo('p_up', 's')).filter((c) => c.Unique).map((c) => c.Name)).to.deep.equal(['Code']);
+    });
+
+    it('reads an attached schema named in another case', async () => {
+      expect((await sqlite().tableInfo('p_up', 'S')).map((c) => [c.Name, c.Unique])).to.deep.equal([
+        ['Id', false],
+        ['Code', true],
+        ['Name', false],
+      ]);
+      expect((await sqlite().tableIndexes('p_up', 'S')).map((i) => i.columns)).to.deep.equal([['Id'], ['Code']]);
+      expect((await sqlite().tableForeignKeys('p_child', 'S')).map((k) => k.column)).to.deep.equal(['ParentId']);
     });
 
     it('reads a schema that is not attached as holding no table', async () => {
@@ -346,4 +365,28 @@ describe('sqlite introspection of a table in an attached database', function () 
       });
     });
   }
+
+  describe('an upsert run through another connection of the server, s with UNIQUE(Code), table in main and s', () => {
+    beforeEach(() => boot(SharedServerConf, S_UNIQUE_MAIN_PLAIN));
+    afterEach(() => shutdown(SharedServerConf));
+
+    it("a replace captures the row it deleted in the database of the model's connection", async () => {
+      const descriptor = PUp.getModelDescriptor();
+      descriptor.Connection = 'sqlite-shared';
+      try {
+        const { query } = createQuery(PUp, InsertQueryBuilder, true, sqlite());
+        query.orReplace();
+        query.values({ Id: 9, Code: 'a', Name: 'r' });
+        await query;
+      } finally {
+        descriptor.Connection = 'sqlite';
+      }
+
+      expect(await rowsOf('SELECT * FROM s.p_up ORDER BY Id')).to.deep.equal([{ Id: 9, Code: 'a', Name: 'r' }]);
+      expect(rowsOfLastWrite()).to.deep.equal([
+        { id: '1', before: { Id: 1, Code: 'a', Name: 'a' }, after: undefined },
+        { id: '9', before: undefined, after: { Id: 9, Code: 'a', Name: 'r' } },
+      ]);
+    });
+  });
 });
