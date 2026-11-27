@@ -6,6 +6,8 @@ import { Log, ILogEntry, LogTarget, ICommonTargetOptions, Logger, BatchQueue, Lo
 import axios, { AxiosError, AxiosInstance } from "axios";
 import { BackoffType, ResiliencePipeline, ResiliencePipelineBuilder, TimeSpan } from "@spinajs/util";
 
+import { loggableEndpoint, loggableExportError } from "./loggable-endpoint.js";
+
 /**
  * HTTP status codes worth retrying against an OTLP endpoint: rate limiting and
  * transient upstream / gateway failures.
@@ -444,18 +446,20 @@ export class OtlpLogTarget extends LogTarget<IOtlpTargetOptions> implements IIns
       // drained successfully - allow the next overflow episode to warn again
       this.Overflowed = false;
 
-      this.Log.trace({ endpoint: this.Options.endpoint, records: batch.length }, "Wrote buffered messages to OTLP target at ${endpoint}, ${records} records.");
+      this.Log.trace({ endpoint: loggableEndpoint(this.Options.endpoint), records: batch.length }, "Wrote buffered messages to OTLP target at ${endpoint}, ${records} records.");
     } catch (err) {
       // reached only after retries are exhausted ( transient ) or immediately
       // for a non-retryable error.
+      const error = loggableExportError(err, this.Options.endpoint);
       this.HasError = true;
-      this.Error = err as Error;
+      // an Error, so a health check that reads `Error.message` keeps working without the request the axios error carries
+      this.Error = Object.assign(new Error(error.message), error);
 
       if (isRetryableOtlpError(err) && !this.Disposed) {
         // retryable but exhausted: put the batch back at the front so the next
         // flush retries it. The queue enforces the maxQueue cap ( dropping the
         // oldest + onOverflow ) so the retry buffer never grows without bound.
-        this.Log.error({ error: err }, `Cannot export log records to OTLP target - retries exhausted, retaining records for next flush.`);
+        this.Log.error({ error }, `Cannot export log records to OTLP target - retries exhausted, retaining records for next flush.`);
         this.Queue.requeueFront(batch);
         return;
       }
@@ -469,7 +473,7 @@ export class OtlpLogTarget extends LogTarget<IOtlpTargetOptions> implements IIns
         this.OnDropped?.(rec.entry);
       }
 
-      this.Log.error({ error: err, records: batch.length }, "Cannot export log records to OTLP target - dropping ${records} records because the error is non-retryable or the target is disposed.");
+      this.Log.error({ error, records: batch.length }, "Cannot export log records to OTLP target - dropping ${records} records because the error is non-retryable or the target is disposed.");
     }
   }
 }

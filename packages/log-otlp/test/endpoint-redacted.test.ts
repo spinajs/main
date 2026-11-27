@@ -65,7 +65,7 @@ async function closedPort(): Promise<number> {
   return listener.port;
 }
 
-async function ship(endpoint: string): Promise<{ calls: Call[]; text: string }> {
+async function ship(endpoint: string): Promise<{ calls: Call[]; stored: unknown; text: string }> {
   const target = new ProbeTarget({ name: "Otlp", type: "OtlpLogTarget", layout: "${message}", enabled: true, endpoint, headers: { "x-api-key": HEADER }, interval: 100000, bufferSize: 100000, timeout: 1000 });
   const calls = captureLog(target);
   target.resolve();
@@ -73,7 +73,7 @@ async function ship(endpoint: string): Promise<{ calls: Call[]; text: string }> 
   await target.forceFlush();
   const stored = target.Error;
   await target.dispose();
-  return { calls, text: inspect([calls, stored, target.Error], { depth: 6, showHidden: true }) };
+  return { calls, stored, text: inspect([calls, stored, target.Error], { depth: 6, showHidden: true }) };
 }
 
 function expectNoCredential(text: string): void {
@@ -102,9 +102,10 @@ describe("OtlpLogTarget logs its endpoint without credentials", () => {
   it("logs the status of a rejected export, not the error with its request", async () => {
     const listener = await listen(401);
     try {
-      const { calls, text } = await ship(plantedEndpoint(listener.port));
+      const { calls, stored, text } = await ship(plantedEndpoint(listener.port));
       expectNoCredential(text);
       expect(calls).to.deep.eq([["error", { error: { name: "AxiosError", message: "Request failed with status code 401", code: "ERR_BAD_REQUEST", status: 401 }, records: 1 }, DROPPED]]);
+      expect(stored).to.be.instanceOf(Error).and.include({ message: "Request failed with status code 401", status: 401 });
       expect(listener.requests).to.have.length(1);
       expect(listener.requests[0].authorization).to.eq(`Basic ${BASIC}`);
       expect(listener.requests[0]["x-api-key"]).to.eq(HEADER);
@@ -117,7 +118,7 @@ describe("OtlpLogTarget logs its endpoint without credentials", () => {
     const port = await closedPort();
     const { calls, text } = await ship(plantedEndpoint(port));
     expectNoCredential(text);
-    const error = { name: "AxiosError", message: `connect ECONNREFUSED 127.0.0.1:${port}`, code: "ECONNREFUSED" };
+    const error = { name: "Error", message: `connect ECONNREFUSED 127.0.0.1:${port}`, code: "ECONNREFUSED" };
     expect(calls).to.deep.eq([
       ["error", { error }, RETAINED],
       ["error", { error, records: 1 }, DROPPED],
@@ -127,10 +128,10 @@ describe("OtlpLogTarget logs its endpoint without credentials", () => {
   it("never prints an endpoint that does not parse", async () => {
     const { calls, text } = await ship(plantedEndpoint(99999));
     expectNoCredential(text);
-    expect(calls.map(([level, , message]) => [level, message])).to.deep.eq([
-      ["error", RETAINED],
-      ["error", DROPPED],
+    const error = { name: "TypeError", message: "Invalid URL", code: "ERR_INVALID_URL" };
+    expect(calls).to.deep.eq([
+      ["error", { error }, RETAINED],
+      ["error", { error, records: 1 }, DROPPED],
     ]);
-    expect(text).to.include("Invalid URL");
   });
 });
