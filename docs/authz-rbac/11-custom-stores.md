@@ -43,6 +43,7 @@ The optional `inTransaction(): boolean` answers: does a `forSubjects` read made 
 
 - **`false`.** Concurrent first checks of a subject share one read, and the rows serve later requests for the TTL.
 - **`true`.** The check reads for itself. Its rows serve only its own request, because the transaction may still roll back.
+  - A store that answers `true` for every read keeps nothing across requests: `authz.rbac.cache.assignmentsTtlSeconds` then has no effect for it.
 - **Not implemented.** The check reads for itself, and the rows serve later requests as before. This costs one read per concurrent first check of a subject, instead of one per subject: for example, 1,000 concurrent requests over 100 principals read the store 1,000 times instead of 100.
   - **The rollback window stays open.** A grant written and read inside a transaction that then rolls back still allows that subject's later requests, for up to `authz.rbac.cache.assignmentsTtlSeconds` (60 s by default).
   - Implementing the member closes it.
@@ -63,6 +64,8 @@ export abstract class OrmBackedAssignmentStore extends AssignmentStore {
 ```
 
 A store that never runs a statement inside a transaction (a remote service, a file) may answer `false`.
+
+A store that already has its own `inTransaction` member of another type must rename it: the cache calls `inTransaction()` before each read, and a read whose `inTransaction` throws, or is not a function, is rejected (the check denies with `model_error`).
 
 ## Shipped implementations
 
