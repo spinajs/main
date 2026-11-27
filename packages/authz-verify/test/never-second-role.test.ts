@@ -95,6 +95,22 @@ describe('never(role) of a role that shares a relation with another role', funct
         expect(tupleNames(v).some((n) => n.includes('#blocked@'))).to.eq(false);
         expect(await verdictOf(policy(shared, { exclusion: { base: viewer, subtract: viewer } }), never('role:reader'), k)).to.include({ result: 'holds', engine: 'bounded', bound: k });
       });
+
+      it('counts a relation whose type has another relation under the same first role', async () => {
+        // `auditor` sorts first and holds both relations, so both are labelled `role:auditor@doc`.
+        const roles = { auditor: ['doc#viewer', 'doc#commenter'], reader: ['doc#commenter'] };
+        const either: Rewrite = { union: [viewer, { computed: 'commenter' }] };
+        for (const holder of ['role:reader', 'role:reader@doc', 'doc#commenter']) {
+          const v = await verdictOf(policy(roles, either), never(holder), k);
+          expect([v.result, v.engine], holder).to.deep.equal(['violated', 'exact']);
+          expect(tupleNames(v), holder).to.include('doc:d1#commenter@user:u1');
+        }
+        for (const holder of ['role:reader', 'doc#commenter']) {
+          const v = await verdictOf(policy(roles, { exclusion: { base: either, subtract: { computed: 'blocked' } } }), never(holder), k);
+          expect(v, holder).to.include({ result: 'violated', engine: 'bounded', bound: k });
+          expect(tupleNames(v), holder).to.include('doc:d1#commenter@user:u1');
+        }
+      });
     });
   }
 
