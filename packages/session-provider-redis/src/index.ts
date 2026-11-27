@@ -448,16 +448,17 @@ export class RedisSessionStore extends SessionProvider {
       Impersonator: refOf(stored.Impersonator),
       State: stored.State === 'active' ? 'active' : 'pending',
       Creation: DateTime.fromISO(stored.Creation),
-      Expiration: stored.Expiration ? this.instant(stored.Expiration) : undefined,
+      Expiration: stored.Expiration === undefined ? undefined : this.instant(stored.Expiration),
       Data: data,
       ExternalKey: typeof stored.ExternalKey === 'string' ? stored.ExternalKey : undefined,
     });
   }
 
-  /** An Expiration that does not parse counts as already passed. */
-  protected instant(iso: string): DateTime {
-    const at = DateTime.fromISO(iso);
-    return at.isValid ? at : DateTime.fromMillis(0);
+  /** Only an absent Expiration means "never": a present value that is not ISO text naming a valid instant counts as already passed. */
+  protected instant(value: unknown): DateTime {
+    // luxon reads the number 2099 as the ISO year 2099; the store only ever writes text.
+    const at = typeof value === 'string' ? DateTime.fromISO(value) : undefined;
+    return at?.isValid ? at : DateTime.fromMillis(0);
   }
 
   protected expireAt(multi: ChainableCommander, key: string, expiration: DateTime | undefined): void {
