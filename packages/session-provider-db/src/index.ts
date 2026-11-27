@@ -138,11 +138,13 @@ export class DbSessionStore extends SessionProvider {
     this.applyRenewedExpiration(session);
 
     const written = this.persistable(session.Expiration);
+    const values: Partial<DbSession> = { Data: encodeSessionData(session.Data) };
+    // A pending row keeps the expiration it was issued with (SR-07); writing a view's absent one would store NULL, "never".
+    if (session.State !== 'pending' || session.Expiration !== undefined) {
+      values.Expiration = written as DateTime;
+    }
     const now = DateTime.now();
-    const result = await DbSession.update({
-      Expiration: written as DateTime,
-      Data: encodeSessionData(session.Data),
-    })
+    const result = await DbSession.update(values)
       .where('SessionId', session.SessionId)
       .where('State', session.State)
       .where(function () {
