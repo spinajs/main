@@ -44,7 +44,7 @@ async function tableMissing(record: typeof LostRecord, table: string): Promise<b
 /** One lost-write marker of a transaction; `sentinel` sits in its after-commit queue until a savepoint rollback drops both. */
 interface Mark {
   readonly sentinel: () => void;
-  readonly done: Promise<void>;
+  written: boolean;
 }
 
 /**
@@ -176,9 +176,9 @@ export class DbChangeLog extends ChangeLog {
   }
 
   /**
-   * Inserts one marker in the write's transaction (once per transaction, kind and type), as a plain statement: it
-   * commits or rolls back with the write, takes no row lock, and a failed insert fails the write. Before the migration
-   * ran it warns once and inserts nothing.
+   * Inserts a marker in the write's transaction (once per transaction, kind and type once one is written), as a plain
+   * statement: it commits or rolls back with the write, takes no row lock, and a failed insert fails the write. Before
+   * the migration ran it warns once and inserts nothing.
    */
   async lost(kind: ChangeKind, resourceType?: ResourceType, reason?: string): Promise<void> {
     const driver = recordDriver(LostRecord);
@@ -190,11 +190,16 @@ export class DbChangeLog extends ChangeLog {
     const slot = `${kind}#${type}`;
     const known = marks.get(slot);
     // A savepoint that rolled back took its marker along, and with it the sentinel queued in the same part.
-    if (known !== undefined && tx.afterCommit?.includes(known.sentinel)) return known.done;
+    if (known?.written === true && tx.afterCommit?.includes(known.sentinel)) return;
+    // A marker still being written is not awaited: this call may hold a savepoint that its insert is queued behind.
+    // Overlapping calls then write a marker each; coverage reads the latest one.
     const sentinel = (): void => undefined;
+    const mark: Mark = { sentinel, written: false };
     const queued = driver.afterCommit(sentinel);
-    const done = this.mark(kind, type, reason);
-    marks.set(slot, { sentinel, done });
+    const done = this.mark(kind, type, reason).then(() => {
+      mark.written = true;
+    });
+    marks.set(slot, mark);
     await queued;
     return done;
   }
