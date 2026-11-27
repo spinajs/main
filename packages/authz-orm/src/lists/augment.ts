@@ -5,7 +5,7 @@ import { DeleteQueryExtension, RelationType, SelectQueryExtension, UpdateQueryEx
 import type { QueryBuilder, QueryExtension } from '@spinajs/orm';
 
 import { marksOf, setMarks } from '../marker.js';
-import { entryOf } from '../registry.js';
+import { entryOf, requireSingleKey } from '../registry.js';
 
 export interface WithAccessOptions {
   /** Request env for the plan (ABAC env facts); none unless given. */
@@ -88,7 +88,9 @@ declare module '@spinajs/orm' {
 
 function requireResource(builder: QueryBuilder, what: string): void {
   const model = builder.Model;
-  if (!entryOf(model)) throw new AuthzConfigError(`${what}: the query is not on an @AccessResource model (${model !== undefined && model.name !== '' ? model.name : 'no model'})`);
+  const entry = entryOf(model);
+  if (!entry) throw new AuthzConfigError(`${what}: the query is not on an @AccessResource model (${model !== undefined && model.name !== '' ? model.name : 'no model'})`);
+  requireSingleKey(model, entry);
 }
 
 const POPULATE_INSTEAD = 'Instead, filter the parent query, populate through a hasMany relation, or load the related rows with their own .accessible() query';

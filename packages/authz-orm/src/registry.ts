@@ -245,6 +245,15 @@ export function entryOf(model: unknown): ResourceEntry | undefined {
 }
 
 /**
+ * The ancestor table, the column changelog and the list filters key a row by `idColumn` alone. Not refused in
+ * entryOf: the boot reports the class, and the guard's single-object rule reads a composite entry.
+ */
+export function requireSingleKey(model: unknown, entry: ResourceEntry): void {
+  if (entry.idColumns.length < 2) return;
+  throw new AuthzConfigError(`authz-orm: @AccessResource model ${nameOf(model)} (resource '${entry.type}') has a composite primary key (${entry.idColumns.join(', ')}); the ORM write capture, which keeps authz_resource_ancestor and the column changelog, needs a single-column primary key`);
+}
+
+/**
  * A subclass is its registered ancestor's resource, and every reader keys that resource by one column. Refused here,
  * not only at the domain boot, so a model loaded after the boot fails at its first use too.
  */

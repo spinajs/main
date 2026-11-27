@@ -8,7 +8,7 @@ import { auditUnscoped, ormDomain, ormLog } from '../host.js';
 import { marksOf } from '../marker.js';
 import type { AccessMarks } from '../marker.js';
 import type { PlanRow } from '../plan/index.js';
-import { entryOf, nameOf } from '../registry.js';
+import { entryOf, nameOf, requireSingleKey } from '../registry.js';
 import type { ResourceEntry } from '../registry.js';
 import { isUpdateOrDelete } from '../sync-statement.js';
 import type { SyncStatement } from '../sync-statement.js';
@@ -139,6 +139,7 @@ export class AccessListMiddleware extends QueryMiddleware {
     if (marks === undefined) return;
     const entry = entryOf(query.Model);
     if (!entry) return;
+    requireSingleKey(query.Model, entry);
     const domain = ormDomain();
     const principal = currentPrincipal();
     if (marks.unscoped !== undefined) auditUnscoped(domain, principal, marks.unscoped, entry.type);

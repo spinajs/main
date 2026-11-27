@@ -5,7 +5,7 @@ import { MODELS, Orm, extractModelDescriptor } from '@spinajs/orm';
 import type { ModelBase } from '@spinajs/orm';
 
 import { DbChangeLog } from './changelog/db-changelog.js';
-import { entryOf, nameOf, registeredClasses, registeredTypes } from './registry.js';
+import { entryOf, nameOf, registeredClasses, registeredTypes, requireSingleKey } from './registry.js';
 import type { ModelClass } from './registry.js';
 
 /**
@@ -37,8 +37,7 @@ export function checkResourceKeys(): void {
     if (keys.length < 2) continue;
     // A subclass that added a key column throws here, naming the column.
     const entry = entryOf(cls);
-    if (!entry) continue;
-    throw new AuthzConfigError(`authz-orm: @AccessResource model ${nameOf(cls)} (resource '${entry.type}') has a composite primary key (${keys.join(', ')}); the ORM write capture, which keeps authz_resource_ancestor and the column changelog, needs a single-column primary key`);
+    if (entry) requireSingleKey(cls, entry);
   }
 }
 

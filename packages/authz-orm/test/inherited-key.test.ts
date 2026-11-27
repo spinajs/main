@@ -9,6 +9,7 @@ import { ModelBase, Primary } from '@spinajs/orm';
 
 import { AuthzOrmContributor } from '../src/contributor.js';
 import { AccessResource, Owner, entryOf, registerAccessResource } from '../src/index.js';
+import { setMarks } from '../src/marker.js';
 import { rlsResources } from '../src/rls/index.js';
 import { createAncestorTable, dropAncestorTable } from './support/ancestors.js';
 import { TestDb } from './support/db.js';
@@ -27,12 +28,28 @@ const alice: Principal = { type: 'user', id: 'alice', authenticated: true, sourc
 const withinD1: AccessPlan = { kind: 'filter', permit: 'all', deny: [], within: [{ type: 'doc', id: 'd1' }] };
 const decided = { allowed: true, permission: 'doc:read', resource: { type: 'doc', id: 'd1' }, residual: TRUE } as unknown as Decision;
 
-type Q = PromiseLike<ModelBase[]> & { accessible(p: string): Q; where(...a: unknown[]): Q };
+type Q = PromiseLike<ModelBase[]> & {
+  accessible(p: string): Q;
+  within(ref: ResourceRef): Q;
+  withAccess(p: string[]): Q;
+  withFields(p: string): Q;
+  unscoped(reason: string): Q;
+  where(...a: unknown[]): Q;
+};
 type M = typeof ModelBase & { query(): Q; where(...a: unknown[]): Q; insert(v: object): Promise<unknown> };
+// ModelBase's own query() comes first in M's overloads and has no withFields().
+const queryOf = (model: { query(): Q }): Q => model.query();
 
 const TWO_TENANTS = [
   { id: 'd1', tenant: 't1', owner_id: 'alice' },
   { id: 'd1', tenant: 't2', owner_id: 'bob' },
+];
+
+// Alice may read order o1, whose lines are l1 (hers) and l2 (bob's): keyed by order_id alone, both are 'late:o1'.
+const withinO1: AccessPlan = { kind: 'filter', permit: 'all', deny: [], within: [{ type: 'late', id: 'o1' }] };
+const ORDER_O1 = [
+  { order_id: 'o1', id: 'l1', owner_id: 'alice' },
+  { order_id: 'o1', id: 'l2', owner_id: 'bob' },
 ];
 
 const settle = async (fn: () => PromiseLike<unknown>): Promise<unknown> => {
@@ -48,6 +65,9 @@ const ids = (rows: unknown): string[] => (rows as { id: string }[]).map((r) => r
 
 const refusal = (model: typeof ModelBase, resource: typeof ModelBase, type: string) =>
   `authz-orm: model ${model.name} extends @AccessResource model ${resource.name} (resource '${type}') and adds tenant to its primary key (id, tenant); a resource is identified by one key column, so rows that differ only in tenant would be one resource: do not add a key column, or make ${model.name} a model of its own that does not extend ${resource.name}, with an @AccessResource type of its own and a single-column key`;
+
+const compositeRefusal = (model: typeof ModelBase, type: string) =>
+  `authz-orm: @AccessResource model ${model.name} (resource '${type}') has a composite primary key (order_id, id); the ORM write capture, which keeps authz_resource_ancestor and the column changelog, needs a single-column primary key`;
 
 describe('authz-orm: a subclass of a resource that adds a key column', function () {
   this.timeout(60000);
@@ -119,6 +139,8 @@ describe('authz-orm: a subclass of a resource that adds a key column', function 
         const Leaf = await db.define({ name: 'Leaf', base: Middle, columns: { tenant: 'TEXT', owner_id: 'TEXT' }, primary: ['id', 'tenant'] }, dialect);
         expect(await boot()).to.be.instanceOf(AuthzConfigError).with.property('message', refusal(Leaf, Doc, 'doc'));
         expect(() => entryOf(Leaf)).to.throw(AuthzConfigError, refusal(Leaf, Doc, 'doc'));
+        // Middle has no @Model of its own, so it shares Doc's table.
+        expect(() => entryOf(Middle)).to.throw(AuthzConfigError, refusal(Middle, Doc, 'doc'));
       });
 
       it("refuses a subclass of a resource another package registered with registerAccessResource(), as a fragment does", async () => {
@@ -135,6 +157,29 @@ describe('authz-orm: a subclass of a resource that adds a key column', function 
         // The whole key is a single-object load the guard lets through: only the refusal stops it.
         const read = await settle(() => authzStorage().run({ Principal: alice, AuthzDecision: decided }, async () => await TenantDoc.where('id', 'd1').where('tenant', 't2')));
         expect(read).to.be.instanceOf(AuthzConfigError);
+      });
+
+      describe('a composite-key resource registered after the boot, which the boot check never saw', () => {
+        let Late: M;
+
+        beforeEach(async () => {
+          sinon.stub(await (await testHost.domains()).service('root'), 'accessPlan').resolves(withinO1);
+          Late = (await db.define({ name: 'Late', columns: { order_id: 'TEXT', owner_id: 'TEXT' }, primary: ['order_id', 'id'], rows: ORDER_O1 }, dialect)) as M;
+          registerAccessResource(Late, 'late');
+        });
+
+        it(".accessible() and the other list methods refuse it: keyed by order_id alone, a grant on order o1 would list bob's line l2", async () => {
+          const list = await settle(() => runWithPrincipal(alice, async () => await Late.query().accessible('late:read')));
+          expect(list).to.be.instanceOf(AuthzConfigError).with.property('message', compositeRefusal(Late, 'late'));
+          const marks: ((q: Q) => Q)[] = [(q) => q.accessible('late:read'), (q) => q.within({ type: 'late', id: 'o1' }), (q) => q.withAccess(['late:read']), (q) => q.withFields('late:read'), (q) => q.unscoped('report')];
+          for (const mark of marks) expect(() => mark(queryOf(Late))).to.throw(AuthzConfigError, compositeRefusal(Late, 'late'));
+        });
+
+        it('the list middleware refuses it too, for a mark that reached the query past .accessible()', async () => {
+          const query = Late.query();
+          setMarks(query, { accessible: 'late:read' });
+          expect(await settle(() => runWithPrincipal(alice, async () => await query))).to.be.instanceOf(AuthzConfigError).with.property('message', compositeRefusal(Late, 'late'));
+        });
       });
 
       describe('the paths that key the subclass by its first key column cannot be entered', () => {
