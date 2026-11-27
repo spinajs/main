@@ -1,0 +1,5 @@
+---
+"@spinajs/compiler": patch
+---
+
+Queries that call a typed `populate()` are followed again. Since `populate()` narrows the relation it loads, its rows are typed as `Post & { Owner: … }`, and the compiler did not see the model in that intersection. The N+1 check did not follow the rows of a populated query, so `ORM101` missed unpopulated relations read on them, and `ORM102` missed `relation.populate()` awaited in a loop on a relation the query had populated; a build may now report these (errors in a strict package). The authorization flow pass read `populate(…).first()` as a multi-row read; it is a single-row read now, so such a site no longer counts in `authz.flow.foreignModelQueries` and can no longer be reported as `AUTHZ001`. A populated builder that the pass reads from its type now names its model, so an unscoped multi-row read of an access resource through it is reported as `AUTHZ001`, and it no longer counts as a foreign model query when the package declares the model. An intersection of a subclass and its base (`Admin & User`) names the subclass; an intersection of two unrelated models still names no model.

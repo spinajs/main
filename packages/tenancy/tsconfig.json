@@ -18,6 +18,8 @@
     { "path": "../log-common/tsconfig.json" },
     { "path": "../scheduler/tsconfig.json" },
     { "path": "../orm/tsconfig.json" },
-    { "path": "../orm-sqlite/tsconfig.json" }
+    { "path": "../orm-sqlite/tsconfig.json" },
+    { "path": "../cli/tsconfig.json" },
+    { "path": "../log/tsconfig.json" }
   ]
 }

@@ -21,6 +21,7 @@ npm install @spinajs/tenancy
 | [Running across tenants](05-running-across-tenants.md) | `forEachTenant` runs a job once per tenant, each in its own scope, and reports the failures |
 | [Scheduled runs in a tenant](08-scheduler.md) | `@spinajs/tenancy/scheduler`: a run of a tenant's schedule instance executes inside that tenant, a global run with no scope |
 | [Configuration](06-configuration.md) | Every `tenancy.*` key, its default and the configuration schema |
+| [CLI commands in a tenant](07-cli.md) | `--tenant <id>` and `--all-tenants <reason>` on every `spinajs` command, through `@spinajs/tenancy/cli` |
 
 ## Quick start
 
