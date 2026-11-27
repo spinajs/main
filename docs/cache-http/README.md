@@ -103,7 +103,8 @@ Leave such a route uncached, or, for an attribute, put the value into the key wi
 of a sign-in cannot be keyed. A `FreshAuth` policy is not affected: the policies run on every request, a stored reply
 included.
 
-The `Host` header is not in the key either. On a `'tenant'` or `'shared'` route a reply that builds URLs from the
+What the action reads of the request without an argument (the ambient request store, `req` through a wrapper) is not
+in the key either. The `Host` header is not in the key either. On a `'tenant'` or `'shared'` route a reply that builds URLs from the
 request host (`req.hostname`, `req.protocol`) needs `vary: ['host']`, and `x-forwarded-host` (and `x-forwarded-proto`)
 behind a proxy: otherwise one caller's `Host` header plants its links in the reply every caller gets. An action that
 reads `Accept-Language` itself needs `vary: ['accept-language']`, with or without `@spinajs/intl-http`, which never
@@ -138,7 +139,7 @@ response sets no cookie (whoever set it, a session middleware included), has nei
 `Vary: *`. On a `'tenant'` or `'shared'` route a reply whose route sets its own `Vary` naming `Cookie` or
 `Authorization` is not stored either: it was made for one caller. Only a `Vary` the route sets itself is checked:
 `@spinajs/intl-http` adds `Vary: Cookie, X-Lang` and CORS `Vary: Origin` to every reply, and the language intl-http
-detects is in the key; intl-http joins its names into a `Vary` the route sets, so such a route is not stored on a wider
+detects (from `?lang`, the `lang` cookie or `X-Lang`) is in the key; intl-http joins its names into a `Vary` the route sets, so such a route is not stored on a wider
 scope. Streams, files, text, XML and HTML replies are never stored, nor the reply of a HEAD request on a GET route.
 
 The reply is stored after it was sent. It keeps its `Content-Type`, `Location`, `ETag` and, of the headers the route
@@ -147,7 +148,8 @@ set, only those that describe the body (`Content-Language`, `Content-Disposition
 one request or session, and one principal has many. A header like that is set by a middleware, which sets it again on
 a hit. Any other header the route sets itself is missing on a hit, also per principal: a total count such as
 `X-Total-Count` (the admin user list of `@spinajs/users-http` sends one) belongs in the body, or the route is not
-cached; a client that pages by that header breaks on its second request. A value read back from the store is checked
+cached; a client that pages by that header breaks on its second request. A download keeps its filename
+(`Content-Disposition`) and a route's `Cache-Control: public, max-age=120` stays. A value read back from the store is checked
 before it is sent: a corrupt entry, or one an older version or another application wrote, is a miss and the route
 runs.
 
@@ -209,14 +211,21 @@ rules of "What is stored", under the tag versions its own lookup read before the
 invalidation reaches while it runs stores a reply that is already invalid. A refresh that fails, or whose reply is not
 stored, leaves the expired reply in place, and the next request of the process refreshes it again.
 
+A stale reply goes out with the headers it was stored with: no `Age`, and the route's own `Cache-Control` (a
+`max-age=60` stays `max-age=60`), so a browser or CDN may keep it `max-age` longer. Give a route with `swr` a short
+`max-age`, or `no-cache` downstream through `CacheControl`'s options.
+
 ## Concurrent requests
 
 Concurrent requests of one key that find nothing in one process wait for the one that runs the route, then look the
 key up again in their own scope: each gets the stored reply through its own lookup and its own reply pipeline, so a
 waiter never gets the headers or the cookies of the request it waited for. When that run stores nothing (it failed,
 its client went away, its reply is not stored, or an invalidation reached it), each waiter runs the route itself.
-A request waits at most `cache.http.timeout`; then it runs the route itself, and the route logs a warning at most once
-a minute. A request of another key never waits; one of another cache scope (a tenant that only a `CacheScope` puts
+A request waits at most `cache.http.waitTimeout` (5 s by default); then it runs the route itself, and the route logs a
+warning at most once a minute. So a route up to that slow runs once per key for a burst of concurrent misses; a slower
+one runs once per `waitTimeout` wave, each waiter after waiting that long first. When the run stores nothing (above),
+its waiters answer only after that whole run and their own. A lookup the store did not answer within
+`cache.http.timeout` is read as a miss and never waits. A request of another key never waits; one of another cache scope (a tenant that only a `CacheScope` puts
 into the key) may wait for the run of the same key in another scope, and then runs its own.
 
 ## Invalidation and failures
@@ -237,4 +246,5 @@ A stored reply is not checked again until it ends, `ttl` plus `swr`, at most `ca
 
 | Key | Default | What it does |
 | --- | --- | --- |
-| `cache.http.timeout` | `250` | Milliseconds the response cache waits for its cache to answer a lookup or a store, and for a concurrent run of the same key. Past it a lookup or a store is read as a miss and the request runs uncached, and a request that waited runs the route itself; the route logs a warning, at most once per call and minute. A store call that answers later may still store the reply, under the tag versions read before the action ran, so an invalidation in between still wins. A key part or a cache call that throws is read the same way. |
+| `cache.http.timeout` | `250` | Milliseconds the response cache waits for its cache to answer a lookup or a store. Past it the call is read as a miss and the request runs uncached; the route logs a warning, at most once per call and minute. A store call that answers later may still store the reply, under the tag versions read before the action ran, so an invalidation in between still wins. A key part or a cache call that throws is read the same way. |
+| `cache.http.waitTimeout` | `5000` | Milliseconds a request that found nothing waits for another request of this process that runs the route for the same key. Past it the request runs the route itself and may store its reply; the route logs a warning (it names this key), at most once a minute. A whole number above 0, as `timeout`. |
