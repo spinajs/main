@@ -172,18 +172,68 @@ describe('stomp transport - a broker URL that ws cannot open rejects resolve()',
     });
   }
 
-  it('still dials an http:// host, which ws opens as ws://', async () => {
-    const port = await closedPort();
-    const client = probe(`http://127.0.0.1:${port}/stomp`);
-    try {
-      const outcome = await settledWithin(client.resolve(), 5000);
+  for (const scheme of ['ws', 'wss', 'http', 'https']) {
+    it(`still dials a ${scheme}:// host with userinfo and a query`, async () => {
+      const port = await closedPort();
+      const client = probe(`${scheme}://${userinfo}@127.0.0.1:${port}/stomp?token=${TOKEN}`);
+      try {
+        const outcome = await settledWithin(client.resolve(), 5000);
 
-      expect(outcome.state).to.equal('rejected');
-      expect(messageOf(outcome.state === 'rejected' ? outcome.error : undefined)).to.contain('ECONNREFUSED');
-      expect(unhandled).to.deep.equal([]);
-    } finally {
-      await client.dispose();
+        expect(outcome.state).to.equal('rejected');
+        expect(messageOf(outcome.state === 'rejected' ? outcome.error : undefined)).to.contain('ECONNREFUSED');
+        expect(unhandled).to.deep.equal([]);
+      } finally {
+        await client.dispose();
+      }
+    });
+  }
+
+  it('refuses exactly the hosts that the installed ws throws for before it dials', async () => {
+    class InertClient extends Stomp.Client {
+      public override activate(): void {}
     }
+    class InertProbe extends ProbeClient {
+      protected override createClient(config: Stomp.StompConfig): Stomp.Client {
+        return new InertClient(config);
+      }
+    }
+    const hosts = [
+      'ws://[::1]:61613/stomp',
+      'wss://h.example/x',
+      'http://u:p@h.example:8080/a?b=c',
+      'https://h.example',
+      'WSS://H.EXAMPLE/X',
+      'ws://h.example/x#',
+      'ws://h.example/x#y',
+      'ws://u:pa/ss@h.example/x',
+      'ws://h.example:65536/x',
+      'ws+unix:sock:/stomp',
+      'ws+unix://h',
+      'ws+unix://h/',
+      'amqp://h',
+      'u:p@h.example:61613',
+      '127.0.0.1:61613',
+    ];
+    const disagree: string[] = [];
+    for (const host of hosts) {
+      let wsThrows = false;
+      try {
+        // a createConnection that throws keeps ws from dialling; it reports that throw as an event, not by throwing
+        new WebSocket(host, Stomp.Versions.default.protocolVersions(), {
+          createConnection: () => {
+            throw new Error('not dialled');
+          },
+        }).on('error', () => undefined);
+      } catch {
+        wsThrows = true;
+      }
+      const client = new InertProbe({ name: 'stomp-unopenable', service: 'StompQueueClient', host });
+      const outcome = await settledWithin(client.resolve(), 50);
+      await client.dispose();
+      if ((outcome.state === 'rejected') !== wsThrows) disagree.push(`${host}: ws ${wsThrows ? 'throws' : 'dials'}, resolve() ${outcome.state}`);
+    }
+
+    expect(disagree).to.deep.equal([]);
   });
 
   it('leaves the host to options.webSocketFactory when one is set', async () => {
