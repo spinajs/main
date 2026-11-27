@@ -6,7 +6,7 @@ Use them on every multi-row select, update or delete of an `@AccessResource` mod
 
 ## How it works
 
-1. `Task.where(...).accessible('task:read')` (and `.within()`, `.withAccess()`, `.unscoped()`) only marks the builder. The method throws `AuthzConfigError` when the model is not an `@AccessResource` model, when the permission is not a permission name, or when `.accessible()` and `.unscoped()` meet on one builder.
+1. `Task.where(...).accessible('task:read')` (and `.within()`, `.withAccess()`, `.unscoped()`) only marks the builder. The method throws `AuthzConfigError` when the model is not an `@AccessResource` model, when the model has a composite primary key (a class registered after the domain boot, which the boot check never saw), when the permission is not a permission name, or when `.accessible()` and `.unscoped()` meet on one builder.
 2. On `await`, `AccessListMiddleware.beforeQueryExecution(query)` (a `QueryMiddleware`, order 100) reads the marks. It picks the domain from `authz.orm.domain` and the principal from `currentPrincipal()`. A `.unscoped(reason)` query writes an `unscoped` audit entry and gets no filter.
 3. `planRow(query, entry)` builds the `PlanRow` the plan terms compile against: the row's type, its id column cast to text, its `owner` / `self` columns, the ancestor table, the database's `now()` and `from()` for sub-queries on the query's connection.
 4. For `.accessible()`, `AuthzService.accessPlan(principal, permission, type, env)` returns the plan, and `planFilter(plan, row)` turns it into one of three answers:
