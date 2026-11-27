@@ -47,6 +47,27 @@ class GatedStore extends MemoryPolicyStore {
   }
 }
 
+/** A memory store that holds its next `hold` loads, each with the policies of its start, until released. */
+class HeldStore extends MemoryPolicyStore {
+  hold = 0;
+  loads = 0;
+  readonly held: (() => void)[] = [];
+
+  async load(): Promise<readonly Policy[]> {
+    this.loads++;
+    const policies = await super.load();
+    if (this.hold > 0) {
+      this.hold--;
+      await new Promise<void>((resolve) => this.held.push(resolve));
+    }
+    return policies;
+  }
+
+  releaseAll(): void {
+    for (const release of this.held) release();
+  }
+}
+
 describe('authz-abac: field sets, reloads and decided conditions (review 4-8)', () => {
   describe('field sets', () => {
     it('keep negations and globs, merged as the engine merges them (C1)', async () => {
@@ -251,6 +272,97 @@ describe('authz-abac: field sets, reloads and decided conditions (review 4-8)', 
       m.invalidate(['*', 'policy']);
       expect(m.capabilities.sync).to.equal('always');
       expect(m.evaluate(req(), ctx())).to.not.be.instanceOf(Promise);
+    });
+  });
+
+  describe('a check never awaits a load another caller started (tq-01h)', () => {
+    const settle = () => new Promise((resolve) => setTimeout(resolve, 5));
+    const denies = async (m: AbacModel): Promise<boolean> => (await m.evaluate(req(), ctx())).denyWhen === TRUE;
+
+    it('reads the policies itself while the background reload is held, and once current reads nothing', async () => {
+      const store = new HeldStore([policy('read')]);
+      const m = await model({ stores: [store] });
+      let loads = store.loads;
+      for (let i = 0; i < 5; i++) await m.evaluate(req(), ctx());
+      expect(store.loads - loads, 'reads per check when nothing is behind').to.equal(0);
+      store.hold = 1;
+      store.put(policy('no-read', { effect: 'deny' }));
+      m.invalidate(['policy']);
+      loads = store.loads;
+      let settled = 0;
+      const checks = [0, 1, 2].map(async () => {
+        const denied = await denies(m);
+        settled++;
+        return denied;
+      });
+      await settle();
+      expect(settled, 'checks that waited for the held background reload').to.equal(3);
+      expect(await Promise.all(checks)).to.deep.equal([true, true, true]);
+      expect(store.loads - loads, 'reads of three overlapping checks behind an invalidate').to.equal(3);
+      loads = store.loads;
+      expect(await denies(m)).to.equal(true);
+      expect(store.loads - loads, 'reads of a later check').to.equal(0);
+      store.releaseAll();
+    });
+
+    it('keeps no read that an invalidation overtook, so the next check reads again (stale answer)', async () => {
+      const store = new HeldStore([policy('read')]);
+      const m = await model({ stores: [store] });
+      store.hold = 2;
+      m.invalidate(['policy']);
+      const first = denies(m);
+      await settle();
+      store.put(policy('no-read', { effect: 'deny' }));
+      m.invalidate(['policy:no-read']);
+      store.held[1]();
+      expect(await first, 'a check evaluates on the read it started').to.equal(false);
+      expect(await denies(m), 'the next check after the overtaking invalidation').to.equal(true);
+      store.releaseAll();
+    });
+
+    it('a background reload that lands after a newer read does not replace it (stale answer)', async () => {
+      const store = new HeldStore([policy('read')]);
+      const m = await model({ stores: [store] });
+      store.hold = 1;
+      m.invalidate(['policy']);
+      store.put(policy('no-read', { effect: 'deny' }));
+      m.invalidate(['policy:no-read']);
+      expect(await denies(m)).to.equal(true);
+      store.releaseAll();
+      await settle();
+      expect(await denies(m)).to.equal(true);
+      expect(m.version()).to.not.match(/~$/);
+    });
+
+    it('a failed read of its own fails the check, never an empty policy set, and the next check reads again', async () => {
+      const store = new MemoryPolicyStore([policy('no-read', { effect: 'deny' })]);
+      const m = await model({ stores: [store] });
+      const load = store.load.bind(store);
+      let down = true;
+      store.load = async () => {
+        if (down) throw new Error('db down');
+        return load();
+      };
+      m.invalidate(['policy']);
+      const failure = await Promise.resolve(m.evaluate(req(), ctx())).then(
+        () => undefined,
+        (e: unknown) => e,
+      );
+      expect(failure).to.be.instanceOf(Error);
+      down = false;
+      expect(await denies(m)).to.equal(true);
+    });
+
+    it('through the engine, a read of its own that hangs denies with model_error at modelTimeoutMs', async () => {
+      const reg = registry();
+      const store = new HeldStore([policy('read')]);
+      const m = await model({ stores: [store] }, reg);
+      const a = new Authorizer({ domain: 'root', models: [m], registry: reg, conditions: new DefaultConditionCompiler(), clock: () => NOW, config: { modelTimeoutMs: 30 } });
+      store.hold = 2;
+      a.invalidate(['policy']);
+      const d = await a.check({ principal: alice, permission: 'file:read', resource: F1 });
+      expect([d.allowed, d.reason?.code]).to.deep.equal([false, 'model_error']);
+      store.releaseAll();
     });
   });
 
