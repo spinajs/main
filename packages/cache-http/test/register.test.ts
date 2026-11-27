@@ -2,7 +2,7 @@ import 'mocha';
 import { expect } from 'chai';
 import { CacheConfigError } from '@spinajs/cache';
 import { InvalidArgument } from '@spinajs/exceptions';
-import { BaseController, BasePath, CacheControl, Get, Middleware, Ok, RouteMiddleware, RouteType } from '@spinajs/http';
+import { BaseController, BasePath, CacheControl, Get, Middleware, Ok, ParameterType, RouteMiddleware, RouteType } from '@spinajs/http';
 import type { IController, IMiddlewareDescriptor, IRoute, IRouteParameter } from '@spinajs/http';
 import { createTestApp } from '@spinajs/testing';
 import type { TestApp } from '@spinajs/testing';
@@ -24,12 +24,12 @@ class Filtered extends BaseController {}
 
 const SHARED = { ttl: '1m', scope: 'shared', sharedBecause: 'the test reply is public' } as const;
 
-const route = (type: RouteType, middlewares: IMiddlewareDescriptor[]): IRoute => ({
+const route = (type: RouteType, middlewares: IMiddlewareDescriptor[], parameters: IRouteParameter[] = []): IRoute => ({
   InternalType: type,
   Type: type,
   Method: 'list',
   Path: 'list',
-  Parameters: new Map<number, IRouteParameter>(),
+  Parameters: new Map(parameters.map((p) => [p.Index, p])),
   Middlewares: middlewares,
   Policies: [],
   Options: null,
@@ -37,6 +37,9 @@ const route = (type: RouteType, middlewares: IMiddlewareDescriptor[]): IRoute =>
 });
 
 const rejection = (promise: Promise<unknown>): Promise<unknown> => promise.then(() => undefined, (err: unknown) => err);
+
+/** A route argument as http's parameter decorators record it; `@Header('x-secret')` gives the options `{ key: 'x-secret' }`. */
+const arg = (Type: string, Name: string, Options: object = {}): IRouteParameter => ({ Index: 0, Type, Name, Options, RuntimeType: String });
 
 describe('ResponseCacheMiddleware registration', () => {
   let app: TestApp;
@@ -49,11 +52,12 @@ describe('ResponseCacheMiddleware registration', () => {
     await app?.dispose();
   });
 
-  const mount = async (options: ResponseCacheOptions, type: RouteType, before: IMiddlewareDescriptor[] = [], after: IMiddlewareDescriptor[] = [], controller: IController = new Plain()): Promise<void> => {
+  const mount = async (options: ResponseCacheOptions, type: RouteType, before: IMiddlewareDescriptor[] = [], after: IMiddlewareDescriptor[] = [], controller: IController = new Plain(), parameters: IRouteParameter[] = []): Promise<void> => {
     const resolved = resolveResponseCacheOptions(options);
     const middleware = await app.container.resolve(ResponseCacheMiddleware, [resolved]);
-    await middleware.onRegister(route(type, [...before, { Type: ResponseCacheMiddleware, Options: [resolved] }, ...after]), '/items/list', controller);
+    await middleware.onRegister(route(type, [...before, { Type: ResponseCacheMiddleware, Options: [resolved] }, ...after], parameters), '/items/list', controller);
   };
+  const reading = (options: ResponseCacheOptions, ...parameters: IRouteParameter[]): Promise<void> => mount(options, RouteType.GET, [], [], new Plain(), parameters);
 
   it('mounts on a GET route with CacheControl entered before it, and on a HEAD route', async () => {
     await mount({ ttl: '1m' }, RouteType.GET, [{ Type: CacheControl, Options: [60] }]);
@@ -101,6 +105,22 @@ describe('ResponseCacheMiddleware registration', () => {
     await mount({ ttl: '1m' }, RouteType.GET, [{ Type: PerCallerFilter, Options: [] }]);
     await mount({ ttl: '1m' }, RouteType.GET, [], [], new Filtered());
     await mount(SHARED, RouteType.GET);
+  });
+
+  it('refuses a tenant or shared scope on a route that reads a request input the key does not hold', async () => {
+    const refused: [IRouteParameter, string][] = [[arg(ParameterType.FromHeader, 'secret', { key: 'X-Secret' }), 'the header x-secret'], [arg(ParameterType.FromHeader, 'xRegion', { key: undefined }), 'the header xregion'], [arg(ParameterType.FromCookie, 'sid'), 'the header cookie'], [arg(ParameterType.UserAgent, 'agent'), 'the header user-agent'], [arg(ParameterType.Referer, 'from'), 'the header referer'], ...[ParameterType.FromSession, ParameterType.Headers, ParameterType.Ip, ParameterType.RequestId, ParameterType.FromBody, 'CurrentPrincipalArg', 'CurrentUserArg', 'AuthnSessionDataArg'].map((type): [IRouteParameter, string] => [arg(type, 'value'), `the argument value of type '${type}'`])];
+    for (const [param, what] of refused) {
+      const err = await rejection(reading(SHARED, param));
+      expect(err, what).to.be.instanceOf(InvalidArgument);
+      const hint = what.startsWith('the header') ? ', or name the header in vary' : ', or read the value from the URL';
+      expect((err as Error).message).to.eq(`GET /items/list: @ResponseCache scope 'shared' would give one caller's reply to others, but the route reads ${what}, which is not in the key: cache it with scope 'principal'${hint}`);
+    }
+    // per principal the key holds the caller: the same arguments mount
+    for (const [param] of refused) await reading({ ttl: '1m' }, param);
+  });
+
+  it('shares a route whose arguments come from the URL, the container, Accept or a header in vary', async () => {
+    await reading({ ...SHARED, vary: ['X-Region', 'user-agent', 'Cookie'] }, ...[ParameterType.FromQuery, ParameterType.QueryField, ParameterType.FromParams, ParameterType.ParamField, ParameterType.FromDi, ParameterType.RequestType, ParameterType.UserAgent, ParameterType.FromCookie].map((type, Index) => ({ ...arg(type, `a${Index}`), Index })), { ...arg(ParameterType.FromHeader, 'xRegion', { key: 'x-region' }), Index: 8 }, { ...arg(ParameterType.FromHeader, 'accept', { key: undefined }), Index: 9 }, { ...arg(ParameterType.FromHeader, 'transform', { key: 'X-Data-Transform' }), Index: 10 });
   });
 
   it('names the route in an option it refuses at import', () => {

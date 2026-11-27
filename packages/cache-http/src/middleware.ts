@@ -7,8 +7,8 @@ import { Logger } from '@spinajs/log';
 import type { Log } from '@spinajs/log';
 import { CacheService, cache, cacheSettings } from '@spinajs/cache';
 import type { Cache, CacheLookup, CacheOptions } from '@spinajs/cache';
-import { BaseController, CacheControl, DataTransformer, IdempotencyScopePart, RouteClientGone, RouteMiddleware, RouteType, sendReply } from '@spinajs/http';
-import type { CapturedJsonReply, IActionLocalStoregeContext, IController, IRoute, IRouteInvocation, IRouteOutcome } from '@spinajs/http';
+import { BaseController, CacheControl, DataTransformer, IdempotencyScopePart, ParameterType, RouteClientGone, RouteMiddleware, RouteType, sendReply } from '@spinajs/http';
+import type { CapturedJsonReply, IActionLocalStoregeContext, IController, IRoute, IRouteInvocation, IRouteOutcome, IRouteParameter } from '@spinajs/http';
 import { ResponseCacheKeyPart, principalIn, responseCacheKey, responseCacheNamespace } from './key.js';
 import { resolveResponseCacheOptions } from './options.js';
 import type { ResolvedResponseCacheOptions } from './options.js';
@@ -19,6 +19,25 @@ type HttpResponse = IRouteInvocation['res'];
 
 // onFinish too: like onAfter it runs only for a middleware the chain entered, so a hit skips it
 const HOOKS = ['onBefore', 'onAfter', 'onFinish', 'onAround'] as const;
+
+// Route arguments whose value the key holds: the URL as sent, Accept, the container. Every other one, an application's
+// own resolver included, is refused on a wider scope: the key cannot tell whether it differs per caller.
+const KEYED_ARGUMENTS: ReadonlySet<string> = new Set([ParameterType.FromQuery, ParameterType.QueryField, ParameterType.FromParams, ParameterType.ParamField, ParameterType.FromDi, ParameterType.RequestType]);
+const HEADER_ARGUMENTS: ReadonlyMap<string, readonly string[]> = new Map([
+  [ParameterType.FromCookie, ['cookie']],
+  [ParameterType.UserAgent, ['user-agent']],
+  [ParameterType.Referer, ['referer', 'referrer']],
+]);
+const REQUEST_OBJECTS: ReadonlySet<string> = new Set([ParameterType.Req, ParameterType.Res]);
+const FROM_HEADER: string = ParameterType.FromHeader;
+
+/** The request headers an argument reads, undefined for an argument that reads no header. */
+function headersOf({ Type, Name, Options }: IRouteParameter): readonly string[] | undefined {
+  if (Type !== FROM_HEADER) return HEADER_ARGUMENTS.get(Type);
+  const options: unknown = Options;
+  const key = typeof options === 'object' && options !== null && 'key' in options && typeof options.key === 'string' && options.key !== '' ? options.key : Name;
+  return [key.toLowerCase()];
+}
 
 /** `static PerPrincipalReply = true`: the convention of a middleware whose reply depends on who asks (AuthzFieldsMiddleware). */
 const repliesPerPrincipal = (type: object): boolean => 'PerPrincipalReply' in type && type.PerPrincipalReply === true;
@@ -99,6 +118,11 @@ export class ResponseCacheMiddleware extends RouteMiddleware {
     const shaper = this.options.scope === 'principal' ? undefined : [...controller.Descriptor.Middlewares, ...route.Middlewares].find((m) => repliesPerPrincipal(m.Type));
     if (shaper !== undefined) {
       throw new InvalidArgument(`@ResponseCache scope '${this.options.scope}' would give one caller's reply to others, but ${shaper.Type.name} shapes the reply per principal: cache this route per principal or not at all`);
+    }
+    const unkeyed = this.options.scope === 'principal' ? undefined : this.unkeyedArgument(route, path);
+    if (unkeyed !== undefined) {
+      const hint = unkeyed.startsWith('the header') ? 'or name the header in vary' : 'or read the value from the URL';
+      throw new InvalidArgument(`${String(route.Type).toUpperCase()} ${path}: @ResponseCache scope '${this.options.scope}' would give one caller's reply to others, but the route reads ${unkeyed}, which is not in the key: cache it with scope 'principal', ${hint}`);
     }
     const service = await this.Container.resolve(CacheService);
     cacheSettings(service.config, this.options.cache);
@@ -199,6 +223,22 @@ export class ResponseCacheMiddleware extends RouteMiddleware {
     // a global route middleware is not among the descriptors onRegister checked
     const shaper = this.options.scope === 'principal' ? undefined : mounted.find((m) => repliesPerPrincipal(m.constructor));
     return shaper === undefined ? undefined : `${shaper.constructor.name} shapes the reply per principal, which scope '${this.options.scope}' would share`;
+  }
+
+  /** What a route argument reads of the request that the key of a wider scope does not hold. */
+  private unkeyedArgument(route: IRoute, path: string): string | undefined {
+    const keyed = new Set(['accept', 'x-data-transform', ...this.options.vary.map((name) => name.toLowerCase())]);
+    for (const param of route.Parameters.values()) {
+      if (REQUEST_OBJECTS.has(param.Type)) {
+        this.Log.warn({ route: `${String(route.Type).toUpperCase()} ${path}` }, "Response cache of ${route}: the action takes the request or the response, so the key cannot see what it reads; a header or a cookie it reads must be named in vary, or the route cached with scope 'principal'");
+        continue;
+      }
+      const headers = headersOf(param);
+      if (headers === undefined && !KEYED_ARGUMENTS.has(param.Type)) return `the argument ${param.Name} of type '${param.Type}'`;
+      const unkeyed = headers?.find((header) => !keyed.has(header));
+      if (unkeyed !== undefined) return `the header ${unkeyed}`;
+    }
+    return undefined;
   }
 
   /** http resolves the transformer of `x-data-transform` at each reply, so it is looked up here the same way. */
