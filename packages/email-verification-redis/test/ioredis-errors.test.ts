@@ -16,8 +16,14 @@ const fake = new FakeRedis();
 class IoredisStore extends RedisEmailVerificationStore {
   public password: string | undefined;
 
+  public friendly = false;
+
+  public go<T>(fn: () => Promise<T>): Promise<T> {
+    return this.run(fn);
+  }
+
   protected createClient(): Redis {
-    return new Redis({ ...this.clientOptions(), host: '127.0.0.1', port: fake.port, password: this.password, lazyConnect: true, retryStrategy: () => null });
+    return new Redis({ ...this.clientOptions(), host: '127.0.0.1', port: fake.port, password: this.password, showFriendlyErrorStack: this.friendly, lazyConnect: true, retryStrategy: () => null });
   }
 }
 
@@ -40,6 +46,29 @@ const ERR_ARITY = "ERR wrong number of arguments for 'get' command";
 const ABORTED = 'Command aborted due to connection close';
 const CLOSED = 'Connection is closed.';
 const TX_ABORTED = 'Redis transaction was aborted';
+const redactedUnknown = (name: string) => `ERR unknown command '${name}', with args beginning with: <redacted>`;
+
+/** Redis 6.2+ and 7 quote each argument as `'%.*s' ` until 128 characters are written. */
+function unknownCommand(name: string, args: string[]): Reply {
+  let list = '';
+  for (const arg of args) {
+    if (list.length >= 128) break;
+    list += `'${arg.slice(0, 128 - list.length)}' `;
+  }
+  return error(`ERR unknown command '${name.slice(0, 128)}', with args beginning with: ${list}`);
+}
+
+const redactedUnknownBackticks = (name: string) => `ERR unknown command \`${name}\`, with args beginning with: <redacted>`;
+
+/** Older Redis quotes the name and each argument in backticks, arguments as `%.*s`, until 128 characters are written. */
+function unknownCommandBackticks(name: string, args: string[]): Reply {
+  let list = '';
+  for (const arg of args) {
+    if (list.length >= 128) break;
+    list += `\`${arg.slice(0, 128 - list.length)}\`, `;
+  }
+  return error(`ERR unknown command \`${name}\`, with args beginning with: ${list}`);
+}
 
 type Answer = Reply | ((args: string[], queued: number) => Reply | undefined);
 type Override = Record<string, Answer>;
@@ -90,7 +119,7 @@ function json(value: unknown): string {
     }) ?? ''
   );
 }
-const printed = (value: unknown) => [inspect(value, { depth: 8, showHidden: true }), json(value)].join(' ');
+const printed = (value: unknown) => [inspect(value, { depth: null, showHidden: true }), json(value)].join(' ');
 
 const LEVELS = ['trace', 'debug', 'info', 'warn', 'error', 'fatal', 'security', 'success'] as const;
 
@@ -120,6 +149,8 @@ interface ICell {
   message: string;
   previous?: string;
   password?: true;
+  /** ioredis formats the stack at once (showFriendlyErrorStack); otherwise V8 formats it on first read. */
+  friendly?: true;
 }
 
 const OPS: Record<string, Run> = {
@@ -161,6 +192,39 @@ const CELLS: ICell[] = [
     { op, fails: 'EXEC: aborted (nil)', over: { exec: '*-1\r\n' }, type: 'Error', message: TX_ABORTED },
   ]),
   { op: 'replaceSource', fails: 'the swap MULTI: RENAME READONLY, EXECABORT', over: { rename: error(READONLY) }, type: 'ReplyError', message: EXECABORT, previous: READONLY },
+  { op: 'getVerdict', fails: 'GET: unknown command', over: { get: (args) => unknownCommand('get', args) }, type: 'ReplyError', message: redactedUnknown('get') },
+  { op: 'setVerdict', fails: 'SET: unknown command', over: { set: (args) => unknownCommand('set', args) }, type: 'ReplyError', message: redactedUnknown('set') },
+  { op: 'setMeta', fails: 'SET of the list origin: unknown command', over: { set: (args) => unknownCommand('set', args) }, type: 'ReplyError', message: redactedUnknown('set') },
+  {
+    op: 'upsertEntries',
+    fails: 'MULTI: a queued SADD unknown command, EXECABORT',
+    over: { sadd: (args) => unknownCommand('sadd', args) },
+    type: 'ReplyError',
+    message: EXECABORT,
+    previous: redactedUnknown('sadd'),
+  },
+  { op: 'getVerdict', fails: 'GET: unknown command, older Redis', over: { get: (args) => unknownCommandBackticks('get', args) }, type: 'ReplyError', message: redactedUnknownBackticks('get') },
+  { op: 'setMeta', fails: 'SET of the list origin: unknown command, older Redis', over: { set: (args) => unknownCommandBackticks('set', args) }, type: 'ReplyError', message: redactedUnknownBackticks('set') },
+  {
+    op: 'upsertEntries',
+    fails: 'MULTI: a queued SADD unknown command, older Redis, EXECABORT',
+    over: { sadd: (args) => unknownCommandBackticks('sadd', args) },
+    type: 'ReplyError',
+    message: EXECABORT,
+    previous: redactedUnknownBackticks('sadd'),
+  },
+  { op: 'getVerdict', fails: 'GET: unknown command, stack formatted by ioredis', over: { get: (args) => unknownCommand('get', args) }, type: 'ReplyError', message: redactedUnknown('get'), friendly: true },
+  {
+    op: 'upsertEntries',
+    fails: 'MULTI: a queued SADD unknown command, EXECABORT, stack formatted by ioredis',
+    over: { sadd: (args) => unknownCommand('sadd', args) },
+    type: 'ReplyError',
+    message: EXECABORT,
+    previous: redactedUnknown('sadd'),
+    friendly: true,
+  },
+  { op: 'getVerdict', fails: 'AUTH: unknown command', over: { auth: (args) => unknownCommand('auth', args) }, type: 'ReplyError', message: redactedUnknown('auth'), password: true },
+  { op: 'getVerdict', fails: 'AUTH: unknown command, older Redis', over: { auth: (args) => unknownCommandBackticks('auth', args) }, type: 'ReplyError', message: redactedUnknownBackticks('auth'), password: true },
   ...Object.keys(OPS).map(
     (op): ICell => ({ op, fails: 'AUTH: WRONGPASS', over: { auth: error(WRONGPASS) }, type: 'ReplyError', message: WRONGPASS, previous: transactions.includes(op) ? WRONGPASS : undefined, password: true }),
   ),
@@ -188,6 +252,7 @@ describe('errors that leave the redis email verification store carry none of the
   afterEach(async () => {
     await store.dispose();
     store.password = undefined;
+    store.friendly = false;
     fake.rule = () => undefined;
   });
 
@@ -217,10 +282,46 @@ describe('errors that leave the redis email verification store carry none of the
     }
   });
 
+  it("Redis's unknown-command reply quotes the domain and the list token in the message, so the redaction tests are not vacuous", async () => {
+    const client = new Redis({ host: '127.0.0.1', port: fake.port, keyPrefix: 'ev:', lazyConnect: true, retryStrategy: () => null });
+    try {
+      fake.rule = replies({ get: (args) => unknownCommand('get', args), set: (args) => unknownCommand('set', args) });
+      const get = await client.get(`verdict:dns:${DOMAIN}`).then(
+        () => undefined,
+        (err: unknown) => err,
+      );
+      expect(get).to.have.property('message', `ERR unknown command 'get', with args beginning with: 'ev:verdict:dns:${DOMAIN}' `);
+      const set = await client.set(`meta:sync:${SOURCE}:origin`, ORIGIN).then(
+        () => undefined,
+        (err: unknown) => err,
+      );
+      expect(set).to.have.property('message').that.includes(LIST_TOKEN);
+    } finally {
+      client.disconnect();
+    }
+  });
+
+  it('an unknown-command error that cannot be rewritten leaves the store as thrown', async () => {
+    const message = `ERR unknown command 'get', with args beginning with: 'ev:verdict:dns:${DOMAIN}' `;
+    const frozen = Object.freeze(new Error(message));
+    expect(await store.go(() => Promise.reject(frozen)).catch((err: unknown) => err)).to.equal(frozen);
+    const numeric = new Error(message);
+    Object.defineProperty(numeric, 'stack', { value: 42 });
+    expect(await store.go(() => Promise.reject(numeric)).catch((err: unknown) => err)).to.equal(numeric);
+    expect(numeric.message).to.equal(redactedUnknown('get'));
+  });
+
+  it('a message with a line break is redacted in the whole stack', async () => {
+    const err = new Error(`ERR unknown command 'get', with args beginning with: 'a\nb' 'ev:verdict:dns:${DOMAIN}' `);
+    await store.go(() => Promise.reject(err)).catch(() => undefined);
+    expect(leaks(String(err.stack))).to.deep.equal([]);
+  });
+
   for (const cell of CELLS) {
     it(`${cell.op}, ${cell.fails}: ${cell.type} "${cell.message}" without command`, async () => {
       fake.rule = replies(cell.over);
       store.password = cell.password ? PASSWORD : undefined;
+      store.friendly = cell.friendly === true;
       await store.resolve();
 
       const [err, lines] = await logged(() => OPS[cell.op](store));
@@ -245,6 +346,12 @@ describe('errors that leave the redis email verification store carry none of the
       }
       expect(failure.cause, 'no cause').to.equal(undefined);
       expect(leaks(printed(failure)), 'runs of the domain, the list token or the password').to.deep.equal([]);
+      for (const item of [failure, ...(Array.isArray(previous) ? previous : [])]) {
+        if (!(item instanceof Error)) expect.fail('a previousErrors item is not an Error');
+        expect(item.stack?.split('\n')[0], 'the first line of the stack').to.equal(`${item.name}: ${item.message}`);
+        expect(item.stack?.split('\n')[1], 'the frames of the stack').to.match(/^\s+at /);
+        expect(leaks(String(item.stack)), 'in a stack').to.deep.equal([]);
+      }
       expect(lines.flatMap(leaks), 'in a log line').to.deep.equal([]);
     });
   }

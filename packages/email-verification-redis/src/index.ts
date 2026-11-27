@@ -22,6 +22,26 @@ const splitMember = (m: string): [ListKind, string] => {
   return [m.slice(0, at) as ListKind, m.slice(at + 1)];
 };
 
+/** Redis 6.2 and later quote the name in `'`, older versions in backticks. */
+const UNKNOWN_COMMAND = /^ERR unknown command (['`])[^'`]*\1, with args beginning with: /;
+
+/** Redis quotes up to 128 characters of the arguments in its unknown-command reply: a checked domain, a stored meta value, the AUTH password. */
+function redactUnknownCommand(err: Error): void {
+  const old = err.message;
+  const match = UNKNOWN_COMMAND.exec(old);
+  if (!match) return;
+  const message = `${match[0]}<redacted>`;
+  const stack: unknown = err.stack;
+  // Reflect.set: a frozen error stays as thrown instead of turning into a TypeError that quotes it.
+  Reflect.set(err, 'message', message);
+  if (typeof stack === 'string') Reflect.set(err, 'stack', stack.split(old).join(message));
+}
+
+function strip(err: Error): void {
+  Reflect.deleteProperty(err, 'command');
+  redactUnknownCommand(err);
+}
+
 /**
  * ioredis copies a failed command's arguments onto its error as `command`, and onto each queued
  * error of a transaction in `previousErrors`: keys with the checked domain, stored values, the AUTH password.
@@ -29,9 +49,9 @@ const splitMember = (m: string): [ListKind, string] => {
  */
 function withoutCommand<T>(err: T): T {
   if (!(err instanceof Error)) return err;
-  Reflect.deleteProperty(err, 'command');
+  strip(err);
   if ('previousErrors' in err && Array.isArray(err.previousErrors)) {
-    for (const previous of err.previousErrors) if (previous instanceof Error) Reflect.deleteProperty(previous, 'command');
+    for (const previous of err.previousErrors) if (previous instanceof Error) strip(previous);
   }
   return err;
 }
