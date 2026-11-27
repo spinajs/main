@@ -16,6 +16,10 @@ describe('the key listing entry of a key whose instants no converter reads', () 
     expect([revoked.revoked, revoked.revokedAt, revoked.expired, expired.expired, expired.expiresAt, expired.revoked]).to.deep.equal([true, null, false, true, null, false]);
   });
 
+  it('gives an unreadable creation time as null instead of throwing', () => {
+    expect(keyEntry({ ...base, createdAt: new Date(NaN) }, now)).to.include({ createdAt: null, revoked: false, expired: false });
+  });
+
   it('keeps the entry of a key with readable instants as it was', () => {
     expect(keyEntry(base, now)).to.include({ revoked: false, expired: false, expiresAt: null, revokedAt: null });
     expect(keyEntry({ ...base, expiresAt: now }, now)).to.include({ expired: true, expiresAt: '2026-06-01T00:00:00.000Z' });
