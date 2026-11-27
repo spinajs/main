@@ -17,9 +17,11 @@ const RESPONSE_TOKEN = 'planted-response-signature';
 const FAILED_TOKEN = 'planted-failed-token';
 const SCRIPT_TOKEN = 'planted-script-signature';
 const IMPORT_TOKEN = 'planted-import-signature';
+const CONSOLE_TOKEN = 'planted-console-signature';
+const TWO_URLS_TOKEN = 'planted-built-token';
 const USER = 'pl4nteduser';
 const PASSWORD = 'planted-password';
-const PLANTED = [SIGNED_PATH_SEGMENT, RESPONSE_TOKEN, FAILED_TOKEN, SCRIPT_TOKEN, IMPORT_TOKEN, USER, PASSWORD, 'planted'];
+const PLANTED = [SIGNED_PATH_SEGMENT, RESPONSE_TOKEN, FAILED_TOKEN, SCRIPT_TOKEN, IMPORT_TOKEN, CONSOLE_TOKEN, TWO_URLS_TOKEN, USER, PASSWORD, 'planted'];
 
 const captured: ILogEntry[] = [];
 
@@ -89,6 +91,11 @@ describe('PuppeteerRenderer page logs', function () {
     fs.mkdirSync(join(sandbox, 'signed', SIGNED_PATH_SEGMENT), { recursive: true });
     fs.writeFileSync(join(sandbox, 'signed', SIGNED_PATH_SEGMENT, 'theme.css'), 'body { margin: 0; }\n');
     fs.writeFileSync(join(sandbox, 'boom.js'), "throw new Error('boom from a signed script');\n");
+    // the stylesheet was requested, the photo URL is built here and never requested; both are on one origin
+    fs.writeFileSync(
+      join(sandbox, 'two-urls.js'),
+      `throw new Error('first ' + document.querySelector('link').href + ' second ' + new URL('photo.png?token=${TWO_URLS_TOKEN}', document.baseURI).href);\n`,
+    );
     refusedPort = await closedPort();
 
     DI.clearCache();
@@ -99,8 +106,10 @@ describe('PuppeteerRenderer page logs', function () {
       '<html><head></head><body>',
       `<link rel="stylesheet" href="signed/${SIGNED_PATH_SEGMENT}/theme.css?X-Amz-Signature=${RESPONSE_TOKEN}">`,
       `<img src="http://127.0.0.1:${refusedPort}/assets/photo.png?token=${FAILED_TOKEN}">`,
-      // `defer`: a parser-blocking script makes Chromium print a console warning that quotes its URL, and console lines are logged as printed
-      `<script defer src="boom.js?X-Amz-Signature=${SCRIPT_TOKEN}"></script>`,
+      // parser-blocking on purpose: Chromium's console warning for it quotes the script's URL
+      `<script src="boom.js?X-Amz-Signature=${SCRIPT_TOKEN}"></script>`,
+      `<script defer src="two-urls.js"></script>`,
+      `<script>console.log('signed ' + new URL('photo.png?X-Amz-Signature=${CONSOLE_TOKEN}', document.baseURI).href);</script>`,
       `<img src="http://${USER}:${PASSWORD}@127.0.0.1:${refusedPort}/private/badge.png">`,
       `<script type="module">await import('./lazy-module.js?X-Amz-Signature=${IMPORT_TOKEN}');</script>`,
       '</body></html>',
@@ -134,6 +143,27 @@ describe('PuppeteerRenderer page logs', function () {
     const errors = captured.filter((entry) => inspect(entry, { depth: 20 }).includes('boom from a signed script'));
     expect(errors.length, 'the script error was reported').to.be.greaterThan(0);
     expect(inspect(errors, { depth: 20, showHidden: true })).to.not.contain(SCRIPT_TOKEN);
+  });
+
+  it('keeps the stack of a page error with the position of each frame and the URLs redacted', () => {
+    const errors = captured.filter((entry) => String(fieldsOf(entry).reason).includes('boom from a signed script'));
+    expect(errors.length, 'the script error was reported').to.eq(1);
+    expect(fieldsOf(errors[0]).stack).to.match(/\(http:\/\/127\.0\.0\.1:\d+\/boom\.js:1:\d+\)/);
+    expect(fieldsOf(errors[0]).error, 'the raw error object is not logged').to.eq(undefined);
+  });
+
+  it('logs a page error that quotes two URLs of one origin with both redacted and neither rewritten', () => {
+    const errors = captured.filter((entry) => String(fieldsOf(entry).reason).includes('first '));
+    expect(errors.length, 'the two-URL error was reported').to.eq(1);
+    expect(fieldsOf(errors[0]).reason).to.match(
+      /^Error: Uncaught Error: first http:\/\/127\.0\.0\.1:\d+\/signed\/\*\*\*\/theme\.css second http:\/\/127\.0\.0\.1:\d+\/photo\.png$/,
+    );
+  });
+
+  it('logs console lines, the page own and Chromium warnings, with the URLs they quote redacted', () => {
+    const lines = captured.filter((entry) => fieldsOf(entry).consoleType !== undefined).map((entry) => String(fieldsOf(entry).text));
+    expect(lines).to.satisfy((texts: string[]) => texts.some((text) => /^signed http:\/\/127\.0\.0\.1:\d+\/photo\.png$/.test(text)));
+    expect(lines).to.satisfy((texts: string[]) => texts.some((text) => /parser-blocking.*http:\/\/127\.0\.0\.1:\d+\/boom\.js, is invoked/.test(text)));
   });
 
   it('logs a failed module import without the URL it quotes', () => {

@@ -11,7 +11,7 @@ import { AddressInfo } from 'net';
 import { RenderProgressReporter } from './progress.js';
 import { LocalAssetServer } from './asset-server.js';
 import { BrowserPool } from './browser-pool.js';
-import { loggableEndpoint, loggableReason } from './loggable-endpoint.js';
+import { loggableEndpoint } from './loggable-endpoint.js';
 
 export * from './progress.js';
 export * from './asset-server.js';
@@ -60,16 +60,30 @@ const noop = () => {
   /* nothing to cancel */
 };
 
+// A URL up to a space, a quote or a bracket; a sentence mark after it is not part of it.
+const URL_RUN = /\b[a-z][a-z\d+.-]*:\/\/[^\s'"`<>()[\]{}]*[^\s'"`<>()[\]{}.,;:!?]/gi;
+// A stack frame's `:line:column` after the script's URL.
+const POSITION = /(?::\d+){1,2}$/;
+
+function hostOf(url: string): string | undefined {
+  try {
+    return new URL(url).host;
+  } catch {
+    return undefined;
+  }
+}
+
 /**
- * A page error's stack quotes every script's URL, and its message the URL it failed on (a failed import names its
- * module), presigned ones included: only the message is kept, with that URL, else the page's own, redacted.
+ * Text the page or Chromium writes (console lines, a page error and its stack) quotes asset URLs, presigned ones
+ * included, and URLs a script built: each is printed as `loggableEndpoint` prints it, a stack frame keeps its position.
  */
-function pageErrorReason(error: unknown, pageUrl: string, requested: Iterable<string>): string {
-  const message = error instanceof Error ? error.message : String(error);
-  // The helper redacts one endpoint per text; the longest quoted one wins over a shorter URL it starts with.
-  const quoted = [...requested].filter((url) => message.includes(url)).sort((a, b) => b.length - a.length)[0];
-  // `about:blank` (the page of `setContent()`) has no secret, and as a URL without a host the helper would mask "blank".
-  return loggableReason(error, quoted ?? (pageUrl === 'about:blank' ? '' : pageUrl));
+function loggableText(text: string): string {
+  return text.replace(URL_RUN, (run) => {
+    const position = POSITION.exec(run)?.[0] ?? '';
+    const url = run.slice(0, run.length - position.length);
+    // `http://host:8080` ends like a position: it is one only when cutting it leaves the host as it was
+    return position !== '' && hostOf(url) === hostOf(run) ? loggableEndpoint(url) + position : loggableEndpoint(run);
+  });
 }
 
 export abstract class PuppeteerRenderer extends TemplateRenderer implements IInstanceCheck {
@@ -369,13 +383,13 @@ export abstract class PuppeteerRenderer extends TemplateRenderer implements IIns
    * Add page event listeners with cleanup function
    */
   protected addPageEventListeners(page: Page): () => void {
-    const requested = new Set<string>();
     const listeners = {
-      console: (message: ConsoleMessage) => this.Log.trace({ consoleType: message.type().slice(0, 3).toUpperCase(), text: message.text() }, '${consoleType} ${text}'),
-      request: (request: HTTPRequest) => {
-        requested.add(request.url());
+      console: (message: ConsoleMessage) => this.Log.trace({ consoleType: message.type().slice(0, 3).toUpperCase(), text: loggableText(message.text()) }, '${consoleType} ${text}'),
+      pageerror: (error: unknown) => {
+        const reason = loggableText(error instanceof Error ? `${error.name}: ${error.message}` : String(error));
+        const stack = error instanceof Error && error.stack !== undefined ? loggableText(error.stack) : undefined;
+        this.Log.error({ reason, stack }, 'Page error: ${reason}');
       },
-      pageerror: (error: unknown) => this.Log.error({ reason: pageErrorReason(error, page.url(), requested) }, 'Page error: ${reason}'),
       response: (response: HTTPResponse) => this.Log.trace({ status: response.status(), url: loggableEndpoint(response.url()) }, '${status} ${url}'),
       requestfailed: (request: HTTPRequest) => {
         const failure = request.failure();
@@ -384,7 +398,6 @@ export abstract class PuppeteerRenderer extends TemplateRenderer implements IIns
     };
 
     // Add listeners
-    page.on('request', listeners.request);
     page.on('console', listeners.console);
     page.on('pageerror', listeners.pageerror);
     page.on('response', listeners.response);
@@ -393,7 +406,6 @@ export abstract class PuppeteerRenderer extends TemplateRenderer implements IIns
     // Return cleanup function
     return () => {
       try {
-        page.off('request', listeners.request);
         page.off('console', listeners.console);
         page.off('pageerror', listeners.pageerror);
         page.off('response', listeners.response);
