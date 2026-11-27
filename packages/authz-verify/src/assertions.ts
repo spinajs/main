@@ -89,7 +89,27 @@ function unknownPermissions(ir: PolicyIR, a: Assertion): string[] {
   }
 }
 
+/** A selector `matchesHolder` can match: `public`, `role:<r>[@<t>]`, `[public:]<t>#<stored relation>` or `anyone:<t>#<permission>`. */
+function namesHolder(ir: PolicyIR, selector: string): boolean {
+  const own = (o: object, k: string): boolean => Object.prototype.hasOwnProperty.call(o, k);
+  if (selector === 'public') return true;
+  const role = /^role:([^@]+)(?:@(.+))?$/.exec(selector);
+  if (role !== null) return own(ir.principal.roles, role[1]) && ir.principal.roles[role[1]].some((r) => role[2] === undefined || r.type === role[2]);
+  const term = /^(public:|anyone:)?([^#]+)#(.+)$/.exec(selector);
+  if (term === null || !own(ir.types, term[2])) return false;
+  // An anyone term is named after the rewrite that admits everyone; every other holder after the stored relation it reads.
+  return own(term[1] === 'anyone:' ? ir.types[term[2]].permissions : ir.types[term[2]].relations, term[3]);
+}
+
 const shown = (name: string): string => (name !== '' && name.trim() === name ? name : `'${name}'`);
+
+/** `AZV005` for the holders of `a` that name nothing: no reacher matches them, so `never` of one would hold. */
+function unknownHolders(ir: PolicyIR, a: Assertion): Verdict | undefined {
+  const selectors = a.kind === 'never' ? [a.holder] : a.kind === 'onlyVia' ? a.holders : a.kind === 'isolated' ? a.except : [];
+  const unknown = [...new Set(selectors)].filter((s) => !namesHolder(ir, s));
+  if (unknown.length === 0) return undefined;
+  return { result: 'unknown', engine: 'exact', opaque: [], code: 'AZV005', message: `${unknown.map(shown).join(', ')} ${unknown.length === 1 ? 'names' : 'name'} no role or relation of the policy` };
+}
 
 /** The exact engine first; what it leaves `unknown` goes to the bounded engine. */
 export async function verifyAssertion(ir: PolicyIR, a: Assertion, options: BoundedOptions = {}): Promise<Verdict> {
@@ -101,6 +121,8 @@ export async function verifyAssertion(ir: PolicyIR, a: Assertion, options: Bound
   if (a.kind === 'isolated' && !Object.prototype.hasOwnProperty.call(ir.types, a.type)) {
     return { result: 'unknown', engine: 'exact', opaque: [], code: 'AZV006', message: `${shown(a.type)} names no type of the policy` };
   }
+  const holders = unknownHolders(ir, a);
+  if (holders !== undefined) return holders;
   switch (a.kind) {
     case 'implies': {
       const plain = await orBounded(await exactImplies(ir, a.a, a.b), ir, { checks: [{ permission: a.a, allowed: true }, { permission: a.b, allowed: false }] }, options);
@@ -271,7 +293,7 @@ function boundary(e: Encoder, u: Universe, type: TypeName): Formula[] {
   return out;
 }
 
-export type VerifyCode = 'AZV001' | 'AZV002' | 'AZV003' | 'AZV004' | 'AZV006' | 'AZV090';
+export type VerifyCode = 'AZV001' | 'AZV002' | 'AZV003' | 'AZV004' | 'AZV005' | 'AZV006' | 'AZV090';
 
 export interface VerifyDiagnostic {
   readonly code: VerifyCode;
@@ -304,8 +326,8 @@ function diagnose(assertion: Assertion, label: string, v: Verdict, ir: PolicyIR,
   const on = (code: VerifyCode, severity: VerifyDiagnostic['severity'], message: string, counterexample?: Counterexample): number => out.push({ code, severity, assertion: label, message, ...(counterexample === undefined ? {} : { counterexample }) });
   if (v.result === 'violated') on('AZV001', 'error', `violated (${v.engine === 'exact' ? 'exact' : `bounded k=${v.bound ?? '?'}`})`, v.counterexample);
   else if (v.result === 'holds') on('AZV002', 'info', v.engine === 'exact' ? 'holds (exact)' : `verified up to k=${v.bound ?? '?'}`);
-  else if (v.code === 'AZV006') on('AZV006', 'error', v.message ?? 'names no permission of the policy');
   else if (v.code === 'AZV090') on('AZV090', options.requireSolver === true ? 'error' : 'warning', `not verified: ${v.message ?? 'solver unavailable'}`);
+  else if (v.code !== undefined) on(v.code, 'error', v.message ?? 'names nothing of the policy');
   else on('AZV003', 'warning', `not decided: ${v.message ?? 'outside both engines'}`);
   if (v.opaque.length > 0) on('AZV003', 'warning', `depends on opaque: ${v.opaque.map((o) => `${o.kind} '${o.name}'`).join(', ')}`);
   const note = ceilingNote(assertion, v, ir);
