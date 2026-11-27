@@ -52,7 +52,7 @@ Every `QueryContext` goes through the same mapping, `Schema` and `Transaction` i
 
 ### Table reflection
 
-`Orm.reloadTableInfo()` calls `tableInfo(name, schema?)` for every model on this connection. It returns `null` when the table does not exist, otherwise one `IColumnDescriptor` per column:
+`Orm.reloadTableInfo()` calls `tableInfo(name, schema?)` for every model on this connection, with the connection's `Database` as `schema`, so a model reflects the table of the database its queries address. `tableInfo`, `tableIndexes` and `tableForeignKeys` read a given `schema` through the qualified pragmas (`` PRAGMA "<schema>".table_info("<table>") `` and the same for `index_list`, `index_info` and `foreign_key_list`) and read the unqualified table without one. A `schema` that is not attached reads as holding no table: attach it, then call `reloadTableInfo()`. `tableInfo` returns `null` when the table does not exist, otherwise one `IColumnDescriptor` per column:
 
 | Field | Source |
 | --- | --- |
@@ -85,7 +85,7 @@ Keys under `db.Connections[]`. Keys shared by all drivers are described in [Conn
 | `db.Connections[].Migration.*` | | | | Read by the migration service; see [Migrations](../orm/10-migrations.md). |
 | `db.Connections[].AliasSeparator` | `string` | `$` | | Wraps generated table aliases, eg. `` `$users$` ``. |
 
-Ignored by this driver: `Host`, `Port`, `User`, `Password`, `Encoding`, `SSH`, `Options`, `Pool.Min`, `Pool.IdleTimeout`, `Pool.AcquireTimeout`. `Database`, when set, qualifies every model query: model selects, updates, deletes and inserts address `` `<Database>`.`table` ``, so it must be `main` or the name of an attached database. The write capture reads its rows from the same `` `<Database>`.`table` ``. It is also copied into reflected `Schema` fields.
+Ignored by this driver: `Host`, `Port`, `User`, `Password`, `Encoding`, `SSH`, `Options`, `Pool.Min`, `Pool.IdleTimeout`, `Pool.AcquireTimeout`. `Database`, when set, qualifies every model query: model selects, updates, deletes and inserts address `` `<Database>`.`table` ``, so it must be `main` or the name of an attached database. The write capture reads its rows, and an upsert's unique indexes, from the same `` `<Database>`.`table` ``. Model reflection reads the `Database` named on the connection too. It is also copied into reflected `Schema` fields.
 
 ```ts sample
 import { FrameworkConfiguration } from '@spinajs/configuration';
