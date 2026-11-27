@@ -142,7 +142,7 @@ Each helper resolves a provider with `provider(fileSystem)` and calls the instan
   - a symbolic link, or any other entry that is not a file or a directory (zip has no hard-link entries);
   - a name the [path rules](07-middlewares.md#path-normalisation) refuse: a NUL byte, or a segment that holds `:` or ends in `.` or a space.
 
-  Backslashes in entry names are separators on every platform. Names that differ only by case are written to one file on a case-insensitive disk, and the later entry wins. The entries are streamed to disk one at a time; the archive is never held in memory.
+  A write that fails after the check (the destination is a file, an entry lies below an entry that is a file) rejects with `IOFail` naming the destination or the entry; entries written before it stay. Backslashes in entry names are separators on every platform. Names that differ only by case are written to one file on a case-insensitive disk, and the later entry wins. The entries are streamed to disk one at a time; the archive is never held in memory.
 
 ```ts
 try {
