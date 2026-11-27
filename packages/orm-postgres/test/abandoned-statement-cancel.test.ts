@@ -271,4 +271,20 @@ describe('postgres abandoned statement cancel (unit)', function () {
     expect(warn.args[0][1]).to.contain('will not be cancelled');
   });
 
+  it('sends nothing and warns once when the cancel key is not two 32-bit integers', async () => {
+    const warn = sinon.stub(driver.logger(), 'warn');
+    for (const key of [
+      { processID: 4242, secretKey: 2 ** 31 },
+      { processID: 4242, secretKey: Buffer.alloc(8, 1) },
+      { processID: '4242', secretKey: 777 },
+      { processID: 4242, secretKey: undefined },
+    ]) {
+      pooledClient(timedOut, key);
+      await expect(driver.executeOnDb('SELECT 1', [], QueryContext.Select)).to.be.rejectedWith(OrmException);
+    }
+    expect(driver.cancels).to.deep.equal([undefined, undefined, undefined, undefined]);
+    expect(server.requests).to.deep.equal([]);
+    expect(warn.callCount).to.equal(1);
+    expect(warn.args[0][1]).to.contain('will not be cancelled');
+  });
 });

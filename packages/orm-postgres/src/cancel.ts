@@ -7,6 +7,8 @@ export interface IPostgresCancelKey {
   readonly secretKey: number;
 }
 
+const isInt32 = (value: unknown): value is number => typeof value === 'number' && (value | 0) === value;
+
 /** A pooled client that keeps its backend's cancel key while its socket is open; pg's typed API does not expose it. */
 export class CancellableClient extends pg.Client {
   public cancelKey: IPostgresCancelKey | undefined;
@@ -16,9 +18,14 @@ export class CancellableClient extends pg.Client {
 
   constructor(config?: pg.ClientConfig) {
     super(config);
-    this.connection.once('backendKeyData', (key: IPostgresCancelKey) => {
-      this.cancelKey = { processID: key.processID, secretKey: key.secretKey };
-      this.cancelKeyMissing = undefined;
+    // `connection` is an untyped EventEmitter in @types/pg: the message is checked here, not trusted
+    this.connection.once('backendKeyData', (key: { processID?: unknown; secretKey?: unknown }) => {
+      if (isInt32(key.processID) && isInt32(key.secretKey)) {
+        this.cancelKey = { processID: key.processID, secretKey: key.secretKey };
+        this.cancelKeyMissing = undefined;
+      } else {
+        this.cancelKeyMissing = 'its cancel key is not a 32-bit process id and secret key, which is all a CancelRequest of protocol 3.0 can carry';
+      }
     });
     // a socket closed by a connection error leaves no statement to stop, or no route to the server
     this.connection.once('end', () => {
