@@ -21,7 +21,7 @@ Use `renderToFile()` for templates and `renderHtmlToFile()` when you already hav
 11. The reporter emits `done`.
 12. In `finally`: the reporter detaches, a slow render is logged, the page closes (the browser stays), and the asset server closes. With `debug.close: false` both the page and the asset server stay open.
 
-Any error is logged, reported as `failed` with the error message, and rethrown. The log lines (`Error during rendering`, `Error rendering to file`) and the `failed` message print every URL the error's message, stack and causes quote the way step 6 describes, so a `net::ERR_* at <url>` from a subclass that calls `page.goto()` shows host, port and plain path but no query or credentials; the rethrown error is the original, unchanged.
+Any error is logged, reported as `failed` with the error message, and rethrown. The log lines (`Error during rendering`, `Error rendering to file`) and the `failed` message print every URL the error's message, stack and causes quote the way step 6 describes, so a `net::ERR_* at <url>` from a subclass that calls `page.goto()` shows host, port and plain path but no query or credentials; a stack frame of a module under the working directory keeps its file path; the rethrown error is the original, unchanged.
 
 ### `renderHtmlToFile(html, filePath, options?)`
 
