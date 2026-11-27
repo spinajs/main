@@ -4,7 +4,7 @@ import type { ObjectRef, OpaqueRef, PolicyIR, RelationName, TupleSubjectRef, Typ
 
 import { ANYONE, RewriteAutomaton } from './graph.js';
 import type { Edge } from './graph.js';
-import { explore, implies as exactImplies, onlyVia as exactOnlyVia, reachers } from './monotone.js';
+import { explore, implies as exactImplies, onlyVia as exactOnlyVia, reachers, reachersOf } from './monotone.js';
 import type { Encoder } from './smt/encode.js';
 import { Unsupported, and, not, or } from './smt/formula.js';
 import type { Formula } from './smt/formula.js';
@@ -119,18 +119,23 @@ function permissionsMatching(ir: PolicyIR, glob: string): Permission[] {
 
 async function never(ir: PolicyIR, holder: string, glob: string, options: BoundedOptions): Promise<Verdict> {
   const verdicts: Verdict[] = [];
+  const m = new RewriteAutomaton(ir);
   for (const permission of permissionsMatching(ir, glob)) {
+    const start = m.start(permission);
+    const ex = start === undefined ? undefined : explore(m, start);
     // An anyone term needs no holder, so whoever the selector names reaches the permission through it; a public
     // member of the relation the selector names is one of its holders, as the bounded search reads it.
-    const hits = reachers(ir, permission).filter((r) => r.holder.kind === 'anyone' || matchesHolder(holder, r.holder) || (r.holder.kind === 'public' && namesRelation(ir, holder, r.holder.type, r.holder.relation)));
+    const hits = (ex === undefined ? [] : reachersOf(ir, permission, ex)).filter((r) => r.holder.kind === 'anyone' || matchesHolder(holder, r.holder) || (r.holder.kind === 'public' && namesRelation(ir, holder, r.holder.type, r.holder.relation)));
     const sure = hits.find((r) => !r.conditional);
     if (sure !== undefined) {
       const counterexample = await confirm(ir, sure.witness, { [permission]: 'allow' }, sure.paths[0]);
       verdicts.push({ result: 'violated', engine: 'exact', counterexample, opaque: [] });
-    } else if (hits.length === 0) {
+    } else if (hits.length === 0 && (ex === undefined || ex.opaque.length === 0)) {
+      // No hit is a proof only when the reachers are an upper bound; what answers an opaque part may grant anyone.
       verdicts.push({ result: 'holds', engine: 'exact', opaque: [] });
     } else {
-      verdicts.push(await bounded(ir, { checks: [{ permission, allowed: true }], admit: holderAdmits(ir, [holder], 'only') }, options));
+      const b = await bounded(ir, { checks: [{ permission, allowed: true }], admit: holderAdmits(ir, [holder], 'only') }, options);
+      verdicts.push(ex === undefined ? b : { ...b, opaque: mergeOpaque(opaqueOf(ir, ex), b.opaque) });
     }
   }
   return combine(verdicts, ir);

@@ -6,7 +6,7 @@ import { ConnectionMismatch, NotAnOrmDriver, OrmConnectionMissing, TransactionRe
 import type { OrmDriver } from '@spinajs/orm';
 import { DateTime } from 'luxon';
 
-import { AncestorRecord, ScopeAttributeRecord, ScopeAttributeVersionRecord } from '../src/index.js';
+import { AncestorRecord, ScopeAttributeRecord, ScopeAttributeVersionRecord, scopeAttributeId } from '../src/index.js';
 import { recordDriver, requireConnection, requireTransaction, selectFrom } from '../src/records.js';
 import { createAncestorTable, dropAncestorTable } from './support/ancestors.js';
 import { TestDb } from './support/db.js';
@@ -76,9 +76,9 @@ describe('authz-orm records', function () {
       it('ScopeAttributeRecord keeps value_json as JSON text, null as SQL NULL, and reads the scalar back', async () => {
         const at = DateTime.now();
         await ScopeAttributeRecord.insert([
-          { scope_type: '$global', scope_id: '', path: 's', value_json: 'gold', value_text: 'gold', value_num: null, updated_by: 'user:alice', updated_at: at },
-          { scope_type: '$global', scope_id: '', path: 'n', value_json: 3.5, value_text: '3.5', value_num: 3.5, updated_by: null, updated_at: at },
-          { scope_type: '$global', scope_id: '', path: 'b', value_json: false, value_text: 'false', value_num: null, updated_by: null, updated_at: at },
+          { id: scopeAttributeId('$global', '', 's'), scope_type: '$global', scope_id: '', path: 's', value_json: 'gold', value_text: 'gold', value_num: null, updated_by: 'user:alice', updated_at: at },
+          { id: scopeAttributeId('$global', '', 'n'), scope_type: '$global', scope_id: '', path: 'n', value_json: 3.5, value_text: '3.5', value_num: 3.5, updated_by: null, updated_at: at },
+          { id: scopeAttributeId('$global', '', 'b'), scope_type: '$global', scope_id: '', path: 'b', value_json: false, value_text: 'false', value_num: null, updated_by: null, updated_at: at },
         ]);
         const raw = (await driver.select().from('authz_scope_attribute').columns(['path', 'value_json', 'value_num', 'updated_by'])) as { path: string; value_json: string; value_num: unknown; updated_by: unknown }[];
         expect(Object.fromEntries(raw.map((r) => [r.path, r.value_json]))).to.deep.equal({ s: '"gold"', n: '3.5', b: 'false' });
@@ -89,9 +89,10 @@ describe('authz-orm records', function () {
         expect(rows.every((r) => DateTime.isDateTime(r.updated_at))).to.equal(true);
       });
 
-      it('ScopeAttributeVersionRecord reads the row the migration seeds', async () => {
+      it('ScopeAttributeVersionRecord reads the row the migrations leave', async () => {
         const row = await selectFrom(ScopeAttributeVersionRecord).where('id', 1).first();
-        expect(row.version).to.equal('0');
+        // Seeded '0'; the key migration's compare-and-set leaves a fresh UUID.
+        expect(row.version).to.match(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
         expect(DateTime.isDateTime(row.updated_at)).to.equal(true);
       });
     });

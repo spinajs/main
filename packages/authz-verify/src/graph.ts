@@ -60,6 +60,8 @@ interface StateInfo {
 
 const own = (o: object, k: string): boolean => Object.prototype.hasOwnProperty.call(o, k);
 const isDirect = (a: ParsedSubjectType): boolean => a.relation === undefined && !a.wildcard;
+// What answers a name the IR does not define (validateIR: IR001, IR002, IR005) is out of the analysis' sight, as an opaque term is.
+const undefinedName = (type: TypeName, name: string): string => `undefined ${type}#${name}`;
 
 /**
  * The rewrite graph of a `PolicyIR` read as a finite automaton (G7). States are `type#name`; letters are the
@@ -109,13 +111,14 @@ export class RewriteAutomaton {
 
   private build(state: string): StateInfo {
     const out: StateInfo = { edges: [], opaque: [] };
+    if (isAccepting(state)) return out;
     const hash = state.indexOf('#');
     const typeName = state.slice(0, hash);
     const name = state.slice(hash + 1);
     const type = own(this.ir.types, typeName) ? this.ir.types[typeName] : undefined;
-    if (type === undefined) return out;
-    if (own(type.permissions, name)) this.rewrite(out, typeName, type, name, type.permissions[name], false);
-    else if (own(type.relations, name)) this.stored(out, typeName, type, name, false);
+    if (type !== undefined && own(type.permissions, name)) this.rewrite(out, typeName, type, name, type.permissions[name], false);
+    else if (type !== undefined && own(type.relations, name)) this.stored(out, typeName, type, name, false);
+    else out.opaque.push(undefinedName(typeName, name));
     return out;
   }
 
@@ -135,7 +138,10 @@ export class RewriteAutomaton {
 
   /** `this` on a stored relation: direct and wildcard subjects accept, a subject set moves to its relation. */
   private stored(out: StateInfo, typeName: TypeName, type: TypeDef, name: RelationName, conditional: boolean): void {
-    if (!own(type.relations, name)) return;
+    if (!own(type.relations, name)) {
+      out.opaque.push(undefinedName(typeName, name));
+      return;
+    }
     const rel = type.relations[name];
     const step = { type: typeName, relation: name, via: 'direct' as const, stored: true };
     for (const a of rel.allowed.map(parseSubjectTypeRef)) {
@@ -148,12 +154,16 @@ export class RewriteAutomaton {
       const letter = { object: typeName, relation: name, subject: a.type, wildcard: a.wildcard, ...(a.relation === undefined ? {} : { subjectRelation: a.relation }), ...(a.caveat === undefined ? {} : { caveat: a.caveat }) };
       if (a.relation === undefined) out.edges.push({ ...step, to: ACCEPT, letter, conditional: cond });
       else if (own(this.ir.types, a.type)) out.edges.push({ ...step, to: stateKey(a.type, a.relation), letter, conditional: cond });
+      else out.opaque.push(undefinedName(a.type, a.relation));
     }
   }
 
   /** Tuple-to-userset: `computed` on every object the tupleset names; a `self` tupleset names the object itself. */
   private arrow(out: StateInfo, typeName: TypeName, type: TypeDef, tupleset: RelationName, computed: RelationName, conditional: boolean): void {
-    if (!own(type.relations, tupleset)) return;
+    if (!own(type.relations, tupleset)) {
+      out.opaque.push(undefinedName(typeName, tupleset));
+      return;
+    }
     const rel = type.relations[tupleset];
     const step = { type: typeName, relation: tupleset, via: 'ttu' as const, stored: false };
     for (const a of rel.allowed.map(parseSubjectTypeRef)) {

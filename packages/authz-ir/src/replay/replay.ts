@@ -1,5 +1,5 @@
 import { inputsHashOf, resourceKey } from '@spinajs/authz';
-import type { ChangeLog, DecisionRecord, ReplayMissing, ReplayOptions, ReplayRead, ReplayReport } from '@spinajs/authz';
+import type { DecisionRecord, ReplayMissing, ReplayOptions, ReplayRead, ReplayReport } from '@spinajs/authz';
 
 import { policyHash } from '../canonical.js';
 import { IREvaluator } from '../eval/evaluator.js';
@@ -9,7 +9,8 @@ import { capturedNodes, checkCapturedState } from './attributes.js';
 import type { AttributeHistoryContributor, HistoryContributor, StoredPolicySplicer } from './contributor.js';
 import { conditionReads, instantOf, policyProblems, recordProblems, replayContext, replayWindow } from './context.js';
 import type { ReplayContext } from './context.js';
-import { ReplayBudgetExceeded, ReplayHistory } from './history-scan.js';
+import { replayBudgetStop } from './ports.js';
+import type { KeyStateFunctions, ReplayHistoryPorts, ReplayHistoryView } from './ports.js';
 import { HistoricalTupleSource } from './source.js';
 import { spliceStoredPolicy } from './splice.js';
 import { replayVerdict } from './verdict.js';
@@ -27,8 +28,7 @@ export interface ReplayLimits {
   precisionMs?: number;
 }
 
-export interface ReplayDeps {
-  log: ChangeLog;
+export interface ReplayDeps extends ReplayHistoryPorts {
   /** The canonical IR text stored under the hash, or undefined. */
   loadPolicy(policyHash: string): Promise<string | undefined>;
   contributors: readonly HistoryContributor[];
@@ -47,10 +47,10 @@ export interface ReplayDecisionOptions extends ReplayOptions {
   truncated?: readonly string[];
 }
 
-type Outcome = Omit<VerdictInput, 'recorded'> & { tree: ExplainNode | null; reads: ReplayRead[]; history?: ReplayHistory };
+type Outcome = Omit<VerdictInput, 'recorded'> & { tree: ExplainNode | null; reads: ReplayRead[]; history?: ReplayHistoryView };
 
 interface Run {
-  history?: ReplayHistory;
+  history?: ReplayHistoryView;
   reads: ReplayRead[];
   /** Changes the scan had read when it ran past `maxChanges`. */
   scanned?: number;
@@ -74,14 +74,16 @@ export async function replayDecision(record: DecisionRecord, deps: ReplayDeps, o
   } catch (e) {
     if (options.signal?.aborted) throw options.signal.reason;
     outcome = { ...blocked([]), unknowns: [stopped(e, timeout, deps.limits.timeoutMs)], reads: run.reads, ...(run.history === undefined ? {} : { history: run.history }) };
-    if (e instanceof ReplayBudgetExceeded && e.limit === 'maxChanges') run.scanned = e.count;
+    const budget = replayBudgetStop(e);
+    if (budget?.limit === 'maxChanges') run.scanned = budget.count;
   }
   return reportOf(record, deps, outcome, { maxChanges, started, scanned: run.scanned });
 }
 
 /** A limit the replay ran into; anything else is a fault and rethrown. */
 function stopped(e: unknown, timeout: AbortSignal, timeoutMs: number): ReplayMissing {
-  if (e instanceof ReplayBudgetExceeded) return { input: 'history-budget', key: e.limit, reason: `the replay read ${e.count} ${e.limit === 'maxChanges' ? 'changes' : 'keys'}, past its ${e.limit}` };
+  const budget = replayBudgetStop(e);
+  if (budget !== undefined) return { input: 'history-budget', key: budget.limit, reason: `the replay read ${budget.count} ${budget.limit === 'maxChanges' ? 'changes' : 'keys'}, past its ${budget.limit}` };
   // Only the timeout's own abort: a fault that happens to come after the deadline is still a fault.
   if (timeout.aborted && e === timeout.reason) return { input: 'timeout', reason: `the replay ran past timeoutMs ${timeoutMs}` };
   throw e;
@@ -117,12 +119,12 @@ async function evaluate(record: DecisionRecord, deps: ReplayDeps, o: { maxChange
   const attributes = attributeCheck(record, deps);
   const kinds = [...new Set([...deps.contributors, ...deps.splicers, ...[attributes].filter((a) => a !== undefined)].map((c) => c.kind))];
   const historyLimits = { maxChanges: o.maxChanges, maxKeys: limits.maxKeys, window: replayWindow(record, limits), ...(limits.precisionMs === undefined ? {} : { precisionMs: limits.precisionMs }), ...(deps.now === undefined ? {} : { now: deps.now }) };
-  const history = (run.history = await ReplayHistory.load(deps.log, t, kinds, historyLimits, o.signal));
+  const history = (run.history = await deps.history(t, kinds, historyLimits, o.signal));
   const binding = Object.entries(ir.permissions).find(([p]) => p === record.permission)?.[1];
-  const spliced = await spliceStoredPolicy(ir, t, deps.splicers, history, binding);
+  const spliced = await spliceStoredPolicy(ir, t, deps.splicers, history, deps.keyState, binding);
   run.reads.push(...spliced.reads);
   const ctx = replayContext(record);
-  const source = new HistoricalTupleSource(spliced.ir, t, deps.contributors, history, ctx.at);
+  const source = new HistoricalTupleSource(spliced.ir, t, deps.contributors, history, deps.keyState, ctx.at);
   let result;
   try {
     result = await new IREvaluator(spliced.ir, source, { maxDepth: limits.maxDepth, maxCalls: limits.maxCalls }).check({ principal: ctx.principal, permission: record.permission, resource: record.resource.id == null ? { type: record.resource.type } : { type: record.resource.type, id: record.resource.id }, context: ctx.context, at: ctx.at });
@@ -138,7 +140,7 @@ async function evaluate(record: DecisionRecord, deps: ReplayDeps, o: { maxChange
     unknowns.push({ input: 'principal-facts', reason: 'the record has no principal facts: its companions are unknown' });
   }
   // After the unknowns: an attribute gap leaves the truth as it is.
-  const evidence = await capturedEvidence(record, truth === 'unknown' ? undefined : attributes, t, history, run);
+  const evidence = await capturedEvidence(record, truth === 'unknown' ? undefined : attributes, t, history, deps.keyState, run);
   return { blocked: [], truth, unknowns: unique(unknowns), tree: result.tree, reads: run.reads, history, ...evidence };
 }
 
@@ -147,12 +149,12 @@ const attributeCheck = (record: DecisionRecord, deps: ReplayDeps): AttributeHist
   deps.attributes !== undefined && record.inputs !== undefined && capturedNodes(record.inputs).length > 0 ? deps.attributes : undefined;
 
 /** Rule 6's evidence, with captured inputs only: the recomputed inputs hash, and the captured scope attributes at T. */
-async function capturedEvidence(record: DecisionRecord, attributes: AttributeHistoryContributor | undefined, t: Date, history: ReplayHistory, run: Run): Promise<Pick<Outcome, 'inputsHash' | 'captured'>> {
+async function capturedEvidence(record: DecisionRecord, attributes: AttributeHistoryContributor | undefined, t: Date, history: ReplayHistoryView, keyState: KeyStateFunctions, run: Run): Promise<Pick<Outcome, 'inputsHash' | 'captured'>> {
   const inputs = record.inputs;
   if (inputs === undefined) return {};
   const inputsHash = { recorded: record.inputsHash, replayed: rehash(record, inputs) };
   if (attributes === undefined) return { inputsHash };
-  const check = await checkCapturedState(t, inputs, attributes, history);
+  const check = await checkCapturedState(t, inputs, attributes, history, keyState);
   run.reads.push(...check.reads);
   return { inputsHash, captured: check.divergence };
 }

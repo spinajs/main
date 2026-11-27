@@ -40,7 +40,7 @@ describe('mysql events', function () {
       })
       .toDB();
 
-    expect(result.expression?.split('\n').at(-1)).to.eq('DO DELETE FROM `__task_history` WHERE `CreatedAt` < (NOW(3) - INTERVAL 7 DAY)');
+    expect(result.expression?.split('\n').at(-1)).to.eq('DO DELETE FROM `__task_history` WHERE `CreatedAt` < (UTC_TIMESTAMP(3) - INTERVAL 7 DAY)');
     expect(result.bindings ?? []).to.deep.eq([]);
   });
 

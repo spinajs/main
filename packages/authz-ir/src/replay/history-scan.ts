@@ -1,7 +1,6 @@
 import type { ChangeKind, ChangeLog, ChangeRecord, ResourceType } from '@spinajs/authz';
 
-import type { HistoryContributor, HistoryEdge } from './contributor.js';
-import type { ReplayWindow } from './history.js';
+import type { ReplayHistoryLimits, ReplayHistoryView, ReplayWindow } from './ports.js';
 
 /** A replay read more history than its limits allow. */
 export class ReplayBudgetExceeded extends Error {
@@ -13,19 +12,6 @@ export class ReplayBudgetExceeded extends Error {
   }
 }
 
-export interface ReplayHistoryLimits {
-  maxChanges: number;
-  maxKeys: number;
-  window: ReplayWindow;
-  /**
-   * One precision for every key of the history: that of the coarsest store column any contributor's images take
-   * instants from; default 1 ms. `changeLogPrecisionMs` serves while every such column keeps the changelog's precision.
-   */
-  precisionMs?: number;
-  /** The reader's clock, which catch-up passes overlap from; default `Date.now`. */
-  now?: () => number;
-}
-
 const PAGE = 10_000;
 const KEY_BATCH = 500;
 
@@ -35,7 +21,7 @@ const KEY_BATCH = 500;
  * change the window check sees. Callers read in this order: scan, current rows, `catchUp`, `headOf`, `beforeOf`, and
  * `since` last.
  */
-export class ReplayHistory {
+export class ReplayHistory implements ReplayHistoryView {
   private readonly byKey = new Map<string, ChangeRecord[]>();
   private readonly resolved = new Set<string>();
   private readonly seen = new Set<number>();
@@ -77,10 +63,6 @@ export class ReplayHistory {
   /** The key's scanned changes; those at or before T lie inside the window, which makes the key a gap. */
   afterFor(kind: ChangeKind, key: string): readonly ChangeRecord[] {
     return this.byKey.get(slot(kind, key)) ?? [];
-  }
-
-  *edges(kind: ChangeKind, decode: HistoryContributor['edges']): Iterable<HistoryEdge> {
-    for (const c of this.changesOf(kind)) yield* decode(c);
   }
 
   *changesOf(kind: ChangeKind): Iterable<ChangeRecord> {
