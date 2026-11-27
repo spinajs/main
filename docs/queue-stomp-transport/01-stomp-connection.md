@@ -190,7 +190,7 @@ export const config = {
 
 - Give every connection an explicit `connectionTimeout` that fits your network, and run a broker health check before deploys: a broker that is down at boot stops the app.
 - Use `wss://` outside a trusted network: `login` and `passcode` travel in the `CONNECT` frame.
-- Put credentials in `login` / `password` (or a `credentialProvider`), not in the `host` URL: the log lines and errors print the broker URL without userinfo, query and fragment (`ws://broker:61614/stomp`, a path segment that may be a token as `***`, a value that does not parse as `<not a URL>`), and the `stompjs` frame lines print the `CONNECT` frame with `passcode:***`.
+- Put credentials in `login` / `password` (or a `credentialProvider`), not in the `host` URL: the log lines and errors print the broker URL without userinfo, query and fragment (`ws://broker:61614/stomp`, a path segment that may be a token as `***`, a value that does not parse as `<not a URL>`), and the `stompjs` frame lines print the `CONNECT` frame with `passcode:***`. Only the `passcode` header of the `CONNECT` frame is masked in the `stompjs` frame lines; a token in another connect header from `options.connectHeaders` prints at `trace`.
 - Await `(queue.get(name) as StompQueueClient).whenReady(timeout)` in readiness probes, not `Connected`, when you need to wait for a reconnect.
 - Put broker-specific `stompjs` settings (`splitLargeFrames`, `maxWebSocketChunkSize`, `stompVersions`) in `options`, not in a subclass.
 
