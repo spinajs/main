@@ -392,6 +392,24 @@ describe('authz-abac: field sets, reloads and decided conditions (review 4-8)', 
       expect(m.version()).to.not.match(/~$/);
     });
 
+    it('a check inside a transaction keeps nothing it read, also when its read lands after the background reload', async () => {
+      const store = new HeldStore([policy('read')]);
+      const m = await model({ stores: [store] });
+      store.hold = 2;
+      m.invalidate(['policy']);
+      // Stands for a row only this transaction sees: the held background reload read before it.
+      store.put(policy('no-read', { effect: 'deny' }));
+      const inside = denies(m);
+      await settle();
+      store.held[0]();
+      await settle();
+      store.held[1]();
+      expect(await inside, 'the check answers from its own read').to.equal(true);
+      await settle();
+      store.inside = false;
+      expect(await denies(m), 'the model holds the background reload, not the inside read').to.equal(false);
+    });
+
     it('a store that does not say whether it is in a transaction counts as inside: each check reads itself, nothing is kept', async () => {
       const store = new UnknownStore([policy('no-read', { effect: 'deny' })]);
       const m = await model({ stores: [store] });
