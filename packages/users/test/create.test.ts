@@ -58,7 +58,7 @@ class DeleteRecorder extends WriteObserver {
   }
 }
 
-/** What a history guard does on a resource table: a write without the model is refused. */
+/** What tenancy-orm's tenant filter does on a tenant model: a write without the model is refused. */
 class RefuseBareDeletes extends QueryMiddleware {
   afterQueryCreation(): void {}
 
