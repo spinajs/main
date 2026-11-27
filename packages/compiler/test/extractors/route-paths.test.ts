@@ -39,4 +39,8 @@ describe('controller and route paths', () => {
       }
     }
   });
+
+  it('does not take a class for a controller because its base is named BaseController', () => {
+    expect(controllers.map((c) => c.className)).to.not.include('LookalikeController');
+  });
 });

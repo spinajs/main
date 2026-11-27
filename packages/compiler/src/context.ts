@@ -4,7 +4,7 @@ import type { Diagnostic, RuntimeTypeRef, SourceRef, TypeRef } from '@spinajs/ma
 import type { LoadedProgram } from './program.js';
 import { runtimeRefOf, type RuntimeTypeFields } from './runtime-ref.js';
 import { deriveSchema, type DeriveOptions, type JsonSchema } from './schema/derive.js';
-import { isQueueFrameworkMember } from './schema/framework-members.js';
+import { baseClassOf, extendsFrameworkClass, isQueueFrameworkMember } from './schema/framework-members.js';
 import { sanitizeName } from './schema/naming.js';
 import { unwrapTransparent, wrapperName } from './schema/wrappers.js';
 
@@ -25,7 +25,8 @@ export interface ExtractorContext {
   schemas: Record<string, unknown>;
   /** Schemas derived from TypeScript types, keyed by `$id`. */
   schemaRegistry: Map<string, JsonSchema>;
-  isSubclassOf(classNode: ts.ClassDeclaration, baseName: string): boolean;
+  /** A base class of `classNode` is `baseName` as `packageName` declares it; a class of that name declared elsewhere is none. */
+  isSubclassOf(classNode: ts.ClassDeclaration, baseName: string, packageName: string): boolean;
   info(code: string, message: string, node?: ts.Node): void;
   warn(code: string, message: string, node?: ts.Node): void;
   error(code: string, message: string, node?: ts.Node): void;
@@ -69,12 +70,6 @@ export function createContext(loaded: LoadedProgram, packageName: string, packag
     (code: string, message: string, node?: ts.Node): void => {
       diagnostics.push({ code, severity, message, ...(node ? { source: sourceRef(node) } : {}) });
     };
-
-  const baseChain = (type: ts.Type, seen = new Set<ts.Type>()): string[] => {
-    if (seen.has(type) || !(type.flags & ts.TypeFlags.Object) || !isClassOrInterfaceType(type)) return [];
-    seen.add(type);
-    return checker.getBaseTypes(type as ts.InterfaceType).flatMap((b) => [b.getSymbol()?.name ?? '', ...baseChain(b, seen)]);
-  };
 
   const inPackage = (node: ts.Node): boolean => {
     const rel = relative(root, resolve(node.getSourceFile().fileName));
@@ -135,7 +130,10 @@ export function createContext(loaded: LoadedProgram, packageName: string, packag
     plainTypeRef: (type) => ({ text: textOf(unwrapTransparent(checker, type)) }),
     runtimeRef: (type, node) => runtimeTypeFields(type, node).ref,
     runtimeTypeFields,
-    isSubclassOf: (classNode, baseName) => baseChain(checker.getTypeAtLocation(classNode)).includes(baseName),
+    isSubclassOf: (classNode, baseName, packageName) => {
+      const base = baseClassOf(checker, checker.getTypeAtLocation(classNode));
+      return base !== undefined && extendsFrameworkClass(checker, base, baseName, packageName);
+    },
     info,
     warn: push('warning'),
     error: push('error'),

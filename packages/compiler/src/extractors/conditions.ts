@@ -40,7 +40,7 @@ function isBootstrapMethod(node: ts.Node, ctx: ExtractorContext): boolean {
     ts.isIdentifier(node.name) &&
     node.name.text === 'bootstrap' &&
     ts.isClassDeclaration(node.parent) &&
-    ctx.isSubclassOf(node.parent, 'Bootstrapper')
+    ctx.isSubclassOf(node.parent, 'Bootstrapper', '@spinajs/di')
   );
 }
 

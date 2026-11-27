@@ -202,7 +202,7 @@ const hasSocketHandler = (node: ts.ClassDeclaration): boolean => node.members.so
 
 /** Nothing mounts an abstract or undecorated base, but a subclass serves its handlers and looks their types up here. */
 export const extractSocketControllerBases: Extractor<SocketControllerEntry> = (ctx, file) =>
-  socketControllersIn(file, ctx, (node, sc) => (isAbstractClass(node) || !sc) && hasSocketHandler(node) && ctx.isSubclassOf(node, 'BaseSocketController'));
+  socketControllersIn(file, ctx, (node, sc) => (isAbstractClass(node) || !sc) && hasSocketHandler(node) && ctx.isSubclassOf(node, 'BaseSocketController', '@spinajs/http-socket'));
 
 function membersOf(type: ts.Type, ctx: ExtractorContext, node: ts.Node): Map<string, ts.Type> {
   return new Map(type.getProperties().map((p) => [p.name, ctx.checker.getTypeOfSymbolAtLocation(p, node)]));

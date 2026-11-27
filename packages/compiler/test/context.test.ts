@@ -13,14 +13,21 @@ describe('ExtractorContext', () => {
   it('sourceRef is package-relative with forward slashes and 1-based line', () => {
     expect(ctx.sourceRef(cls('Base'))).to.deep.equal({ file: 'context.ts', line: 1, col: 1, package: 'unit' });
   });
-  it('isSubclassOf walks the whole chain', () => {
-    expect(ctx.isSubclassOf(cls('Leaf'), 'Base')).to.be.true;
-    expect(ctx.isSubclassOf(cls('Base'), 'Leaf')).to.be.false;
+  // The unit fixture has no package.json of its own: its classes belong to the nearest named one above it.
+  const OWN = '@spinajs/compiler';
+
+  it('isSubclassOf walks the whole chain of base classes, without the class itself', () => {
+    expect(ctx.isSubclassOf(cls('Leaf'), 'Base', OWN)).to.be.true;
+    expect(ctx.isSubclassOf(cls('Base'), 'Leaf', OWN)).to.be.false;
+    expect(ctx.isSubclassOf(cls('Base'), 'Base', OWN)).to.be.false;
+  });
+  it('isSubclassOf matches the base by the package that declares it', () => {
+    expect(ctx.isSubclassOf(cls('Leaf'), 'Base', '@spinajs/http')).to.be.false;
   });
   it('isSubclassOf does not throw on a base that is a non-class object type', () => {
     const casted = loaded.sourceFiles.find((f) => f.fileName.endsWith('casted-base.ts'))!;
     const weird = casted.statements.find((st): st is ts.ClassDeclaration => ts.isClassDeclaration(st))!;
-    expect(ctx.isSubclassOf(weird, 'Base')).to.be.false;
+    expect(ctx.isSubclassOf(weird, 'Base', OWN)).to.be.false;
   });
   it('typeRef unwraps Promise and Ok', () => {
     const svc = cls('Svc');
