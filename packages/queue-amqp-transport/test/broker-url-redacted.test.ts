@@ -189,4 +189,68 @@ describe('amqp transport - the broker url in logs and errors', function () {
     expect(reasons[2]).to.eq('Expected ConnectionOpenOk; got <ConnectionClose channel:0>');
     expect(calls.some((call) => call.level === 'error' && inspect(call.vars).includes('Heartbeat timeout'))).to.be.true;
   });
+
+  it('the vhost prints as the url carries it, the default /%2F included', async () => {
+    const port = await closedPort();
+    const encoded = await failedConnect({ host: `amqp://planted-user:planted-secret@127.0.0.1:${port}/%2F` });
+    const named = await failedConnect({ host: '127.0.0.1', port, options: { vhost: 'production-orders' } });
+
+    expectNothingPlanted(encoded.calls, encoded.thrown);
+    expect(connectingHosts(encoded.calls)).to.deep.eq([`amqp://127.0.0.1:${port}/%2F`]);
+    expect(connectingHosts(named.calls)).to.deep.eq([`amqp://127.0.0.1:${port}/production-orders`]);
+  });
+
+  it('a password with an unencoded /, ? or # never appears, whole or in part', async () => {
+    const port = await closedPort();
+    const lookup: LookupFunction = (hostname, _options, callback) =>
+      callback(Object.assign(new Error(`getaddrinfo ENOTFOUND ${hostname}`), { code: 'ENOTFOUND', errno: -3008, syscall: 'getaddrinfo', hostname }), '', 4);
+    const cases: Array<[password: string, host: string]> = [
+      ['65001/QZXWKVJQ', `amqp://guest:65001/QZXWKVJQ@127.0.0.1:${port}/vhost`],
+      ['65002?QZXWKVJQ', `amqp://guest:65002?QZXWKVJQ@127.0.0.1:${port}/vhost`],
+      ['QZXWKVJQ#QZYWKVJR', `amqp://QZXWKVJQ#QZYWKVJR@127.0.0.1:${port}/vhost`],
+    ];
+    for (const [password, host] of cases) {
+      const { calls, thrown } = await failedConnect({ host, options: { lookup } });
+      const text = inspect([calls, thrown], { depth: 6, showHidden: true });
+      for (let from = 0; from + 4 <= password.length; from++) expect(text, host).to.not.contain(password.slice(from, from + 4));
+      expect(connectingHosts(calls)).to.deep.eq(['<not a URL>']);
+    }
+  });
+
+  it('the default localhost keeps the reason of each address it tried', async () => {
+    const port = await closedPort();
+    const { thrown } = await failedConnect({ host: 'localhost', port });
+
+    const cause = causeOf(thrown);
+    expect(cause.message).to.match(/ECONNREFUSED/);
+    if (cause.name === 'AggregateError') expect(cause.message).to.contain(`ECONNREFUSED ::1:${port}`).and.contain(`ECONNREFUSED 127.0.0.1:${port}`);
+  });
+
+  it('a client error that quotes the url or the target reaches neither the cause nor a log line', async () => {
+    const { client, calls } = recordingClient({ host: urlOf(1) });
+    Object.defineProperty(client, 'createConnection', {
+      value: (target: unknown) => Promise.reject(Object.assign(new Error(`connect failed for ${urlOf(1)} with ${inspect(target)}`), { code: 'EPROBE', cause: new Error(urlOf(1)) })),
+    });
+    const thrown = await client.resolve().then(
+      () => new Error('connected'),
+      (error: unknown) => error,
+    );
+
+    expectNothingPlanted(calls, thrown);
+    expect(causeOf(thrown).code).to.eq('EPROBE');
+  });
+
+  it('a client error that quotes the target of discrete fields has the password masked, the login kept', async () => {
+    const { client, calls } = recordingClient({ host: '127.0.0.1', port: 1, login: 'planted-user', password: 'planted-secret' });
+    Object.defineProperty(client, 'createConnection', {
+      value: (target: unknown) => Promise.reject(Object.assign(new Error(`connect failed with ${inspect(target)}`), { code: 'EPROBE' })),
+    });
+    const thrown = await client.resolve().then(
+      () => new Error('connected'),
+      (error: unknown) => error,
+    );
+
+    expect(inspect([calls, thrown], { depth: 6, showHidden: true })).to.not.contain('planted-secret');
+    expect(causeOf(thrown).message).to.contain("username: 'planted-user'").and.contain("password: '***'");
+  });
 });
