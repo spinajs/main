@@ -46,6 +46,7 @@ Inside a route whose `@Access` decision is conditional (its residual is not `TRU
 - The `IS NULL` statements the ORM adds for `@SoftDelete` and `@Archived` columns do not count.
 - `whereIn(pk, [one value])` counts as one equality; two values do not.
 - Any other statement, a second key, or an `OR` makes it a list.
+- The `OR` counts wherever it stands after the first statement, the `IS NULL` statements included. The ORM joins where statements without grouping them, so on a `@SoftDelete` model `Task.query().orWhere('id', 42)` reads `deleted_at IS NULL OR id = 42`: every live row. `Task.where('id', 42).orWhere('deleted_at', null)` is a list for the same reason. An `orWhere()` that is the only statement (`Task.query().withDeleted().withArchived().orWhere('id', 42)`) is still one equality.
 
 ## `guardMode()`
 

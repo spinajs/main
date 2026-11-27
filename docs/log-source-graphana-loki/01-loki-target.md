@@ -42,7 +42,7 @@ Target definitions live in `logger.targets`. The keys below can sit flat on the 
 | `logger.targets[].type` | `string` | none | `GraphanaLogTarget` | DI name of this target. |
 | `logger.targets[].enabled` | `boolean` | `true` | `true`, `false` | `false`: the logger never constructs the target. |
 | `logger.targets[].layout` | `string` | `${datetime} ${level} ${message}${?error} Exception: ${error:message}${/error} (${logger})` | any layout string | Renders the log line sent as the Loki value. |
-| `logger.targets[].options.host` | `string` | none | Loki base URL, eg. `http://loki:3100` | Base URL of the push request. |
+| `logger.targets[].options.host` | `string` | none | Loki base URL, eg. `http://loki:3100` | Base URL of the push request. The target's own log lines print it without userinfo and query, and with a path segment that may be a token as `***`. Put credentials in `auth`: axios sends userinfo in `host` as a Basic header that replaces the one built from `auth`. |
 | `logger.targets[].options.auth.username` | `string` | none | any | When set, every request carries `Authorization: Basic base64(username:password)`. |
 | `logger.targets[].options.auth.password` | `string` | none | any | Password for Basic auth. |
 | `logger.targets[].options.labels.app` | `string` | none | any | Stream label `app`, also part of the stream key. `labels` is optional. |

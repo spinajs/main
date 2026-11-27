@@ -4,7 +4,7 @@ import { EventEmitter } from 'node:events';
 
 import { QueryContext } from '@spinajs/orm';
 
-import { MySqlOrmDriver } from '../src/index.js';
+import { MySqlOrmDriver, mySqlSessionZone } from '../src/index.js';
 
 type ErrorChain = { inner?: unknown; cause?: unknown; message?: unknown } | null | undefined;
 
@@ -34,15 +34,36 @@ function sentOnConnect(d: ProbeDriver): string[] {
 }
 
 describe('mysql session time zone', () => {
-  describe('by default ( SYSTEM )', () => {
-    it("has mysql2 write and read datetimes in the process zone", () => {
+  describe('by default ( UTC, as 3.x )', () => {
+    it('reads an unset option as UTC', () => {
+      expect(mySqlSessionZone(undefined, 'x')).to.deep.eq({ Session: '+00:00', Driver: 'Z', Wall: 'utc' });
+      expect(mySqlSessionZone(undefined, 'x')).to.deep.eq(mySqlSessionZone('UTC', 'x'));
+    });
+
+    it('has mysql2 write and read datetimes as UTC', () => {
       const d = new ProbeDriver({ Driver: 'orm-driver-mysql', Name: 'x' });
+
+      expect(d.probeOptions().timezone).to.eq('Z');
+    });
+
+    it("sets each new pooled connection's session zone to UTC", () => {
+      expect(sentOnConnect(new ProbeDriver({ Driver: 'orm-driver-mysql', Name: 'x' }))).to.deep.eq(["SET time_zone = '+00:00'"]);
+    });
+  });
+
+  describe("with TimeZone: 'SYSTEM'", () => {
+    it('reads the option as the process zone, no session zone', () => {
+      expect(mySqlSessionZone('SYSTEM', 'x')).to.deep.eq({ Session: null, Driver: 'local', Wall: 'system' });
+    });
+
+    it('has mysql2 write and read datetimes in the process zone', () => {
+      const d = new ProbeDriver({ Driver: 'orm-driver-mysql', Name: 'x', TimeZone: 'SYSTEM' });
 
       expect(d.probeOptions().timezone).to.eq('local');
     });
 
     it("keeps the server's session zone", () => {
-      expect(sentOnConnect(new ProbeDriver({ Driver: 'orm-driver-mysql', Name: 'x' }))).to.deep.eq([]);
+      expect(sentOnConnect(new ProbeDriver({ Driver: 'orm-driver-mysql', Name: 'x', TimeZone: 'SYSTEM' }))).to.deep.eq([]);
       expect(sentOnConnect(new ProbeDriver({ Driver: 'orm-driver-mysql', Name: 'x', TimeZone: 'system' }))).to.deep.eq([]);
     });
   });
