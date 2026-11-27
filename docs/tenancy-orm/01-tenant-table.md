@@ -116,6 +116,9 @@ application lists; guard the route or command that calls them.
   Free-form settings are written at provisioning or through `TenantModel`.
 - The value is checked in its JSON form, the form the `settings` column stores (a `Date` becomes its ISO text, an
   `undefined` key is left out); a value without one (`undefined`, a function, a cycle) is refused with `InvalidArgument`.
+- A tenant's whole settings object, after the change, holds at most 65,535 bytes of JSON (UTF-8 bytes, what a MySQL
+  `TEXT` column holds). A `set` that takes it over the limit throws `InvalidArgument` naming the limit and the size it
+  measured, and writes nothing. An `unset` is never refused for its size.
 - `checkTenantSettings` checks the whole resulting settings object: every value at a listed path must pass the
   configuration schema and hold no `__proto__`, `constructor` or `prototype` key at any depth. A refusal throws
   `InvalidConfiguration` and writes nothing: the row is written in one statement or not at all. A value stored before at

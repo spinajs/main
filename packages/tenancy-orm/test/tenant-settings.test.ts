@@ -130,6 +130,21 @@ describe('TenantSettingsService', function () {
     expect(await stored()).to.deep.equal(record.settings);
   });
 
+  it('refuses settings over 65,535 bytes of JSON, counted in UTF-8 bytes over the whole stored object; an unset still passes', async () => {
+    const seed = { plan: 'pro', 'mail.from': 'old@acme.test' };
+    const bytes = (text: string) => Buffer.byteLength(JSON.stringify({ ...seed, notes: { text } }));
+    const multiByte = 'ż'.repeat(40_000);
+    expect(multiByte.length).to.be.below(65_535);
+
+    await expect(service.set('acme', 'notes.text', 'x'.repeat(70_000))).to.be.rejectedWith(InvalidArgument, 'the limit is 65535');
+    await expect(service.set('acme', 'notes.text', multiByte)).to.be.rejectedWith(InvalidArgument, `would take ${bytes(multiByte)} bytes of JSON; the limit is 65535`);
+    expect(await stored()).to.deep.equal(seed);
+
+    await service.set('acme', 'notes.text', 'x'.repeat(60_000));
+    await seedTenant({ id: 'oversized', settings: { notes: { text: 'x'.repeat(70_000) } } });
+    expect((await service.unset('oversized', 'notes.text')).settings).to.deep.equal({ notes: {} });
+  });
+
   it('refuses an unknown tenant and a malformed path', async () => {
     await expect(service.set('nobody', 'mail.from', 'x@y.test')).to.be.rejectedWith(TenantUnavailable);
     await expect(service.set('acme', 'mail..from', 'x@y.test')).to.be.rejectedWith(InvalidArgument);

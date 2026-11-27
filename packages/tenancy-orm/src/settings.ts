@@ -54,6 +54,17 @@ function jsonForm(value: unknown): unknown {
   return copy;
 }
 
+// What MySQL's TEXT column holds; the settings column is TEXT there.
+const MAX_SETTINGS_BYTES = 65_535;
+
+function sized(id: string, settings: Record<string, unknown>): Record<string, unknown> {
+  const bytes = Buffer.byteLength(JSON.stringify(settings));
+  if (bytes > MAX_SETTINGS_BYTES) {
+    throw new InvalidArgument(`tenancy-orm: the settings of tenant "${id}" would take ${bytes} bytes of JSON; the limit is ${MAX_SETTINGS_BYTES}`, 'value');
+  }
+  return settings;
+}
+
 /**
  * Writes the overrides of a tenant at the paths `tenancy.config.overridable` lists, in the configuration's shape, after
  * `checkTenantSettings` accepted the whole resulting settings object. In one process the writes of one tenant take
@@ -71,7 +82,7 @@ export class TenantSettingsService {
   public async set(id: string, path: string, value: unknown): Promise<TenantRecord> {
     const segments = this.listedPath(path);
     const json = jsonForm(value);
-    return this.write(id, (settings) => withValue(withoutKey(settings, path), segments, json));
+    return this.write(id, (settings) => sized(id, withValue(withoutKey(settings, path), segments, json)));
   }
 
   public async unset(id: string, path: string): Promise<TenantRecord> {
