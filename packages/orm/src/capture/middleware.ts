@@ -117,7 +117,11 @@ function refusePastModel(query: QueryBuilder): void {
   if (phrase === undefined) return;
   const required = requiredTables(DI.get(Configuration)?.get<unknown>('db.WriteCapture.Required'));
   if (required.length === 0) return;
-  const table = query.Table;
+  // Typed as a string, but unset until into(), in() or from() names the table.
+  const table: string | undefined = query.Table;
+  if (table === undefined) {
+    throw new WriteCaptureRequired(`write capture: ${phrase} names no table and is refused: db.WriteCapture.Required lists tables; name its table, or write it with raw SQL where it must not be recorded`);
+  }
   if (tablePart(table) === undefined) {
     throw new WriteCaptureRequired(`write capture: ${phrase} of ${table} is refused: db.WriteCapture.Required lists tables, and the table of this name cannot be read; name it as table, schema.table or with quoted parts, or write it with raw SQL where it must not be recorded`);
   }

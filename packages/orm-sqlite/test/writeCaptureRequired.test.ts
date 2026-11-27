@@ -5,7 +5,7 @@ import 'mocha';
 import sinon from 'sinon';
 import { Configuration, InvalidConfiguration } from '@spinajs/configuration';
 import { FrameworkLogger } from '@spinajs/log';
-import { InsertQueryBuilder, WriteCaptureRequired, WriteObserver, createQuery, deleteChunked, insertChunked, purgeBatch } from '@spinajs/orm';
+import { InsertQueryBuilder, OrmException, WriteCaptureRequired,WriteObserver, createQuery, deleteChunked, insertChunked, purgeBatch } from '@spinajs/orm';
 import type { CaptureInterest, CapturedWrite, WriteStatement } from '@spinajs/orm';
 import { SqliteOrmDriver } from '../src/index.js';
 import { TEST_MIGRATION_TABLE_NAME, db } from './common.js';
@@ -215,6 +215,29 @@ describe('db.WriteCapture.Required on sqlite', function () {
         WriteCaptureRequired,
         `write capture: an insert of "uow_tag is refused: db.WriteCapture.Required lists tables, and the table of this name cannot be read; name it as table, schema.table or with quoted parts, or write it with raw SQL where it must not be recorded`,
       );
+    } finally {
+      restore();
+    }
+
+    expect(statements).to.deep.eq([]);
+  });
+
+  it('refuses a write past the model that names no table while any table is listed, and leaves it to the builder under an empty list', async () => {
+    const driver = sqlite();
+    const noTable = (phrase: PastModel): string => `write capture: ${phrase} names no table and is refused: db.WriteCapture.Required lists tables; name its table, or write it with raw SQL where it must not be recorded`;
+    const unnamed = { insert: () => driver.insert().values({ Name: 'a' }), update: () => driver.update().update({ Name: 'b' }).where('Id', 1), del: () => driver.del().where('Id', 1) };
+
+    // What the base gives: the statement is sent and the database names the missing table.
+    for (const write of Object.values(unnamed)) {
+      await expect(write()).to.be.rejectedWith(OrmException, 'no such table: undefined');
+    }
+
+    await requireTables(['uow_client']);
+    const { statements, restore } = captureStatements();
+    try {
+      await expect(unnamed.insert()).to.be.rejectedWith(WriteCaptureRequired, noTable('an insert'));
+      await expect(unnamed.update()).to.be.rejectedWith(WriteCaptureRequired, noTable('an update'));
+      await expect(unnamed.del()).to.be.rejectedWith(WriteCaptureRequired, noTable('a delete'));
     } finally {
       restore();
     }
