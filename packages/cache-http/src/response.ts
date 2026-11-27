@@ -88,7 +88,7 @@ export interface StoredResponseHeaders {
 /**
  * What the response cache stores of a finished route: the JSON reply when the route answered no error, the response set
  * no cookie, did not vary on `*` (nor, on a tenant or shared route, on `Cookie` or `Authorization`) and said neither
- * `no-store` nor, on a tenant or shared route, `private`; undefined when nothing is stored. A reply of a tenant or
+ * `no-store`, `no-cache` nor, on a tenant or shared route, `private`; undefined when nothing is stored. A reply of a tenant or
  * shared route keeps only the headers that describe its body.
  */
 export function replyToStore(outcome: IRouteOutcome, res: StoredResponseHeaders, scope: ResponseCacheScope): CapturedJsonReply | undefined {
@@ -96,7 +96,8 @@ export function replyToStore(outcome: IRouteOutcome, res: StoredResponseHeaders,
   const vary = tokensOf(res.getHeader('vary'));
   if (vary.includes('*') || (scope !== 'principal' && vary.some((name) => PER_CALLER_VARY.has(name)))) return undefined;
   const directives = tokensOf(res.getHeader('cache-control')).map((directive) => directive.split('=')[0]);
-  if (directives.includes('no-store') || (directives.includes('private') && scope !== 'principal')) return undefined;
+  // no-cache: a stored reply may not be used without asking the origin, and a hit never asks
+  if (directives.includes('no-store') || directives.includes('no-cache') || (directives.includes('private') && scope !== 'principal')) return undefined;
   const reply = replayableReply(outcome.reply);
   return reply === undefined || scope === 'principal' ? reply : { ...reply, headers: Object.fromEntries(Object.entries(reply.headers).filter(([name]) => SHARED_HEADERS.has(name))) };
 }

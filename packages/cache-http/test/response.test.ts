@@ -158,6 +158,13 @@ describe('the stored reply', () => {
     expect(replyToStore({ reply: STORED }, personal, 'shared')).to.eq(undefined);
   });
 
+  it('is not taken from a response that says no-cache: it may not be used without asking the origin again', () => {
+    for (const scope of ['principal', 'tenant', 'shared'] as const) {
+      expect(replyToStore({ reply: STORED }, headersOf({ 'cache-control': 'No-Cache' }), scope), scope).to.eq(undefined);
+      expect(replyToStore({ reply: STORED }, headersOf({ 'cache-control': ['private', 'no-cache="x-route"'] }), scope), scope).to.eq(undefined);
+    }
+  });
+
   it('is not taken on a wider scope from a response that varies on the cookie or the credentials of its caller', () => {
     for (const vary of ['Cookie', 'accept, authorization', ['origin', ' COOKIE ']]) {
       expect(replyToStore({ reply: STORED }, headersOf({ vary }), 'tenant'), String(vary)).to.eq(undefined);

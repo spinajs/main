@@ -39,6 +39,7 @@ Limits of this version:
 - On a `'tenant'` or `'shared'` route a reply whose `Vary` names `Cookie` or `Authorization` is not stored: it was
   made for one caller. Other names are not checked against the key (CORS adds `Vary: Origin` to every reply); a
   header the body depends on belongs in `vary`.
+- A reply that says `Cache-Control: no-cache` is not stored: a hit never asks the action again.
 - A hit sends the stored `Content-Type`, `Location`, `ETag` and the headers the route set in its reply. On a
   `'tenant'` or `'shared'` route only the route's headers that describe the body are kept (`Content-Language`,
   `Content-Disposition`, `Last-Modified`, `Link`, `Cache-Control`, `Expires`, `Vary`): a header meant for one caller

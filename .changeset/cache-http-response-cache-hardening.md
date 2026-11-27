@@ -7,3 +7,5 @@ The README states two security limits of `@ResponseCache`: rows an `.accessible(
 On a `'tenant'` or `'shared'` route a reply whose `Vary` names `Cookie` or `Authorization` is not stored.
 
 A reply of a `'tenant'` or `'shared'` route keeps only the headers that describe its body (`Content-Type`, `Content-Language`, `Content-Disposition`, `ETag`, `Last-Modified`, `Location`, `Link`, `Cache-Control`, `Expires`, `Vary`); another header the route set is not sent to the next caller.
+
+A reply that says `Cache-Control: no-cache` is not stored.
