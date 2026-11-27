@@ -1,3 +1,5 @@
+import { createRequire } from 'node:module';
+import { join } from 'node:path';
 import { expect } from 'chai';
 import 'mocha';
 import { InvalidArgument } from '@spinajs/exceptions';
@@ -44,4 +46,15 @@ describe('toInstant refuses a present value that is not a valid instant', () => 
       expect(toInstant(-1000, 'ExpiresAt', unit)!.toMillis()).to.eq(unit === 'seconds' ? -1000000 : -1000);
     });
   }
+
+  it('reads a DateTime of a second luxon copy by its brand, not by its class', () => {
+    // a library that bundles its own luxon hands over DateTimes of another class
+    const req = createRequire(join(process.cwd(), 'package.json'));
+    delete req.cache[req.resolve('luxon')];
+    const second = (req('luxon') as { DateTime: typeof DateTime }).DateTime;
+    expect(second).to.not.equal(DateTime);
+
+    expect(toInstant(second.fromISO('2026-12-01T10:00:00.000Z'), 'ExpiresAt')!.toISO()).to.eq('2026-12-01T10:00:00.000Z');
+    expect(() => toInstant(second.invalid('test'), 'ExpiresAt')).to.throw(InvalidArgument, /^column ExpiresAt: /);
+  });
 });
