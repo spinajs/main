@@ -1,5 +1,7 @@
-import { BelongsTo, Column, Connection, HasMany, HasManyToMany, Migration, Model, ModelBase, OrmMigration, Primary, Recursive, Relation, SingleRelation } from '@spinajs/orm';
+import { Archived, BelongsTo, Column, Connection, HasMany, HasManyToMany, Migration, Model, ModelBase, OrmMigration, Primary, Recursive, Relation, SingleRelation, SoftDelete } from '@spinajs/orm';
 import type { OrmDriver } from '@spinajs/orm';
+// a value import: @SoftDelete and @Archived read the property type from the decorator metadata
+import { DateTime } from 'luxon';
 
 import { Tenant } from '../../src/index.js';
 
@@ -196,7 +198,26 @@ export class Ledger extends TenantOwned<Ledger> {
   public entry: string;
 }
 
-const TABLES = ['carrier', 'invoice', 'invoice_line', 'note', 'orphan', 'archived_note', 'ledger', 'folder', 'depot', 'tag', 'invoice_tag'];
+@Connection('default')
+@Model('memo')
+@Tenant()
+export class Memo extends ModelBase<Memo> {
+  @Primary()
+  public Id: number;
+
+  @Column({ family: 'text', length: 64 })
+  public tenant_id: string;
+
+  public title: string;
+
+  @SoftDelete()
+  public DeletedAt: DateTime;
+
+  @Archived()
+  public ArchivedAt: DateTime;
+}
+
+const TABLES = ['carrier', 'invoice', 'invoice_line', 'note', 'orphan', 'archived_note', 'ledger', 'folder', 'depot', 'tag', 'invoice_tag', 'memo'];
 
 @Migration('default')
 export class TenancyOrmTest_2026_11_16_00_00_00 extends OrmMigration {
@@ -260,6 +281,13 @@ export class TenancyOrmTest_2026_11_16_00_00_00 extends OrmMigration {
       table.int('invoice_id').notNull();
       table.int('tag_id').notNull();
       table.string('note', 32);
+    });
+    await connection.schema().createTable('memo', (table) => {
+      table.int('Id').primaryKey().autoIncrement();
+      table.string('tenant_id', 64).notNull();
+      table.string('title', 32).notNull();
+      table.dateTime('DeletedAt');
+      table.dateTime('ArchivedAt');
     });
     await connection.index().table('invoice').name('invoice_tenant').columns(['tenant_id']);
   }
