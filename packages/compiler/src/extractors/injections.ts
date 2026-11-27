@@ -92,6 +92,13 @@ function declaredTypeRef(prop: ts.PropertyDeclaration, ctx: ExtractorContext): P
   return ctx.runtimeRef(ctx.checker.getTypeAtLocation(prop), prop);
 }
 
+/** `{ key: true }` in a literal options argument; the other members (pickers, checks) are not evaluated. */
+const isTrueOption = (options: ts.Expression | undefined, key: string): boolean =>
+  !!options && ts.isObjectLiteralExpression(options) && options.properties.some((p) => ts.isPropertyAssignment(p) && p.name.getText() === key && p.initializer.kind === ts.SyntaxKind.TrueKeyword);
+
+/** `(path, type, …)`: the type argument is the token, as for `AutoinjectService` when it names one. */
+const namedServiceToken = (d: { args: readonly ts.Expression[] }, prop: ts.PropertyDeclaration, ctx: ExtractorContext): string => injectedName(d.args[1], ctx) ?? tokenOfTypeNode(prop.type, ctx).token;
+
 const PROPERTY_DECORATORS: Record<string, PropertyHandler> = {
   Autoinject: (d, prop, ctx) => {
     const declared = tokenOfTypeNode(prop.type, ctx);
@@ -132,6 +139,9 @@ const PROPERTY_DECORATORS: Record<string, PropertyHandler> = {
       ...(tokenRef ? { tokenRef } : {}),
     };
   },
+  AutoinjectNamedService: (d, prop, ctx) => ({ property: propertyName(prop), token: namedServiceToken(d, prop, ctx), optional: isTrueOption(d.args[2], 'optional'), array: false }),
+  // Injects a Map of the listed services.
+  AutoinjectNamedServices: (d, prop, ctx) => ({ property: propertyName(prop), token: namedServiceToken(d, prop, ctx), optional: false, array: true }),
   Logger: (_d, prop) => ({ property: propertyName(prop), token: 'Log', optional: false, array: false }),
   FileSystem: (_d, prop) => ({ property: propertyName(prop), token: '__file_provider__', optional: false, array: false }),
 };
@@ -148,7 +158,7 @@ export function propertyInjectsOf(cls: ts.ClassDeclaration, ctx: ExtractorContex
   return out;
 }
 
-// The decorators that read `design:type`; `@Logger`, `@Config` and `@FileSystem` inject by their own arguments.
+// The decorators that read `design:type`; `@Logger`, `@Config`, `@FileSystem` and the named-service ones inject by their own arguments.
 const TYPE_READING_DECORATORS = new Set(['Autoinject', 'LazyInject', 'AutoinjectService']);
 // Model decorators that need the class the property declares. They inject nothing, so they stay out of `propertyInjects`.
 const MODEL_TYPE_DECORATORS = new Set(['HasMany', 'HasManyToMany', 'Virtual', 'JunctionTable']);
