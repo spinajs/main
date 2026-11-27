@@ -1,0 +1,5 @@
+---
+"@spinajs/authz-orm": major
+---
+
+`authz_scope_attribute` gets one primary key column, `id`: the SHA-256 hex of the JSON array of `scope_type`, `scope_id` and `path` (`scopeAttributeId`), so the ORM write capture and row history can follow the table. The three columns stay unique together (index `authz_scope_attribute_leaf`). The new migration `AuthzScopeAttributeKey_2026_11_25_00_00_00` rebuilds the table with its rows; run `migrate-up` with every process of the old version stopped (it stops before it drops the old table when an attribute was written during the copy, and names the commands to run again). `DbScopeAttributeStore` computes the key; reads and writes through the store are unchanged. On MySQL the rebuilt key columns compare byte for byte (`utf8mb4_0900_bin`, else `utf8mb4_bin`): a scope id that differs from another only by case or accents no longer reads or replaces the other's attributes. Breaking for code that inserts rows into the table itself (it must supply `id`), uses `ScopeAttributeRecord` by its three-column key, implements `ScopeAttributeFields` (it gains `id`), or on MySQL reads a scope with another spelling than it was written with.

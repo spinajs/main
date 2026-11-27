@@ -5,7 +5,7 @@ authz-orm keeps the ancestor table and the scope attribute tables on the ORM con
 ## How it works
 
 1. authz-orm's package config (`config/db.ts`) sets `db.Aliases.authz: 'default'`. Package config merges before the app's, so an app's `db.Aliases.authz` wins.
-2. `Orm.resolve()` stores the named connection under the extra name `authz` ([`@spinajs/orm` connections](../orm/01-connections.md)). The records `AncestorRecord`, `ScopeAttributeRecord` and `ScopeAttributeVersionRecord` carry `@Connection('authz')` (`AUTHZ_CONNECTION` from `@spinajs/authz`), and the migrations `AuthzResourceAncestor_2026_10_14_00_00_00` and `AuthzScopeAttribute_2026_10_02_00_00_00` run there.
+2. `Orm.resolve()` stores the named connection under the extra name `authz` ([`@spinajs/orm` connections](../orm/01-connections.md)). The records `AncestorRecord`, `ScopeAttributeRecord` and `ScopeAttributeVersionRecord` carry `@Connection('authz')` (`AUTHZ_CONNECTION` from `@spinajs/authz`), and the migrations `AuthzResourceAncestor_2026_10_14_00_00_00`, `AuthzScopeAttribute_2026_10_02_00_00_00` and `AuthzScopeAttributeKey_2026_11_25_00_00_00` run there.
 3. At every domain boot, `AuthzOrmContributor` runs `checkResourceConnections(orm)`. It fails with `AuthzConfigError` when no connection answers to `authz`, or when an `@AccessResource` model uses another connection. The list filter joins the resource table with `authz_assignment` and `authz_resource_ancestor`, so they must share one database.
 4. On a write of an `@AccessResource` model, `AncestorObserver` checks that the statement's connection is the one `AncestorRecord` lives on, before it touches a row. It then reads and writes `authz_resource_ancestor` through `AncestorRecord` in the statement's transaction.
 5. `authz:ancestors-verify` and `authz:ancestors-rebuild` take the connection of the type's first registered model, which must be the record's; a type without a model uses the record's connection.
@@ -44,13 +44,16 @@ Migration `AuthzResourceAncestor_2026_10_14_00_00_00`, record `AncestorRecord`. 
 
 ### `authz_scope_attribute`
 
-Migration `AuthzScopeAttribute_2026_10_02_00_00_00`, record `ScopeAttributeRecord`. One row per scalar leaf of a scope node's attributes.
+Migration `AuthzScopeAttribute_2026_10_02_00_00_00` creates it, `AuthzScopeAttributeKey_2026_11_25_00_00_00` gives it the key `id`; record `ScopeAttributeRecord`. One row per scalar leaf of a scope node's attributes. The unique index `authz_scope_attribute_leaf` on `(scope_type, scope_id, path)` keeps one row per leaf. One key column is what the ORM write capture and row history need to follow a table.
+
+On MySQL the four key columns compare byte for byte (`utf8mb4_0900_bin`, or `utf8mb4_bin` on a server without it): scopes and paths that differ only by case, accents, trailing blanks or Unicode normal form are different leaves, as on PostgreSQL and SQLite.
 
 | Column | Type | Meaning |
 | --- | --- | --- |
-| `scope_type` | varchar(64), PK | The scope's type. |
-| `scope_id` | varchar(64), PK | The scope's id; `''` for `$global`. |
-| `path` | varchar(160), PK | The dotted leaf path. |
+| `id` | varchar(64), PK | `scopeAttributeId(scope_type, scope_id, path)`: the SHA-256 hex of the JSON array of the three. `DbScopeAttributeStore` computes it; a row inserted any other way must carry it. |
+| `scope_type` | varchar(64) | The scope's type. |
+| `scope_id` | varchar(64) | The scope's id; `''` for `$global`. |
+| `path` | varchar(160) | The dotted leaf path. |
 | `value_json` | varchar(1024) | The leaf as JSON (`@Json` on the record). |
 | `value_text` | varchar(255), null | Every scalar as text. |
 | `value_num` | decimal(20,6), null | A number below 10^14 in magnitude. |
@@ -75,6 +78,7 @@ Same migration, record `ScopeAttributeVersionRecord`. One row (`id` 1), seeded b
 | `AncestorRecord`, `ScopeAttributeRecord`, `ScopeAttributeVersionRecord` | ORM models on `@Connection('authz')`, registered when the package is imported | | | Not meant to be replaced. Write through the ancestor middleware and `AuthzAdmin`, never through the records. |
 | `readAncestors(refs)` | exported function | | | Reads the rows of each ref as resource, keyed by `resourceKey`, nearest first. One statement per resource type. |
 | `checkResourceConnections(orm)` | exported function, run by `AuthzOrmContributor` | | | Call it in a test to assert the connection rule. |
+| `scopeAttributeId(scopeType, scopeId, path)` | exported function | | | The `id` of a leaf row of `authz_scope_attribute`; pass `''` as `scopeId` for `$global`. |
 
 ### Register the database scope attribute store
 
