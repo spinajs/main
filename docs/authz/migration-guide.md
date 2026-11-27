@@ -1121,8 +1121,10 @@ it, write the routes you need on `@Access`.
 - New error codes beyond the design's list: `invalid_batch`, `invalid_query`, `invalid_command`.
 - Declare the `authz:*.manage` permissions, or map commands to your own with `authz.admin.permissions`.
 - `protectSystemRole`: a role with `assignable: false` is a system role. Only `SYSTEM` changes its rows.
-- The tables `authz_scope_attribute` and `authz_admin_idempotency` use composite keys, which the MSSQL
-  table compiler cannot create yet.
+- `authz_admin_idempotency` uses a composite key, and so does `authz_scope_attribute` as
+  `AuthzScopeAttribute_2026_10_02_00_00_00` creates it, before `AuthzScopeAttributeKey_2026_11_25_00_00_00`
+  gives it the single key `id`. The MSSQL table compiler cannot create a composite key yet, so neither
+  table can be created on MSSQL.
 
 ### N1: authn core
 

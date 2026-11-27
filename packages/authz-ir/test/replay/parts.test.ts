@@ -2,7 +2,7 @@ import 'mocha';
 import { expect } from 'chai';
 import type { ChangeRecord } from '@spinajs/authz';
 
-import { HistoricalTupleSource, MemoryChangeLog, ReplayHistory, TupleSourceGap } from '../../src/index.js';
+import { HistoricalTupleSource, MemoryChangeLog, ReplayHistory, TupleSourceGap, changeLogKeyState } from '../../src/index.js';
 import type { CurrentItem, HistoryContributor, HistoryEdge, ObjectRef, PolicyIR, RelationDef, TupleSubjectRef } from '../../src/index.js';
 
 const T = new Date('2026-11-17T12:00:00.000Z');
@@ -97,7 +97,7 @@ async function world() {
   const docs = new TwoParents(log);
   await docs.set('d1', 'a_id', { type: 'folder', id: 'f1' }, ms(-30 * MIN));
   await docs.set('d1', 'b_id', { type: 'space', id: 's1' }, ms(-20 * MIN));
-  const source = async () => new HistoricalTupleSource(IR, T, [docs], await ReplayHistory.load(log, T, ['column'], limits));
+  const source = async () => new HistoricalTupleSource(IR, T, [docs], await ReplayHistory.load(log, T, ['column'], limits), changeLogKeyState);
   return { log, docs, source };
 }
 

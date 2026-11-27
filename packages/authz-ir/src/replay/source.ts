@@ -1,14 +1,12 @@
 import { AuthzConfigError } from '@spinajs/authz';
-import type { ChangeRecord, ReplayRead, ResourceType } from '@spinajs/authz';
+import type { ReplayRead, ResourceType } from '@spinajs/authz';
 
 import { objectLabel, subjectLabel } from '../eval/check.js';
 import type { TupleSource } from '../eval/evaluator.js';
 import type { ObjectRef, PolicyIR, RelationDef, RelationName, TupleSubjectRef, TypeDef, TypeName } from '../ir.js';
 import type { CurrentItem, HistoryContributor, HistoryEdge } from './contributor.js';
 import { StoreUnreadable, TupleSourceGap } from './gap.js';
-import { coverageGap, stateAt } from './history.js';
-import type { KeyState } from './history.js';
-import type { ReplayHistory } from './history-scan.js';
+import type { KeyState, KeyStateFunctions, ReplayChange, ReplayHistoryView } from './ports.js';
 
 interface Candidate<T> {
   image: unknown;
@@ -25,6 +23,10 @@ type KnownState = Extract<KeyState, { known: true }>;
 
 const sameSubject = (a: TupleSubjectRef, b: TupleSubjectRef): boolean => a.type === b.type && a.id === b.id && a.relation === b.relation;
 
+function* edgesOf(changes: Iterable<ReplayChange>, decode: (change: ReplayChange) => readonly HistoryEdge[]): Iterable<HistoryEdge> {
+  for (const change of changes) yield* decode(change);
+}
+
 /**
  * The relationships as they were at `at`, rebuilt per key from current rows and the changelog. A read whose history is
  * incomplete for any candidate key throws `TupleSourceGap` with the subjects it could establish; `reads` records every
@@ -38,7 +40,8 @@ export class HistoricalTupleSource implements TupleSource {
     private readonly ir: PolicyIR,
     private readonly at: Date,
     private readonly contributors: readonly HistoryContributor[],
-    private readonly history: ReplayHistory,
+    private readonly history: ReplayHistoryView,
+    private readonly keyState: KeyStateFunctions,
     /** The instant liveness is judged at (`subjectAt`): the decision's `env.now`, which may precede the state's `at`. */
     private readonly liveAt: Date = at,
   ) {
@@ -178,7 +181,7 @@ export class HistoricalTupleSource implements TupleSource {
       await this.history.catchUp();
       const candidates = new Map<string, Candidate<T>>();
       let undecodable: string | undefined;
-      const decode = (ch: ChangeRecord): readonly HistoryEdge[] => {
+      const decode = (ch: ReplayChange): readonly HistoryEdge[] => {
         try {
           return c.edges(ch);
         } catch (e) {
@@ -187,7 +190,7 @@ export class HistoricalTupleSource implements TupleSource {
           return [];
         }
       };
-      for (const e of this.history.edges(c.kind, decode)) {
+      for (const e of edgesOf(this.history.changesOf(c.kind), decode)) {
         const carrier = match(e);
         if (carrier !== undefined && !candidates.has(e.key)) candidates.set(e.key, { image: undefined, carrier });
       }
@@ -214,7 +217,7 @@ export class HistoricalTupleSource implements TupleSource {
     // Before `since`: a boot that restarts the type writes its new fingerprint and its new `since` in one statement.
     const distrusted = await c.coverageGap?.(type);
     const since = await this.history.since(c.kind, type);
-    return { since, uncovered: distrusted ?? coverageGap(this.at, c.kind, since, this.history.window) };
+    return { since, uncovered: distrusted ?? this.keyState.coverageGap(this.at, c.kind, since, this.history.window) };
   }
 
   private uncoveredRead<T>(c: HistoryContributor, label: string, type: ResourceType | undefined, reason: string): Resolved<T> {
@@ -234,7 +237,7 @@ export class HistoricalTupleSource implements TupleSource {
     for (const [k, cand] of candidates) if (images.has(k)) cand.image = images.get(k);
   }
 
-  private settle<T>(c: HistoryContributor, source: RelationDef['source'], candidates: ReadonlyMap<string, Candidate<T>>, befores: ReadonlyMap<string, ChangeRecord>, since: Date | undefined, moved: ReadonlySet<string>): Resolved<T> {
+  private settle<T>(c: HistoryContributor, source: RelationDef['source'], candidates: ReadonlyMap<string, Candidate<T>>, befores: ReadonlyMap<string, ReplayChange>, since: Date | undefined, moved: ReadonlySet<string>): Resolved<T> {
     const out: Resolved<T> = { present: [], gaps: [] };
     // By key, so a replay walks subjects in the same order whatever the order of the writes that led to them.
     for (const [key, cand] of [...candidates].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) {
@@ -267,16 +270,16 @@ export class HistoricalTupleSource implements TupleSource {
    * The window is checked on the key's last change before T as logged: a projection that drops it (another column of a
    * shared key) would also hide the window from the changes of this item it covers.
    */
-  private stateOf(c: HistoryContributor, source: RelationDef['source'], key: string, current: unknown, before: ChangeRecord | undefined, since: Date | undefined): KeyState {
+  private stateOf(c: HistoryContributor, source: RelationDef['source'], key: string, current: unknown, before: ReplayChange | undefined, since: Date | undefined): KeyState {
     const w = this.history.window;
     if (before !== undefined && before.at.getTime() >= this.at.getTime() - w.beforeMs && before.at.getTime() <= this.at.getTime() + w.afterMs) {
       return { known: false, reason: `change seq ${before.seq} at ${before.at.toISOString()} is within the ambiguity window of the decision` };
     }
-    const project = (ch: ChangeRecord | undefined): ChangeRecord | undefined => (ch === undefined || c.project === undefined ? ch : c.project(ch, source));
+    const project = (ch: ReplayChange | undefined): ReplayChange | undefined => (ch === undefined || c.project === undefined ? ch : c.project(ch, source));
     const after = this.history
       .afterFor(c.kind, key)
       .map(project)
-      .filter((ch): ch is ChangeRecord => ch !== undefined);
-    return stateAt(this.at, { kind: c.kind, current, after, before: project(before), since, window: w, precisionMs: c.precisionMs ?? this.history.precisionMs });
+      .filter((ch): ch is ReplayChange => ch !== undefined);
+    return this.keyState.stateAt(this.at, { kind: c.kind, current, after, before: project(before), since, window: w, precisionMs: c.precisionMs ?? this.history.precisionMs });
   }
 }
