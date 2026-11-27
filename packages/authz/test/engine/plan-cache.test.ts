@@ -3,8 +3,8 @@ import 'mocha';
 
 import { Authorizer } from '../../src/engine/authorizer.js';
 import { SYSTEM, TRUE } from '../../src/index.js';
-import type { AccessPlan, AccessPlanCache, EvaluationContext, ModelListPlan, PermissionDef, ResourceType } from '../../src/index.js';
-import { ListModel, RecordingLog, fakeClock, principal, registryOf } from './fakes.js';
+import type { AccessPlan, AccessPlanCache, EvaluationContext, ListPlanRequest, PermissionDef, ResourceRef, ResourceType } from '../../src/index.js';
+import { FakeAdapter, ListModel, RecordingLog, fakeClock, principal, registryOf } from './fakes.js';
 import type { ListModelOptions } from './fakes.js';
 
 const expect = chai.expect;
@@ -12,6 +12,7 @@ const expect = chai.expect;
 const REG = registryOf([
   { name: 'doc:read', types: ['doc'], list: true },
   { name: 'doc:audit', types: ['doc'], list: true, consistency: 'fresh' },
+  { name: 'doc:other', types: ['doc'], list: true },
   { name: 'doc:write', types: ['doc'] },
 ]);
 
@@ -33,6 +34,12 @@ class ThrowingModel extends ListModel {
   }
 }
 
+class BrokenAdapter extends FakeAdapter {
+  override ancestors(): Promise<readonly ResourceRef[] | null> {
+    return Promise.reject(new Error('db down'));
+  }
+}
+
 let clock: ReturnType<typeof fakeClock>;
 
 beforeEach(() => {
@@ -40,7 +47,7 @@ beforeEach(() => {
 });
 
 const make = (models: ListModel[]): Authorizer => new Authorizer({ domain: 'root', models, registry: REG, clock: clock.clock, log: new RecordingLog() });
-const kept = (name: string, plan: ModelListPlan, options: ListModelOptions = {}): KeptModel => new KeptModel(name, { ...options, listPlan: plan });
+const kept = (name: string, plan: ListModelOptions['listPlan'], options: ListModelOptions = {}): KeptModel => new KeptModel(name, { ...options, listPlan: plan });
 
 function cacheOf(plan: AccessPlan): AccessPlanCache {
   if (plan.cache === undefined) throw new Error(`no cache on ${JSON.stringify(plan)}`);
@@ -115,4 +122,15 @@ describe('Authorizer.accessPlan: a plan kept beyond its request', () => {
     expect(tags).to.include.members(['scope:doc:d1', 'scope:*', 'subject:user:alice']);
     expect((await make([nestedChecker(false)]).accessPlan(alice, 'doc:read', 'doc')).cache).to.equal(undefined);
   });
-});
+
+  it('keeps nothing once the request saw a fault a model caught', async () => {
+    const m = kept('a', async (req: ListPlanRequest, ctx: EvaluationContext) => {
+      if (req.permission.name === 'doc:other') await ctx.ancestors({ type: 'folder', id: 'x' }).catch(() => null);
+      return { kind: 'all' };
+    });
+    const a = new Authorizer({ domain: 'root', models: [m], registry: REG, adapters: [new BrokenAdapter(['folder'])], clock: clock.clock, log: new RecordingLog() });
+    const scope = { cache: new Map<string, unknown>() };
+
+    await a.accessPlan(alice, 'doc:other', 'doc', undefined, scope);
+    expect((await a.accessPlan(alice, 'doc:read', 'doc', undefined, scope)).cache).to.equal(undefined);
+  });});
