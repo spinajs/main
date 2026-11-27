@@ -1,3 +1,4 @@
+import { InvalidOperation } from '@spinajs/exceptions';
 import { Connection, CreatedAt, Json, Model, ModelBase, Primary, Set, UpdatedAt } from '@spinajs/orm';
 import type { TenantPlacement, TenantState } from '@spinajs/tenancy';
 import { DateTime } from 'luxon';
@@ -57,11 +58,24 @@ export class TenantModel extends ModelBase<TenantModel> {
   }
 
   /**
+   * Refuses to bring back a tenant whose lifecycle record, as this row was read, names a deletion: a deletion that
+   * started is finished, never undone. Every move to `active` asks it.
+   */
+  public assertDeletionNotStarted(): void {
+    const running = this.lifecycleRecord().operation;
+    if (running?.kind === 'delete') {
+      throw new InvalidOperation(`tenancy-orm: the deletion of tenant "${this.id}" started at ${running.startedAt}; a deletion is finished, not resumed`);
+    }
+  }
+
+  /**
    * Moves an active tenant to suspended, or a suspended one to active, and writes `suspension` in the same statement, so
    * a state and its reason never part; false when the tenant is in any other state, also when another call moved it
-   * first. The source state is a condition of the statement, never the state this row was read in.
+   * first. The source state is a condition of the statement, never the state this row was read in. A move to active
+   * throws `InvalidOperation` once a deletion started (`assertDeletionNotStarted`).
    */
   public async writeSuspension(to: 'active' | 'suspended', suspension: TenantSuspension | null): Promise<boolean> {
+    if (to === 'active') this.assertDeletionNotStarted();
     const from: TenantState = to === 'suspended' ? 'active' : 'suspended';
     const result = await TenantModel.update({ state: to, suspension, updated_at: DateTime.utc() }).where('id', this.id).where('state', from);
     if (result.RowsAffected !== 1) return false;

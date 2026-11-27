@@ -19,8 +19,9 @@ export class TenantStateService {
     const row = await this.current(id);
     const from = row.state;
     if (!canTransition(from, to)) throw new InvalidOperation(`tenancy-orm: tenant "${id}" cannot go from ${from} to ${to}`);
+    if (to === 'active') row.assertDeletionNotStarted();
     // The old state is part of the condition: of two concurrent moves from one state, one changes the row.
-    const result = await TenantModel.update({ state: to, updated_at: DateTime.utc() }).where('id', id).where('state', from);
+    const result = await TenantModel.update({ state: to, ...(to === 'active' ? { suspension: null } : {}), updated_at: DateTime.utc() }).where('id', id).where('state', from);
     if (result.RowsAffected !== 1) throw new ConcurrencyConflict(`tenancy-orm: tenant "${id}" left state ${from} while it was moved to ${to}`);
     // DbTenantRegistry is read through the cache of @spinajs/tenancy; without this the tenant keeps its old state there for tenancy.registryCacheMs.
     (await tenantRegistry()).invalidate(row.id);
