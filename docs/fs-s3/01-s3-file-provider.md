@@ -10,7 +10,7 @@
 4. `fsS3.resolve()` creates an `S3Client` from `fs.s3.config` and routes the AWS SDK logger to the `fs` logger. Credentials are masked in the debug log.
 5. `fsS3.ensureBucketExists()` sends `HeadBucketCommand`. On `NotFound` or HTTP 404 it sends `CreateBucketCommand` (with `LocationConstraint` set to the client region outside `us-east-1`), unless `createBucketIfNotExists` is `false`, which throws `IOFail`. Any other error (403, network) is logged and rethrown.
 6. When the entry has a `signer`, `fsS3.resolve()` resolves it by name. See [Signed URLs](04-signed-urls.md).
-7. `fsService` publishes the instance under `__file_provider_instance__`; `@FileSystem('<name>')`, `getFs('<name>')` and `DI.resolve('__file_provider__', ['<name>'])` return it.
+7. `fsService` publishes the instance under `__file_provider_instance__`; `@FileSystem('<name>')`, `getFs('<name>')` and `DI.resolve('__file_provider__', ['<name>'])` return it, as the registered [provider layers](../fs/08-boot-service-and-provider-lookup.md#provider-layers) hand it out (the instance itself when none is registered).
 
 A failure in step 4, 5 or 6 rejects `fsService.resolve()`, so the application does not start.
 

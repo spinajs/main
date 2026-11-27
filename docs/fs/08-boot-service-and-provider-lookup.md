@@ -6,7 +6,7 @@ Two services hold the package together: `fsService` creates the providers, and t
 
 1. `FsBootstrapper.bootstrap()` registers a factory `(container, name) => fs` under `'__file_provider__'`.
 2. `fsService.resolve()` creates every provider and registers each one with `DI.register(instance).asMapValue('__file_provider_instance__', name)`. The flow is in [Providers and configuration](01-providers-and-configuration.md#how-it-works).
-3. `getFs(name)` calls `DI.resolve('__file_provider__', [name])`. The factory reads the `'__file_provider_instance__'` map and returns the entry for `name`.
+3. `getFs(name)` calls `DI.resolve('__file_provider__', [name])`. The factory reads the `'__file_provider_instance__'` map and returns `layeredFs(entry)`: the entry for `name` as the registered [provider layers](#provider-layers) hand it out.
 4. The factory throws `ResolveException` when the map does not exist yet (`fsService` not resolved) or has no entry for `name`.
 
 ## Configuration
@@ -83,7 +83,7 @@ export function registerProviderAliases(): void {
 
 ### Reading a published provider
 
-`FILE_PROVIDER_INSTANCES` is the provider map key (`'__file_provider_instance__'`). `publishedFs(name, container = DI.RootContainer)` returns the provider published under `name`, or `undefined` when there is none or `fsService` has not resolved. Unlike `getFs()`, it does not go through the `'__file_provider__'` factory and never throws.
+`FILE_PROVIDER_INSTANCES` is the provider map key (`'__file_provider_instance__'`). `publishedFs(name, container = DI.RootContainer)` returns the provider published under `name`, or `undefined` when there is none or `fsService` has not resolved. Unlike `getFs()`, it does not go through the `'__file_provider__'` factory and never throws. It also skips the [provider layers](#provider-layers): with `@spinajs/tenancy/fs` it answers the shared provider, not the current tenant's view. Use it where the raw provider is what you want, such as an operator task or a check that compares a provider with its layered view; code that reads or writes an application's files uses `getFs()`.
 
 ```ts sample
 import { DI } from '@spinajs/di';
@@ -119,9 +119,9 @@ export class ReadOnlyArchive extends FsProviderLayer {
 }
 ```
 
-`wrap` runs on every lookup: cache what it builds. A wrapping provider implements the `do*` hooks and calls the wrapped provider's public actions from them; those run inside the outer action, where no middleware runs a second time. Layers apply in registration order, each to what the one before handed out. `layeredFs(provider, container = DI.RootContainer)` applies the registered layers to a provider you hold.
+`wrap` runs on every lookup: cache what it builds. A wrapping provider implements the `do*` hooks and calls the wrapped provider's public actions from them; those run inside the outer action, where no middleware runs a second time. Layers apply in registration order, each to what the one before handed out. `layeredFs(provider, container = DI.RootContainer)` applies the registered layers to a provider you hold. With a child container it applies the root container's layers first, then the child's own, each class once.
 
-Register a layer as a singleton class. `Array.ofType` leaves a factory and a `@NewInstance()` class out of its result, so a lookup throws `InvalidOperation` while one is registered instead of handing out the published provider.
+Register a layer as a singleton class. Replacing one the usual way, `DI.register(MyLayer).as(TheirLayer)`, applies `MyLayer` in its place. `Array.ofType` leaves a factory and a `@NewInstance()` class out of its result, also when it replaces a layer class, so a lookup throws `InvalidOperation` while one is registered instead of handing out the published provider. A layer must resolve synchronously: when it, or a dependency, is an `AsyncService` that has not resolved yet, the lookup throws `InvalidOperation` too; resolve the layers at boot (`await DI.resolve(Array.ofType(FsProviderLayer))`).
 
 ## Best practices
 
