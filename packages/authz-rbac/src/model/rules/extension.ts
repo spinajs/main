@@ -84,25 +84,21 @@ export class RulesExtension implements RbacExtension {
   }
 
   /**
-   * The DB part's rules on `path` at `at`: one store read per path and time within a request
-   * (ctx.cache is per request), so a check, its list rows and summarize's probes share it.
+   * The DB part's rules on `path` at `at`: kept per path and time within a request (ctx.cache is per
+   * request) once read, so a check, its list rows and summarize's probes share it. A read still in
+   * flight is not shared: a check inside a savepoint that awaited a read another check issued on the
+   * enclosing level would wait for a statement queued behind its own savepoint. A failed read is not kept.
    */
-  dbRulesOn(path: readonly ResourceRef[], at: Date, ctx: EvaluationContext): Promise<readonly RuleDef[]> {
+  async dbRulesOn(path: readonly ResourceRef[], at: Date, ctx: EvaluationContext): Promise<readonly RuleDef[]> {
     const db = this.db;
-    if (!db) return Promise.resolve([]);
-    const cache: Map<string, unknown> | undefined = ctx.cache;
-    // Keyed by store identity: two stores may share a name (a subclass keeps its parent's).
-    let byStore = cache?.get(DB_RULES_KEY) as WeakMap<RuleStore, Map<string, Promise<readonly RuleDef[]>>> | undefined;
-    if (cache && !byStore) cache.set(DB_RULES_KEY, (byStore = new WeakMap()));
-    let reads = byStore?.get(db);
-    if (byStore && !reads) byStore.set(db, (reads = new Map()));
+    if (!db) return [];
+    const reads = dbRulesMemo(ctx.cache)?.reads(db);
     const key = `${at.getTime()}:${JSON.stringify(path.map(resourceKey))}`;
-    let read = reads?.get(key);
-    if (!read) {
-      read = db.forPath(path, at);
-      reads?.set(key, read);
-    }
-    return read;
+    const known = reads?.get(key);
+    if (known) return known;
+    const rules = await db.forPath(path, at);
+    reads?.set(key, rules);
+    return rules;
   }
 
   private bootRules(graph: RoleGraph, grants: GrantIndex): readonly CompiledRule[] {
@@ -182,6 +178,26 @@ export class RulesExtension implements RbacExtension {
 export const rulesExtension: RbacExtensionFactory = (opts) => new RulesExtension(opts.rules);
 
 const DB_RULES_KEY = 'rbac:db-rules';
+
+/** The settled DB rule reads of a request, keyed by store identity: two stores may share a name (a subclass keeps its parent's). */
+class DbRulesMemo {
+  private readonly byStore = new WeakMap<RuleStore, Map<string, readonly RuleDef[]>>();
+
+  reads(store: RuleStore): Map<string, readonly RuleDef[]> {
+    let reads = this.byStore.get(store);
+    if (!reads) this.byStore.set(store, (reads = new Map()));
+    return reads;
+  }
+}
+
+function dbRulesMemo(cache: Map<string, unknown> | undefined): DbRulesMemo | undefined {
+  if (!cache) return undefined;
+  const found = cache.get(DB_RULES_KEY);
+  if (found instanceof DbRulesMemo) return found;
+  const memo = new DbRulesMemo();
+  cache.set(DB_RULES_KEY, memo);
+  return memo;
+}
 
 /** The row-dependent entry `activate` adds for a rule store it cannot read whole from a type-level path. */
 export const dbRulesMarker = (store: string): string => `* (${store})`;

@@ -6,8 +6,8 @@ import type { EvaluationContext, ResourceRef, Vote } from '@spinajs/authz';
 import { ManualClock, fakeEvaluationContext, fakeModelInitContext, userPrincipal } from '@spinajs/authz-testing';
 import { QueryContext } from '@spinajs/orm';
 
-import { AssignmentStore, DbAssignmentStore, DbMembershipStore, MembershipStore, MemoryAssignmentStore, MemoryRoleStore, RbacModel, scopeToColumns, subjectKeyOf, subjectToColumns } from '../../src/index.js';
-import type { Assignment, AssignmentSubject, RbacModelOptions, RoleDef } from '../../src/index.js';
+import { AssignmentStore, DbAssignmentStore, DbMembershipStore, DbRuleStore, MembershipStore, MemoryAssignmentStore, MemoryRoleStore, RbacModel, RuleStore, scopeToColumns, subjectKeyOf, subjectToColumns } from '../../src/index.js';
+import type { Assignment, AssignmentSubject, RbacModelOptions, RoleDef, RuleDef } from '../../src/index.js';
 import { bootDb, DB_KINDS, rawQuery } from '../support/db.js';
 import type { TestDb } from '../support/db.js';
 import { microtasks, within } from '../support/deadline.js';
@@ -19,6 +19,7 @@ chai.config.truncateThreshold = 0;
 const NOW = new Date('2026-10-01T12:00:00.000Z');
 const TTL = 60_000;
 const FILES: ResourceRef = { type: 'file' };
+const F1: ResourceRef = { type: 'file', id: 'f1' };
 const alice = userPrincipal('alice');
 const ALICE: AssignmentSubject = { type: 'user', id: 'alice' };
 const VIEWER: RoleDef = { name: 'viewer', extends: [], assignable: true, source: 'test', grants: [{ permission: 'file:read' }] };
@@ -75,6 +76,31 @@ class CountedMembership extends MembershipStore {
   }
 }
 
+/** Counts the reads that reach the DB rule store; `failures` fail before reaching it. */
+class CountedRules extends RuleStore {
+  readonly name = 'counted-rules';
+  loads = 0;
+  failures = 0;
+
+  constructor(private readonly inner: RuleStore) {
+    super();
+  }
+
+  async forPath(path: readonly ResourceRef[], at: Date): Promise<readonly RuleDef[]> {
+    this.loads++;
+    if (this.failures > 0) {
+      this.failures--;
+      throw new Error('rule store unavailable');
+    }
+    return this.inner.forPath(path, at);
+  }
+
+  version(): Promise<string> {
+    return this.inner.version();
+  }
+}
+
+/** A type-level check, or a check of `resource`: a type-level request refuses rules a DB store may hold. */
 const check = (model: RbacModel, ctx: EvaluationContext, resource: ResourceRef = FILES): Promise<Vote> => Promise.resolve(model.evaluate({ principal: alice, permission: 'file:read', resource }, ctx));
 
 const request = (clock: ManualClock) => fakeEvaluationContext({ now: clock.now() });
@@ -220,6 +246,46 @@ for (const kind of DB_KINDS) {
           await first;
           expect((await check(model, ctx)).permitWhen, inFlight ? 'in flight' : 'settled').to.deep.equal(FALSE);
         }
+      });
+    });
+
+    describe('the request memo of DbRuleStore.forPath', () => {
+      async function withRules() {
+        const rules = new CountedRules(db.container.resolve(DbRuleStore));
+        const built = await rbac({ assignments: new MemoryAssignmentStore([{ id: 'a1', subject: ALICE, role: 'viewer', scope: GLOBAL, source: 'test' }]), rules });
+        return { ...built, rules };
+      }
+
+      it('a check settles beside a nested transaction that makes the same check in the same request, cold and warm, however late it starts', async () => {
+        for (const warm of [false, true]) {
+          for (let ticks = 0; ticks <= 60; ticks++) {
+            const { model, clock } = await withRules();
+            if (warm) await check(model, request(clock), F1);
+            await beside(model, request(clock), ticks, `a rule check beside a nested one, ${warm ? 'warm' : 'cold'}`, F1);
+          }
+        }
+      });
+
+      it('store loads: concurrent checks of a request read each, a settled answer serves the rest of the request', async () => {
+        const { model, clock, rules } = await withRules();
+        const ctx = request(clock);
+        await Promise.all(Array.from({ length: CONCURRENT }, () => check(model, ctx, F1)));
+        const concurrent = rules.loads;
+        await Promise.all(Array.from({ length: CONCURRENT }, () => check(model, ctx, F1)));
+        expect({ concurrent, settled: rules.loads - concurrent }).to.deep.equal({ concurrent: CONCURRENT, settled: 0 });
+      });
+
+      it('a failed read is not kept: the next check of the request reads again', async () => {
+        const { model, clock, rules } = await withRules();
+        const ctx = request(clock);
+        rules.failures = 1;
+        const failed = await check(model, ctx, F1).then(
+          () => undefined,
+          (e: Error) => e,
+        );
+        expect(failed?.message).to.equal('rule store unavailable');
+        expect((await check(model, ctx, F1)).permitWhen).to.deep.equal(TRUE);
+        expect(rules.loads).to.equal(2);
       });
     });
   });
