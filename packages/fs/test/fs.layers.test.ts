@@ -3,7 +3,7 @@ import * as chai from 'chai';
 import { mkdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { DI, NewInstance } from '@spinajs/di';
+import { DI, NewInstance, Singleton } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 import { InvalidOperation } from '@spinajs/exceptions';
 import { Log } from '@spinajs/log-common';
@@ -32,6 +32,32 @@ class Redirect extends FsProviderLayer {
 @NewInstance()
 class FreshRedirect extends Redirect {}
 
+@Singleton()
+class SingletonOfFresh extends FreshRedirect {}
+
+const applied: string[] = [];
+
+function swapped(found: fs, from: string, to: string): fs {
+  return found.Name === from ? (publishedFs(to) ?? found) : found;
+}
+
+class AToB extends FsProviderLayer {
+  public wrap(found: fs): fs {
+    applied.push('AToB');
+    return swapped(found, 'layer-a', 'layer-b');
+  }
+}
+
+class AToBReplaced extends AToB {
+  public wrap(found: fs): fs {
+    applied.push('AToBReplaced');
+    return found;
+  }
+}
+
+@NewInstance()
+class FreshAToBReplaced extends AToB {}
+
 describe('fs provider layers', function () {
   this.timeout(15000);
   let app: TestApp;
@@ -54,9 +80,17 @@ describe('fs provider layers', function () {
     });
   });
 
-  after(async () => {
+  beforeEach(() => {
+    applied.length = 0;
+  });
+
+  afterEach(() => {
     DI.unregister(Redirect);
+    DI.unregister(AToB);
     DI.uncache(Array.ofType(FsProviderLayer));
+  });
+
+  after(async () => {
     await app?.dispose();
     rmSync(root, { recursive: true, force: true });
   });
@@ -87,11 +121,35 @@ describe('fs provider layers', function () {
         c.register(Redirect).as(FsProviderLayer);
         c.register(FreshRedirect).as(FsProviderLayer);
       },
+      // the singleton subclass instance is an instance of the skipped @NewInstance() base too
+      (c: IContainer) => {
+        c.register(FreshRedirect).as(FsProviderLayer);
+        c.register(SingletonOfFresh).as(FsProviderLayer);
+      },
+      (c: IContainer) => {
+        c.register(AToB).as(FsProviderLayer);
+        c.register(FreshAToBReplaced).as(AToB);
+      },
+      (c: IContainer) => {
+        c.register(AToB).as(FsProviderLayer);
+        c.register(() => new AToBReplaced()).as(AToB);
+      },
     ];
     for (const register of registrations) {
       const container = DI.child();
       register(container);
       expect(() => layeredFs(published, container)).to.throw(InvalidOperation, /cannot run/);
     }
+  });
+
+  it('a layer class replaced the DI way (register(Sub).as(Layer)) is applied in its place, once per lookup', () => {
+    const published = publishedFs('layer-a')!;
+    const container = DI.child();
+    container.register(AToB).as(FsProviderLayer);
+    container.register(AToBReplaced).as(AToB);
+
+    expect(layeredFs(published, container)).to.equal(published);
+    expect(layeredFs(published, container)).to.equal(published);
+    expect(applied).to.deep.equal(['AToBReplaced', 'AToBReplaced']);
   });
 });
