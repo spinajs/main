@@ -8,8 +8,8 @@
  */
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
-import { Connection, HasMany, Model, ModelBase, Orm, OrphanPolicy, Primary, QueryContext, WriteObserver } from '@spinajs/orm';
-import type { CaptureInterest, CapturedWrite, Relation, WriteStatement } from '@spinajs/orm';
+import { Connection, HasMany, Model, ModelBase, Orm, OrphanPolicy, Primary, QueryContext, Relation, WriteObserver } from '@spinajs/orm';
+import type { CaptureInterest, CapturedWrite, WriteStatement } from '@spinajs/orm';
 import '@spinajs/log';
 import { expect } from 'chai';
 import 'mocha';
@@ -75,8 +75,9 @@ class SharedServerConf extends FrameworkConfiguration {
       DefaultConnection: 'shared-a',
       Connections: [
         { Driver: 'orm-driver-mysql', Name: 'shared-a', ...SERVER, Database: ROOT_DATABASE, SharedServer: 'mysql' },
-        // One pooled connection, so the session's lock wait timeout below is the one the key select would wait with.
-        { Driver: 'orm-driver-mysql', Name: 'shared-b', ...SERVER, Database: ITEM_DATABASE, SharedServer: 'mysql', Pool: { Max: 1 } },
+        // One pooled connection keeps the session's lock wait timeout set below, and no retry: a lock wait timeout is
+        // retried outside a transaction, so a key select waiting on the save's own lock would wait several times.
+        { Driver: 'orm-driver-mysql', Name: 'shared-b', ...SERVER, Database: ITEM_DATABASE, SharedServer: 'mysql', Pool: { Max: 1 }, Resilience: { MaxRetries: 0 } },
       ],
     };
   }
@@ -109,7 +110,10 @@ describe('mysql write capture of a save through another connection on the same s
   beforeEach(async () => {
     await sql(`TRUNCATE TABLE \`${ROOT_DATABASE}\`.shared_order`);
     await sql(`TRUNCATE TABLE \`${ITEM_DATABASE}\`.shared_item`);
-    await connection('shared-b').schema().raw('SET SESSION innodb_lock_wait_timeout = 2');
+    const own = connection('shared-b');
+    if (!(own instanceof MySqlOrmDriver)) throw new Error('shared-b is not a MySQL connection');
+    // Through the pool, not schema(): a schema statement runs on a connection of its own.
+    await own.executeOnDb('SET SESSION innodb_lock_wait_timeout = 2', [], QueryContext.Select);
     writes.length = 0;
   });
 
@@ -121,45 +125,40 @@ describe('mysql write capture of a save through another connection on the same s
     await admin.disconnect();
   });
 
-  const inserted = { id: '1', before: undefined, after: { Id: 1, Sku: 'A', Qty: 1, order_id: 1 } };
-  const before = { Id: 1, Sku: 'A', Qty: 1, order_id: 1 };
+  const first = { Id: 1, Sku: 'A', Qty: 1, order_id: 1 };
 
-  function graph() {
+  // The row is written by raw SQL on the root connection, inside its transaction: a save's insert of a model of another
+  // database is not qualified on this base, and the capture's key select is only needed by the update and the delete.
+  async function savedWithItem() {
     const order = new SharedOrder({ Total: 1 });
-    const item = new SharedItem({ Sku: 'A', Qty: 1 });
-    order.attach(item);
+    await order.save();
+    await connection('shared-a').schema().raw(`INSERT INTO \`${ITEM_DATABASE}\`.shared_item (Id, Sku, Qty, order_id) VALUES (1, 'A', 1, 1)`);
+    const item = new SharedItem({ ...first });
+    item.takeSnapshot();
+    order.Items.push(item);
+    await order.save();
     return { order, item };
   }
 
   it('updates a row the same transaction inserted, without waiting on its lock', async () => {
-    const { order, item } = graph();
-
     await connection('shared-a').transaction(async () => {
-      await order.save();
+      const { order, item } = await savedWithItem();
       item.Qty = 5;
       await order.save();
     });
 
-    expect(captured()).to.deep.equal([
-      ['insert', [inserted]],
-      ['update', [{ id: '1', before, after: { ...before, Qty: 5 } }]],
-    ]);
-    expect(await items()).to.deep.equal([{ ...before, Qty: 5 }]);
+    expect(captured()).to.deep.equal([['update', [{ id: '1', before: first, after: { ...first, Qty: 5 } }]]]);
+    expect(await items()).to.deep.equal([{ ...first, Qty: 5 }]);
   });
 
   it('deletes as an orphan a row the same transaction inserted, without waiting on its lock', async () => {
-    const { order } = graph();
-
     await connection('shared-a').transaction(async () => {
-      await order.save();
+      const { order } = await savedWithItem();
       order.Items.empty();
       await order.save();
     });
 
-    expect(captured()).to.deep.equal([
-      ['insert', [inserted]],
-      ['delete', [{ id: '1', before, after: undefined }]],
-    ]);
+    expect(captured()).to.deep.equal([['delete', [{ id: '1', before: first, after: undefined }]]]);
     expect(await items()).to.deep.equal([]);
   });
 });
