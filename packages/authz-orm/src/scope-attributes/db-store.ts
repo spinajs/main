@@ -125,7 +125,7 @@ export class DbScopeAttributeStore extends WritableScopeAttributeStore {
     const set = Object.entries(change?.set ?? {});
     const remove = [...(change?.remove ?? [])];
     for (const [path, v] of set) {
-      if (path === '' || path.length > SCOPE_ATTRIBUTE_LIMITS.path) throw new AuthzConfigError(`DbScopeAttributeStore: path ${JSON.stringify(path)} does not fit ${SCOPE_ATTRIBUTE_TABLE}.path`);
+      if (path === '' || !path.isWellFormed() || path.length > SCOPE_ATTRIBUTE_LIMITS.path) throw new AuthzConfigError(`DbScopeAttributeStore: path ${JSON.stringify(path)} does not fit ${SCOPE_ATTRIBUTE_TABLE}.path`);
       if (!isLeaf(v)) throw new AuthzConfigError(`DbScopeAttributeStore: ${JSON.stringify(path)} holds ${String(v)}, not a scalar`);
       if (JSON.stringify(v).length > SCOPE_ATTRIBUTE_LIMITS.json) throw new AuthzConfigError(`DbScopeAttributeStore: the value at ${JSON.stringify(path)} does not fit ${SCOPE_ATTRIBUTE_TABLE}.value_json`);
     }
@@ -182,8 +182,9 @@ interface Key {
   readonly scope_id: string;
 }
 
+/** A lone surrogate reaches every database as U+FFFD: two such ids would be one scope, under ids that match neither. */
 function keyOf(ref: ResourceRef): Key {
-  if (ref === null || typeof ref !== 'object' || typeof ref.type !== 'string' || ref.type === '' || (ref.id != null && typeof ref.id !== 'string')) throw new AuthzConfigError(`DbScopeAttributeStore needs a resource ref, got ${JSON.stringify(ref)}`);
+  if (ref === null || typeof ref !== 'object' || typeof ref.type !== 'string' || ref.type === '' || !ref.type.isWellFormed() || (ref.id != null && (typeof ref.id !== 'string' || !ref.id.isWellFormed()))) throw new AuthzConfigError(`DbScopeAttributeStore needs a resource ref, got ${JSON.stringify(ref)}`);
   return { scope_type: ref.type, scope_id: ref.id ?? '' };
 }
 

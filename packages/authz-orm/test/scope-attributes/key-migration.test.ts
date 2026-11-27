@@ -400,6 +400,26 @@ describe('AuthzScopeAttributeKey_2026_11_25_00_00_00', function () {
           await dropChangeLogTables(db, dialect);
         }
       });
+
+      it('the store refuses a scope type, scope id or path that is not well-formed UTF-16, before any SQL', async () => {
+        // Every driver sends a lone surrogate as U+FFFD: 'x\ud800' and 'x\udbff' would be one scope, with ids that match neither.
+        const store = new DbScopeAttributeStore();
+        await oldTable([]);
+        await key.up(driver);
+        await createChangeLogTables(db, dialect);
+        try {
+          const write = (ref: ResourceRef, path = 'a') => driver.transaction((d) => store.write(ref, { set: { [path]: 1 }, remove: [] }, ALICE, { driver: d }));
+          for (const ref of [{ type: 'org', id: 'x\ud800' }, { type: 'org', id: 'x\udbff' }, { type: 'org\udc00', id: 'x' }]) {
+            expect(await failure(() => write(ref)), JSON.stringify(ref)).to.be.instanceOf(AuthzConfigError);
+            expect(await failure(() => store.get(ref)), JSON.stringify(ref)).to.be.instanceOf(AuthzConfigError);
+            expect(await failure(() => driver.transaction((d) => store.forget(ref, { driver: d }))), JSON.stringify(ref)).to.be.instanceOf(AuthzConfigError);
+          }
+          expect(await failure(() => write({ type: 'org', id: 'x' }, 'a\ud800'))).to.be.instanceOf(AuthzConfigError);
+          expect(await stored()).to.deep.equal([]);
+        } finally {
+          await dropChangeLogTables(db, dialect);
+        }
+      });
     });
   }
 });
