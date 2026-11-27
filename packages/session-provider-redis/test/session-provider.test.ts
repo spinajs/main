@@ -3,6 +3,8 @@ import chaiAsPromised from 'chai-as-promised';
 import { UserSession as Session, encodeSessionData } from '@spinajs/authn-session';
 import type { ISession } from '@spinajs/authn-session';
 import { DateTime } from 'luxon';
+import { DI } from '@spinajs/di';
+import { Log } from '@spinajs/log';
 import { RedisSessionStore } from '../src/index.js';
 import { runSessionProviderConformance, IConformanceExpiration, SessionProviderFactory } from '../../authn-session/test/conformance/session-provider-conformance.js';
 import { bootStore, disposeStore, rawClient } from './support.js';
@@ -149,6 +151,33 @@ describe('redis session provider', function () {
       raw.Expiration = '';
       await rawClient().set(`session:${id}`, JSON.stringify(raw));
       expect(ids(await store.listBySubject(user('u-42')))).to.deep.equal(['r-unreadable-absent']);
+    });
+
+    it('an unreadable Expiration is logged once, naming the subject and never the session id', async () => {
+      const store = await makeProvider(SLIDING);
+      await store.truncate();
+      const id = 'r-warn-bearer-key';
+      await store.save(session({ SessionId: id, Subject: user('u-42') }));
+      const raw = await stored(`session:${id}`);
+      raw.Expiration = '';
+      await rawClient().set(`session:${id}`, JSON.stringify(raw));
+
+      const log = DI.resolve(Log, ['redis-session-store']);
+      const original = log.warn;
+      const lines: string[] = [];
+      log.warn = (first: unknown) => {
+        lines.push(String(first));
+      };
+      try {
+        expect(await store.restore(id)).to.equal(null);
+        expect(await store.restore(id)).to.equal(null);
+      } finally {
+        log.warn = original;
+      }
+
+      expect(lines).to.have.length(1);
+      expect(lines[0]).to.contain('user:u-42');
+      expect(lines[0]).to.not.contain(id);
     });
 
     it('an unreadable Creation never turns a capped session into one that never expires', async () => {
