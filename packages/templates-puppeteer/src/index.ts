@@ -5,6 +5,8 @@ import { IInstanceCheck, LazyInject } from '@spinajs/di';
 import { basename, dirname, extname, join } from 'path';
 import { Log, Logger } from '@spinajs/log';
 import * as http from 'http';
+import { existsSync } from 'fs';
+import { fileURLToPath, pathToFileURL } from 'url';
 
 import '@spinajs/templates-pug';
 import { AddressInfo } from 'net';
@@ -83,6 +85,89 @@ function loggableText(text: string): string {
     const url = run.slice(0, run.length - position.length);
     // `http://host:8080` ends like a position: it is one only when cutting it leaves the host as it was
     return position !== '' && hostOf(url) === hostOf(run) ? loggableEndpoint(url) + position : loggableEndpoint(run);
+  });
+}
+
+// bounds the work on a long cause chain; a cycle is caught by `copies`
+const MAX_CAUSE_DEPTH = 10;
+
+/**
+ * The copy of a render failure that is logged: an error from `page.goto()` in a subclass reads
+ * `net::ERR_* at <url>`, query and userinfo included. The thrown error itself belongs to the caller and is not touched,
+ * and building the copy never throws: a failure while logging must not replace the render's error.
+ */
+function loggableError(err: unknown, copies = new Map<Error, Error>(), depth = 0): unknown {
+  try {
+    if (!(err instanceof Error)) {
+      return loggableText(errorMessage(err));
+    }
+    const known = copies.get(err);
+    if (known !== undefined) {
+      return known;
+    }
+
+    const copy = new Error(loggableText(errorMessage(err)));
+    copies.set(err, copy);
+    const name = field(err, 'name');
+    copy.name = typeof name === 'string' ? name : 'Error';
+    const stack = field(err, 'stack');
+    copy.stack = typeof stack === 'string' ? loggableStack(stack) : undefined;
+    const code = field(err, 'code');
+    if (typeof code === 'string' || typeof code === 'number') {
+      Object.assign(copy, { code: typeof code === 'string' ? loggableText(code) : code });
+    }
+    const signal = field(err, 'signal');
+    if (typeof signal === 'string') {
+      Object.assign(copy, { signal });
+    }
+    if (depth < MAX_CAUSE_DEPTH) {
+      const cause = field(err, 'cause');
+      if (cause !== undefined) {
+        copy.cause = loggableError(cause, copies, depth + 1);
+      }
+      const errors = field(err, 'errors');
+      if (Array.isArray(errors)) {
+        Object.assign(copy, { errors: errors.map((inner: unknown) => loggableError(inner, copies, depth + 1)) });
+      }
+    }
+    return copy;
+  } catch {
+    return 'unloggable error';
+  }
+}
+
+// a thrown value may carry throwing getters or be a Proxy
+function field(err: Error, key: string): unknown {
+  try {
+    return Reflect.get(err, key);
+  } catch {
+    return undefined;
+  }
+}
+
+// The server's own frames name modules under the working directory: an operator needs them to find the failing code.
+// The file must exist, so a URL that a page or a message made up is still redacted.
+function isOwnModule(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    return (
+      parsed.protocol === 'file:' &&
+      parsed.host === '' &&
+      parsed.search === '' &&
+      parsed.hash === '' &&
+      parsed.href === url &&
+      url.startsWith(`${pathToFileURL(process.cwd()).href}/`) &&
+      existsSync(fileURLToPath(parsed))
+    );
+  } catch {
+    return false;
+  }
+}
+
+function loggableStack(stack: string): string {
+  return stack.replace(URL_RUN, (run) => {
+    const position = POSITION.exec(run)?.[0] ?? '';
+    return isOwnModule(run.slice(0, run.length - position.length)) ? run : loggableText(run);
   });
 }
 
@@ -267,15 +352,15 @@ export abstract class PuppeteerRenderer extends TemplateRenderer implements IIns
 
         progress.phase(RenderPhase.Done);
       } catch (renderError) {
-        this.Log.error({ error: renderError, filePath }, 'Error during rendering for ${filePath}');
+        this.Log.error({ error: loggableError(renderError), filePath }, 'Error during rendering for ${filePath}');
         throw renderError;
       } finally {
         cancelWatchdog();
         removeListeners();
       }
     } catch (err) {
-      progress.phase(RenderPhase.Failed, errorMessage(err));
-      this.Log.error({ error: err, filePath }, 'Error rendering to file ${filePath}');
+      progress.phase(RenderPhase.Failed, loggableText(errorMessage(err)));
+      this.Log.error({ error: loggableError(err), filePath }, 'Error rendering to file ${filePath}');
       throw err;
     } finally {
       progress.dispose();
