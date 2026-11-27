@@ -26,7 +26,7 @@ async function model(roles: readonly RoleDef[], config: Record<string, unknown> 
   return { m, read: reg.require('doc:read'), del: reg.require('doc:delete') };
 }
 
-const term = (roles: readonly object[]) => ({ op: 'rbac.assignment', args: { subjects: [], roles, global: true } });
+const term = (roles: readonly object[], deny = false) => ({ op: 'rbac.assignment', args: { subjects: [], roles, global: true, ...(deny ? { deny: true } : {}) } });
 
 describe('rbacRlsPlan: the RBAC list plan for any principal', () => {
   it('names every role that grants the permission, with the qualifiers of its grant, and the deny roles', async () => {
@@ -42,7 +42,7 @@ describe('rbacRlsPlan: the RBAC list plan for any principal', () => {
     expect(rbacRlsPlan(m, read, 'doc')).to.deep.equal({
       kind: 'terms',
       permit: [term([{ role: 'billing', tag: 'paid' }, { role: 'editor' }, { role: 'member', relation: 'owner' }, { role: 'pm', scopeTypes: ['project'] }, { role: 'viewer' }])],
-      deny: [term([{ role: 'blocked' }])],
+      deny: [term([{ role: 'blocked' }], true)],
     });
   });
 

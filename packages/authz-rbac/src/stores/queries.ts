@@ -1,14 +1,47 @@
 import { AuthzAdminFailure, GLOBAL } from '@spinajs/authz';
 import type { ResourceRef } from '@spinajs/authz';
-import type { IWhereBuilder } from '@spinajs/orm';
+import { RawQuery, sqlDialectOf } from '@spinajs/orm';
+import type { IQueryBuilder, IWhereBuilder } from '@spinajs/orm';
 import type { DateTime } from 'luxon';
 
 import { cursorWithOffset, decodeCursor, encodeCursor, invalidCursor } from './cursor.js';
 
-/** Live at `at`: no expiry, or one strictly after `at` (a row expiring exactly at `at` is gone). */
-export function whereLive(query: IWhereBuilder<unknown>, at: Date): void {
+/**
+ * The column holds a datetime the converter reads: what it reads as null (text, an infinity, a zero day, a date past
+ * JavaScript's range) does not. `undefined` where the database holds no such value (SQL Server's datetime2).
+ */
+export function readableExpiry(q: IQueryBuilder, column: string): RawQuery | undefined {
+  switch (sqlDialectOf(q.Driver.constructor as abstract new (...args: never[]) => unknown)?.grammar) {
+    case 'PostgresQL':
+      // isfinite misses dates past JavaScript's range (275760-09-13), which pg hands back as an invalid Date.
+      return RawQuery.create(`(isfinite(${column}) AND ${column} <= '275760-09-13T00:00:00Z')`);
+    case 'Sqlite':
+      // julianday also reads 'now', normalises an impossible day or hour 24, and skips whitespace, a doubled 'T', a NUL and
+      // a space before the zone; the converter reads none of them.
+      return RawQuery.create(
+        `(julianday(${column}) IS NOT NULL AND date(substr(${column}, 1, 10), '+0 days') = substr(${column}, 1, 10) AND trim(${column}, char(32, 9, 10, 11, 12, 13)) = ${column}` +
+          ` AND (length(${column}) = 10 OR ${column} GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9][T ][0-9][0-9]:[0-9][0-9]*')` +
+          ` AND substr(${column}, 12, 2) <> '24' AND NOT (substr(${column}, 11, 1) = 'T' AND instr(${column}, ' ') > 0) AND instr(${column}, '  ') = 0` +
+          ` AND length(CAST(${column} AS BLOB)) = length(${column}))`,
+      );
+    case 'MySQL':
+      return RawQuery.create(`(DAYOFMONTH(${column}) <> 0 AND MONTH(${column}) <> 0)`);
+    default:
+      return undefined;
+  }
+}
+
+/** Live at `at`: no expiry, one strictly after `at`, or one the converter cannot read, which the model refuses rather than the filter dropping it. */
+export function whereLive(query: IWhereBuilder<unknown> & IQueryBuilder, at: Date): void {
+  const readable = readableExpiry(query, 'expires_at');
   query.where(function () {
     this.whereNull('expires_at').orWhere('expires_at', '>', at);
+    if (readable !== undefined)
+      this.orWhere(function () {
+        this.whereNotNull('expires_at').whereNot(function () {
+          this.where(readable);
+        });
+      });
   });
 }
 

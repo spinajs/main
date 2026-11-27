@@ -21,9 +21,11 @@ export interface RbacAssignmentPlanArgs {
   readonly roles: readonly RbacPlanRole[];
   /** Assignments at $global count too. */
   readonly global: boolean;
+  /** The term subtracts (a deny role): an assignment whose expiry the database cannot read still counts, fail closed. */
+  readonly deny?: true;
 }
 
-const ARG_KEYS = ['subjects', 'roles', 'global'];
+const ARG_KEYS = ['subjects', 'roles', 'global', 'deny'];
 const ROLE_KEYS = ['role', 'scopeTypes', 'tag', 'descendantsOnly', 'relation'];
 
 const sorted = (list: readonly string[]): readonly string[] => Object.freeze(sortedUnique(list));
@@ -36,7 +38,7 @@ export function rbacPlanArgs(a: RbacAssignmentPlanArgs): RbacAssignmentPlanArgs 
     roles.set(JSON.stringify(role), role);
   }
   const list = [...roles].sort(([x], [y]) => compareStrings(x, y)).map(([, r]) => r);
-  return Object.freeze({ subjects: sorted(a.subjects), roles: Object.freeze(list), global: a.global });
+  return Object.freeze({ subjects: sorted(a.subjects), roles: Object.freeze(list), global: a.global, ...(a.deny === true ? { deny: true as const } : {}) });
 }
 
 /** @throws Error naming the problem, for anything but the exact shape: a compiler must not guess at args it does not know. */
@@ -49,6 +51,7 @@ export function parseRbacPlanArgs(args: unknown): RbacAssignmentPlanArgs {
   if (unknown.length > 0) fail(`unknown args key(s) ${unknown.join(', ')}`);
   const names = (v: unknown, what: string): string[] => (isStringArray(v, { nonEmpty: true }) ? v : fail(`${what} must be an array of non-empty strings`));
   if (typeof args.global !== 'boolean') fail('global must be a boolean');
+  if (args.deny !== undefined && args.deny !== true) fail('deny must be true when present');
   if (!Array.isArray(args.roles)) fail('roles must be an array');
   const roles = (args.roles as unknown[]).map((r, i): RbacPlanRole => {
     if (!isObject(r)) return fail(`roles[${i}] must be an object`);
@@ -61,5 +64,5 @@ export function parseRbacPlanArgs(args: unknown): RbacAssignmentPlanArgs {
     if (relation !== undefined && (typeof relation !== 'string' || !/^[A-Za-z][A-Za-z0-9_.-]*$/.test(relation))) fail(`roles[${i}].relation must be a relation name`);
     return { role: role as string, ...(scopeTypes !== undefined ? { scopeTypes: names(scopeTypes, `roles[${i}].scopeTypes`) } : {}), ...(tag !== undefined ? { tag: tag as string } : {}), ...(descendantsOnly ? { descendantsOnly: true } : {}), ...(relation !== undefined ? { relation: relation as string } : {}) };
   });
-  return rbacPlanArgs({ subjects: names(args.subjects, 'subjects'), roles, global: args.global as boolean });
+  return rbacPlanArgs({ subjects: names(args.subjects, 'subjects'), roles, global: args.global as boolean, ...(args.deny === true ? { deny: true as const } : {}) });
 }
