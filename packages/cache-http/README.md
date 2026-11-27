@@ -2,12 +2,20 @@
 
 A response cache for SpinaJS http routes. `@ResponseCache({ ttl: '5m' })` on a GET route stores its JSON reply in a
 named cache of `@spinajs/cache`; a later request with the same key gets the stored reply and the action does not run.
-The key is per principal unless the route says `scope: 'tenant'` or `'shared'`. The policies run on every request.
+The key is per principal unless the route says `scope: 'tenant'` or `'shared'`. The route's policies run on every
+request, a hit included; what a stored reply holds does not change until its ttl (see the first two limits).
 
 Nothing is cached unless a route carries the decorator.
 
 Limits of this version:
 
+- A revoked route permission is refused at once, because the policies run on a hit. The rows an `.accessible()` or
+  `@spinajs/authz-orm`-filtered query returned for the caller are not checked again: they stay in a stored reply until
+  its ttl, at most `cache.maxTtl` (default `1h`), so a caller whose access to a row was revoked keeps seeing it from
+  the cache until then. Cache a row-filtered list with scope `'principal'` and a short ttl, or do not cache it.
+- A hit runs no query, so `@AuditReads` of `@spinajs/audit-orm` records only the miss. Do not cache a route that reads
+  an audited model, or accept that its hits leave no read record. `@spinajs/audit-http`'s `Audit` and the policy
+  decision log do run on a hit.
 - A per-principal route reads the principal `@spinajs/authz-http` resolves (`req.storage.Principal`). With
   `@spinajs/authn-http` alone, whose principal is `req.storage.AuthnPrincipal`, such a route runs uncached.
 - `@spinajs/authn-http` sets `Cache-Control: no-store` on every request it signs in, and a `no-store` reply is never
