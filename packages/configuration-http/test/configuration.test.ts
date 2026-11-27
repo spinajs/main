@@ -450,70 +450,70 @@ describe('configuration-http api', function () {
   });
 
   // TestTenantScope stands for TenantMiddleware; tenancy.config.overridable is ['mail.from', 'app.maxUsers'].
-  describe('rows of one tenant', () => {
+  describe('inside a tenant scope', () => {
     const inTenant = (tenant: string) => ({ ...JSON_HEADERS, 'x-tenant': tenant });
-    const tenantRow = (Slug: string, Value: string, tenant: string) => ({ Slug, Value, Group: 'mail', Type: 'string', Watch: false, Exposed: true, Scope: `tenant:${tenant}` });
-    const stored = (slug: string) => authz().runAs(SYSTEM, 'test', async () => (await DbConfig.where('Slug', slug)).map((e) => `${e.Scope} ${String(e.Value)}`).sort());
-    const SHARED_MAIL = 'shared noreply@spinajs.com';
+    const tenantRow = (Slug: string, Value: string, tenant: string, Type = 'string') => ({ Slug, Value, Group: 'mail', Type, Watch: false, Exposed: true, Scope: `tenant:${tenant}` });
+    const stored = (slug: string) => authz().runAs(SYSTEM, 'test', async () => (await DbConfig.where('Slug', slug)).map((e) => `${e.Scope} ${String(Boolean(e.Watch))} ${JSON.stringify(e.Value)}`).sort());
+    const MAIL = ['shared false "noreply@spinajs.com"', 'tenant:acme false "billing@acme.test"', 'tenant:globex false "ops@globex.test"'];
 
     beforeEach(async () => {
       await authz().runAs(SYSTEM, 'test', async () => {
         await DbConfig.insert(tenantRow('mail.from', 'billing@acme.test', 'acme'));
         await DbConfig.insert(tenantRow('mail.from', 'ops@globex.test', 'globex'));
-        await DbConfig.insert(tenantRow('app.name', 'acme app', 'acme'));
+        await DbConfig.insert(tenantRow('mail.from.x', 'child', 'acme'));
+        await DbConfig.insert(tenantRow('db.DefaultConnection', 'sqlite', 'acme'));
+        await DbConfig.insert(tenantRow('mail.templates', '{}', 'acme', 'json'));
       });
     });
 
-    it("a read in a tenant answers that tenant's row, never another tenant's nor a shared one", async () => {
-      expect(field((await req().get('configuration/mail.from').set(inTenant('acme'))).body, 'Value')).to.equal('billing@acme.test');
-      expect(field((await req().get('configuration/mail.from').set(inTenant('globex'))).body, 'Value')).to.equal('ops@globex.test');
-      expect(await req().get('configuration/app.maxUsers').set(inTenant('acme'))).to.have.status(404);
-      expect(await req().get('configuration/mail.from').set(inTenant('initech'))).to.have.status(404);
+    afterEach(() => {
+      testHost.config().set(['tenancy', 'config', 'overridable'], ['mail.from', 'app.maxUsers']);
     });
 
-    it('a tenant lists its own rows only', async () => {
-      const acme = await req().get('configuration').set(inTenant('acme'));
-      expect(acme).to.have.status(200);
-      const listed: unknown = acme.body;
-      expect((Array.isArray(listed) ? listed : []).map((e: unknown) => `${String(field(e, 'Scope'))} ${String(field(e, 'Slug'))}`).sort()).to.deep.equal(['tenant:acme app.name', 'tenant:acme mail.from']);
-      expect((await req().get('configuration?group=mail').set(inTenant('initech'))).body).to.deep.equal([]);
+    // Tenant overrides are written by TenantSettingsService, which checks them; this api is a second, unchecked path.
+    it('refuses every route with 403 and lists, reads and stores nothing', async () => {
+      const list = await req().get('configuration').set(inTenant('acme'));
+      expect(list).to.have.status(403);
+      expect(field(list.body, 'length')).to.equal(undefined);
+      expect(await req().get('configuration?group=mail').set(inTenant('acme'))).to.have.status(403);
+      expect(await req().get('configuration/mail.from').set(inTenant('acme'))).to.have.status(403);
+      expect(await req().get('configuration/app.name').set(inTenant('globex'))).to.have.status(403);
+      expect(await req().patch('configuration/mail.from?Scope=tenant:acme').set(inTenant('acme')).send({ Value: 'new@acme.test', Scope: 'tenant:acme' })).to.have.status(403);
+      expect(await req().patch('configuration/app.name').set(inTenant('acme')).send({ Value: 'changed' })).to.have.status(403);
+
+      expect(await stored('mail.from')).to.deep.equal(MAIL);
+      expect(await stored('app.name')).to.deep.equal(['shared false "spinajs"']);
     });
 
-    it("a write in a tenant changes that tenant's row only, whatever the body or the query name", async () => {
-      const res = await req().patch('configuration/mail.from?Scope=tenant:globex&tenant=globex').set(inTenant('acme')).send({ Value: 'new@acme.test', Scope: 'tenant:globex' });
+    it('stores none of the values a tenant write could carry past the settings rules', async () => {
+      testHost.config().set(['tenancy', 'config', 'overridable'], ['mail.from', 'app.maxUsers', 'db.DefaultConnection']);
+      const patch = (slug: string, body: Record<string, unknown>) => req().patch(`configuration/${slug}`).set(inTenant('acme')).send(body);
 
-      expect(res).to.have.status(200);
-      expect(field(res.body, 'Scope')).to.equal('tenant:acme');
-      expect(await stored('mail.from')).to.deep.equal([SHARED_MAIL, 'tenant:acme new@acme.test', 'tenant:globex ops@globex.test']);
-    });
+      expect(await patch('mail.from.x', { Value: 'grandchild' }), 'a child of a listed path').to.have.status(403);
+      expect(await patch('db.DefaultConnection', { Value: 'other' }), 'a closed root listed at run time').to.have.status(403);
+      expect(await patch('mail.from', { Value: 'x'.repeat(4 * 1024 * 1024) }), 'a 4 MB value').to.have.status(403);
+      expect(await patch('mail.templates', { Value: { a: { constructor: { prototype: 1 } } } }), 'a reserved key in a json value').to.have.status(403);
+      expect(await patch('mail.from', { Value: 'billing@acme.test', Watch: true }), 'Watch on a tenant row').to.have.status(403);
 
-    it('a write in a tenant creates no row and never reaches a shared one', async () => {
-      expect(await req().patch('configuration/app.maxUsers').set(inTenant('acme')).send({ Value: 99 })).to.have.status(404);
-      expect(await stored('app.maxUsers')).to.deep.equal(['shared 10']);
-    });
-
-    it('a path outside tenancy.config.overridable is refused for a tenant, even to its admin', async () => {
-      const res = await req().patch('configuration/app.name').set(inTenant('acme')).send({ Value: 'changed' });
-
-      expect(res).to.have.status(403);
-      expect(await stored('app.name')).to.deep.equal(['shared spinajs', 'tenant:acme acme app']);
-    });
-
-    it('a principal without the permission is refused in a tenant too', async () => {
-      expect(await req('alice').patch('configuration/mail.from').set(inTenant('acme')).send({ Value: 'x@acme.test' })).to.have.status(403);
-      expect(await req('alice').get('configuration').set(inTenant('acme'))).to.have.status(403);
+      expect(await stored('mail.from')).to.deep.equal(MAIL);
+      expect(await stored('mail.from.x')).to.deep.equal(['tenant:acme false "child"']);
+      expect(await stored('db.DefaultConnection')).to.deep.equal(['tenant:acme false "sqlite"']);
+      expect(await stored('mail.templates')).to.deep.equal(['tenant:acme false {}']);
     });
 
     it('a request across all tenants reaches no row', async () => {
       expect(await req().get('configuration').set(inTenant('*'))).to.have.status(403);
       expect(await req().get('configuration/mail.from').set(inTenant('*'))).to.have.status(403);
       expect(await req().patch('configuration/mail.from').set(inTenant('*')).send({ Value: 'all@app.test' })).to.have.status(403);
-      expect(await stored('mail.from')).to.deep.equal([SHARED_MAIL, 'tenant:acme billing@acme.test', 'tenant:globex ops@globex.test']);
+      expect(await stored('mail.from')).to.deep.equal(MAIL);
     });
 
-    it('a request outside any tenant changes the shared row only', async () => {
-      expect(await req().patch('configuration/mail.from').set(JSON_HEADERS).send({ Value: 'admin@app.test' })).to.have.status(200);
-      expect(await stored('mail.from')).to.deep.equal(['shared admin@app.test', 'tenant:acme billing@acme.test', 'tenant:globex ops@globex.test']);
+    it('a request outside any tenant reads, lists and changes the shared rows only', async () => {
+      expect(field((await req().get('configuration/mail.from').set(JSON_HEADERS)).body, 'Value')).to.equal('noreply@spinajs.com');
+      const listed: unknown = (await req().get('configuration?group=mail').set(JSON_HEADERS)).body;
+      expect((Array.isArray(listed) ? listed : []).map((e: unknown) => field(e, 'Scope'))).to.deep.equal(['shared']);
+      expect(await req().patch('configuration/mail.from').set(JSON_HEADERS).send({ Value: 'admin@app.test', Scope: 'tenant:acme' })).to.have.status(200);
+      expect(await stored('mail.from')).to.deep.equal(['shared false "admin@app.test"', MAIL[1], MAIL[2]]);
     });
   });
 });

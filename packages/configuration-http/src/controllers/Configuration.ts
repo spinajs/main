@@ -5,15 +5,13 @@ import type { Permission, Principal } from '@spinajs/authz';
 import { ResourceNotFound } from '@spinajs/exceptions';
 import { Autoinject } from '@spinajs/di';
 import { DataValidator } from '@spinajs/validation';
-import { Config } from '@spinajs/configuration';
-import { DbConfig, SHARED_SCOPE } from '@spinajs/configuration-db-source';
+import { DbConfig } from '@spinajs/configuration-db-source';
 import '@spinajs/authz-orm';
 import { Log, Logger } from '@spinajs/log';
 import { UpdateConfigDto } from '../dto/update-config-dto.js';
 import { SchemaCompileError, validateEntryValue } from '../validation.js';
 import { updateEntry } from '../write.js';
-import { ConfigScopeRefused } from '../errors.js';
-import { overridableSlug, requestScope } from '../scope.js';
+import { requestScope } from '../scope.js';
 // Registers the access resource and the system-principal opt-in: the controller scan imports this file, and an app may never import the package entry.
 import '../bootstrap.js';
 
@@ -38,9 +36,8 @@ function present(entry: DbConfig) {
  * that exposes config options ( `expose: true` ), so this api intentionally does
  * NOT allow creating or deleting arbitrary entries - only tuning their values.
  *
- * A request inside a tenant scope reaches the rows of that tenant (`Scope` `tenant:<id>`) and may change only those
- * at a path of `tenancy.config.overridable`; a request outside any tenant reaches the shared rows; one across all
- * tenants reaches none. The scope is the request's tenant scope, never a field of the body or the query.
+ * It serves the shared rows (`Scope` `'shared'`) to a request outside any tenant scope and refuses every route
+ * inside one (`ConfigScopeRefused`, 403): a tenant's overrides are written through its settings, which are checked.
  *
  * Writes are persisted to the database only. The running application picks up
  * the change through the db-source watch poll, and only for entries with
@@ -55,9 +52,6 @@ export class ConfigurationController extends BaseController {
 
   @Logger('configuration-http')
   protected Log!: Log;
-
-  @Config('tenancy.config.overridable', { defaultValue: [] })
-  protected Overridable!: unknown;
 
   /**
    * List configuration entries
@@ -111,9 +105,6 @@ export class ConfigurationController extends BaseController {
   @Patch(':slug')
   @Access('configuration:update', { fields: 'filter' })
   public async update(@CurrentPrincipal() caller: Principal, @Param() slug: string, @Body() data: UpdateConfigDto) {
-    if (requestScope() !== SHARED_SCOPE && !overridableSlug(slug, this.Overridable)) {
-      throw new ConfigScopeRefused(`configuration entry ${slug} is not listed in tenancy.config.overridable: a tenant cannot change it`);
-    }
     // The response carries the entry, so updating it needs read too.
     const entry = await this.entryFor(caller, slug, ['configuration:read', 'configuration:update']);
     try {
@@ -164,7 +155,7 @@ export class ConfigurationController extends BaseController {
     return new ServerError({ error: { message: `configuration schema '${err.Slug}' is invalid` } });
   }
 
-  /** The entry by slug in the request's scope, loaded as SYSTEM, once `caller` holds each permission on it; otherwise 404, so slugs are not probed. */
+  /** The shared entry by slug, loaded as SYSTEM, once `caller` holds each permission on it; otherwise 404, so slugs are not probed. */
   private async entryFor(caller: Principal, slug: string, permissions: readonly Permission[]): Promise<DbConfig> {
     const service = authz();
     const scope = requestScope();

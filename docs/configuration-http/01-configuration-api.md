@@ -83,19 +83,18 @@ Every column of `DbConfig`, `Value` and `Default` in their canonical stored stri
 | `Type` | `"number"` | One of the entry types of `@spinajs/configuration-db-source`. |
 | `Required`, `Watch`, `Exposed` | `true` | Flags as stored. |
 | `Environment` | `null` | As stored. |
-| `Scope` | `"shared"` | `shared` outside any tenant, `tenant:<id>` inside one, see [Rows of one tenant](#rows-of-one-tenant). |
+| `Scope` | `"shared"` | Always `shared`: the api serves shared rows only, see [Rows of one tenant](#rows-of-one-tenant). |
 
 ## Rows of one tenant
 
-The routes read and write the rows of the request's scope, the tenant scope `TenantMiddleware` of `@spinajs/tenancy-http` set, never one named in the body or the query (`Scope` in a `PATCH` body is ignored):
+The routes serve the shared rows (`Scope` `'shared'`) only, and only to a request outside any tenant scope. The scope is the one `TenantMiddleware` of `@spinajs/tenancy-http` set, never one named in the body or the query (`Scope` in a `PATCH` body is ignored):
 
-| Request runs | `GET /configuration`, `GET /configuration/:slug` | `PATCH /configuration/:slug` |
-| --- | --- | --- |
-| outside any tenant | the shared rows (`Scope` `'shared'`) | a shared row |
-| in tenant `acme` | the rows of `tenant:acme` only; a slug with no row of that tenant answers `404` | a row of `tenant:acme`, and only at a path of `tenancy.config.overridable` (`403` otherwise, also for an admin); no row is created, so a slug with no row of that tenant answers `404` |
-| across all tenants (`@AllTenants`) | `403` | `403` |
+| Request runs | every route |
+| --- | --- |
+| outside any tenant | the shared rows, behind `configuration:read` and `configuration:update` |
+| in a tenant, or across all tenants (`@AllTenants`) | `403` `ConfigScopeRefused`; nothing is listed, read or written |
 
-The permissions apply in every row of the table: a principal needs `configuration:read` and `configuration:update` in a tenant as outside one. With `TenantMiddleware` mounted on every route (`http.routes.middlewares`), every request of these routes names a tenant, so the shared rows are reached only where the application serves the routes without a tenant. A tenant's row reaches the configuration through `ScopedDbConfiguration` of `@spinajs/configuration-db-source` within `configuration_db_source.scopedTtlMs` ([Rows of one scope](../configuration-db-source/01-database-source.md#rows-of-one-scope)).
+A tenant's overrides are written through its settings (`TenantSettingsService` of `@spinajs/tenancy-orm`), which checks them against the listed paths and the configuration schema. A `tenant:<id>` row of the table inserted by other means (SQL, `DbConfig.insert`) is checked only when the tenant overlay reads it ([Rows of one scope](../configuration-db-source/01-database-source.md#rows-of-one-scope)). With `TenantMiddleware` mounted on every route (`http.routes.middlewares`), every request of these routes runs in a tenant and is refused: the shared rows are reached only where the application serves the routes without a tenant.
 
 ## Errors
 
@@ -104,7 +103,7 @@ The permissions apply in every row of the table: a principal needs `configuratio
 | `400` | `Value` / `Default` breaks the type, `Meta` or slug schema | `{ error: { message: "Value is invalid" } }` ([message format](02-value-validation.md#error-messages)) |
 | `400` | Body field outside `fields.write` (reject mode), or DTO schema failure | authz-http / http error body |
 | `401` | No principal | authz-http error body |
-| `403` | No route permission; list refused by the list plan; `ConfigWriteRefused`; `ConfigScopeRefused` (a request across all tenants, or a tenant writing a path outside `tenancy.config.overridable`) | authz-http error body |
+| `403` | No route permission; list refused by the list plan; `ConfigWriteRefused`; `ConfigScopeRefused` (a request inside a tenant scope or across all tenants) | authz-http error body |
 | `404` | Unknown slug, or the row check refused it | `configuration entry <slug> not found` |
 | `500` | The slug schema cannot be compiled | `{ error: { message: "configuration schema '<slug>' is invalid" } }` |
 

@@ -226,7 +226,7 @@ The migration `configuration_db_source_2026_11_26_00_00_00` adds the column (`'s
 
 Write rows of a scope only once every replica runs this release. An older release does not know `Scope` and loads every row into the shared configuration, so a tenant's row would become the shared value there. Before rolling back to it, run the migration's `down`, which deletes the scoped rows.
 
-[`@spinajs/configuration-http`](../configuration-http/01-configuration-api.md#rows-of-one-tenant) reaches the rows of the request's scope: a tenant's rows inside a tenant, the shared rows outside any.
+[`@spinajs/configuration-http`](../configuration-http/01-configuration-api.md#rows-of-one-tenant) lists, reads and updates shared rows only, and refuses every route inside a tenant scope: a tenant's overrides are written through its settings (`TenantSettingsService`).
 
 ## Related
 
