@@ -15,6 +15,7 @@ import 'mocha';
 import { req, seed, testConfig } from './common.js';
 import { startApp, stopApp } from './support/app.js';
 import { registerHeaderSource } from './support/principals.js';
+import { TestTenantScope } from './support/tenant-scope.js';
 import { ConfigurationController } from '../src/controllers/Configuration.js';
 import '../src/bootstrap.js';
 import configurationHttpConfig from '../src/config/configuration-http.js';
@@ -75,7 +76,7 @@ describe('configuration-http api', function () {
     const model = new ListStaticModel({ name: 'config-votes', votes, capabilities: { fields: true }, lists: { 'configuration:read': listPlan } });
     await startApp({
       controllers: [ConfigurationController],
-      config: { ...testConfig(), 'authz.models': [model.name] },
+      config: { ...testConfig(), 'authz.models': [model.name], 'http.routes.middlewares': [TestTenantScope], 'tenancy.config.overridable': ['mail.from', 'app.maxUsers'] },
       // the db-source one installs a watch timer that would keep the event loop alive
       skip: ['DbConfigSourceBotstrapper'],
     });
@@ -138,6 +139,18 @@ describe('configuration-http api', function () {
     it('returns 404 for unknown slug', async () => {
       const res = await req().get('configuration/does.not.exist').set(JSON_HEADERS);
       expect(res).to.have.status(404);
+    });
+
+    it('reads and lists the shared row when a row of one scope has the same slug', async () => {
+      await authz().runAs(SYSTEM, 'test', async () => {
+        await DbConfig.insert({ Slug: 'app.name', Value: 'acme', Group: 'app', Type: 'string', Watch: false, Exposed: true, Scope: 'tenant:acme' });
+      });
+
+      const one = await req().get('configuration/app.name').set(JSON_HEADERS);
+      expect(one.body.Value).to.equal('spinajs');
+      expect(one.body.Scope).to.equal('shared');
+      const all = await req().get('configuration').set(JSON_HEADERS);
+      expect(all.body).to.be.an('array').with.lengthOf(11);
     });
   });
 
@@ -431,6 +444,73 @@ describe('configuration-http api', function () {
       const one = await req('masked').get('configuration/app.name').set(JSON_HEADERS);
       expect(one).to.have.status(200);
       expect(one.body).to.deep.equal({ Slug: 'app.name', Group: 'app', Type: 'string', Label: 'App name' });
+    });
+  });
+
+  // TestTenantScope stands for TenantMiddleware; tenancy.config.overridable is ['mail.from', 'app.maxUsers'].
+  describe('rows of one tenant', () => {
+    const inTenant = (tenant: string) => ({ ...JSON_HEADERS, 'x-tenant': tenant });
+    const tenantRow = (Slug: string, Value: string, tenant: string) => ({ Slug, Value, Group: 'mail', Type: 'string', Watch: false, Exposed: true, Scope: `tenant:${tenant}` });
+    const stored = (slug: string) => authz().runAs(SYSTEM, 'test', async () => (await DbConfig.where('Slug', slug)).map((e) => `${e.Scope} ${String(e.Value)}`).sort());
+    const SHARED_MAIL = 'shared noreply@spinajs.com';
+
+    beforeEach(async () => {
+      await authz().runAs(SYSTEM, 'test', async () => {
+        await DbConfig.insert(tenantRow('mail.from', 'billing@acme.test', 'acme'));
+        await DbConfig.insert(tenantRow('mail.from', 'ops@globex.test', 'globex'));
+        await DbConfig.insert(tenantRow('app.name', 'acme app', 'acme'));
+      });
+    });
+
+    it("a read in a tenant answers that tenant's row, never another tenant's nor a shared one", async () => {
+      expect((await req().get('configuration/mail.from').set(inTenant('acme'))).body.Value).to.equal('billing@acme.test');
+      expect((await req().get('configuration/mail.from').set(inTenant('globex'))).body.Value).to.equal('ops@globex.test');
+      expect(await req().get('configuration/app.maxUsers').set(inTenant('acme'))).to.have.status(404);
+      expect(await req().get('configuration/mail.from').set(inTenant('initech'))).to.have.status(404);
+    });
+
+    it('a tenant lists its own rows only', async () => {
+      const acme = await req().get('configuration').set(inTenant('acme'));
+      expect(acme).to.have.status(200);
+      expect(acme.body.map((e: { Scope: string; Slug: string }) => `${e.Scope} ${e.Slug}`).sort()).to.deep.equal(['tenant:acme app.name', 'tenant:acme mail.from']);
+      expect((await req().get('configuration?group=mail').set(inTenant('initech'))).body).to.deep.equal([]);
+    });
+
+    it("a write in a tenant changes that tenant's row only, whatever the body or the query name", async () => {
+      const res = await req().patch('configuration/mail.from?Scope=tenant:globex&tenant=globex').set(inTenant('acme')).send({ Value: 'new@acme.test', Scope: 'tenant:globex' });
+
+      expect(res).to.have.status(200);
+      expect(res.body.Scope).to.equal('tenant:acme');
+      expect(await stored('mail.from')).to.deep.equal([SHARED_MAIL, 'tenant:acme new@acme.test', 'tenant:globex ops@globex.test']);
+    });
+
+    it('a write in a tenant creates no row and never reaches a shared one', async () => {
+      expect(await req().patch('configuration/app.maxUsers').set(inTenant('acme')).send({ Value: 99 })).to.have.status(404);
+      expect(await stored('app.maxUsers')).to.deep.equal(['shared 10']);
+    });
+
+    it('a path outside tenancy.config.overridable is refused for a tenant, even to its admin', async () => {
+      const res = await req().patch('configuration/app.name').set(inTenant('acme')).send({ Value: 'changed' });
+
+      expect(res).to.have.status(403);
+      expect(await stored('app.name')).to.deep.equal(['shared spinajs', 'tenant:acme acme app']);
+    });
+
+    it('a principal without the permission is refused in a tenant too', async () => {
+      expect(await req('alice').patch('configuration/mail.from').set(inTenant('acme')).send({ Value: 'x@acme.test' })).to.have.status(403);
+      expect(await req('alice').get('configuration').set(inTenant('acme'))).to.have.status(403);
+    });
+
+    it('a request across all tenants reaches no row', async () => {
+      expect(await req().get('configuration').set(inTenant('*'))).to.have.status(403);
+      expect(await req().get('configuration/mail.from').set(inTenant('*'))).to.have.status(403);
+      expect(await req().patch('configuration/mail.from').set(inTenant('*')).send({ Value: 'all@app.test' })).to.have.status(403);
+      expect(await stored('mail.from')).to.deep.equal([SHARED_MAIL, 'tenant:acme billing@acme.test', 'tenant:globex ops@globex.test']);
+    });
+
+    it('a request outside any tenant changes the shared row only', async () => {
+      expect(await req().patch('configuration/mail.from').set(JSON_HEADERS).send({ Value: 'admin@app.test' })).to.have.status(200);
+      expect(await stored('mail.from')).to.deep.equal(['shared admin@app.test', 'tenant:acme billing@acme.test', 'tenant:globex ops@globex.test']);
     });
   });
 });

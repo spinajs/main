@@ -13,6 +13,7 @@ import { extractModelDescriptor, InsertBehaviour, Orm } from '@spinajs/orm';
 import { InternalLogger } from '@spinajs/internal-logger';
 import { normalizeFileEntryOptions } from './file.js';
 import { asSystem } from './system.js';
+import { SHARED_SCOPE } from './scoped.js';
 
 /**
  * watch interval, default 3 min
@@ -196,7 +197,7 @@ export class DbConfigSourceBotstrapper extends Bootstrapper {
       return;
     }
 
-    const row = await asSystem(() => DbConfig.where('Slug', v.path).first(), this.authzDomain);
+    const row = await asSystem(() => DbConfig.where('Slug', v.path).where('Scope', SHARED_SCOPE).first(), this.authzDomain);
     if (!row) {
       return;
     }
@@ -230,7 +231,7 @@ export class DbConfigSourceBotstrapper extends Bootstrapper {
     try {
       await this.saveConfigOptions(v);
 
-      const stored = await asSystem(() => DbConfig.where('Slug', v.path).first(), this.authzDomain);
+      const stored = await asSystem(() => DbConfig.where('Slug', v.path).where('Scope', SHARED_SCOPE).first(), this.authzDomain);
       // the source skips rows an admin un-exposed, so their value must not reach the config here either
       if (!stored || stored.Exposed) {
         DI.get(Configuration)!.set(v.path, stored?.Value ?? v.options.defaultValue);
@@ -253,7 +254,7 @@ export class DbConfigSourceBotstrapper extends Bootstrapper {
     const cService = this.configuration ?? DI.get(Configuration)!;
 
     try {
-      const result = await asSystem(() => DbConfig.select().whereIn('Slug', [...this.watchedSlugs]), this.authzDomain);
+      const result = await asSystem(() => DbConfig.select().whereIn('Slug', [...this.watchedSlugs]).where('Scope', SHARED_SCOPE), this.authzDomain);
       result.filter((r) => Boolean(r.Exposed)).forEach((r) => this.applyWatched(cService, r));
     } catch (err) {
       InternalLogger.error({ error: err }, 'Failed to refresh watched config values from db', LOG_CHANNEL);

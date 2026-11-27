@@ -47,6 +47,9 @@ export class DbConfig<T = unknown> extends ModelBase {
   public Default?: T;
 
   public Environment?: string;
+
+  /** SHARED_SCOPE ('shared') for the shared configuration; `tenant:<id>` for a row only that tenant reads (through an overlay). */
+  public Scope!: string;
 }
 
 /**

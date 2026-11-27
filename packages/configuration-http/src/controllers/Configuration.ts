@@ -5,12 +5,15 @@ import type { Permission, Principal } from '@spinajs/authz';
 import { ResourceNotFound } from '@spinajs/exceptions';
 import { Autoinject } from '@spinajs/di';
 import { DataValidator } from '@spinajs/validation';
-import { DbConfig } from '@spinajs/configuration-db-source';
+import { Config } from '@spinajs/configuration';
+import { DbConfig, SHARED_SCOPE } from '@spinajs/configuration-db-source';
 import '@spinajs/authz-orm';
 import { Log, Logger } from '@spinajs/log';
 import { UpdateConfigDto } from '../dto/update-config-dto.js';
 import { SchemaCompileError, validateEntryValue } from '../validation.js';
 import { updateEntry } from '../write.js';
+import { ConfigScopeRefused } from '../errors.js';
+import { overridableSlug, requestScope } from '../scope.js';
 // Registers the access resource and the system-principal opt-in: the controller scan imports this file, and an app may never import the package entry.
 import '../bootstrap.js';
 
@@ -35,6 +38,10 @@ function present(entry: DbConfig) {
  * that exposes config options ( `expose: true` ), so this api intentionally does
  * NOT allow creating or deleting arbitrary entries - only tuning their values.
  *
+ * A request inside a tenant scope reaches the rows of that tenant (`Scope` `tenant:<id>`) and may change only those
+ * at a path of `tenancy.config.overridable`; a request outside any tenant reaches the shared rows; one across all
+ * tenants reaches none. The scope is the request's tenant scope, never a field of the body or the query.
+ *
  * Writes are persisted to the database only. The running application picks up
  * the change through the db-source watch poll, and only for entries with
  * `Watch = true`.
@@ -49,6 +56,9 @@ export class ConfigurationController extends BaseController {
   @Logger('configuration-http')
   protected Log!: Log;
 
+  @Config('tenancy.config.overridable', { defaultValue: [] })
+  protected Overridable!: unknown;
+
   /**
    * List configuration entries
    * Returns all database stored configuration entries, optionally filtered by group.
@@ -61,7 +71,7 @@ export class ConfigurationController extends BaseController {
   @Get('/')
   @Access('configuration:read', { fields: 'filter' })
   public async list(@Query() group?: string) {
-    const query = group ? DbConfig.where('Group', group) : DbConfig.query();
+    const query = (group ? DbConfig.where('Group', group) : DbConfig.query()).where('Scope', requestScope());
     const entries = await query.accessible('configuration:read');
     return new Ok(entries.map((e) => present(e)));
   }
@@ -101,6 +111,9 @@ export class ConfigurationController extends BaseController {
   @Patch(':slug')
   @Access('configuration:update', { fields: 'filter' })
   public async update(@CurrentPrincipal() caller: Principal, @Param() slug: string, @Body() data: UpdateConfigDto) {
+    if (requestScope() !== SHARED_SCOPE && !overridableSlug(slug, this.Overridable)) {
+      throw new ConfigScopeRefused(`configuration entry ${slug} is not listed in tenancy.config.overridable: a tenant cannot change it`);
+    }
     // The response carries the entry, so updating it needs read too.
     const entry = await this.entryFor(caller, slug, ['configuration:read', 'configuration:update']);
     try {
@@ -151,10 +164,11 @@ export class ConfigurationController extends BaseController {
     return new ServerError({ error: { message: `configuration schema '${err.Slug}' is invalid` } });
   }
 
-  /** The entry by slug, loaded as SYSTEM, once `caller` holds each permission on it; otherwise 404, so slugs are not probed. */
+  /** The entry by slug in the request's scope, loaded as SYSTEM, once `caller` holds each permission on it; otherwise 404, so slugs are not probed. */
   private async entryFor(caller: Principal, slug: string, permissions: readonly Permission[]): Promise<DbConfig> {
     const service = authz();
-    const entry = await service.runAs(SYSTEM, 'configuration-http:load', () => DbConfig.where('Slug', slug).first());
+    const scope = requestScope();
+    const entry = await service.runAs(SYSTEM, 'configuration-http:load', () => DbConfig.where('Slug', slug).where('Scope', scope).first());
     if (!entry) throw new ResourceNotFound(`configuration entry ${slug} not found`);
     const ref = { type: 'configuration', id: String(entry.Id) };
     for (const permission of permissions) {
