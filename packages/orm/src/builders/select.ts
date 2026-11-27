@@ -568,13 +568,15 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
   /**
    * Like {@link mergeStatements}, but the WHERE statements `filter` keeps arrive as one AND group, so an
    * `orWhere()` among them cannot widen this query past its own conditions. Aggregate statements, which a WHERE
-   * group would drop, and the groups `builder` took over from its nested relations stay flat beside it.
+   * group would drop, and the groups `builder` took over from its nested relations stay flat beside it. The group is
+   * marked as a condition the ORM added, so an `orWhere()` of this query cannot capture it either.
    */
   public mergeStatementsAsGroup(builder: SelectQueryBuilder, filter: (statement: IQueryStatement) => boolean) {
     const grouped = builder._statements.filter((s) => filter(s) && builder._ownsCondition(s));
     if (grouped.length > 0) {
       const group = new WhereBuilder<T>(builder as unknown as WhereBuilder<T>).adopt(grouped);
       const statement = this._container.resolve<WhereQueryStatement>(WhereQueryStatement, [group, false]);
+      statement.Scope = true;
       this._markMerged([statement]);
       markRelationGroup(statement);
       this._statements.push(statement);

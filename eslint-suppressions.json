@@ -6678,10 +6678,10 @@
       "count": 1
     },
     "@typescript-eslint/no-unsafe-call": {
-      "count": 4
+      "count": 3
     },
     "@typescript-eslint/no-unsafe-member-access": {
-      "count": 18
+      "count": 14
     },
     "@typescript-eslint/no-unsafe-return": {
       "count": 4

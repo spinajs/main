@@ -278,7 +278,7 @@ describe('the relation condition stays outside an OR of the application', functi
   });
 
   it('lazy belongsTo: an OR of the callback does not capture the key condition', async () => {
-    const item = (await UowOrderItem.where('Id', 2).first())!;
+    const item = await UowOrderItem.where('Id', 2).firstOrFail();
     const capture = captureStatements();
     await item.Order.populate(function () {
       this.where('Total', 20).orWhere('Total', 10);
@@ -290,7 +290,7 @@ describe('the relation condition stays outside an OR of the application', functi
   });
 
   it('lazy hasMany: an OR of the callback does not capture the key condition', async () => {
-    const order = (await UowOrder.where('Id', 1).first())!;
+    const order = await UowOrder.where('Id', 1).firstOrFail();
     const capture = captureStatements();
     await order.Items.populate(function () {
       this.where('Sku', 'A').orWhere('Sku', 'B');
@@ -302,7 +302,7 @@ describe('the relation condition stays outside an OR of the application', functi
   });
 
   it('lazy hasMany: a raw OR of the callback does not capture the key condition', async () => {
-    const order = (await UowOrder.where('Id', 1).first())!;
+    const order = await UowOrder.where('Id', 1).firstOrFail();
     await order.Items.populate(function () {
       this.where(RawQuery.create("Sku = 'A' OR Sku = 'B'"));
     });
@@ -311,7 +311,7 @@ describe('the relation condition stays outside an OR of the application', functi
   });
 
   it('lazy hasMany: withDeleted() in the callback removes the soft-delete filter only, not the key condition', async () => {
-    const owner = (await PcgOwner.where('Id', 1).first())!;
+    const owner = await PcgOwner.where('Id', 1).firstOrFail();
     await owner.Notes.populate(function () {
       this.where('Title', 'a').orWhere('Title', 'b');
     });
@@ -324,7 +324,7 @@ describe('the relation condition stays outside an OR of the application', functi
   });
 
   it('lazy: keeps the SQL of a callback without a top-level OR', async () => {
-    const order = (await UowOrder.where('Id', 1).first())!;
+    const order = await UowOrder.where('Id', 1).firstOrFail();
     const capture = captureStatements();
     await order.Items.populate(function () {
       this.where('Sku', 'A');
