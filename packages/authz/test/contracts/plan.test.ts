@@ -3,7 +3,7 @@ import 'mocha';
 
 import * as authz from '../../src/index.js';
 import { AuthorizationModel, ResourceAdapter, FALSE, GLOBAL, TRUE, UNATTENDED, resourceKey } from '../../src/index.js';
-import type { AccessPlan, DecisionRequest, DenyReason, EvaluationContext, ListPlanRequest, ListSupport, ListSupportContext, ModelCapabilities, ModelInitContext, ModelListPlan, PermissionDef, PlanTerm, Principal, ResourceRef, ResourceType, Vote } from '../../src/index.js';
+import type { AccessPlan, AccessPlanCache, DecisionRequest, DenyReason, EvaluationContext, ListPlanRequest, ListSupport, ListSupportContext, ModelCapabilities, ModelInitContext, ModelListPlan, PermissionDef, PlanTerm, Principal, ResourceRef, ResourceType, Vote } from '../../src/index.js';
 
 const expect = chai.expect;
 
@@ -121,13 +121,14 @@ describe('list plan contracts', () => {
     yes<
       Equal<
         AccessPlan,
-        | { readonly kind: 'none'; readonly reason: DenyReason }
-        | { readonly kind: 'filter'; readonly permit: 'all' | readonly PlanTerm[]; readonly deny: readonly PlanTerm[]; readonly within?: readonly ResourceRef[]; readonly validUntil?: Date }
+        | { readonly kind: 'none'; readonly reason: DenyReason; readonly cache?: AccessPlanCache }
+        | { readonly kind: 'filter'; readonly permit: 'all' | readonly PlanTerm[]; readonly deny: readonly PlanTerm[]; readonly within?: readonly ResourceRef[]; readonly validUntil?: Date; readonly cache?: AccessPlanCache }
       >
     >();
+    yes<Equal<AccessPlanCache, { readonly key: string; readonly tags: readonly string[]; readonly ttlMs: number }>>();
     yes<Equal<ListSupport, true | { readonly reason: string }>>();
     yes<Equal<ListPlanRequest, { readonly principal: Principal; readonly actor?: Principal; readonly permission: PermissionDef; readonly type: ResourceType; readonly env?: Readonly<Record<string, unknown>>; readonly fresh?: boolean }>>();
-    yes<Equal<Pick<AuthorizationModel, 'listSupport' | 'listPlan'>, { listSupport?: (permission: PermissionDef, type: ResourceType, ctx?: ListSupportContext) => ListSupport; listPlan?: (req: ListPlanRequest, ctx: EvaluationContext) => Promise<ModelListPlan> }>>();
+    yes<Equal<Pick<AuthorizationModel, 'listSupport' | 'listPlan' | 'listPlanCacheable'>, { listSupport?: (permission: PermissionDef, type: ResourceType, ctx?: ListSupportContext) => ListSupport; listPlan?: (req: ListPlanRequest, ctx: EvaluationContext) => Promise<ModelListPlan>; listPlanCacheable?: (permission: PermissionDef, type: ResourceType) => boolean }>>();
     yes<Equal<Pick<ResourceAdapter, 'loadMany' | 'ancestorsMany'>, { loadMany?: (refs: readonly ResourceRef[]) => Promise<ReadonlyMap<string, unknown>>; ancestorsMany?: (refs: readonly ResourceRef[]) => Promise<ReadonlyMap<string, readonly ResourceRef[] | null>> }>>();
     expect(true).to.equal(true);
   });
