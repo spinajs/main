@@ -1684,14 +1684,6 @@
       "count": 3
     }
   },
-  "packages/authz-rbac/src/model/cache.ts": {
-    "promise/always-return": {
-      "count": 1
-    },
-    "promise/catch-or-return": {
-      "count": 1
-    }
-  },
   "packages/authz-rbac/src/model/contributor.ts": {
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 1
