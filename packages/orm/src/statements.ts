@@ -34,8 +34,9 @@ export interface IQueryStatement {
   // instead of parent query WHERE ( a statement's own clone() drops it, SelectQueryBuilder.clone() copies it )
   OnJoin?: boolean;
 
-  // a default filter createQuery added (soft delete, archive): compiled ANDed with the other statements as one group,
-  // removed only by withDeleted() / withArchived() ( SelectQueryBuilder.clone() and WhereBuilder.clone() copy it )
+  // a condition the ORM added (createQuery's soft-delete and archive filters, a keyset page predicate): compiled ANDed
+  // with the other statements as one group; withDeleted() / withArchived() remove only a marked filter on their column
+  // ( SelectQueryBuilder.clone() and WhereBuilder.clone() copy it )
   Scope?: boolean;
 
   /** The statements this one holds: a group's conditions, a join's ON conditions and the joins nested in it. */

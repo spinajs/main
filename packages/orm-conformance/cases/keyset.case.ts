@@ -1,4 +1,4 @@
-import type { IKeysetPageOptions, KeysetPage } from '@spinajs/orm';
+import type { IKeysetPageOptions, ISelectQueryBuilder, KeysetPage } from '@spinajs/orm';
 
 import { CfPost, defineCase } from '../src/index.js';
 import { BASE } from './seeds.js';
@@ -8,11 +8,11 @@ type Order = IKeysetPageOptions<CfPost>['orderBy'];
 const MAX_PAGES = 50;
 const titles = (page: KeysetPage<CfPost>) => page.items.map((p) => p.Title);
 
-async function walkForward(orderBy: Order, limit: number, after?: string): Promise<string[][]> {
+async function walkForward(orderBy: Order, limit: number, after?: string, query: () => ISelectQueryBuilder<CfPost[]> = () => CfPost.query()): Promise<string[][]> {
   const pages: string[][] = [];
   let cursor = after;
   for (let i = 0; i < MAX_PAGES; i++) {
-    const page = await CfPost.query().paginate({ orderBy, limit, after: cursor });
+    const page = await query().paginate({ orderBy, limit, after: cursor });
     pages.push(titles(page));
     if (page.next === null) {
       return pages;
@@ -84,5 +84,13 @@ export const KEYSET_CASES = [
         return err instanceof Error ? err.constructor.name : typeof err;
       }
     },
+  }),
+  // a top-level OR: page 2 once compiled `UserId = ? OR UserId = ? AND ( keyset )`, which loops on Hello
+  defineCase({
+    name: 'keyset-top-level-or',
+    seed: BASE,
+    order: 'ordered',
+    expected: [['Dora 1'], ['Dora 2'], ['Hello'], ['Second']],
+    run: () => walkForward([['Views', 'desc']], 1, undefined, () => CfPost.where('UserId', 1).orWhere('UserId', 4)),
   }),
 ];
