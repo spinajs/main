@@ -1402,9 +1402,6 @@
   "packages/authz-orm/src/guard/middleware.ts": {
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 2
-    },
-    "complexity": {
-      "count": 1
     }
   },
   "packages/authz-orm/src/host.ts": {

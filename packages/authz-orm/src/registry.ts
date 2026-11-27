@@ -26,6 +26,8 @@ export interface ResourceEntry {
   /** Named column relations (`@Relation`), each like `owner`: a user id column, or an id column plus a principal type column. */
   readonly relations?: Readonly<Record<string, OwnerColumns>>;
   readonly idColumn: string;
+  /** Every primary-key column, `idColumn` first. */
+  readonly idColumns: readonly string[];
   /** `@AccessResource(type, { rls })`: the table gets row level security from `authz:rls`. */
   readonly rls?: true | 'partial';
   /** False when `@AccessResource(type, { changelog: false })` keeps the relation columns out of the changelog. */
@@ -220,11 +222,11 @@ export function addParent(model: ModelClass, parent: ParentEntry): void {
   entries = new WeakMap();
 }
 
-function pkOf(model: ModelClass): string {
+function pkOf(model: ModelClass): string[] {
   const pk = extractModelDescriptor(model as never)?.PrimaryKey as unknown;
-  const name = Array.isArray(pk) ? pk[0] : pk;
-  if (typeof name !== 'string' || name === '') throw new AuthzConfigError(`authz-orm: @AccessResource model ${nameOf(model)} has no primary key`);
-  return name;
+  const names: unknown[] = Array.isArray(pk) ? pk : [pk];
+  if (names.length === 0 || !names.every((n): n is string => typeof n === 'string' && n !== '')) throw new AuthzConfigError(`authz-orm: @AccessResource model ${nameOf(model)} has no primary key`);
+  return names;
 }
 
 /** The `@Relation` columns named `name`; inherited Object.prototype members never count. */
@@ -281,6 +283,7 @@ function buildEntry(model: ModelClass): ResourceEntry | undefined {
   owner ??= r.owner;
   self ??= r.self;
 
+  const idColumns = Object.freeze(pkOf(model));
   return Object.freeze({
     registered,
     type: r.type,
@@ -288,7 +291,8 @@ function buildEntry(model: ModelClass): ResourceEntry | undefined {
     ...(owner !== undefined ? { owner: Object.freeze({ property: owner.column, column: owner.column, ...(owner.typeColumn !== undefined ? { typeColumn: owner.typeColumn } : {}) }) } : {}),
     ...(self !== undefined ? { self: Object.freeze({ column: self }) } : {}),
     ...(relations.size > 0 ? { relations: Object.freeze(Object.fromEntries([...relations].map(([n, c]) => [n, Object.freeze({ column: c.column, ...(c.typeColumn !== undefined ? { typeColumn: c.typeColumn } : {}) })]))) } : {}),
-    idColumn: pkOf(model),
+    idColumn: idColumns[0],
+    idColumns,
     ...(r.rls !== undefined ? { rls: r.rls } : {}),
     changelog: r.changelog,
   });
