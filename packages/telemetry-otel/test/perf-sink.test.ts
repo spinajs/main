@@ -2,6 +2,7 @@ import 'mocha';
 import { AsyncLocalStorage, createHook } from 'node:async_hooks';
 import { createServer } from 'node:http';
 import { expect } from 'chai';
+import { ExportResultCode } from '@opentelemetry/core';
 import { AggregationTemporality, DataPointType, MetricReader, PeriodicExportingMetricReader } from '@opentelemetry/sdk-metrics';
 import type { MetricData, PushMetricExporter, ResourceMetrics } from '@opentelemetry/sdk-metrics';
 import { DI } from '@spinajs/di';
@@ -24,8 +25,7 @@ class BrokenExporter implements PushMetricExporter {
   public export(_metrics: ResourceMetrics, done: ExportDone): void {
     this.calls++;
     if (this.mode === 'throw') throw new Error('collector down');
-    // 1 is ExportResultCode.FAILED of @opentelemetry/core, which this package does not depend on
-    if (this.mode === 'fail') done({ code: 1, error: new Error('503') });
+    if (this.mode === 'fail') done({ code: ExportResultCode.FAILED, error: new Error('503') });
   }
   public async forceFlush(): Promise<void> {}
   public async shutdown(): Promise<void> {}
@@ -300,7 +300,7 @@ describe('OtelPerfSink', () => {
     const recording: PushMetricExporter = {
       export: (_metrics, done) => {
         stores.push(als.getStore());
-        done({ code: 0 });
+        done({ code: ExportResultCode.SUCCESS });
       },
       forceFlush: async () => undefined,
       shutdown: async () => undefined,

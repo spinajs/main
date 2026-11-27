@@ -6,6 +6,7 @@ import { Log, Logger, PerfSink } from '@spinajs/log';
 import type { IPerfMetric } from '@spinajs/log';
 import { readTracingOptions } from '@spinajs/tracing';
 import type { Attributes, Counter, Gauge, Histogram, Meter } from '@opentelemetry/api';
+import { ExportResultCode } from '@opentelemetry/core';
 import { MeterProvider, PeriodicExportingMetricReader } from '@opentelemetry/sdk-metrics';
 import type { MetricReader, PushMetricExporter, ResourceMetrics } from '@opentelemetry/sdk-metrics';
 import { OTLPMetricExporter } from '@opentelemetry/exporter-metrics-otlp-http';
@@ -217,8 +218,7 @@ class FailureLoggingExporter implements PushMetricExporter {
 
   public export(metrics: ResourceMetrics, done: ExportDone): void {
     this.inner.export(metrics, (result) => {
-      // 0 is ExportResultCode.SUCCESS of @opentelemetry/core, which this package does not depend on.
-      if (result.code === 0) {
+      if (result.code === ExportResultCode.SUCCESS) {
         this.failing = false;
       } else if (!this.failing) {
         this.failing = true;
