@@ -15,6 +15,10 @@
     { "path": "../tenancy/tsconfig.json" },
     { "path": "../log/tsconfig.json" },
     { "path": "../orm-sqlite/tsconfig.json" },
-    { "path": "../testing/tsconfig.json" }
+    { "path": "../testing/tsconfig.json" },
+    { "path": "../authz/tsconfig.json" },
+    { "path": "../authz-orm/tsconfig.json" },
+    { "path": "../authz-rbac/tsconfig.json" },
+    { "path": "../authz-testing/tsconfig.json" }
   ]
 }
