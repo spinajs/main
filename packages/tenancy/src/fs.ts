@@ -462,7 +462,7 @@ export class TenantFsLayer extends FsProviderLayer {
 /**
  * Refuses an action on a prefixed provider outside a tenant scope, before any other middleware runs; inside a tenant, an
  * action that reaches tenants' files without the view (a listed provider's shared files through publishedFs() or a kept
- * instance, another tenant's dedicated provider), and an unzip into a tenant's whole root (defence in depth: the
+ * instance, a dedicated provider by its own name), and an unzip into a tenant's whole root (defence in depth: the
  * extractor skips '../' entries; lifted once `@spinajs/fs` checks entry names itself).
  */
 @Injectable(FsMiddleware)
@@ -473,20 +473,20 @@ export class TenantFsGuard extends FsMiddleware {
   protected Section!: unknown;
 
   public override isEnabled(provider: fs): boolean {
-    return provider instanceof TenantFs || this.tenantFiles(provider.Name, undefined);
+    return provider instanceof TenantFs || this.tenantFiles(provider.Name);
   }
 
   public before(ctx: FsActionContext): Promise<void> {
     const providers = [ctx.fs, ...ctx.targets.map((target) => target.fs)];
     const scope = tenantScope();
     const tenant = scope?.kind === 'tenant' ? scope.tenant.id : undefined;
-    const shared = providers.filter((provider) => !(provider instanceof TenantFs) && this.tenantFiles(provider.Name, tenant));
+    const shared = providers.filter((provider) => !(provider instanceof TenantFs) && this.tenantFiles(provider.Name));
     if (shared.length > 0) assertTenantFsLayerLast();
     for (const provider of providers) {
       if (provider instanceof TenantFs) tenantOf(provider.Name);
     }
     if (shared.length > 0 && tenant !== undefined) {
-      throw new InvalidOperation(`fs "${shared[0].Name}" holds tenants' files, and this ${ctx.action} in tenant "${tenant}" reached them without the tenant's view (publishedFs(), a kept instance or another tenant's dedicated provider); use getFs() of the listed provider`);
+      throw new InvalidOperation(`fs "${shared[0].Name}" holds tenants' files, and this ${ctx.action} in tenant "${tenant}" reached them without the tenant's view (publishedFs(), a kept instance or a dedicated provider's own name); use getFs() of the listed provider`);
     }
     const destination = ctx.action === 'unzip' ? ctx.targets[1] : undefined;
     const mapped = destination?.fs instanceof TenantFs ? destination.fs.target(destination.path) : undefined;
@@ -496,9 +496,9 @@ export class TenantFsGuard extends FsMiddleware {
     return Promise.resolve();
   }
 
-  // A listed provider's shared files, and every dedicated provider but the one of `tenant`.
-  private tenantFiles(name: string, tenant: string | undefined): boolean {
+  // A listed provider's shared files, and every dedicated provider: inside a tenant both are reached through the view only.
+  private tenantFiles(name: string): boolean {
     const { prefixed, dedicated } = tenantFsSettings(this.Section);
-    return prefixed.has(name) || [...dedicated.values()].some((own) => [...own].some(([owner, provider]) => provider === name && owner !== tenant));
+    return prefixed.has(name) || [...dedicated.values()].some((own) => [...own.values()].includes(name));
   }
 }
