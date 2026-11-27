@@ -25,9 +25,9 @@ describe('N+1 rules ORM101 and ORM102', () => {
   const { strict, diagnostics } = analyze('pkg-n-plus-one');
   const inCases = diagnostics.filter((d) => d.source?.file === 'src/cases.ts');
 
-  it('has 12 positive and 13 negative cases', () => {
+  it('has 13 positive and 13 negative cases', () => {
     const text = readFileSync(CASES, 'utf8');
-    expect(text.match(/export (async )?function positive\d\d/g)).to.have.length(12);
+    expect(text.match(/export (async )?function positive\d\d/g)).to.have.length(13);
     expect(text.match(/export (async )?function negative\d\d/g)).to.have.length(13);
   });
 

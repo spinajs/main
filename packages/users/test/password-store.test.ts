@@ -237,7 +237,7 @@ describe('UserPasswordStore', function () {
       expect(await mysql.set({ type: 'user', id: uuid }, HASH_2, HASH_1)).to.eq(true);
       expect(await mysql.set({ type: 'user', id: uuid }, HASH_2, HASH_1)).to.eq(false);
       expect(driver.stored).to.eq(HASH_2);
-      expect(driver.conditions[0]).to.eq('`Password` = CAST(? AS BINARY)');
+      expect(driver.conditions[0]).to.eq('CAST(`Password` AS BINARY) = CAST(? AS BINARY)');
     });
   });
 });
