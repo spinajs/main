@@ -108,6 +108,25 @@ describe('files per tenant: behaviour', function () {
     expect(readFileSync(tenantFile('gamma', 'd.txt'), 'utf-8')).to.equal('D');
     expect(existsSync(tenantFile('gamma', 'b.txt'))).to.equal(false);
   });
+
+  it('a path the view returns can be passed back to it; another tenant still reads only its own files', async () => {
+    await runInTenant('acme', async () => {
+      const files = getFs('uploads');
+      await files.write('a.txt', 'A');
+      expect(await files.read(await files.download('a.txt'), 'utf-8')).to.equal('A');
+      expect(await files.read(files.resolvePath('a.txt'), 'utf-8')).to.equal('A');
+      expect(files.resolvePath(files.resolvePath('a.txt'))).to.equal(files.resolvePath('a.txt'));
+      await files.zip('a.txt', files, 'own.zip');
+      expect(await files.list(await files.unzip('own.zip', 'u'))).to.deep.equal(['a.txt']);
+    });
+    await runInTenant('bigcorp', async () => {
+      await getFs('uploads').write('logo.png', 'B');
+      expect(await getFs('uploads').read(await getFs('uploads').download('logo.png'), 'utf-8')).to.equal('B');
+    });
+    const acmeFile = tenantFile('acme', 'a.txt');
+    expect(await runInTenant('beta', () => getFs('uploads').exists(acmeFile))).to.equal(false);
+    await expect(runInTenant('beta', () => getFs('uploads').read(join(bucket, 'logo.png')))).to.be.rejected;
+  });
 });
 
 describe('files per tenant: nothing listed', function () {

@@ -6,7 +6,7 @@ import { Config, Configuration } from '@spinajs/configuration';
 import { DI, Injectable, isConstructor } from '@spinajs/di';
 import { InvalidArgument, InvalidOperation, InvalidOption } from '@spinajs/exceptions';
 import { FsMiddleware, FsProviderLayer, fs, fsNative, normalizeFsPath, publishedFs } from '@spinajs/fs';
-import type { FsActionContext, IFileInfo, IFsUploadOptions, IStat, IWriteStreamOptions, IZipResult } from '@spinajs/fs';
+import type { FsActionContext, FsTarget, FsTargetSpec, IFileInfo, IFsUploadOptions, IStat, IWriteStreamOptions, IZipResult } from '@spinajs/fs';
 import { TenantRequired } from './errors.js';
 import { TENANCY_DEFAULTS } from './schema.js';
 import { isTenantId, tenantScope } from './scope.js';
@@ -136,8 +136,28 @@ export class TenantFs extends fs {
   }
 
   public resolvePath(path: string): string {
-    const target = this.target(path);
+    const target = this.target(this.ownPath(path));
     return target.fs.resolvePath(target.path);
+  }
+
+  // A path this view returned (resolvePath, download, unzip) is absolute on the wrapped or the dedicated provider: it is
+  // read relative to the tenant's root before the action normalises it, or it would be prefixed a second time.
+  protected override runAction<R>(action: string, targets: readonly FsTargetSpec[], args: unknown[], impl: (targets: readonly FsTarget[], args: unknown[]) => Promise<R>, opts?: { stream?: boolean }): Promise<R> {
+    try {
+      return super.runAction(action, targets.map((spec) => ((spec.fs ?? this) === this ? { ...spec, path: this.ownPath(spec.path) } : spec)), args, impl, opts);
+    } catch (err: unknown) {
+      // A public action rejects rather than throws (fs runAction's own rule).
+      return Promise.reject(err instanceof Error ? err : new Error(String(err)));
+    }
+  }
+
+  private ownPath(raw: string): string {
+    if (!isAbsolute(raw)) return raw;
+    const root = this.target('');
+    const base = root.fs.BasePath;
+    const full = resolve(raw);
+    const own = base === undefined ? undefined : join(base, root.path);
+    return own !== undefined && inside(own, full) ? relative(own, full).split(sep).join('/') : raw;
   }
 
   public tmppath(ext?: string): string {
