@@ -3,6 +3,7 @@ export * from './changelog.js';
 export * from './bus.js';
 export * from './audit.js';
 export * from './cache.js';
+export * from './cache-tags.js';
 export * from './clock.js';
 export * from './env.js';
 export * from './log.js';

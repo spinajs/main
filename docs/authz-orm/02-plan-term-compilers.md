@@ -36,7 +36,7 @@ sequenceDiagram
 
 | Export | Kind | Meaning |
 | --- | --- | --- |
-| `PlanTermCompiler` | abstract class | `op: string` and `apply(args: unknown, where: IWhereBuilder<unknown>, row: PlanRow): void`. |
+| `PlanTermCompiler` | abstract class | `op: string` and `apply(args: unknown, where: IWhereBuilder<unknown>, row: PlanRow): void`; optional `cacheTags(args)` ([`cacheTags`](#cachetags-rows-a-cache-may-keep)). |
 | `PlanRow` | interface | The row a term filters, seen from a where group of the resource query. |
 | `RELATION_OWNER_OP` | `'relation.owner'` | The op of the `owner` relation. |
 | `RELATION_SELF_OP` | `'relation.self'` | The op of the `self` relation. |
@@ -132,6 +132,37 @@ export async function openInvoices() {
 - `row.id` is text. Compare it with a text column, or wrap your column with `Wrapper.Text()`.
 - `row.now()` keeps the expiry on the database's clock, the same clock the RBAC term uses.
 - Import `PlanTermCompiler` from the copy of `@spinajs/authz-orm` the app runs: `planTermCompilers()` keeps only `instanceof PlanTermCompiler` answers, so a compiler built on a second installed copy is skipped.
+
+## `cacheTags`: rows a cache may keep
+
+A cache that keeps the rows of an `.accessible()` statement per principal may keep them only when the engine's plan
+carries `cache` ([Plans a cache may keep](../authz/08-writing-a-model.md#plans-a-cache-may-keep)) and every term of the
+plan names what its SQL rests on besides the rows of the filtered table:
+
+```ts
+class MyTerm extends PlanTermCompiler {
+  readonly op = 'my.term';
+
+  apply(args: unknown, where: IWhereBuilder<unknown>, row: PlanRow): void {
+    /* ... */
+  }
+
+  // the decision tags a change of what this SQL reads publishes; undefined for args it cannot describe
+  cacheTags(args: unknown): readonly string[] | undefined {
+    return [`subject:${principalKey(ownerOf(args))}`];
+  }
+}
+```
+
+- A term without `cacheTags` can never be described: a statement it filters is not cached.
+- `undefined` means these args cannot be described: this run is not cached.
+- The tags are decision tags, the vocabulary of `AccessPlanCache.tags` (`*`, `subject:`, `link:`, `model:`, `scope:`).
+  A term whose SQL reads a table that no authz change names (the `invoice_share` table of the example above) has no
+  tag to give and must not implement `cacheTags`.
+- `relation.owner`, `relation.self` and `relation.column` name the `subject:` tag of each principal in `args.principals`,
+  and throw `AuthzConfigError` for args `apply()` refuses whatever the row: malformed principals, and for
+  `relation.column` a missing or empty `relation`, `owner` or `self`. A relation the row's model does not declare is
+  refused by `apply()` only, which has the row. No other shipped compiler implements it yet.
 
 ## Important behaviour
 

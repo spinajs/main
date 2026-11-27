@@ -66,6 +66,11 @@ export abstract class AuthorizationModel {
   listSupport?(permission: PermissionDef, type: ResourceType, ctx?: ListSupportContext): ListSupport;
   /** The list plan; called only when listSupport answered true. */
   listPlan?(req: ListPlanRequest, ctx: EvaluationContext): Promise<ModelListPlan>;
+  /**
+   * Whether every list plan of `permission` on `type` rests only on stored state whose changes this model announces on the
+   * ChangeBus, and on time only through `validUntil`: no env, actor or session fact. Absent means no.
+   */
+  listPlanCacheable?(permission: PermissionDef, type: ResourceType): boolean;
   invalidate?(tags: readonly string[]): void;
   version?(): string; // changes => host recompiles routes, drops L2
   dispose?(): Promise<void>;

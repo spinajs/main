@@ -16,9 +16,26 @@ export type ModelListPlan =
   | { readonly kind: 'deny-all'; readonly reason: DenyReason }
   | { readonly kind: 'terms'; readonly permit: readonly PlanTerm[]; readonly deny: readonly PlanTerm[]; readonly validUntil?: Date };
 
-/** The combined plan the engine returns. `permit: 'all'` means no permit filter. */
+/**
+ * How an access plan may be kept beyond the request that asked for it: rows it filtered stay right for the principal it
+ * was planned for until a change bumps one of `tags`, and for at most `ttlMs`.
+ */
+export interface AccessPlanCache {
+  /** The domain, the principal's whole state, the permission, the type and the models' versions (with the store generation): two plans with one key are one plan. */
+  readonly key: string;
+  /** Decision tags (`*`, `model:`, `subject:`, `link:`, `scope:`) of a type-level decision of the principal. */
+  readonly tags: readonly string[];
+  /** The domain's decision TTL, capped by `validUntil` and the nested checks' `validUntil`; above 0. */
+  readonly ttlMs: number;
+}
+
+/**
+ * The combined plan the engine returns. `permit: 'all'` means no permit filter. `cache` is set only when a model planned
+ * it, every model that did says its plans rest on announced state (`listPlanCacheable`), the call had no env, the
+ * permission is not `fresh`, no model failed and every nested check it rested on could be cached.
+ */
 export type AccessPlan =
-  | { readonly kind: 'none'; readonly reason: DenyReason }
+  | { readonly kind: 'none'; readonly reason: DenyReason; readonly cache?: AccessPlanCache }
   | {
       readonly kind: 'filter';
       readonly permit: 'all' | readonly PlanTerm[];
@@ -26,6 +43,7 @@ export type AccessPlan =
       /** Ceiling resources: the row must be one of them or descend from one. */
       readonly within?: readonly ResourceRef[];
       readonly validUntil?: Date;
+      readonly cache?: AccessPlanCache;
     };
 
 /** Why a model cannot plan a permission on a type, or true. */
