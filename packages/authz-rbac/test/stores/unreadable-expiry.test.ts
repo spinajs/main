@@ -8,7 +8,7 @@ import { FakeScopeResolver, fakeEvaluationContext, fakeModelInitContext, userPri
 import { QueryContext } from '@spinajs/orm';
 import type { OrmDriver } from '@spinajs/orm';
 
-import { DbAssignmentStore, MemoryRoleStore, RbacModel, subjectFromColumns, subjectKeyOf } from '../../src/index.js';
+import { AssignmentHistoryContributor, DbAssignmentStore, MemoryRoleStore, RbacModel, RuleSplicer, subjectFromColumns, subjectKeyOf } from '../../src/index.js';
 import type { LadderDef, RoleDef } from '../../src/index.js';
 import type { Assignment, AssignmentSubject } from '../../src/contracts.js';
 import { membershipEdges } from '../../src/admin/membership.js';
@@ -18,7 +18,7 @@ import { expiryTime } from '../../src/model/assignments.js';
 import { linkPrincipalOf } from '../../src/model/links/principal.js';
 import { DbLinkStore } from '../../src/stores/db-link-store.js';
 import { DbMembershipStore } from '../../src/stores/db-membership-store.js';
-import { DbRuleStore } from '../../src/stores/db-rule-store.js';
+import { DB_RULE_STORE_NAME, DbRuleStore } from '../../src/stores/db-rule-store.js';
 import { bootDb, rawQuery } from '../support/db.js';
 import type { TestDb } from '../support/db.js';
 
@@ -142,6 +142,17 @@ for (const { kind, unreadable, also } of DIALECTS) {
       expect(linkPrincipalOf(items[0], 'l1').ceiling?.resources).to.deep.equal([]);
     });
 
+    it('gives replay the invalid expiry of such an assignment and rule, not "never expires"', async () => {
+      const paul: PrincipalRef = { type: 'user', id: 'paul' };
+      await insertUnreadable('authz_assignment', assignment('pa1', paul));
+      await insertUnreadable('authz_rule', { id: 'rp', kind: 'cap', scope_type: 'project', scope_id: 'p5', definition: JSON.stringify({ ladder: 'project', maxRole: 'editor', assignments: { scopeTypes: ['file'] } }), created_at: '2026-09-30 08:15:30' });
+      const invalid = (image: unknown) => expect(image).to.have.property('expiresAt').that.satisfies((d: unknown) => d instanceof Date && Number.isNaN(d.getTime()));
+      const contributor = new AssignmentHistoryContributor();
+      invalid((await contributor.current({ type: 'project', id: 'p1' }, 'editor')).find((i) => i.key === 'pa1')?.image);
+      invalid((await contributor.currentReverse(paul, 'editor', 'project')).find((i) => i.key === 'pa1')?.image);
+      invalid((await new RuleSplicer().current(DB_RULE_STORE_NAME)).find((i) => i.key === 'rp')?.image);
+    });
+
     it('counts a paged list without the flag column, and flags the rows of the page', async () => {
       const carol: PrincipalRef = { type: 'user', id: 'carol' };
       await insertUnreadable('authz_assignment', assignment('c1', carol));
@@ -154,11 +165,13 @@ for (const { kind, unreadable, also } of DIALECTS) {
       expect(Number.isNaN(page.items[0].expiresAt!.getTime())).to.equal(true);
     });
 
-    it('keeps a narrowing rule and a deny through a set in force when their expiry is unreadable: the check and the list are refused, never widened', async () => {
+    it('keeps a narrowing rule, a deny role and a deny through a set in force when their expiry is unreadable: the check and the list are refused, never widened', async () => {
       const P2: ResourceRef = { type: 'project', id: 'p2' };
       const P3: ResourceRef = { type: 'project', id: 'p3' };
       const F2: ResourceRef = { type: 'file', id: 'f2' };
       const F3: ResourceRef = { type: 'file', id: 'f3' };
+      const P4: ResourceRef = { type: 'project', id: 'p4' };
+      const F4: ResourceRef = { type: 'file', id: 'f4' };
       const T1: ResourceRef = { type: 'team', id: 't1' };
       const member: AssignmentSubject = { set: { role: 'team.member', scope: T1 } };
       const row = (id: string, subject: AssignmentSubject, role: string, scope: ResourceRef) => ({ id, ...subjectToColumns(subject), subject_key: subjectKeyOf(subject), role, ...scopeToColumns(scope), tags: '', source: 'db', created_at: '2026-09-30 08:15:30' });
@@ -168,7 +181,10 @@ for (const { kind, unreadable, also } of DIALECTS) {
         { ...row('e1', { type: 'user', id: 'erin' }, 'editor', P3), expires_at: null },
         { ...row('g1', { type: 'user', id: 'frank' }, 'editor', P3), expires_at: null },
         { ...row('s1', member, 'blocked', GLOBAL), expires_at: null },
+        { ...row('k1', { type: 'user', id: 'kim' }, 'editor', P4), expires_at: null },
       ]);
+      // kim's own deny, at a project no rule covers: dropping it would leave her editor grant at P4 to permit
+      await insertUnreadable('authz_assignment', row('k2', { type: 'user', id: 'kim' }, 'blocked', GLOBAL));
       await insertUnreadable('authz_rule', { id: 'cap-p2', kind: 'cap', scope_type: P2.type, scope_id: P2.id, definition: JSON.stringify({ ladder: 'project', maxRole: 'viewer' }), created_at: '2026-09-30 08:15:30' });
       await insertUnreadable('authz_assignment', row('e2', { type: 'user', id: 'erin' }, 'team.member', T1));
 
@@ -180,7 +196,7 @@ for (const { kind, unreadable, also } of DIALECTS) {
       permissions.freeze();
       const model = new RbacModel({ roles: new MemoryRoleStore(roles, ladders), assignments: db.container.resolve(DbAssignmentStore), rules: db.container.resolve(DbRuleStore), log: { warn: () => undefined } });
       await model.init(fakeModelInitContext({ model: 'rbac', permissions }));
-      const ctx = fakeEvaluationContext({ now: AT, scopeResolvers: [new FakeScopeResolver({ types: ['project', 'file', 'team'], nodes: [{ ref: P2 }, { ref: F2, parent: P2 }, { ref: P3 }, { ref: F3, parent: P3 }, { ref: T1 }] })] });
+      const ctx = fakeEvaluationContext({ now: AT, scopeResolvers: [new FakeScopeResolver({ types: ['project', 'file', 'team'], nodes: [{ ref: P2 }, { ref: F2, parent: P2 }, { ref: P3 }, { ref: F3, parent: P3 }, { ref: P4 }, { ref: F4, parent: P4 }, { ref: T1 }] })] });
       const outcome = (who: string, resource: ResourceRef): Promise<unknown> =>
         Promise.resolve(model.evaluate({ principal: userPrincipal(who), permission: 'file:edit', resource }, ctx)).then(
           (vote) => vote.permitWhen,
@@ -194,6 +210,7 @@ for (const { kind, unreadable, also } of DIALECTS) {
 
       expect(await outcome('dave', F2)).to.be.a('string').that.contains('expiresAt is not a valid date');
       expect(await outcome('erin', F3)).to.be.a('string').that.matches(/assignment 'e2' .*unreadable expiresAt/);
+      expect(await outcome('kim', F4)).to.be.a('string').that.matches(/assignment 'k2' .*unreadable expiresAt/);
       expect(await outcome('frank', F3)).to.deep.equal(TRUE);
       expect(await listed('dave')).to.be.a('string').that.contains("rule 'cap-p2' (cap, source: db) can apply to file:edit");
     });
