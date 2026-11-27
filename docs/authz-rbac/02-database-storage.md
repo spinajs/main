@@ -188,7 +188,9 @@ Index `authz_admin_idempotency_expires` on `expires_at`.
 ### Unreadable `expires_at`
 
 An `expires_at` that holds a value no datetime converter reads (text written by hand, a MySQL zero date, a PostgreSQL
-`infinity`) is not read as "never expires", and never as "expired" where that would lift a restriction. The checks
+`infinity`) is not read as "never expires"; when the store reads the row, it is never read as "expired" where that
+would lift a restriction (a value the database sorts before now does not reach the store yet: see the end of this
+section). The checks
 that load such an assignment answer `model_error` (fail closed) and the engine logs the assignment id; when the
 assignment makes its principal a member of a subject set, every check of that principal is refused, because the set
 may hold a deny role. Such a rule refuses the checks of its path (`AuthzConfigError` naming the rule; a rule at GLOBAL,
@@ -200,13 +202,16 @@ revoking it by id still works, and setting a new expiry on it is checked as a gr
 credential-admin guards of `@spinajs/users` count such an assignment's role as held, so a protected role stays
 protected. Only SQL `NULL` means no expiry.
 
-The change log's JSON payloads and the admin HTTP listing serialise such an expiry as `null`
+The change log's JSON payloads, AuthzAdmin events (`RoleAssigned`, `AssignmentChanged`, `LinkUpdated`) and the admin
+HTTP listing serialise such an expiry as `null`
 (`Date.prototype.toJSON`), so an admin UI shows the row as "no expiry", and a client that writes the listed
 `expiresAt` back (`PATCH` with `null`) makes such an assignment permanent (the guard treats that as a grant): find the
 rows with SQL instead. The change log stores such an expiry as `null` too, so `authz:replay` of a decision taken while
-the row was unreadable reads the assignment as never expiring. In `authz_assignment`, `authz_rule` and `authz_link`
-(key `id`) and `authz_subject_membership` (key `member_key, set_key`, no `id`), find the rows with the queries below
-(the same `WHERE` for each table) and repair them with a real instant, or with `NULL` where the row must never expire:
+the row was unreadable reads the assignment as never expiring.
+
+Before upgrading, find the rows in `authz_assignment`, `authz_rule` and `authz_link` (key `id`) and
+`authz_subject_membership` (key `member_key, set_key`, no `id`) with the queries below (the same `WHERE` for each
+table) and repair them with a real instant, or with `NULL` where the row must never expire:
 
 ```sql
 -- PostgreSQL
@@ -214,21 +219,29 @@ SELECT id, expires_at::text FROM authz_assignment WHERE NOT isfinite(expires_at)
 -- MySQL
 SELECT id, CAST(expires_at AS CHAR) FROM authz_assignment WHERE CAST(expires_at AS CHAR) LIKE '%-00%';
 -- SQLite
-SELECT id, expires_at FROM authz_assignment WHERE expires_at IS NOT NULL
-  AND NOT (julianday(expires_at) IS NOT NULL AND date(substr(expires_at, 1, 10), '+0 days') = substr(expires_at, 1, 10));
--- every database: one row at a time, after deciding what it should be
-UPDATE authz_assignment SET expires_at = '2027-01-01 00:00:00' WHERE id = ?;
+SELECT id, expires_at FROM authz_assignment WHERE expires_at IS NOT NULL AND (expires_at <> trim(expires_at)
+  OR NOT (julianday(expires_at) IS NOT NULL AND date(substr(expires_at, 1, 10), '+0 days') = substr(expires_at, 1, 10)));
+-- one row at a time, after deciding what it should be; write the instant as the store does
+UPDATE authz_assignment SET expires_at = '2027-01-01 00:00:00+00' WHERE id = ?;      -- PostgreSQL
+UPDATE authz_assignment SET expires_at = '2027-01-01 00:00:00' WHERE id = ?;         -- MySQL: the wall clock of the connection's TimeZone (UTC unless configured otherwise)
+UPDATE authz_assignment SET expires_at = '2027-01-01T00:00:00.000Z' WHERE id = ?;    -- SQLite: ISO 8601 in UTC, the form the store writes
 ```
 
-The SQLite query also lists a value of digits only, which the converter reads as seconds since 1970: leave such a row
-as it is when that instant is the one meant. MSSQL's datetime types hold no such value.
+The SQLite query also lists values the converter does read: digits only (seconds since 1970, or an ISO basic date
+such as `20261019`), a number, a bare year or year-month (`2026`, `2026-10`). Leave such a row as it is when that
+instant is the one meant. MSSQL's datetime types hold no such value; MSSQL is not in this package's tests (the flag's
+SQL was run read-only as valid T-SQL in review).
 
 Repair an assignment first: `authz:membership-rebuild` then rewrites the membership rows (it does not read the old
 ones). After upgrading, run `authz:membership-verify`: a membership recomputed before this release from such an
 assignment is stored as never expiring; the command refuses, naming the assignment, until it is repaired, and then
 lists the membership as changed when the repaired assignment has an expiry; `authz:membership-rebuild` rewrites it.
-Lists filtered by the policy plan (`rbac.assignment`) and PostgreSQL row level security still compare `expires_at` in
-SQL: on SQLite and PostgreSQL they keep such a row live until it is repaired.
+Not yet covered (a follow-up fix): the stores' SQL filter still compares `expires_at` in SQL. A value the database
+sorts before now (a PostgreSQL `-infinity`, a MySQL `0000-00-00` or zero month, SQLite text such as `''`) is dropped
+before the store can read it, so a deny assignment or a rule holding one does not apply in checks, as before this
+release. A value it sorts after now (SQLite text, a PostgreSQL `infinity`, a MySQL zero day in a later month) stays
+live in lists filtered by the policy plan (`rbac.assignment`) and in PostgreSQL row level security until it is
+repaired. The queries above list both kinds: repair them before upgrading.
 
 ### Migrations
 
