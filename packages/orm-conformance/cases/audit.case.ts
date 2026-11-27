@@ -109,4 +109,21 @@ export const AUDIT_CASES = [
         return { erased, archived: rows.map((r) => ({ subject: r.subject_id, blank: r.data === '' })), payloads: rows.map((r) => (r.data === '' ? null : r.data)) };
       }),
   }),
+  defineCase({
+    name: 'audit-exact-subject-trailing-space',
+    seed: EMPTY,
+    order: 'ordered',
+    // MySQL and SQL Server compare 't1:42' equal to 't1:42 ' (a composite key's text); archived and buffered rows alike.
+    expected: { of: ['t1:42', 't1:42'], erased: 3, archived: ['t1:42:true', 't1:42 :false', 't1:42:true'], buffered: ['t1:42 :false', 't1:42:true'] },
+    run: ({ driver }) =>
+      withTables(driver, async () => {
+        const subject = (n: number, id: string): AuditEvent => ({ ...event(n), subject: { type: 'doc', id } });
+        await DI.resolve(ArchiveAuditSink).deliver({ trail: TRAIL, source: driver.Options.Name, events: [subject(1, 't1:42'), subject(2, 't1:42 '), subject(3, 't1:42')] });
+        await DI.resolve(OutboxAuditStore).append({ trail: trailConfig(TRAIL), events: [subject(4, 't1:42 '), subject(5, 't1:42')] });
+        const of = (await audit().trail(TRAIL).of({ type: 'doc', id: 't1:42' })).map((e) => e.subject?.id);
+        const erased = await audit().trail(TRAIL).forget({ type: 'doc', id: 't1:42' });
+        const blank = async (table: string): Promise<string[]> => rowsOf(await driver.select().from(table).where('kind', 'data').orderBy('seq')).map((r) => `${String(r.subject_id)}:${String(r.data === '')}`);
+        return { of, erased, archived: await blank(ARCHIVE), buffered: await blank('audit_outbox') };
+      }),
+  }),
 ];
