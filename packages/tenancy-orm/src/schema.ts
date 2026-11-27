@@ -15,6 +15,7 @@ export const TENANCY_ORM_CONFIGURATION_SCHEMA = {
     isolation: { enum: ['row', 'schema'] },
     column: { type: ['string', 'boolean'], pattern: '^[A-Za-z_][A-Za-z0-9_]*$', not: { const: true } },
     rls: { type: 'boolean' },
+    rlsBypassRole: { type: 'string', minLength: 1 },
   },
 };
 

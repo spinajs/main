@@ -2,6 +2,10 @@ import '@spinajs/log';
 import '@spinajs/orm-pglite';
 import '@spinajs/orm-sqlite';
 import { AsyncLocalStorage } from 'node:async_hooks';
+import { randomBytes } from 'node:crypto';
+import { createConnection } from 'node:net';
+
+import { DI } from '@spinajs/di';
 
 import { ConnectionSessionSettings, MigrationTransactionMode, QueryContext } from '@spinajs/orm';
 import type { Orm, SessionSettings } from '@spinajs/orm';
@@ -16,6 +20,9 @@ import './rls-models.js';
 const SILENT = { targets: [{ name: 'Empty', type: 'BlackHoleTarget', layout: '{message}' }], rules: [{ name: '*', level: 'error', target: 'Empty' }] };
 
 const SQLITE = { Driver: 'orm-driver-sqlite', Filename: ':memory:', Name: 'sqlite', Migration: { Table: 'orm_migrations', Transaction: { Mode: MigrationTransactionMode.PerMigration } } };
+
+// Roles are global to a PostgreSQL server: one pair per test process.
+const ROLES = { app: `spina_tenant_app_${process.pid}`, other: `spina_tenant_other_${process.pid}` };
 
 const acting = new AsyncLocalStorage<SessionSettings>();
 
@@ -65,11 +72,14 @@ export async function bootWith(rls: Record<string, unknown>, cleanup: (app: RlsA
       orm,
       driver,
       sql,
-      appRole: `spina_tenant_app_${process.pid}`,
-      otherRole: `spina_tenant_other_${process.pid}`,
+      appRole: ROLES.app,
+      otherRole: ROLES.other,
       dispose: async () => {
-        await app.dispose();
-        await cleanup(booted);
+        try {
+          await app.dispose();
+        } finally {
+          await cleanup(booted);
+        }
       },
     };
     for (const role of [booted.appRole, booted.otherRole]) {
@@ -87,3 +97,52 @@ export async function bootWith(rls: Record<string, unknown>, cleanup: (app: RlsA
 
 /** `rls` on an in-memory PGlite database of its own. */
 export const bootRlsApp = (): Promise<RlsApp> => bootWith({ Driver: 'orm-driver-pglite', Filename: ':memory:' });
+
+export const POSTGRES = { Host: 'localhost', Port: Number(process.env.ORM_TEST_POSTGRES_PORT ?? 15432), User: 'postgres', Password: 'postgres' };
+
+function postgresReachable(): Promise<boolean> {
+  return new Promise((resolve) => {
+    const socket = createConnection({ host: POSTGRES.Host, port: POSTGRES.Port });
+    const done = (ok: boolean): void => {
+      socket.destroy();
+      resolve(ok);
+    };
+    socket.setTimeout(1000, () => done(false));
+    socket.once('connect', () => done(true));
+    socket.once('error', () => done(false));
+  });
+}
+
+async function onAdmin(statements: readonly string[]): Promise<void> {
+  const admin = await DI.child().resolve<PostgresOrmDriver>(PostgresOrmDriver, [{ Name: 'tenancy-orm-pg-admin', Driver: 'orm-driver-postgres', ...POSTGRES, Database: 'postgres', Pool: { Max: 1 } }]);
+  await admin.connect();
+  try {
+    for (const statement of statements) await admin.executeOnDb(statement, [], QueryContext.Schema);
+  } finally {
+    await admin.disconnect();
+  }
+}
+
+/**
+ * `rls` on a database of its own on the server at ORM_TEST_POSTGRES_PORT, dropped with the roles by dispose();
+ * undefined when the server does not answer, unless ORM_TEST_POSTGRES_REQUIRED=1.
+ */
+export async function bootPostgresRlsApp(): Promise<RlsApp | undefined> {
+  const where = `Postgres at ${POSTGRES.Host}:${POSTGRES.Port}`;
+  if (!(await postgresReachable())) {
+    if (process.env.ORM_TEST_POSTGRES_REQUIRED === '1') throw new Error(`${where} is unreachable and ORM_TEST_POSTGRES_REQUIRED=1`);
+    console.warn(`      ${where} is unreachable, suite skipped`);
+    return undefined;
+  }
+  const database = `td_04b_tenant_rls_${randomBytes(4).toString('hex')}`;
+  // The database first: the roles hold privileges in it.
+  const drop = (): Promise<void> => onAdmin([`DROP DATABASE IF EXISTS "${database}" WITH (FORCE)`, `DROP ROLE IF EXISTS "${ROLES.app}"`, `DROP ROLE IF EXISTS "${ROLES.other}"`]);
+  await onAdmin([`CREATE DATABASE "${database}"`]);
+  try {
+    // A read replica on the same database: model selects run on a second driver, as in production.
+    return await bootWith({ Driver: 'orm-driver-postgres', ...POSTGRES, Database: database, Pool: { Max: 6 }, Replicas: [{}] }, drop);
+  } catch (err) {
+    await drop();
+    throw err;
+  }
+}

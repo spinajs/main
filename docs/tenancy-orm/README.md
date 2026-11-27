@@ -5,7 +5,8 @@ can only be read and written inside a tenant scope of `@spinajs/tenancy`, and ev
 limited to that tenant.
 
 It does **not** filter raw SQL, joins and sub-selects you write, or schema builders: see
-[What is not checked](02-tenant-models.md#what-is-not-checked). Schema-per-tenant isolation is not available yet.
+[What is not checked](02-tenant-models.md#what-is-not-checked). On PostgreSQL, [row level security](06-row-level-security.md)
+covers raw SQL as well. Schema-per-tenant isolation is not available yet.
 
 ## Install
 
@@ -28,6 +29,7 @@ import '@spinajs/tenancy-orm';
 | [Tenant models](02-tenant-models.md) | `@Tenant()` models whose statements are confined to the current tenant by `TenantScopeMiddleware` |
 | [Across tenants](03-across-tenants.md) | `.acrossTenants(reason)` widens one select, update or delete to every tenant |
 | [Transactions](04-transactions.md) | One tenant scope per transaction on a connection with tenant settings |
+| [Row level security](06-row-level-security.md) | `tenant:rls` and `TenantSessionSettings`: PostgreSQL enforces the tenant of a row-mode table |
 
 ## Quick start
 
@@ -60,7 +62,7 @@ await runInTenant('t1', async () => {
 
 ```json
 {
-  "tenancy": { "registry": "DbTenantRegistry", "orm": { "isolation": "row", "column": "tenant_id", "rls": false } },
+  "tenancy": { "registry": "DbTenantRegistry", "orm": { "isolation": "row", "column": "tenant_id", "rls": false, "rlsBypassRole": "app" } },
   "db": { "Aliases": { "tenancy": "default" } }
 }
 ```

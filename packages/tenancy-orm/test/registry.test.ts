@@ -96,6 +96,16 @@ describe('tenant model registry', function () {
       await assert.rejects(bootApp({ orm: { isolation: 'schema' } }), /tenancy\.orm: isolation 'schema' is not available yet; it lands with schema placements \(v4-td-05-placement-schema\)\. Use isolation 'row'/);
     });
 
+    it("refuses tenancy.orm.isolation 'schema' when a tenant model is used after a configuration change", async () => {
+      app = await bootApp();
+      app.config.set(['tenancy', 'orm', 'isolation'], 'schema');
+      try {
+        expect(() => tenantModelOf(Invoice)).to.throw(NotSupported, "tenancy.orm: isolation 'schema' is not available yet");
+      } finally {
+        app.config.set(['tenancy', 'orm', 'isolation'], 'row');
+      }
+    });
+
     it('refuses a tenancy.orm value of the wrong type when the application boots', async () => {
       await assert.rejects(bootApp({ orm: { rls: 'sometimes' } }), /tenancy\.orm\.rls must be boolean/);
       await assert.rejects(bootApp({ orm: { column: 'not a column' } }), /tenancy\.orm\.column must match pattern/);

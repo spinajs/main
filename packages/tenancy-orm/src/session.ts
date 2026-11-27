@@ -9,7 +9,7 @@ import { TENANT_RLS_SETTINGS } from './rls.js';
 import { carriesTenantSettings, scopeKey } from './transaction.js';
 
 /** PostgreSQL and PGlite: the dialects with transaction-local settings and row level security. */
-function speaksPostgres(driver: OrmDriver): boolean {
+export function speaksPostgres(driver: OrmDriver): boolean {
   return sqlDialectOf(driver.constructor as abstract new (...args: never[]) => unknown)?.grammar === 'PostgresQL';
 }
 
