@@ -1,4 +1,4 @@
-import { changeLog } from '@spinajs/authz';
+import { AuthzConfigError, changeLog } from '@spinajs/authz';
 import type { AuthzTx } from '@spinajs/authz';
 import { Autoinject, Container, Inject, Injectable, PerChildInstance } from '@spinajs/di';
 import { Orm } from '@spinajs/orm';
@@ -11,10 +11,17 @@ import type { MembershipRow } from '../membership/closure.js';
 import { requireTransaction } from './context.js';
 import { withDbRbacStore } from './db-store.js';
 import { whereLive } from './queries.js';
-import { MembershipRecord, fromDateTime, recordValues, toDateTime } from './records.js';
+import { MembershipRecord, fromDateTime, recordValues, toDateTime, withExpirySet } from './records.js';
 import type { MembershipFields } from './records.js';
+import { AUTHZ_SUBJECT_MEMBERSHIP_TABLE } from './tables.js';
 
-const toRow = (r: MembershipFields): MembershipRow => ({ memberKey: r.member_key, setKey: r.set_key, depth: r.depth, expiresAt: fromDateTime(r.expires_at) });
+const toRow = (r: MembershipFields): MembershipRow => {
+  // latestPerSet skips an invalid Date, which drops the membership; for a set that holds a deny role that opens access.
+  if (r.expires_at_set === true && r.expires_at == null) {
+    throw new AuthzConfigError(`${AUTHZ_SUBJECT_MEMBERSHIP_TABLE}: the expires_at of the membership of ${JSON.stringify(r.member_key)} in ${JSON.stringify(r.set_key)} is not a datetime the store can read`);
+  }
+  return { memberKey: r.member_key, setKey: r.set_key, depth: r.depth, expiresAt: fromDateTime(r.expires_at) };
+};
 
 /**
  * `MembershipStore` over `authz_subject_membership`, on the `authz` connection.
@@ -67,7 +74,7 @@ export class DbMembershipStore extends withDbRbacStore(AdminMembershipStore) {
   private async select(column: 'member_key' | 'set_key', keys: readonly string[], at?: Date): Promise<MembershipRecord[]> {
     const unique = [...new Set(keys)];
     if (unique.length === 0) return [];
-    const query = MembershipRecord.query().whereIn(column, unique);
+    const query = withExpirySet(MembershipRecord.query().whereIn(column, unique));
     if (at) whereLive(query, at);
     return query;
   }

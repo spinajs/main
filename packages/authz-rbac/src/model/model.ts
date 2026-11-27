@@ -210,7 +210,8 @@ export class RbacModel extends AuthorizationModel {
   private async refuseListRules(permission: Permission, type: ResourceType, now: Date): Promise<void> {
     const { config, db } = ruleStoreParts(this.opts.rules);
     const rules = [...(config?.all() ?? []), ...(db ? await this.storedRules(db) : [])];
-    const live = (r: RuleDef) => r.expiresAt == null || r.expiresAt.getTime() > now.getTime();
+    // An invalid Date is live: every rule narrows, so one the store could not read refuses the list.
+    const live = (r: RuleDef) => r.expiresAt == null || !(r.expiresAt.getTime() <= now.getTime());
     const blocking = rules.find((r) => live(r) && ruleCanMatch(r, permission, type));
     if (!blocking) return;
     const text = `rbac: rule '${blocking.id}' (${blocking.kind}, source: ${blocking.source}) can apply to ${permission} on ${JSON.stringify(type)}, so lists of it are refused; delete or narrow the rule`;

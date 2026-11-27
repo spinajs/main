@@ -1,7 +1,7 @@
 import type { Assignment } from '../contracts.js';
 
 import { parsePrincipalKey, scopeFromColumns, subjectFromColumns } from './columns.js';
-import { fromDateTime } from './records.js';
+import { expiryOf } from './records.js';
 import type { AssignmentFields } from './records.js';
 import { parseTags } from './tags.js';
 
@@ -16,7 +16,7 @@ export function rowToAssignment(row: AssignmentFields): Assignment {
     role: row.role,
     scope: scopeFromColumns(row.scope_type, row.scope_id),
     ...(tags.length > 0 ? { tags } : {}),
-    expiresAt: fromDateTime(row.expires_at),
+    expiresAt: expiryOf(row),
     ...(grantedBy ? { grantedBy } : {}),
     source: row.source,
   };

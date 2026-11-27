@@ -33,14 +33,16 @@ export function linkCompanion(companion: Principal | undefined): PrincipalRef | 
  */
 export function linkPrincipalOf(link: LinkDef | null, id: string, companion?: Principal): Principal {
   const ref = linkCompanion(companion);
-  const expiresAt = link?.expiresAt ? new Date(link.expiresAt.getTime()) : undefined;
+  // An expiry the store could not read makes the link unknown rather than unbounded.
+  const live = link !== null && !(link.expiresAt != null && Number.isNaN(link.expiresAt.getTime())) ? link : null;
+  const expiresAt = live?.expiresAt ? new Date(live.expiresAt.getTime()) : undefined;
   return Object.freeze({
     type: 'link',
     id: link?.id ?? id,
     authenticated: true,
     source: 'link',
     ...(ref ? { companions: Object.freeze([ref]) } : {}),
-    ceiling: Object.freeze({ resources: Object.freeze(link ? [Object.freeze({ ...link.scope })] : []), ...(expiresAt ? { expiresAt } : {}), reason: LINK_INVALID }),
-    attributes: Object.freeze({ ...(link?.attributes ?? {}) }),
+    ceiling: Object.freeze({ resources: Object.freeze(live ? [Object.freeze({ ...live.scope })] : []), ...(expiresAt ? { expiresAt } : {}), reason: LINK_INVALID }),
+    attributes: Object.freeze({ ...(live?.attributes ?? {}) }),
   });
 }

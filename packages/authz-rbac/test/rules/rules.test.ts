@@ -295,6 +295,14 @@ describe('authz-rbac rules (B35)', () => {
       expect((await m.summarize(alice, GLOBAL, ctx())).permissions.find((p) => p.name === 'file:edit')).to.deep.equal({ name: 'file:edit', conditional: true });
     });
 
+    it('refuses a stored rule whose expiry no converter reads instead of skipping it as expired', async () => {
+      const unreadable: RuleDef = { ...rule(capOf({ scope: O1 })), expiresAt: new Date(NaN), source: 'db' };
+      const remote: RuleStore = { name: 'remote', forPath: () => Promise.resolve([unreadable]), version: () => Promise.resolve('remote:0') };
+      const m = new RbacModel({ roles: new MemoryRoleStore(ROLES, LADDERS), assignments: new MemoryAssignmentStore([assignment('a1', 'editor', P1)]), rules: remote, log: { warn: () => undefined } });
+      await m.init(fakeModelInitContext({ model: 'rbac', permissions: registry() }));
+      await rejects(vote(m, 'file:edit', f1), 'expiresAt is not a valid date');
+    });
+
     it('a role on no ladder that extends a ladder role above the cap is dropped, as is any under maxRole null', async () => {
       const roles = [...ROLES, role('boss', [], { extends: ['maintainer'] })];
       const capped = await model([assignment('a1', 'boss', P1)], [capOf({})], roles);
