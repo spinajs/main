@@ -60,6 +60,7 @@ Read the state from `server.State` and the Node server from `server.Server`.
 | `http.static.enabled` | `boolean` | `true` | | `false`: `StaticFiles` serves nothing. |
 | `http.static.order` | `number` | `4.5` | any number, `Infinity` | The `Order` of the `StaticFiles` server middleware; see [Static files](#static-files). |
 | `http.shutdownTimeout` | `number` | `10000` | milliseconds | Grace period for in-flight requests on `stop()`. |
+| `http.etag` | `'express' \| 'weak' \| 'strong' \| false` | `'express'` | | The `ETag` Express puts on replies, files and static files; see [ETag and 304](10-responses.md#etag-and-304). |
 | `http.AcceptHeaders` | `HttpAcceptHeaders` | `1 \| 2` (JSON and HTML) | bit flags `JSON` 1, `HTML` 2, `XML` 4 | Formats the response negotiation offers; see [Responses](10-responses.md#content-negotiation). |
 | `http.FatalTemplate` | `string` | built-in "HTTP 500" page | HTML with an optional `{ticket}` | Page sent when even the error page fails to render. |
 | `http.controllers.route.prefix` | `string` | `''` | path without slashes at the ends | Prefix for every controller route; see [Controllers and routing](02-controllers-and-routing.md#path-rules). |

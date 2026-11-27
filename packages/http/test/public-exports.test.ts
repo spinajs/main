@@ -44,4 +44,8 @@ describe('the @spinajs/http root', () => {
     const opts: http.RateLimitSchemaOptions = { headers: false };
     expect(http.rateLimitsSchema(defaults, { x: 'GET /x' }, undefined, opts).propertyNames).to.deep.eq({ enum: ['x'] });
   });
+
+  it('exports the helpers a route middleware varies and validates with', () => {
+    for (const name of ['appendVary', 'mergeVary', 'etagMatches', 'NotModified']) expect(http, name).to.have.property(name);
+  });
 });

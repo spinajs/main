@@ -66,6 +66,12 @@ export enum LifecycleState {
   Closed,
 }
 
+/**
+ * `http.etag`: `'express'` keeps Express's own setting (a weak ETag); `'weak'` and `'strong'` set it; false sends none
+ * from `res.send`, `res.sendFile`, or a static entry that does not set `Options.etag`.
+ */
+export type HttpEtag = 'express' | 'weak' | 'strong' | false;
+
 export interface IHttpServerConfiguration {
   /**
    * Https server configuration
@@ -121,6 +127,9 @@ export interface IHttpServerConfiguration {
    * genuinely in-flight requests use this window. Default 10000.
    */
   shutdownTimeout?: number;
+
+  /** ETags Express puts on the replies it sends; default `'express'`. */
+  etag?: HttpEtag;
 }
 
 /**

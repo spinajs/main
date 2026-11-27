@@ -55,8 +55,9 @@ Every format applies `options.Headers` and `options.Coockies` (see [Cookies](20-
 | `ZipResponse` | 200 | none | | Zips a file from a provider and sends the archive; the archive is deleted afterwards. |
 | `JsonFileResponse` | 200 | none | | Writes `data` as JSON to the `fs-temp` provider and sends it as an attachment named `filename`. |
 | `Redirect` | 302 or the given status | none | | `new Redirect(url, status?, responseOptions?)`. |
+| `NotModified` | 304 | none | | No body; sends only its `Headers`. For a middleware that answers a conditional request itself; see [ETag and 304](#etag-and-304). |
 
-Every class except `Redirect`, `FileResponse`, `ZipResponse`, `JsonFileResponse` and `TemplateResponse` takes `(data, options?: IResponseOptions)`.
+Every class except `Redirect`, `FileResponse`, `ZipResponse`, `JsonFileResponse`, `TemplateResponse` and `NotModified` takes `(data, options?: IResponseOptions)`; `NotModified` takes `({ Headers }?)`.
 
 `IResponseOptions`:
 
@@ -137,6 +138,48 @@ export class PlanTilesController extends BaseController {
 }
 ```
 
+## ETag and 304
+
+`http.etag` decides the `ETag` Express puts on the replies it sends. With every value, an `ETag` a middleware set on `res` before the reply is sent is kept.
+
+| `http.etag` | Replies sent with `res.send` (JSON, text, XML, HTML, an idempotent replay) | `FileResponse`, `ZipResponse` | `http.Static` entries |
+| --- | --- | --- | --- |
+| `'express'` (default) | Express's own setting: a weak `W/"<length>-<hash>"` | the weak `W/"<size>-<mtime>"` of `send` | serve-static's own: on unless the entry sets `Options.etag: false` |
+| `'weak'` | the same weak `ETag`, set explicitly | the same | the same |
+| `'strong'` | a strong `"<length>-<hash>"` | still weak: `send` has no strong form | the same |
+| `false` | none | none; `Last-Modified` stays | none, unless the entry sets `Options.etag: true` |
+
+A GET or HEAD request whose `If-None-Match` names the reply's `ETag` gets 304 with no body: Express checks it in `res.send`, `send` for files and static files. An idempotent replay sends the `ETag` of the first answer, or a new one by the same setting when a hook changed the body.
+
+A middleware that knows the version of what a route returns can validate the request itself. `etagMatches(req.headers['if-none-match'], etag)` compares as RFC 9110 asks (weakly; `*` matches anything), and `new NotModified({ Headers: [...] })` answers 304 before the action runs. Like Express's own check, `etagMatches` splits `If-None-Match` at every comma, also one inside a quoted tag, so a tag that contains a comma never matches and the request gets the full reply. A `*` anywhere in the list matches, and a request with `Cache-Control: no-cache` is answered 304 as well; check that header yourself if such a request must get the full reply. Set the `ETag` on `res` when the route does run: Express then computes none of its own. `CacheControl` adds its headers to the 304 when it is entered before the validator; declare it on the controller.
+
+```ts sample
+import { BaseController, BasePath, CacheControl, etagMatches, Get, Middleware, NotModified, Ok, RouteMiddleware } from '@spinajs/http';
+import type { IMiddlewareContext } from '@spinajs/http';
+
+const CATALOG_VERSION = '"catalog-7"';
+
+class CatalogVersion extends RouteMiddleware {
+  public onBefore({ req, res }: IMiddlewareContext): NotModified | undefined {
+    if (etagMatches(req.headers['if-none-match'], CATALOG_VERSION)) {
+      return new NotModified({ Headers: [{ Name: 'ETag', Value: CATALOG_VERSION }] });
+    }
+    res.setHeader('ETag', CATALOG_VERSION);
+    return undefined;
+  }
+}
+
+@BasePath('catalog')
+@Middleware(CacheControl, 60, { vary: ['Accept-Language'] })
+export class CatalogController extends BaseController {
+  @Get()
+  @Middleware(CatalogVersion)
+  public list() {
+    return new Ok([]);
+  }
+}
+```
+
 ## Paginated replies
 
 `@spinajs/http` exports four type-only shapes for list routes. They exist for the compiler, not for the runtime: a route that returns `Page<T>` or `CursorPage<T>` gets a `pagination` field in `app.manifest.json`, which the generated client reads.
@@ -197,6 +240,7 @@ import type { Page } from '@spinajs/orm-http';
 | --- | --- | --- | --- | --- |
 | `http.AcceptHeaders` | `HttpAcceptHeaders` | `1 \| 2` | bit flags: `JSON` 1, `HTML` 2, `XML` 4 | Formats negotiation may pick. Add 4 to answer `Accept: application/xml` with XML. |
 | `http.FatalTemplate` | `string` | built-in page | HTML with `{ticket}` | Last-resort HTML when the error page itself fails. |
+| `http.etag` | `'express' \| 'weak' \| 'strong' \| false` | `'express'` | | See [ETag and 304](#etag-and-304). |
 | `fs.providers` `__fs_http_response_templates__` | provider | `<package>/lib/views/responses` | any provider | Templates for the negotiated HTML answers. Point it at your own directory to restyle them; keep every file name. |
 | `fs.providers` `__fs_http_templates__` | provider | not set | any provider | Templates for `TemplateResponse`. |
 | `fs.providers` `local`, `fs-temp` | provider | from `@spinajs/fs` | | Default providers of `FileResponse`/`ZipResponse` and `JsonFileResponse`. |
@@ -310,7 +354,7 @@ export class CustomersExportController extends BaseController {
 - Response data is serialized as is with `res.json()` (`JSON.stringify`); map domain objects to plain data before returning them.
 - `FileResponse` with a remote provider downloads a temporary copy on every request. A range request transfers the whole object first, and the copy's `ETag` and `Last-Modified` change on every request, so 304 and `If-Range` never match. Serve ranges from a local provider; redirect to a presigned URL for a remote one.
 - The `compression` middleware compresses a 200 or 206 of a compressible type (SVG, JSON, text) of 1 KiB or more, unless `Cache-Control` holds `no-transform`. A compressed 206 is a gzip of a part, which range clients cannot use. Put `no-transform` in `headers` for ranged files.
-- The `ETag` of a file is weak and built from its size and modification time. Express' `etag` setting only turns it on or off.
+- The `ETag` of a file is weak and built from its size and modification time. `http.etag: false` turns it off; no value makes it strong.
 - `ZipResponse` is always an attachment and takes neither `disposition` nor `headers`. It hands every failure of `send` to the error handler as it is, so a 412 or 416 of a zip answers 500.
 
 ## Best practices
