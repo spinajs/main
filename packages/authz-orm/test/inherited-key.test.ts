@@ -224,10 +224,12 @@ describe('authz-orm: a subclass of a resource that adds a key column', function 
             testHost.activate(container, 'point', new StaticModel({ name: 'grants', votes: { 'doc:update@doc:o1': { permitWhen: TRUE } } }));
             const service = await ds.service('point');
             const LateDoc = (await db.define({ name: 'LateDoc', columns: { order_id: 'TEXT', owner_id: 'TEXT' }, primary: ['order_id', 'id'], rows: ORDER_O1 }, dialect)) as M;
-            registerAccessResource(LateDoc, 'doc');
+            registerAccessResource(LateDoc, 'doc', { owner: 'owner_id' });
             const l2 = await lineOf(LateDoc, 'l2');
             expect(await settle(() => service.check({ principal: alice, permission: 'doc:update', resource: l2 }))).to.be.instanceOf(AuthzConfigError).with.property('message', compositeRefusal(LateDoc, 'doc'));
             expect(await settle(() => service.check({ principal: alice, permission: 'doc:update', resource: { type: 'doc', id: 'o1' } }))).to.be.instanceOf(AuthzConfigError).with.property('message', compositeRefusal(LateDoc, 'doc'));
+            const owner = ormRelations().find((r) => r.type === 'doc' && r.relation === 'owner')!;
+            expect(await settle(async () => await owner.holds(bob, { type: 'doc', id: 'o1' }, l2))).to.be.instanceOf(AuthzConfigError).with.property('message', compositeRefusal(LateDoc, 'doc'));
           } finally {
             await container.dispose();
             db.orm.Connections.set('authz', authz);
