@@ -24,7 +24,7 @@ const JSON_HEADERS = { Accept: 'application/json' };
 
 const permitted = { permitWhen: { op: 'true' } } as const;
 
-const field = (value: unknown, key: string): unknown => (value !== null && typeof value === 'object' ? (Reflect.get(value, key) as unknown) : undefined);
+const field = (value: unknown, key: string): unknown => (value !== null && typeof value === 'object' ? Reflect.get(value, key) : undefined);
 
 // what the `masked` principal may read
 const MASKED_READ = ['Slug', 'Group', 'Type', 'Label'];
