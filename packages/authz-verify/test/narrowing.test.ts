@@ -58,8 +58,12 @@ describe('principal narrowing (G6)', () => {
   it('narrowed: true changes nothing where the policy compiles no ceiling or nothing reaches a', async () => {
     const plain = await verifyAssertions(foldersIR(), defineAssertions(({ implies }) => [implies('folder:update', 'folder:read', { narrowed: true })]), noSolver);
     expect(codes(plain)).to.deep.equal([['AZV002', 'info']]);
-    const unbound = await verifyAssertions(narrowable(), defineAssertions(({ implies }) => [implies('folder:delete', 'folder:read', { narrowed: true })]), noSolver);
-    expect(codes(unbound)).to.deep.equal([['AZV002', 'info']]);
+    const unreached = narrowable();
+    unreached.types.folder.relations.deleter = { allowed: [], source: { kind: 'tuples', store: 'authz_rebac_tuple' } };
+    unreached.permissions['folder:delete'] = { type: 'folder', relation: 'deleter', list: false, source: { origin: 'config:authz' } };
+    const set = defineAssertions(({ implies }) => [implies('folder:delete', 'folder:read', { narrowed: true })]);
+    expect(codes(await verifyAssertions(unreached, set, noSolver))).to.deep.equal([['AZV002', 'info']]);
+    expect(codes(await verifyAssertions(narrowable(), set, noSolver))).to.deep.equal([['AZV006', 'error']]);
   });
 
   it('narrowed: true does not turn a permission that only conditional paths reach into holds: without a solver it is not verified', async () => {
