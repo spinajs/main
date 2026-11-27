@@ -89,6 +89,12 @@ export async function positive12MapAsync(ids: number[]): Promise<User[]> {
   return Promise.all(ids.map(async (id) => await User.where('Id', id).firstOrFail())); // expect ORM102
 }
 
+export async function positive13RepopulateInLoop(): Promise<void> {
+  for (const p of await Post.query().populate('Owner')) {
+    await p.Owner.populate(); // expect ORM102
+  }
+}
+
 export async function negative01Populated(): Promise<string[]> {
   const posts = await Post.query().populate('Owner');
   const out: string[] = [];

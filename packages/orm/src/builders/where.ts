@@ -6,7 +6,7 @@ import _ from 'lodash';
 import { WhereBoolean, SqlOperator } from '../enums.js';
 import type { Op } from '../enums.js';
 import type { IWhereBuilder, ISelectQueryBuilder, IRelationDescriptor } from '../interfaces.js';
-import { BetweenStatement, ExistsQueryStatement, InQueryStatement, InSetStatement, InStatement, StartsWithStatement, RawQueryStatement, WhereQueryStatement, WhereStatement, Wrap, LazyQueryStatement, ColumnCompareStatement } from '../statements.js';
+import { BetweenStatement, ExactlyStatement, ExistsQueryStatement, InQueryStatement, InSetStatement, InStatement, StartsWithStatement, RawQueryStatement, WhereQueryStatement, WhereStatement, Wrap, LazyQueryStatement, ColumnCompareStatement } from '../statements.js';
 import type { ConcatExpression, IQueryStatement, OuterColumn } from '../statements.js';
 import type { ModelDataWithRelationDataSearchable, PickRelations, Unbox, WhereFunction } from '../types.js';
 import type { ModelBase } from '../model.js';
@@ -490,6 +490,10 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
   public whereStartsWith(column: string, prefix: string): this {
     this.pushStatement(this._container.resolve<StartsWithStatement>(StartsWithStatement, [column, prefix, this.TableAlias]));
     return this;
+  }
+
+  public whereExactly(column: string, value: string): this {
+    return this.pushStatement(this._container.resolve<ExactlyStatement>(ExactlyStatement, [column, value, this.TableAlias]));
   }
 
   public clearWhere() {
