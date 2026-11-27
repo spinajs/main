@@ -15,6 +15,8 @@ Starting:
 7. `start()` picks the span processor: `processorOverride` when given, else `new BatchSpanProcessor(new OTLPTraceExporter({ url: otel.endpoint }))`. When the exporter cannot be built (an `otel.endpoint` that is not a URL), it logs `otel export not started: no OTLP exporter for <endpoint>` at `error` and stays inactive; the resolve does not fail.
 8. `start()` adds the processor to the hub, keeps the detach function, and logs `otel export started` at `info`. `active` is now `true`.
 
+The log lines of steps 7 and 8 print the endpoint without its userinfo, query and fragment, so a credential in `otel.endpoint` stays out of the log: a path segment longer than 16 characters, or with characters other than letters, digits, `_`, `.`, `~` and `-`, is printed as `***`, and a value that is not a URL as `<not a URL>`. The exporter still gets `otel.endpoint` as configured.
+
 Recording a span with `withSpan(name, attrs, fn)`:
 
 1. `tracer('spinajs').startSpan(name, { attributes: attrs })` starts the span. Its parent is the active span, eg. the HTTP server span of the request.
