@@ -15,7 +15,19 @@ const expect = chai.expect;
 
 const alice: Principal = { type: 'user', id: 'alice', authenticated: true, source: 'test', attributes: {} };
 
-type W = PromiseLike<ModelBase[]> & { first(): Promise<ModelBase | undefined>; selectCount(): Promise<number>; where(...a: unknown[]): W; orWhere(...a: unknown[]): W; withDeleted(): W; withArchived(): W };
+type Page = { orderBy: Array<[string, 'asc' | 'desc']>; limit: number; after?: string };
+type W = PromiseLike<ModelBase[]> & {
+  first(): Promise<ModelBase | undefined>;
+  selectCount(): Promise<number>;
+  where(...a: unknown[]): W;
+  orWhere(...a: unknown[]): W;
+  withDeleted(): W;
+  withArchived(): W;
+  order(column: string): W;
+  unscoped(reason: string): W;
+  paginate(page: Page): Promise<{ items: ModelBase[]; next: string | null }>;
+  stream(options: { batchSize: number }): AsyncIterable<ModelBase>;
+};
 type M = typeof ModelBase & { query(): W; where(...a: unknown[]): W; get(pk: unknown): Promise<ModelBase>; findOrFail(pks: unknown[]): Promise<ModelBase[]> };
 
 // The route's check-before allowed alice to read t1 unconditionally; t2 is bob's row.
@@ -107,6 +119,29 @@ describe('authz-orm guard: an OR connector makes a select a list', function () {
         expect(((await inRoute(() => Task.get('t1'))) as unknown as { id: string }).id).to.equal('t1');
         expect(ids(await inRoute(() => Task.findOrFail(['t1'])))).to.deep.equal(['t1']);
         expect(ids(await inRoute(() => Task.query().withDeleted().withArchived().orWhere('id', 't1')))).to.deep.equal(['t1']);
+      });
+
+      // A later page ANDs the keyset predicate past the cursor, which only narrows, so it does not count either.
+      const byId: Page['orderBy'] = [['id', 'asc']];
+      const pastT1 = async () => (await inRoute(() => Task.query().unscoped('cursor for the test').paginate({ orderBy: byId, limit: 1 }))).next ?? undefined;
+
+      it('lets every page and the keyset stream of a primary-key load through: one row each', async () => {
+        const after = await pastT1();
+        expect(ids((await inRoute(() => Task.where('id', 't1').paginate({ orderBy: byId, limit: 1 }))).items)).to.deep.equal(['t1']);
+        expect(ids((await inRoute(() => Task.where('id', 't2').paginate({ orderBy: byId, limit: 1, after }))).items)).to.deep.equal(['t2']);
+
+        const streamed: ModelBase[] = [];
+        await inRoute(async () => {
+          for await (const row of Task.where('id', 't1').order('id').stream({ batchSize: 1 })) streamed.push(row);
+        });
+        expect(ids(streamed)).to.deep.equal(['t1']);
+      });
+
+      it('flags a list on a later page', async () => {
+        const after = await pastT1();
+        for (const list of [() => Task.query(), () => Task.where('owner', 'bob'), () => Task.where('id', 't1').orWhere('id', 't2')]) {
+          expect(await settle(() => list().paginate({ orderBy: byId, limit: 1, after }))).to.be.instanceOf(AuthzConfigError);
+        }
       });
     });
   }
