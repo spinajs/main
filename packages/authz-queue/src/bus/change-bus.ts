@@ -144,8 +144,15 @@ export class QueueChangeBus extends ChangeBus {
   private watchDispose(): void {
     if (this.watching || this.Container === undefined) return;
     this.watching = true;
-    this.Container.once('di.dispose', () => void this.dispose());
+    this.Container.once('di.dispose', this.onContainerDispose);
   }
+
+  // di.dispose comes after the container disposed its Services, the QueueService and the Configuration among them.
+  private readonly onContainerDispose = (): void => {
+    this.dispose().catch((err: unknown) =>
+      this.log.warn({ error: thrownError(err) }, 'authz change bus: stopping the consumer at container dispose failed; a queue the container disposed first has closed its connections, so nothing is left to stop'),
+    );
+  };
 
   private async listen(): Promise<QueueService> {
     const queue = await this.queueService();

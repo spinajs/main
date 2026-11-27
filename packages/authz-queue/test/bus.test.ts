@@ -6,9 +6,9 @@ import type { Class } from '@spinajs/di';
 import { Configuration, ConfigurationSource, FrameworkConfiguration, JsFileSource } from '@spinajs/configuration';
 import type { IConfigLike } from '@spinajs/configuration';
 import type { AuthzChange } from '@spinajs/authz';
-import { installTestLog } from '@spinajs/authz-testing';
+import { TestLog, testHost } from '@spinajs/authz-testing';
 import { InvalidOperation } from '@spinajs/exceptions';
-import type { QueueService } from '@spinajs/queue';
+import { DefaultQueueService, QueueService } from '@spinajs/queue';
 
 import { AuthzBusRouteSource, AuthzChangeEvent, QueueChangeBus, reviveChange } from '../src/index.js';
 import { MemoryBroker, MemoryQueueClient } from './support/memory-client.js';
@@ -290,10 +290,44 @@ class UnreachableBus extends QueueChangeBus {
   }
 }
 
+/**
+ * TestLog as the Log, also when @spinajs/log registered one first (installTestLog does nothing then). By the key the
+ * container files Log under: the package does not depend on @spinajs/log-common.
+ */
+function captureLog(): () => void {
+  DI.register(TestLog).as('Log');
+  TestLog.clear();
+  return () => {
+    DI.uncache(TestLog);
+    DI.unregister(TestLog);
+    TestLog.clear();
+  };
+}
+
+/** Uses the default queueService(): the QueueService of the root. */
+class DefaultQueueBus extends QueueChangeBus {}
+
+/** Mocha fails a test on an unhandled rejection by itself; its listeners are set aside so the test can assert there is none. */
+async function unhandledRejectionsDuring(run: () => Promise<void>): Promise<unknown[]> {
+  const seen: unknown[] = [];
+  const collect = (reason: unknown) => seen.push(reason);
+  const others = process.listeners('unhandledRejection');
+  process.removeAllListeners('unhandledRejection');
+  process.on('unhandledRejection', collect);
+  try {
+    await run();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  } finally {
+    process.removeListener('unhandledRejection', collect);
+    for (const listener of others) process.on('unhandledRejection', listener);
+  }
+  return seen;
+}
+
 // Last in the file: DI.dispose() clears the root container's cache.
 describe('QueueChangeBus in a container', () => {
   it('ends with the container that resolved it, also when it only published: DI.dispose() stops consuming and the retry', async () => {
-    const uninstallLog = installTestLog();
+    const uninstallLog = captureLog();
     const broker = `bus-${++seq}`;
     const clients = [await memoryClient(broker), await memoryClient(broker)];
     [SubscribingBus.service, PublishOnlyBus.service] = clients.map((c) => new PeerQueueService(c));
@@ -314,6 +348,36 @@ describe('QueueChangeBus in a container', () => {
       for (const c of clients) await c.dispose();
       MemoryBroker.drop(broker);
       uninstallLog();
+    }
+  });
+
+  it('a DI.dispose() that disposed the DefaultQueueService first ends in one warn, not in an unhandled rejection', async () => {
+    const config = await testHost.installHost();
+    const uninstallLog = captureLog();
+    const broker = `bus-${++seq}`;
+    config.set(['queue'], {
+      default: broker,
+      routing: {},
+      connections: [{ service: 'MemoryQueueClient', name: broker, defaultQueueChannel: '/queue/test', defaultTopicChannel: '/topic/test', options: { broker } }],
+    });
+    try {
+      const queue = await DI.resolve(QueueService);
+      expect(queue).to.be.instanceOf(DefaultQueueService);
+      const client = queue.get(broker);
+      if (!(client instanceof MemoryQueueClient)) throw new Error('the queue did not build a MemoryQueueClient');
+      // Built and cached by the root, as a bus registered by the import is when a domain resolves it.
+      DI.resolve(DefaultQueueBus).subscribe(() => undefined);
+      await until('the bus consumes', () => consumers(client) === 1);
+
+      const unhandled = await unhandledRejectionsDuring(() => DI.dispose());
+
+      expect(unhandled.map((e) => String(e))).to.deep.equal([]);
+      expect(TestLog.messages('warn').filter((m) => m.includes('at container dispose'))).to.have.length(1);
+      expect(DI.RootContainer.Cache.has(DefaultQueueService), 'nothing resolved a QueueService again').to.eq(false);
+    } finally {
+      MemoryBroker.drop(broker);
+      uninstallLog();
+      await testHost.uninstallHost();
     }
   });
 });
