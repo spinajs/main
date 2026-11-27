@@ -21,6 +21,7 @@ npm install @spinajs/tenancy
 | [Running across tenants](05-running-across-tenants.md) | `forEachTenant` runs a job once per tenant, each in its own scope, and reports the failures |
 | [Files per tenant](08-files-per-tenant.md) | `@spinajs/tenancy/fs`: the providers listed in `tenancy.fs.prefixed` keep each tenant's files under its prefix or on its own provider |
 | [Configuration](06-configuration.md) | Every `tenancy.*` key, its default and the configuration schema |
+| [CLI commands in a tenant](07-cli.md) | `--tenant <id>` and `--all-tenants <reason>` on every `spinajs` command, through `@spinajs/tenancy/cli` |
 
 ## Quick start
 

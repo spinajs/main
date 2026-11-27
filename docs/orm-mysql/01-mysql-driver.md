@@ -68,16 +68,17 @@ The connection's `TimeZone` option sets one zone for every layer that reads or w
 
 | `TimeZone` | Session (`SET time_zone`) | `mysql2` `timezone` | `DATETIME` text written and read as | `driver.now()` |
 | --- | --- | --- | --- | --- |
-| `SYSTEM` (default, also when unset) | not sent: the server's own zone | `local` | the wall clock of the node process | `NOW(3)` |
-| `UTC`, `Z`, `+00:00` | `+00:00` | `Z` | the UTC wall clock | `UTC_TIMESTAMP(3)` |
+| `UTC` (default, also when unset), `Z`, `+00:00` | `+00:00` | `Z` | the UTC wall clock | `UTC_TIMESTAMP(3)` |
+| `SYSTEM` | not sent: the server's own zone | `local` | the wall clock of the node process | `NOW(3)` |
 | an offset `±HH:MM`, eg. `+02:00` | the offset | the offset | the wall clock at that offset | `NOW(3)` |
 
-- `SYSTEM` is right only when the node process and the MySQL server run in the same zone (eg. both `Europe/Warsaw`): `FROM_UNIXTIME()`, `NOW()` and `DATE()` in SQL then agree with the dates the application writes. This is how 2.x behaved.
-- `UTC` suits a schema whose every datetime is written by this ORM. A legacy schema that stores local wall-clock datetimes, or views and events that compute dates in SQL, shift by the zone offset in a UTC session: a month that starts at local midnight starts the day before.
+- Without `TimeZone` a connection runs in UTC, as every 3.x release did (3.0.0 to 3.0.29). Rows a 3.x application stored read back as the same instants, in any process zone and with any server zone, and processes in different zones agree on every stored value.
+- `SYSTEM` is opt-in, for a schema whose views, events or raw SQL compute local dates: `FROM_UNIXTIME()`, `NOW()` and `DATE()` in SQL then agree with the dates the application writes, as in 2.x. It costs consistency: every process writes its own wall clock without an offset, so the node processes and the MySQL server must all run in one zone. A process in another zone reads every value shifted by the difference: a row a process in `Europe/Warsaw` writes for `2026-09-30T22:00:00Z` holds `2026-10-01 00:00:00.000`, which a UTC process reads as `2026-10-01T00:00:00Z`.
+- In a UTC session, SQL that computes dates works in UTC: a month that starts at local midnight starts the day before, and a legacy schema that stores local wall-clock datetimes reads them shifted by the zone offset. Such a schema sets `TimeZone: 'SYSTEM'` (see [Upgrading to 4.0](../upgrading/4.0.md#mysql-connections-without-timezone)).
 - A named zone such as `Europe/Warsaw` is refused with `OrmException` when the driver resolves: `mysql2` reads datetimes only in the process zone, in UTC or at a fixed offset. A fixed offset does not follow daylight saving time.
 - `pinSessionZone()` runs the `SET time_zone` on every new pooled connection and `openDedicatedConnection()` on each dedicated one. `acquire()` hands out a pooled connection only after that `SET` succeeded.
 - `MySqlDatetimeValueConverter` extends `SqlDatetimeValueConverter` (from `@spinajs/orm-sql`): it writes an instant as the session wall clock with milliseconds, `yyyy-MM-dd HH:mm:ss.SSS`, which `DATETIME(3)` and `TIMESTAMP(3)` columns keep exactly, and reads text without an offset in the same zone. A `Date` from `mysql2` keeps its instant. For a numeric column (`int`, `bigint`, `decimal`, ...) it writes Unix seconds, or milliseconds under `@DateTime({ unit: 'milliseconds' })`. Text that is not a datetime, such as the `DECIMAL` value `mysql2` returns as a string, is read as a number in the same unit. See [Value converters and defaults](../orm-sql/05-value-converters-and-defaults.md).
-- `driver.now()` returns the session clock, the clock datetimes are written in, so a `where('At', '<=', driver.now())` compares like with like in every mode. `driver.ago(amount, unit)` counts back from the same clock: `(NOW(3) - INTERVAL …)`, or `(UTC_TIMESTAMP(3) - INTERVAL …)` with `TimeZone: 'UTC'` (`MySqlSessionSqlExpressions` / `MySqlSqlExpressions`). `driver.epochMillis()` reads `UTC_TIMESTAMP` in every mode: an epoch is an instant, not a wall clock.
+- `driver.now()` returns the session clock, the clock datetimes are written in, so a `where('At', '<=', driver.now())` compares like with like in every mode. `driver.ago(amount, unit)` counts back from the same clock: `(UTC_TIMESTAMP(3) - INTERVAL …)` in UTC (the default), or `(NOW(3) - INTERVAL …)` with `SYSTEM` or an offset (`MySqlSqlExpressions` / `MySqlSessionSqlExpressions`). `driver.epochMillis()` reads `UTC_TIMESTAMP` in every mode: an epoch is an instant, not a wall clock.
 
 ### Query plans
 
@@ -102,7 +103,7 @@ Connection keys are listed in [Connections](../orm/01-connections.md#configurati
 | `db.Connections[].PoolLimit` | `number` | | | Deprecated. `Pool.Max` when `Pool.Max` is absent. |
 | `db.Connections[].Resilience.*` | `IConnectionResilienceOptions` | `30000`, `5`, `200`, `5000` | | Health probe interval and retry policy. |
 | `db.Connections[].Encoding` | `string` | `mysql2`: `UTF8MB4_UNICODE_CI` | a `mysql2` charset or collation name, eg. `utf8mb4`, `UTF8MB4_GENERAL_CI` | `charset` of the pool. An unknown name (eg. `utf-8`) makes `connect()` reject with `Unknown charset`. |
-| `db.Connections[].TimeZone` | `string` | `SYSTEM` | `SYSTEM`, `UTC` (`Z`, `+00:00`), an offset `±HH:MM` | Session zone, `mysql2` `timezone`, datetime text and `driver.now()`. See [Dates and time zone](#dates-and-time-zone). Anything else fails the resolve with `OrmException`. |
+| `db.Connections[].TimeZone` | `string` | `UTC` | `UTC` (`Z`, `+00:00`), `SYSTEM`, an offset `±HH:MM` | Session zone, `mysql2` `timezone`, datetime text and `driver.now()`. See [Dates and time zone](#dates-and-time-zone). Anything else fails the resolve with `OrmException`. |
 | `db.Connections[].Options` | `object` | | `mysql2` pool options | Passed to `mysql2` as is: `ssl`, `connectTimeout`, `decimalNumbers` and so on. The keys above that have their own setting win over the same key here, and `timezone` always comes from `TimeZone`. `mysql2` logs `Ignoring invalid configuration option` for a key it does not know. |
 | `db.Connections[].AliasSeparator` | `string` | `$` | | Wraps generated table aliases. |
 | `db.Connections[].Migration.*` | | | | See [Migrations](../orm/10-migrations.md) and [DDL is not transactional](06-schema-views-and-events.md#ddl-is-not-transactional). |
@@ -231,7 +232,7 @@ Registered under `'orm-driver-mysql'`, it replaces the stock driver for every co
 
 - Importing the package registers both drivers. `DI.register(MySqlOrmDriver).as('orm-driver-mysql')` repeats what the decorator did; it is harmless.
 - `Pool.AcquireTimeout` is not applied: `mysql2` has no acquire timeout, and the pool queues without limit. Without `Options.ssl` there is no TLS.
-- By default (`TimeZone: 'SYSTEM'`) the driver sends no `SET time_zone` and reads and writes datetimes in the node process zone, so the process and the server must run in the same zone. With `UTC` or an offset, every new connection is pinned to it; a connection on which that `SET` fails is destroyed and the statement or transaction that took it fails.
+- By default (no `TimeZone`, or `UTC`) every new connection is pinned to UTC; with an offset it is pinned to that offset. A connection on which that `SET` fails is destroyed and the statement or transaction that took it fails. With `TimeZone: 'SYSTEM'` the driver sends no `SET time_zone` and reads and writes datetimes in the node process zone, so the process and the server must run in the same zone.
 - `decimalNumbers` stays off unless `Options` turns it on: `DECIMAL` and `NUMERIC` values come back as strings, so precision above 2^53 survives. `ResponseSchemaTypes` documents them as `string` for the generated response schema; a connection with `Options.decimalNumbers: true` needs a driver that redeclares it ([example](05-table-reflection.md#response-schema-types-custom-implementation)).
 - A reconnect by `withReconnect()` or the health probe ends the replaced pool once every connection it lent out is back (checked every second), so a transaction still running on it keeps its connection.
 - A failed `connect()` ends only the pool it just created; `this.Pool` stays the previous pool, so the next retry attempt fails with that pool's transport error and `withReconnect()` keeps retrying.
@@ -336,7 +337,7 @@ import { OrmDriver } from '@spinajs/orm';
 export async function purgeExpiredSessions(): Promise<void> {
   const shop = DI.resolve<OrmDriver>('OrmConnection', ['shop'])!;
 
-  // DELETE FROM `sessions` WHERE `ExpiresAt` < NOW(3)
+  // DELETE FROM `sessions` WHERE `ExpiresAt` < UTC_TIMESTAMP(3)
   await shop.del().from('sessions').where('ExpiresAt', '<', shop.now());
 }
 ```

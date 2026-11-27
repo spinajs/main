@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { crc32 } from 'node:zlib';
 import { DI } from '@spinajs/di';
-import { InvalidArgument, InvalidOperation, InvalidOption } from '@spinajs/exceptions';
+import { IOFail, InvalidArgument, InvalidOperation, InvalidOption } from '@spinajs/exceptions';
 import { FsMiddleware, FsProviderLayer, URI, _read, copy as copyHelper, fsService, getFs, layeredFs, publishedFs, read as readHelper } from '@spinajs/fs';
 import type { FsActionContext, fs } from '@spinajs/fs';
 import { Log } from '@spinajs/log-common';
@@ -363,16 +363,19 @@ describe('files per tenant', function () {
     await runInTenant('acme', async () => {
       const up = getFs('uploads');
       await up.write('evil.zip', evil);
+      await up.write('good.zip', zipOf({ 'ok/inner.txt': 'OK' }));
       await expect(up.unzip('evil.zip', '')).to.be.rejectedWith(InvalidOperation, /below the tenant's root/);
       await expect(getFs('other').unzip('evil.zip', '/', up)).to.be.rejectedWith(InvalidOperation, /below the tenant's root/);
-      await up.unzip('evil.zip', 'x');
+      await expect(up.unzip('evil.zip', 'x')).to.be.rejectedWith(IOFail, /resolves outside the destination/);
+      expect(await up.exists('x/ok/inner.txt')).to.equal(false);
+      await up.unzip('good.zip', 'x');
       expect(await up.exists('mine.txt')).to.equal(false);
-      expect(await up.list('')).to.have.members(['evil.zip', 'x']);
+      expect(await up.list('')).to.have.members(['evil.zip', 'good.zip', 'x']);
     });
 
     expect(readFileSync(join(tenantRoot('acme'), 'x', 'ok', 'inner.txt'), 'utf-8')).to.equal('OK');
     expect(readdirSync(tenantRoot('acme2'))).to.deep.equal(['mine.txt']);
-    expect(existsSync(join(uploads, 'tenants', 'escape.txt'))).to.equal(false);
+    for (const escape of [join(uploads, 'tenants', 'escape.txt'), join(uploads, 'escape.txt')]) expect(existsSync(escape)).to.equal(false);
   });
 
   it('refuses every lookup while a layer registered after TenantFsLayer could hand out the shared provider', async () => {

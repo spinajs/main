@@ -17,7 +17,7 @@ The schema is open at the root and inside `http`: keys it does not name pass, fo
 | --- | --- | --- | --- | --- |
 | `tenancy.registry` | string | `'ConfigTenantRegistry'` | non-empty; a class registered under `TenantRegistry` | The tenant registry; see [Tenant registries](03-tenant-registries.md) |
 | `tenancy.access` | string | `'PrincipalAttributeTenantAccess'` | non-empty; a class registered under `TenantAccess` | The access check of `admitTenant`; see [Tenant admission and access](04-admission-and-access.md) |
-| `tenancy.registryCacheMs` | integer | `5000` | `0` or more | TTL of the registry cache in milliseconds; `0` turns it off. No effect over a registry whose `cacheable` is `false`. |
+| `tenancy.registryCacheMs` | integer | `5000` | `0` to `60000` | TTL of the registry cache in milliseconds; `0` turns it off. No effect over a registry whose `cacheable` is `false`. It bounds how long a process that missed a tenant change keeps admitting the old record; a larger value fails the boot with `InvalidConfiguration`. |
 | `tenancy.tenants` | object[] | `[]` | [tenant entries](#tenant-entries) | The tenants `ConfigTenantRegistry` answers with |
 | `tenancy.fs.prefixed` | string[] | `[]` | provider names | Read by `@spinajs/tenancy/fs`: providers whose files belong to one tenant each; see [Files per tenant](08-files-per-tenant.md) |
 | `tenancy.fs.prefix` | string | `'tenants/${tenant}/'` | relative, `${tenant}` once | Read by `@spinajs/tenancy/fs`: where a tenant's files live |
