@@ -27,6 +27,9 @@ describe('reply wrappers are http responses by their declaring package', () => {
     expect(refsOf('LibReplies')).to.deep.equal(ownSchema);
     expect(refsOf('PromisedLibReplies')).to.deep.equal(ownSchema);
   });
+  it('matches the http package by its name, not by a folder named http', () => {
+    expect(refsOf('HttpFolderReplies')).to.deep.equal({ Ok: ownSchema.Ok, NotFound: ownSchema.NotFound });
+  });
   it('keeps the payload in the own schema of a lookalike', () => {
     expect(ctx.schemaRegistry.get('spinajs/unit/Ok_Payload')).to.have.deep.nested.property('properties.data', { $ref: 'spinajs/unit/Payload' });
   });
@@ -35,6 +38,9 @@ describe('reply wrappers are http responses by their declaring package', () => {
       expect(refsOf(table), table).to.deep.equal(payload);
     }
     expect(refsOf('ImportedAsReplies')).to.deep.equal({ Fine: payload.Ok, Missing: payload.NotFound, OkAlias: payload.Ok });
+  });
+  it('leaves a generic subclass of an http reply bare: its type argument need not be the payload', () => {
+    expect(refsOf('GenericSubclassReplies')).to.deep.equal({ MyGenericOk: { text: 'MyGenericOk' } });
   });
   it('describes the exceptions BadRequest and Forbidden by their own schema', () => {
     const refs = refsOf('Exceptions');

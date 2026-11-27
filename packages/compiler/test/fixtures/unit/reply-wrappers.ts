@@ -1,6 +1,7 @@
 import * as Http from '@spinajs/http';
 import { Ok as Fine, NotFound as Missing } from '@spinajs/http';
 import { BadRequest, Forbidden } from '@spinajs/exceptions';
+import * as InHttpFolder from './inner/http/replies.js';
 import * as Again from './reply-reexports.js';
 import * as App from './reply-lookalikes.js';
 import * as Lib from './vendor/reply-lib/index.js';
@@ -112,6 +113,16 @@ export interface ImportedAsReplies {
   Fine: Fine<Payload>;
   Missing: Promise<Missing<Payload>>;
   OkAlias: OkAlias<Payload>;
+}
+
+export interface HttpFolderReplies {
+  Ok: InHttpFolder.Ok<Payload>;
+  NotFound: InHttpFolder.NotFound<Payload>;
+}
+
+export class MyGenericOk<T> extends Http.Ok<T> {}
+export interface GenericSubclassReplies {
+  MyGenericOk: MyGenericOk<Payload>;
 }
 
 export interface Exceptions {
