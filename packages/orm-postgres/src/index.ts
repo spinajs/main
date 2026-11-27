@@ -694,7 +694,8 @@ export class PostgresOrmDriver extends SqlDriver {
 
       return { connection, depth: 0 };
     } catch (err) {
-      connection.release();
+      // Past BEGIN the session may hold an open or aborted transaction: such a client must not return to the pool.
+      connection.release(true);
       throw err;
     }
   }
