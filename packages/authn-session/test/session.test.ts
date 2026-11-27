@@ -56,4 +56,29 @@ describe('Session provider tests', () => {
     expect(rows().has('k-live')).to.equal(true);
     expect(await store.listBySubject(alice)).to.have.length(257);
   });
+
+  it('a session whose expiration is not a valid instant is treated as an expired one', async () => {
+    const store = await DI.resolve(MemorySessionStore);
+    const outcome = async (Expiration: DateTime) => {
+      await store.truncate();
+      const make = (SessionId: string) => new UserSession({ SessionId, Subject: alice, State: 'active', Expiration });
+      await store.save(make('k-restore'));
+      await store.save(make('k-touch'));
+      await store.save(make('k-revoke'));
+      return {
+        listed: (await store.listBySubject(alice)).length,
+        touched: await store.touch(make('k-touch')),
+        restored: await store.restore('k-restore'),
+        deletedAgain: await store.delete('k-restore'),
+        revoked: await store.deleteBySubject(alice),
+        left: (await store.listBySubject(alice)).length,
+      };
+    };
+
+    const expired = await outcome(DateTime.now().minus({ minutes: 1 }));
+    expect(expired).to.deep.equal({ listed: 0, touched: false, restored: null, deletedAgain: false, revoked: 0, left: 0 });
+    for (const invalid of [DateTime.invalid('test'), DateTime.fromISO('not a date'), DateTime.fromSeconds(1e13)]) {
+      expect(await outcome(invalid), invalid.invalidReason ?? '').to.deep.equal(expired);
+    }
+  });
 });

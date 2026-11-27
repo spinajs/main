@@ -333,6 +333,24 @@ describe('@spinajs/authn-session contracts', function () {
       await store.save(session('d', { Expiration: DateTime.now().minus({ seconds: 1 }) }));
       expect(await store.restore('d')).to.eq(null);
     });
+
+    it('an expiration that is not a valid instant counts as passed; only an absent one never expires', () => {
+      const store = new MemoryStore();
+      const unreadable: [string, DateTime][] = [
+        ['unparsable ISO text', DateTime.fromISO('not a date')],
+        ['DateTime.invalid', DateTime.invalid('test')],
+        ['millis past the Date range', DateTime.fromMillis(8.64e15 + 1)],
+        ['NaN millis', DateTime.fromMillis(NaN)],
+        ['epoch seconds past the Date range', DateTime.fromSeconds(1e13)],
+        ['arithmetic on an invalid instant', DateTime.invalid('test').plus({ minutes: 30 })],
+      ];
+      for (const [label, at] of unreadable) {
+        expect(at.isValid, `${label} is invalid`).to.eq(false);
+        expect(store.expired(session('u', { Expiration: at })), label).to.eq(true);
+      }
+      expect(store.expired(session('far', { Expiration: DateTime.fromISO('9999-12-31T23:59:59Z') }))).to.eq(false);
+      expect(store.expired(session('none', { Expiration: undefined }))).to.eq(false);
+    });
   });
 
   describe('source shape', () => {
