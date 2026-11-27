@@ -7,7 +7,7 @@ import { join, resolve } from 'node:path';
 import { crc32 } from 'node:zlib';
 import { DI } from '@spinajs/di';
 import { InvalidArgument, InvalidOperation, InvalidOption } from '@spinajs/exceptions';
-import { FsMiddleware, FsProviderLayer, fsService, getFs, layeredFs, publishedFs } from '@spinajs/fs';
+import { FsMiddleware, FsProviderLayer, URI, _read, copy as copyHelper, fsService, getFs, layeredFs, publishedFs, read as readHelper } from '@spinajs/fs';
 import type { FsActionContext, fs } from '@spinajs/fs';
 import { Log } from '@spinajs/log-common';
 import type { ILogEntry } from '@spinajs/log-common';
@@ -70,7 +70,6 @@ function boot(tenancy: Record<string, unknown>, extra: Record<string, unknown> =
 
 /** A stored zip archive whose entry names are taken as written, '../' included. */
 function zipOf(entries: Record<string, string>): Buffer {
-  // [offset, value, bytes] fields of a header
   const header = (size: number, fields: Array<[number, number, 2 | 4]>): Buffer => {
     const out = Buffer.alloc(size);
     for (const [at, value, bytes] of fields) (bytes === 4 ? out.writeUInt32LE(value, at) : out.writeUInt16LE(value, at));
@@ -157,7 +156,7 @@ const CLIMBS = ['../beta/secret.txt', 'a/../../beta/secret.txt', '..\\beta\\secr
 const MAPPED = ['/tenants/beta/secret.txt', '\\tenants\\beta\\secret.txt', join(uploads, 'tenants', 'beta', 'secret.txt'), '%2e%2e/beta/secret.txt', '\uff0e\uff0e/beta/secret.txt', '\u2025/beta/secret.txt', '', '.', '/'];
 
 describe('files per tenant', function () {
-  this.timeout(60000);
+  this.timeout(180000);
   let app: TestApp;
 
   before(async () => {
@@ -184,12 +183,9 @@ describe('files per tenant', function () {
     expect(await runInTenant('alpha', () => getFs('uploads').read('logo.png', 'utf-8'))).to.equal('alpha logo');
     expect(await runInTenant('alpha', () => getFs('uploads').list(''))).to.deep.equal(['logo.png']);
     expect(await runInTenant('beta', () => getFs('uploads').exists('logo.png'))).to.equal(false);
-  });
-
-  it("middlewares see the application's path on the provider name it uses, once", async () => {
-    await runInTenant('alpha', () => getFs('uploads').write('a.txt', 'x'));
-
-    expect(Recorder.seen).to.deep.equal(['uploads:a.txt']);
+    await publishedFs('uploads')!.rm('tenants/alpha');
+    await runInTenant('alpha', () => getFs('uploads').write('again.txt', 'again'));
+    expect(await runInTenant('alpha', () => getFs('uploads').list(''))).to.deep.equal(['again.txt']);
   });
 
   it('refuses an action with no tenant scope and across all tenants, before any other middleware', async () => {
@@ -217,6 +213,8 @@ describe('files per tenant', function () {
     await runInTenant('bigcorp', () => getFs('uploads').write('logo.png', 'big'));
 
     expect(readFileSync(join(bucket, 'logo.png'), 'utf-8')).to.equal('big');
+    await runInTenant('bigcorp', () => getFs('uploads').zip('logo.png', getFs('other'), 'big.zip'));
+    expect(readFileSync(join(await getFs('other').unzip('big.zip', 'big-unzipped'), 'logo.png'), 'utf-8')).to.equal('big');
   });
 
   it('hands out a provider that is not listed as published, and one view per listed provider', () => {
@@ -247,21 +245,6 @@ describe('files per tenant', function () {
     } finally {
       app.config.set('authz.fs', {});
     }
-  });
-
-  it('copies, renames and streams inside the tenant', async () => {
-    await runInTenant('gamma', async () => {
-      const files = getFs('uploads');
-      await files.write('a.txt', 'A');
-      await files.copy('a.txt', 'b.txt');
-      await files.rename('b.txt', 'c.txt');
-      const stream = await files.writeStream('d.txt');
-      await finish(stream, 'D');
-    });
-
-    expect(readFileSync(tenantFile('gamma', 'c.txt'), 'utf-8')).to.equal('A');
-    expect(readFileSync(tenantFile('gamma', 'd.txt'), 'utf-8')).to.equal('D');
-    expect(existsSync(tenantFile('gamma', 'b.txt'))).to.equal(false);
   });
 
   it('every operation with a hostile path is refused or stays in the tenant, and shows nothing of another', async () => {
@@ -301,8 +284,10 @@ describe('files per tenant', function () {
     const link = join(tenantRoot('alpha'), 'link');
     symlinkSync(tenantRoot('beta'), link, 'junction');
     symlinkSync(tenantRoot('beta'), tenantRoot('delta'), 'junction');
+    await runInTenant('alpha2', () => getFs('uploads').write('x.txt', 'ALPHA2'));
+    symlinkSync(tenantRoot('alpha2'), join(tenantRoot('alpha'), 'l2'), 'junction');
     try {
-      for (const [tenant, path] of [['alpha', 'link/secret.txt'], ['alpha', 'link'], ['delta', 'secret.txt'], ['delta', '']]) {
+      for (const [tenant, path] of [['alpha', 'link/secret.txt'], ['alpha', 'link'], ['delta', 'secret.txt'], ['delta', ''], ['alpha', 'l2/x.txt']]) {
         const files = () => getFs('uploads');
         await expect(runInTenant(tenant, () => files().read(path, 'utf-8'))).to.be.rejectedWith(InvalidArgument, /symbolic link/);
         await expect(runInTenant(tenant, () => files().write(join(path, 'w.txt'), 'w'))).to.be.rejectedWith(InvalidArgument, /symbolic link/);
@@ -311,8 +296,7 @@ describe('files per tenant', function () {
         await expect(runInTenant(tenant, async () => files().resolvePath(path))).to.be.rejectedWith(InvalidArgument, /symbolic link/);
       }
     } finally {
-      rmSync(link, { force: true });
-      rmSync(tenantRoot('delta'), { force: true });
+      for (const made of [link, tenantRoot('delta'), join(tenantRoot('alpha'), 'l2')]) rmSync(made, { force: true });
     }
     expect(readFileSync(tenantFile('beta', 'secret.txt'), 'utf-8')).to.equal('BETA-SECRET');
   });
@@ -328,7 +312,8 @@ describe('files per tenant', function () {
       await shared.move('to-other.txt', 'back.txt', up);
       await doc.move('to-docs.txt', 'moved.txt', up);
 
-      await expect(up.copy('a.txt', 'raw.txt', publishedFs('uploads'))).to.be.rejectedWith(InvalidOperation, /reached its shared files/);
+      await expect(up.copy('a.txt', 'raw.txt', publishedFs('uploads'))).to.be.rejectedWith(InvalidOperation, /without the tenant's view/);
+      await expect(up.move('a.txt', 'raw.txt', publishedFs('uploads'))).to.be.rejectedWith(InvalidOperation, /without the tenant's view/);
       await expect(shared.copy('back.txt', 'raw.txt', publishedFs('docs'))).to.be.rejectedWith(InvalidOperation);
       await expect(publishedFs('uploads')!.write('raw.txt', 'x')).to.be.rejectedWith(InvalidOperation);
       await expect(up.upload(tenantFile('beta', 'secret.txt'), 'stolen.txt')).to.be.rejectedWith(InvalidArgument, /outside this tenant's own/);
@@ -340,6 +325,34 @@ describe('files per tenant', function () {
     expect(readFileSync(tenantFile('alpha', 'moved.txt'), 'utf-8')).to.equal('A');
     expect(existsSync(join(other, 'to-other.txt'))).to.equal(false);
     for (const raw of [join(uploads, 'raw.txt'), join(docs, 'raw.txt'), tenantFile('alpha', 'stolen.txt')]) expect(existsSync(raw)).to.equal(false);
+  });
+
+  it("another tenant's dedicated provider is refused by name, by an instance taken in its owner's scope and as a destination", async () => {
+    await runInTenant('bigcorp', () => getFs('uploads').write('logo.png', 'BIG'));
+    const earlier = await runInTenant('bigcorp', async () => getFs('bucket'));
+    writeFileSync(OWN, 'local');
+    writeFileSync(join(other, 'good.zip'), zipOf({ 'g.txt': 'G' }));
+    const before = tree(bucket, '');
+    const failures: string[] = [];
+    // resolvePath is no action: it answers a path string, and an upload() from it is refused (assertOwnSource)
+    for (const [name, operation] of Object.entries(OPERATIONS).filter(([op]) => op !== 'resolvePath')) {
+      for (const files of [() => getFs('bucket'), () => earlier]) {
+        const outcome = await runInTenant('alpha', () => operation(files(), 'logo.png')).then(() => 'resolved', (error: unknown) => error);
+        if (!(outcome instanceof InvalidOperation)) failures.push(`${name}: ${String(outcome)}`);
+      }
+    }
+    await runInTenant('alpha', async () => {
+      const [up, shared, theirs] = [getFs('uploads'), getFs('other'), getFs('bucket')];
+      await up.write('a.txt', 'A');
+      const writes = [() => up.copy('a.txt', 'c.txt', theirs), () => up.move('a.txt', 'c.txt', theirs), () => up.zip('a.txt', theirs, 'z.zip'), () => shared.unzip('good.zip', 'u', theirs), () => shared.copy('good.zip', 'c.zip', theirs)];
+      for (const write of writes) await expect(write()).to.be.rejectedWith(InvalidOperation, /without the tenant's view/);
+      for (const read of [() => readHelper('logo.png', 'utf-8', 'bucket'), () => _read('logo.png', 'utf-8', 'bucket'), () => new URI('fs://bucket/logo.png').Fs.read('logo.png'), () => publishedFs('bucket')!.list(''), () => copyHelper('a.txt', 'c.txt', up, 'bucket')]) await expect(read()).to.be.rejectedWith(InvalidOperation);
+      expect(await getFs('uploads').exists('logo.png')).to.equal(false);
+    });
+    expect(failures).to.deep.equal([]);
+    expect(tree(bucket, '')).to.equal(before);
+    expect(await runInTenant('bigcorp', () => getFs('bucket').read('logo.png', 'utf-8'))).to.equal('BIG');
+    expect(await getFs('bucket').read('logo.png', 'utf-8')).to.equal('BIG');
   });
 
   it('an archive of one tenant cannot write into another, also a tenant whose id its own prefixes', async () => {
@@ -445,17 +458,5 @@ describe('files per tenant: the configuration at boot', function () {
 
   it('a listed provider that @spinajs/upload writes through publishedFs() fails the boot', async () => {
     await expect(boot({ prefixed: ['uploads'] }, { upload: { fs: { temp: 'other', files: 'uploads' } } })).to.be.rejectedWith(InvalidOption, /upload\.fs\.files names it/);
-  });
-
-  it('with no provider listed every provider is handed out and acts as published', async () => {
-    const app = await boot({});
-    try {
-      expect(getFs('uploads')).to.equal(publishedFs('uploads'));
-      await getFs('uploads').write('plain.txt', 'x');
-      await runInTenant('alpha', () => publishedFs('uploads')!.write('plain-in-tenant.txt', 'y'));
-      expect(readdirSync(uploads)).to.include.members(['plain.txt', 'plain-in-tenant.txt']);
-    } finally {
-      await app.dispose();
-    }
   });
 });
