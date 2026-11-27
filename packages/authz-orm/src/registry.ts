@@ -232,6 +232,23 @@ export function namedRelation(entry: ResourceEntry, name: string): OwnerColumns 
   return entry.relations !== undefined && Object.hasOwn(entry.relations, name) ? entry.relations[name] : undefined;
 }
 
+/** Compared without case: SQLite, MSSQL and MySQL on Windows read `Tasks` and `tasks` as one table. */
+export function tableKey(model: ModelClass): string | undefined {
+  const table = extractModelDescriptor(model)?.TableName;
+  return typeof table === 'string' && table !== '' ? table.toLowerCase() : undefined;
+}
+
+export function oneTypePerTableMessage(first: ModelClass, firstType: ResourceType, second: ModelClass, secondType: ResourceType): string {
+  return `authz-orm: @AccessResource models ${nameOf(first)} (resource '${firstType}') and ${nameOf(second)} (resource '${secondType}') map to one table '${extractModelDescriptor(first)?.TableName}'; a write keeps authz_resource_ancestor for the written model's type only and a rebuild writes every row of the table as both types, so the links of one type go stale: use one resource type per table (register both classes as '${firstType}'), or map '${secondType}' to a table of its own`;
+}
+
+/** Refused here as well as at the domain boot, so a class registered after the boot fails at its first use. */
+function checkOneTypeOnTable(model: ModelClass, type: ResourceType): void {
+  const table = tableKey(model);
+  if (table === undefined) return;
+  for (const [other, o] of registrations) if (o.type !== type && tableKey(other) === table) throw new AuthzConfigError(oneTypePerTableMessage(other, o.type, model, type));
+}
+
 /** The entry of `model` or of its nearest registered ancestor; property metadata merges over the whole chain of `model`. */
 export function entryOf(model: unknown): ResourceEntry | undefined {
   if (typeof model !== 'function') return undefined;
@@ -280,6 +297,7 @@ function buildEntry(model: ModelClass): ResourceEntry | undefined {
   }
   owner ??= r.owner;
   self ??= r.self;
+  checkOneTypeOnTable(model, r.type);
 
   return Object.freeze({
     registered,
