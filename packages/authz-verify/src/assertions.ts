@@ -121,9 +121,10 @@ function permissionsMatching(ir: PolicyIR, glob: string): Permission[] {
 async function never(ir: PolicyIR, holder: string, glob: string, options: BoundedOptions): Promise<Verdict> {
   const verdicts: Verdict[] = [];
   for (const permission of permissionsMatching(ir, glob)) {
-    // An anyone term needs no holder, so whoever the selector names reaches the permission through it; a public
-    // member of the relation the selector names is one of its holders, as the bounded search reads it.
-    const hits = reachers(ir, permission).filter((r) => r.holder.kind === 'anyone' || matchesHolder(holder, r.holder) || (r.holder.kind === 'public' && namesRelation(ir, holder, r.holder.type, r.holder.relation)));
+    // An anyone term needs no holder, so whoever the selector names reaches the permission through it. A reacher
+    // is labelled by its relation's first role only, so the relation is matched by every role that holds it, and a
+    // public member of that relation is one of its holders, as the bounded search reads it.
+    const hits = reachers(ir, permission).filter((r) => r.holder.kind === 'anyone' || matchesHolder(holder, r.holder) || namesRelation(ir, holder, r.holder.type, r.holder.relation));
     hits.push(...reachedBehind(ir, permission, holder));
     const sure = hits.find((r) => !r.conditional);
     if (sure !== undefined) {

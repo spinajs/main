@@ -1,0 +1,5 @@
+---
+"@spinajs/authz-verify": patch
+---
+
+`never(<role>, <permission>)` now counts a relation the role shares with a role earlier in sort order. Before, with `role:auditor` and `role:reader` both on `doc#viewer`, the exact engine labelled every member of `doc#viewer` as `auditor`'s, so `never({ holder: 'role:reader', permission: 'doc:read' })` answered `holds (exact)` although every named member of `doc#viewer` reads the document (a public member was already counted). Such a policy passed `spinajs authz:verify` and now fails it with `AZV001` (exit 1, under `--fail-on error` too) and a counterexample naming the member's tuple (`doc:d1#viewer@user:u1`). Where the permission is not monotone (a deny, an intersection, a caveat), the assertion now goes to the bounded engine instead of answering `holds (exact)`, and without `z3-solver` it is reported as `AZV090`. If the role is meant to have the permission, drop the assertion or move the role to a relation of its own; otherwise take the permission away from the shared relation.
