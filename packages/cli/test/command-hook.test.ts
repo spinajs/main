@@ -118,6 +118,15 @@ describe('CliCommandHook', function () {
     expect(execute.args[0][2]).to.not.have.property('zone');
   });
 
+  it("passes a hook option's program value, never a command's own option of that name or its default", async () => {
+    hooking = true;
+
+    expect(await run(['zone-command'])).to.eq('ran');
+    expect(await run(['zone-command', '--zone', 'eu'])).to.eq('ran');
+
+    expect(seen.filter((s) => s.hook === 'outer').map((s) => s.options.zone)).to.deep.eq([undefined, 'eu']);
+  });
+
   it('does not run the action when a hook refuses it', async () => {
     hooking = true;
     const execute = spy(TestCommand.prototype, 'execute');
