@@ -3,7 +3,7 @@ import * as chai from 'chai';
 import { mkdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { DI, NewInstance, Singleton } from '@spinajs/di';
+import { AsyncService, Autoinject, DI, NewInstance, Singleton } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 import { InvalidOperation } from '@spinajs/exceptions';
 import { Log } from '@spinajs/log-common';
@@ -65,6 +65,21 @@ class AToBReplaced extends AToB {
 
 @NewInstance()
 class FreshAToBReplaced extends AToB {}
+
+class SlowBoot extends AsyncService {
+  public async resolve() {
+    await new Promise((r) => setTimeout(r, 5));
+  }
+}
+
+class SlowLayer extends FsProviderLayer {
+  @Autoinject(SlowBoot)
+  public Boot: SlowBoot;
+
+  public wrap(found: fs): fs {
+    return found;
+  }
+}
 
 describe('fs provider layers', function () {
   this.timeout(15000);
@@ -173,5 +188,15 @@ describe('fs provider layers', function () {
     expect(layeredFs(published, container)).to.equal(published);
     expect(layeredFs(published, container)).to.equal(published);
     expect(applied).to.deep.equal(['AToBReplaced', 'AToBReplaced']);
+  });
+
+  it('a layer that resolves asynchronously throws InvalidOperation until it is resolved, not a TypeError', async () => {
+    const published = publishedFs('layer-a')!;
+    const container = DI.child();
+    container.register(SlowLayer).as(FsProviderLayer);
+
+    expect(() => layeredFs(published, container)).to.throw(InvalidOperation, /must be synchronous/);
+    await Promise.resolve(container.resolve(Array.ofType(FsProviderLayer)));
+    expect(layeredFs(published, container)).to.equal(published);
   });
 });

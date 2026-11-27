@@ -1,4 +1,4 @@
-import { DI, getTypeName, isConstructor } from '@spinajs/di';
+import { DI, getTypeName, isConstructor, isPromise } from '@spinajs/di';
 import type { Class, Factory, IContainer } from '@spinajs/di';
 import { InvalidOperation } from '@spinajs/exceptions';
 import type { fs } from './interfaces.js';
@@ -38,7 +38,14 @@ function replacementsOf(type: Registered, container: IContainer): Registered[] {
 // Array.ofType leaves factories and @NewInstance() classes out of its result: a layer skipped that way would hand out the published provider.
 function layersOf(container: IContainer): FsProviderLayer[] {
   const registered = (container.getRegisteredTypes(Array.ofType(FsProviderLayer)) ?? []).map((type) => replacementsOf(type, container));
-  const layers: FsProviderLayer[] = registered.every((chain) => chain.every(isConstructor)) ? container.resolve(Array.ofType(FsProviderLayer)) : [];
+  const layers: FsProviderLayer[] | Promise<FsProviderLayer[]> = registered.every((chain) => chain.every(isConstructor)) ? container.resolve(Array.ofType(FsProviderLayer)) : [];
+  if (isPromise(layers)) {
+    // The error below is what the caller gets; the resolve left running must not end as an unhandled rejection.
+    layers.catch(() => undefined);
+    throw new InvalidOperation(
+      'An FsProviderLayer resolves asynchronously (it or a dependency is an AsyncService not resolved yet), and a layer must be synchronous: resolve the layers before the first lookup, eg. await DI.resolve(Array.ofType(FsProviderLayer)) at boot',
+    );
+  }
   // `instanceof` would let a skipped @NewInstance() class through when a singleton subclass of it is registered too.
   const skipped = registered.filter((chain) => !layers.some((layer) => chain.some((type) => type === layer.constructor)));
   if (skipped.length > 0) {
