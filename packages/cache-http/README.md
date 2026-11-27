@@ -25,10 +25,11 @@ Limits of this version:
   `http.routes.middlewares`) and on the data transformer `x-data-transform` names, not on server middlewares.
 - `ResponseCacheMiddleware` is mounted by `@ResponseCache()`; mounted with `@Middleware()` it fails the registration.
 - On a `'tenant'` or `'shared'` route only arguments from the URL (`@Query`, `@Param`), the container and `Accept` are
-  in the key. A `@Header`, `@Cookie`, `User-Agent` or `Referer` argument needs its header in `vary`, and `@Header()`
-  must name its header (`@Header('x-region')`): http names an argument only after the routes are registered; any other
-  argument (session, IP, body, the current principal or user, an application's own resolver) fails the registration:
-  cache such a route with scope `'principal'`. An action that takes `@Req()` or `@Res()` fails the registration too.
+  in the key. A `@Header`, `@Cookie` or `@UserAgent` argument needs its header in `vary`, `@Referer()` both `referer`
+  and `referrer`, and `@Header()` must name its header (`@Header('x-region')`): http names an argument only after the
+  routes are registered. Any other argument (session, IP, the current principal or user, `@Lang()`, the orm-http model
+  and filter arguments, an application's own resolver) fails the registration: cache such a route with scope
+  `'principal'`. An action that takes `@Req()` or `@Res()` fails the registration too.
   http also passes `req`, `res` and `next` after the declared arguments: an action with more parameters than declared
   arguments fails the registration, but one that reads them through a default or rest parameter or `arguments` cannot
   be seen. A `'tenant'` or `'shared'` action must not read the request at all; it takes what it needs as `@Query`,
@@ -36,7 +37,8 @@ Limits of this version:
 - A route that reads the request body (`@Body`, a form, a file, the raw body, `@ContentDigest`, `@RequestStream`)
   fails the registration on every scope, per principal too: a GET body is in no key.
 - A `'tenant'` route fails the registration unless something puts the tenant into the key: `@spinajs/tenancy-http`,
-  an `IdempotencyScopePart` or a `CacheScope`.
+  an `IdempotencyScopePart` or a `CacheScope`. The check cannot tell a tenant part from another one (a region part
+  passes it too), and a request without a tenant gets no tenant part: such requests share their replies.
 - What the action reads of the request without an argument is not in the key either. On a `'tenant'` or `'shared'`
   route a reply that builds URLs from the request host (`req.hostname`, `req.protocol`) needs `vary: ['host']`, and
   `x-forwarded-host` (and `x-forwarded-proto`) behind a proxy: otherwise one caller's `Host` header plants its links in
