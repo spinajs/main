@@ -215,15 +215,22 @@ export class AbacModel extends AuthorizationModel {
 
   /**
    * A change of policy data (`policy`, `policy:<id>`, `model:<name>`, or the host's catch-all `*`)
-   * starts a reload of the stores; requests outside a transaction wait for it, one inside a transaction
-   * reads the stores itself. Config stores never change, so a model with nothing else ignores them.
+   * starts a reload of the stores, or inside a transaction leaves it to the next check outside one; requests
+   * outside a transaction wait for it, one inside a transaction reads the stores itself. Config stores never
+   * change, so a model with nothing else ignores them.
    */
   invalidate(tags: readonly string[]): void {
     if (this.disposed || !this.registry || (this.stores ?? []).every((s) => s instanceof ConfigPolicyStore)) return;
     if (!tags.some((t) => t === '*' || t === 'policy' || t.startsWith('policy:') || t === `model:${this.name}`)) return;
     this.generation++;
     this.failed = false;
-    if (!this.reload) this.startLoad();
+    // Inside a transaction a load would read that transaction (rows it may roll back, an older snapshot); the next check outside one starts it.
+    if (!this.reload && !this.knownInside()) this.startLoad();
+  }
+
+  /** A store says a read now would run inside an ORM transaction; a store that does not say keeps the background load. */
+  private knownInside(): boolean {
+    return (this.stores ?? []).some((s) => s.inTransaction?.() === true);
   }
 
   async preload(): Promise<void> {
