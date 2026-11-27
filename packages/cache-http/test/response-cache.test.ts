@@ -5,7 +5,7 @@ import { CacheScope, CacheStore, cache } from '@spinajs/cache';
 import { DI } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 import { Forbidden } from '@spinajs/exceptions';
-import { BaseController, BasePath, BasePolicy, CacheControl, DataTransformer, Get, HTTP_STATUS_CODE, IdempotencyScopePart, Middleware, Ok, Policy, RouteMiddleware } from '@spinajs/http';
+import { BaseController, BasePath, BasePolicy, CacheControl, DataTransformer, Get, HTTP_STATUS_CODE, IdempotencyScopePart, Middleware, Ok, Policy, Req, RouteMiddleware } from '@spinajs/http';
 import type { IActionLocalStoregeContext, IRoute, Request } from '@spinajs/http';
 import { ResponseCache, ResponseCacheKeyPart, responseCacheKey, responseCacheNamespace } from '../src/index.js';
 import { cacheWarnings, run, runs, useServer } from './support/server.js';
@@ -119,6 +119,12 @@ class Items extends BaseController {
   @ResponseCache({ ttl: '1m', cache: 'hung' })
   public hung() {
     return new Ok({ run: run('hung') });
+  }
+
+  @Get('raw')
+  @ResponseCache({ ttl: '1m', scope: 'shared', sharedBecause: PUBLIC })
+  public raw(@Req() req: Request) {
+    return new Ok({ run: run('raw'), method: req.method });
   }
 
   @Get('list')
@@ -302,6 +308,12 @@ describe('@ResponseCache', function () {
     expect((await get('/items/hung', { 'x-user': 'uma' })).body).to.deep.eq({ run: 1 });
     expect((await get('/items/hung', { 'x-user': 'uma' })).body).to.deep.eq({ run: 2 });
     expect(cacheWarnings().filter((text) => text.includes('/items/hung') && text.includes('lookup failed'))).to.have.length(2);
+  });
+
+  it('says at registration that the key cannot see what an action reads through @Req(), and still shares the route', async () => {
+    expect(cacheWarnings().filter((text) => text.includes('GET /items/raw') && text.includes('takes the request or the response'))).to.have.length(1);
+    await get('/items/raw', { 'x-user': 'vic' });
+    expect((await get('/items/raw', { 'x-user': 'wes' })).body).to.deep.eq({ run: 1, method: 'GET' });
   });
 
   it('drops a stored reply when one of its tags is invalidated', async () => {
