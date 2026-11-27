@@ -33,7 +33,7 @@ const METRICS_CONFIGURATION_SCHEMA = {
   type: 'object',
   properties: {
     enabled: { type: 'boolean', default: false, description: 'Export every Perf measurement as an OpenTelemetry metric' },
-    endpoint: { type: 'string', minLength: 1, default: DEFAULT_ENDPOINT, description: 'Full OTLP/HTTP metrics URL, path included' },
+    endpoint: { type: 'string', pattern: '^https?://', default: DEFAULT_ENDPOINT, description: 'Full OTLP/HTTP metrics URL (http: or https:), path included' },
     exportIntervalMs: { type: 'integer', minimum: 1000, default: DEFAULT_EXPORT_INTERVAL_MS, description: 'Milliseconds between two exports' },
   },
 };
@@ -158,6 +158,8 @@ export class OtelPerfSink extends PerfSink {
 
   private otlpReader(): MetricReader | undefined {
     try {
+      // The exporter sends every scheme but http: as HTTPS to the URL's host and port.
+      if (!/^https?:$/.test(new URL(this.endpoint).protocol)) throw new TypeError('not an http: or https: URL');
       const exportIntervalMillis = this.exportIntervalMs;
       return new PeriodicExportingMetricReader({
         exporter: new OTLPMetricExporter({ url: this.endpoint, timeoutMillis: EXPORT_TIMEOUT_MS }),

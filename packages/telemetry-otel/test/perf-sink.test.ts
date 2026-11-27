@@ -226,6 +226,16 @@ describe('OtelPerfSink', () => {
     expect(logged.errors).to.have.length(1);
   });
 
+  it('refuses an endpoint that is not http: or https:, which the exporter would send as HTTPS', () => {
+    for (const endpoint of ['ftp://127.0.0.1:9/v1/metrics', 'ws://127.0.0.1:9/v1/metrics']) {
+      const sink = new OtelPerfSink();
+      const logged = configure(sink, true, { 'otel.metrics.endpoint': endpoint }, null);
+      sink.collect({ name: 'cache.hit', kind: 'counter', value: 1 });
+      expect(sink.active).to.eq(false);
+      expect(logged.errors).to.have.length(1);
+    }
+  });
+
   it('logs the endpoint without its userinfo and query string', () => {
     for (const endpoint of ['http://user:pw-secret@127.0.0.1:9/v1/metrics?token=q-secret', 'not a url user:pw-secret@host?token=q-secret']) {
       const sink = new OtelPerfSink();
