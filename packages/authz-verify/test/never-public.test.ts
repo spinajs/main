@@ -72,6 +72,10 @@ describe('never(holder) with public members', function () {
         const ir = policy({ member: ['user'], visitor: ['user:*'] }, undefined, { roles: ['visitor'] });
         for (const holder of ['tenant#visitor', 'role:visitor']) expect(await verdictOf(ir, never(holder), k), holder).to.include({ result: 'holds', engine: 'exact' });
         expect(await verdictOf(publicOnly(), never('tenant#admin'), k)).to.include({ result: 'holds', engine: 'exact' });
+        const teams = policy({ member: ['user'], team: ['group'] }, { tupleToUserset: { tupleset: 'team', computed: 'member' } }, { group: ['user:*'] });
+        teams.principal.roles = { member: [{ type: 'tenant', relation: 'member' }, { type: 'group', relation: 'member' }] };
+        expect(await verdictOf(teams, never('role:member@tenant'), k)).to.include({ result: 'holds', engine: 'exact' });
+        expect(await verdictOf(teams, never('role:member@group'), k)).to.include({ result: 'violated', engine: 'exact' });
       });
 
       it('counts a public member a deny may miss, and holds where the deny takes the permission from everyone', async () => {
@@ -82,6 +86,8 @@ describe('never(holder) with public members', function () {
         expect(tupleNames(v).some((n) => n.includes('#banned@'))).to.eq(false);
         const closed = policy({ member: ['user:*'] }, { exclusion: { base: { computed: 'member' }, subtract: { computed: 'closed' } } });
         expect(await verdictOf(closed, never('tenant#member'), k)).to.include({ result: 'holds', engine: 'bounded', bound: k });
+        const noSolver = { k, solver: () => Promise.resolve(undefined) };
+        for (const ir of [banned, closed]) expect(await verifyAssertion(ir, never('tenant#member'), noSolver)).to.include({ result: 'unknown', code: 'AZV090' });
       });
 
       it('counts a public member reached through a subject set as a holder of the outer relation', async () => {
@@ -111,7 +117,8 @@ describe('never(holder) with public members', function () {
   it('the matrix and never() agree on a public-only membership', async () => {
     for (const ir of [publicOnly(), policy({ member: ['user:*'], admin: ['user'] })]) {
       const m = permissionMatrix(ir);
-      const keys = [...Object.keys(m.cells), 'tenant#member', 'role:member', 'role:member@tenant', 'tenant#admin', 'public'];
+      const roles = Object.keys(ir.principal.roles).length > 0 ? ['role:member', 'role:member@tenant'] : [];
+      const keys = [...Object.keys(m.cells), 'tenant#member', ...roles, 'tenant#admin', 'public'];
       for (const holder of keys) {
         for (const permission of m.permissions) {
           const v = await verdictOf(ir, never(holder, permission), 2);
