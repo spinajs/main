@@ -12,6 +12,9 @@ export class DbSession extends ModelBase {
   @DT()
   public Expiration: DateTime;
 
+  /** No column: whether the row holds an Expiration, on the rows DbSessionStore reads. */
+  public ExpirationSet?: boolean;
+
   /**
    * Serialized session payload - see `encodeSessionData` / `decodeSessionData`.
    *
