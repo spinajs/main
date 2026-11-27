@@ -13,36 +13,33 @@ import { guardMode } from './env.js';
 
 const isScalar = (v: unknown): boolean => typeof v === 'string' || typeof v === 'number' || typeof v === 'bigint';
 
+/** The key column `s` compares with one value, if it does. */
+function keyEquality(s: IQueryStatement, entry: ResourceEntry): string | undefined {
+  const column = s instanceof WhereStatement || s instanceof InStatement ? s.Column : undefined;
+  if (typeof column !== 'string' || !entry.idColumns.includes(column)) return undefined;
+  if (s instanceof WhereStatement) return s.Operator === SqlOperator.EQ && isScalar(s.Value) ? column : undefined;
+  return s instanceof InStatement && !s.Not && s.Values.length === 1 && isScalar(s.Values[0]) ? column : undefined;
+}
+
 /**
- * Overview decision 11: exactly one primary-key value (`where(pk, v)`, `get(v)`, `findOrFail([v])`) is
- * a single-object load, which the route's check-before covers. The soft-delete and archive IS NULL
- * statements createQuery adds by default do not count.
+ * Overview decision 11: one value for each primary-key column (`where(pk, v)`, `get(v)`, `findOrFail([v])`; on a
+ * composite key a top-level `where()` per column) is a single-object load, which the route's check-before covers.
+ * The soft-delete and archive IS NULL statements createQuery adds by default do not count.
  */
 export function isSingleObjectLoad(query: SelectQueryBuilder, entry: ResourceEntry): boolean {
   const descriptor = extractModelDescriptor(query.Model as never);
   const defaults = [descriptor?.SoftDelete?.DeletedAt, descriptor?.Archived?.ArchivedAt].filter((c): c is string => typeof c === 'string' && c !== '');
-  let keys = 0;
+  const bound: string[] = [];
   for (const [i, s] of (query.Statements as IQueryStatement[]).entries()) {
     // The ORM joins statements without grouping: `deleted_at IS NULL OR id = 7` reads every live row.
     if (i > 0 && s.Boolean === WhereBoolean.OR) return false;
-    if (s instanceof WhereStatement) {
-      if (s.Operator === SqlOperator.NULL && typeof s.Column === 'string' && defaults.includes(s.Column)) continue;
-      if (s.Column === entry.idColumn && s.Operator === SqlOperator.EQ && isScalar(s.Value)) {
-        keys++;
-        continue;
-      }
-      return false;
-    }
-    if (s instanceof InStatement) {
-      if (s.Column === entry.idColumn && !s.Not && s.Values.length === 1 && isScalar(s.Values[0])) {
-        keys++;
-        continue;
-      }
-      return false;
-    }
-    return false;
+    if (s instanceof WhereStatement && s.Operator === SqlOperator.NULL && typeof s.Column === 'string' && defaults.includes(s.Column)) continue;
+    const column = keyEquality(s, entry);
+    if (column === undefined) return false;
+    bound.push(column);
   }
-  return keys === 1;
+  // Each key column exactly once: one bound twice and another left out is a list.
+  return bound.length === entry.idColumns.length && entry.idColumns.every((c) => bound.includes(c));
 }
 
 // The builder is built through DI and the ORM's statics, so their frames (and native ones such as the
