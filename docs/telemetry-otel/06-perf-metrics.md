@@ -28,8 +28,9 @@ Importing the package registers the sink; it does nothing until:
 | `otel.metrics.exportIntervalMs` | `integer` | `60000` | Milliseconds, at least `1000` | Interval of the `PeriodicExportingMetricReader`; one export, its retries included, ends after 5 s |
 
 The schema `otel.metrics` checks the three keys at boot. The switch is `otel.metrics.enabled` alone: metrics are
-exported also when `otel.enabled` or `tracing.enabled` is `false`. The sink reads the keys when the first metric
-arrives after the configuration resolved; changing them later has no effect until `dispose()`.
+exported also when `otel.enabled` or `tracing.enabled` is `false`. The sink reads the keys once, at the first metric
+after the configuration resolved; changing them later has no effect. A disabled sink then costs one property read per
+measurement.
 
 The metrics carry the resource of the traces: `tracing.serviceName` and `tracing.resourceAttributes` of
 `@spinajs/tracing`, so one service name covers both signals. `otel.serviceName` and `otel.resourceAttributes` are not

@@ -69,6 +69,8 @@ export class OtelPerfSink extends PerfSink {
   private dropped?: Counter;
   // Perf keeps its sink list after the container disposed it, and services disposed later still emit.
   private disposed = false;
+  // Decided at the first measurement after the Configuration resolved; a @Config read on every Perf event costs ~1 µs.
+  private settled = false;
   // An exporter that cannot be built for the endpoint fails the same way on every metric: logged once, not retried.
   private exporterFailed = false;
   private readonly counters = new Map<string, Counter>();
@@ -81,10 +83,12 @@ export class OtelPerfSink extends PerfSink {
 
   /** Creates the provider when enabled; idempotent. A test passes its own reader instead of the OTLP exporter. */
   public start(reader?: MetricReader): void {
-    if (this.disposed || this.exporterFailed || this.provider) return;
+    if (this.settled || this.disposed || this.exporterFailed) return;
     // Read before the @Config getters, which throw while no Configuration is resolved.
     const configuration = this.Container.get(Configuration);
-    if (!configuration || !this.enabled) return;
+    if (!configuration) return;
+    this.settled = true;
+    if (!this.enabled) return;
     const exporting = reader ?? this.otlpReader();
     if (!exporting) return;
     // The resource of the traces (tracing.serviceName, tracing.resourceAttributes), so both signals name one service.

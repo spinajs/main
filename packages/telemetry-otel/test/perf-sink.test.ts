@@ -194,6 +194,20 @@ describe('OtelPerfSink', () => {
     expect(sink.active).to.eq(false);
   });
 
+  it('decides once, at the first measurement after the Configuration resolved, and reads no configuration afterwards', () => {
+    const sink = new OtelPerfSink();
+    let reads = 0;
+    const configuration = { get: (_path: string, fallback?: unknown) => fallback };
+    setField(sink, 'Container', { get: () => (reads++, configuration) });
+    Object.defineProperty(sink, 'enabled', { get: () => (reads++, false) });
+    sink.collect({ name: 'cache.hit', kind: 'counter', value: 1 });
+    const first = reads;
+    for (let i = 0; i < 1000; i++) sink.collect({ name: 'cache.hit', kind: 'counter', value: 1 });
+    expect(first).to.be.greaterThan(0);
+    expect(reads).to.eq(first);
+    expect(sink.active).to.eq(false);
+  });
+
   it('does nothing and throws nothing while no Configuration is resolved', () => {
     const sink = new OtelPerfSink();
     setField(sink, 'Container', { get: () => null });
