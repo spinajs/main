@@ -13,7 +13,7 @@ import { extractModelDescriptor, InsertBehaviour, Orm } from '@spinajs/orm';
 import { InternalLogger } from '@spinajs/internal-logger';
 import { normalizeFileEntryOptions } from './file.js';
 import { asSystem } from './system.js';
-import { SHARED_SCOPE } from './scoped.js';
+import { SHARED_SCOPE, isScopedEntry } from './scoped.js';
 
 /**
  * watch interval, default 3 min
@@ -255,7 +255,8 @@ export class DbConfigSourceBotstrapper extends Bootstrapper {
 
     try {
       const result = await asSystem(() => DbConfig.select().whereIn('Slug', [...this.watchedSlugs]).where('Scope', SHARED_SCOPE), this.authzDomain);
-      result.filter((r) => Boolean(r.Exposed)).forEach((r) => this.applyWatched(cService, r));
+      // Also in memory: a row of another scope must never be applied, whatever the query above reads.
+      result.filter((r) => Boolean(r.Exposed) && !isScopedEntry(r)).forEach((r) => this.applyWatched(cService, r));
     } catch (err) {
       InternalLogger.error({ error: err }, 'Failed to refresh watched config values from db', LOG_CHANNEL);
     }
