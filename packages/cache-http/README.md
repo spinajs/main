@@ -23,3 +23,11 @@ Limits of this version:
   what it reads of the request is not in the key.
 - A `'tenant'` route fails the registration unless something puts the tenant into the key: `@spinajs/tenancy-http`,
   an `IdempotencyScopePart` or a `CacheScope`.
+- What the action reads of the request without an argument is not in the key either. On a `'tenant'` or `'shared'`
+  route a reply that builds URLs from the request host (`req.hostname`, `req.protocol`) needs `vary: ['host']`, and
+  `x-forwarded-host` (and `x-forwarded-proto`) behind a proxy: otherwise one caller's `Host` header plants its links in
+  the reply every caller gets. Without `@spinajs/intl-http` the language is not in the key: an action that reads
+  `Accept-Language` itself needs `vary: ['accept-language']`.
+- The key holds no build or version of the application: a reply cached before a deployment is served after it until
+  its ttl, and two versions behind one shared store exchange their replies. Invalidate the route's tags on deploy, or
+  register a `ResponseCacheKeyPart` that returns the build id.
