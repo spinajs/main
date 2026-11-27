@@ -62,6 +62,8 @@ export interface ModelSpec {
   readonly name: string;
   /** Column → SQL type; `id` is the primary key, TEXT unless given here. */
   readonly columns: Readonly<Record<string, string>>;
+  /** Primary-key columns in key order, `id` among them or not; `['id']` unless given. */
+  readonly primary?: readonly string[];
   readonly rows?: readonly Readonly<Record<string, unknown>>[];
   /** Applied to the class before the ORM sees it (authz decorators, `@Json`, …). */
   readonly decorate?: (model: typeof ModelBase, proto: object) => void;
@@ -196,16 +198,15 @@ export class TestDb {
     const Base = spec.base ?? ModelBase;
     const cls = { [name]: class extends Base {} }[name] as typeof ModelBase & (new () => ModelBase);
 
-    Primary()(cls.prototype, 'id');
+    for (const c of spec.primary ?? ['id']) Primary()(cls.prototype, c);
     spec.decorate?.(cls, cls.prototype);
     Connection(dialect)(cls);
     Model(table)(cls);
 
     const q = (n: string) => TestDb.quote(n, dialect);
     const columns = { id: dialect === 'mysql' ? 'VARCHAR(64)' : 'TEXT', ...spec.columns };
-    const ddl = Object.entries(columns)
-      .map(([c, t]) => `${q(c)} ${t}${c === 'id' ? ' PRIMARY KEY' : ''}`)
-      .join(', ');
+    const definitions = Object.entries(columns).map(([c, t]) => `${q(c)} ${t}${spec.primary === undefined && c === 'id' ? ' PRIMARY KEY' : ''}`);
+    const ddl = [...definitions, ...(spec.primary === undefined ? [] : [`PRIMARY KEY (${spec.primary.map(q).join(', ')})`])].join(', ');
     await this.raw(`CREATE TABLE ${q(table)} (${ddl})`, [], dialect);
     this.models.push({ model: cls, table, dialect });
 
