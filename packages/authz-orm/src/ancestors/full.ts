@@ -11,7 +11,7 @@ import type { AncestorRow } from './table.js';
 
 const linkKey = (r: AncestorRow): string => `${r.resource_type}:${r.resource_id}>${r.ancestor_type}:${r.ancestor_id}`;
 
-/** Every row of `types` with its parents, read whole from each class table (once per table). */
+/** Every row of `types` with its parents, read whole from each class table through a class that declares `@Parent` (once per table). */
 async function loadParents(driver: OrmDriver, types: readonly ResourceType[]): Promise<{ nodes: Map<string, ResourceRef[]>; ofType: Map<ResourceType, ResourceRef[]> }> {
   const nodes = new Map<string, ResourceRef[]>();
   const ofType = new Map<ResourceType, ResourceRef[]>();
@@ -23,7 +23,7 @@ async function loadParents(driver: OrmDriver, types: readonly ResourceType[]): P
     for (const cls of classesOf(type)) {
       const entry = entryOf(cls)!;
       const table = tableOf(cls);
-      if (tables.has(table)) continue;
+      if (entry.parents.length === 0 || tables.has(table)) continue;
       tables.add(table);
       const rows = (await driver
         .select()
