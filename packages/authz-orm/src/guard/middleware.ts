@@ -15,31 +15,16 @@ const isScalar = (v: unknown): boolean => typeof v === 'string' || typeof v === 
  * Overview decision 11: exactly one primary-key value (`where(pk, v)`, `get(v)`, `findOrFail([v])`) is
  * a single-object load, which the route's check-before covers. The soft-delete and archive filters
  * createQuery adds and the keyset predicate of a later page do not count: each is ANDed with the
- * rest and only narrows it.
+ * rest and only narrows it. The key a lazy belongsTo populate adds counts like the application's own.
  */
 export function isSingleObjectLoad(query: SelectQueryBuilder, entry: ResourceEntry): boolean {
-  let keys = 0;
-  const conditions = (query.Statements as IQueryStatement[]).filter((s) => s.Scope !== true);
-  for (const [i, s] of conditions.entries()) {
-    // The scopes compile ANDed with these as one group; an OR among these widens it: `id = 7 OR title = ?`.
-    if (i > 0 && s.Boolean === WhereBoolean.OR) return false;
-    if (s instanceof WhereStatement) {
-      if (s.Column === entry.idColumn && s.Operator === SqlOperator.EQ && isScalar(s.Value)) {
-        keys++;
-        continue;
-      }
-      return false;
-    }
-    if (s instanceof InStatement) {
-      if (s.Column === entry.idColumn && !s.Not && s.Values.length === 1 && isScalar(s.Values[0])) {
-        keys++;
-        continue;
-      }
-      return false;
-    }
-    return false;
-  }
-  return keys === 1;
+  const isKey = (s: IQueryStatement): boolean =>
+    (s instanceof WhereStatement && s.Column === entry.idColumn && s.Operator === SqlOperator.EQ && isScalar(s.Value)) ||
+    (s instanceof InStatement && s.Column === entry.idColumn && !s.Not && s.Values.length === 1 && isScalar(s.Values[0]));
+  const conditions = (query.Statements as IQueryStatement[]).filter((s) => s.Scope !== true || isKey(s));
+  // The scopes compile ANDed with these as one group; an OR among these widens it: `id = 7 OR title = ?`.
+  if (conditions.some((s, i) => (i > 0 && s.Boolean === WhereBoolean.OR) || !isKey(s))) return false;
+  return conditions.length === 1;
 }
 
 // The builder is built through DI and the ORM's statics, so their frames (and native ones such as the

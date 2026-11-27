@@ -1,0 +1,6 @@
+---
+"@spinajs/orm": patch
+"@spinajs/authz-orm": patch
+---
+
+A populate with a top-level `OR` now returns only the owner's related rows. Before, the relation's own condition was joined to the application's conditions without a group, so the `OR` captured it: `OrderItem.where('Sku', 'A').orWhere('Sku', 'B').populate('Order', function () { this.where('Total', 20) })` compiled to `Sku = ? OR Sku = ? AND ( Total = ? )` and returned every `A` item whatever its order, and a lazy `order.Items.populate(function () { this.where('Sku', 'A').orWhere('Sku', 'B') })` compiled to `order_id = ? AND Sku = ? OR Sku = ?` and attached other orders' `B` items to this order (`item.Order.populate(...)` likewise could load another order). Now the relation's condition is marked as a condition the ORM added and stays outside the application's group: `( Sku = ? OR Sku = ? ) AND ( Total = ? )` and `order_id = ? AND ( Sku = ? OR Sku = ? )`. `withDeleted()` and `withArchived()` in the callback still remove only their filter. The SQL of such queries changes (brackets); SQL without a top-level `OR` is unchanged. The authz-orm guard keeps treating a lazy belongsTo populate of one row (`item.Order.populate()`) as a single-object load, and a lazy hasMany populate narrowed to a primary key, or a keyset page of a primary-key load with a belongsTo populate, now passes as one too.

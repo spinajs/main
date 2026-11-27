@@ -308,8 +308,7 @@ updateModelDescriptor(Invoice, (d) => {
 - Update and delete builders carry neither filter: a bulk `update(...).where(...).orWhere(...)` or
   `destroy()` also changes soft-deleted and archived rows.- `withDeleted()` and `withArchived()` remove only the filter the model added. A
   `whereNull('DeletedAt')` the query writes itself is a condition of its own and stays.
-- A relation's populate query does not add the filters: `populate()` returns soft-deleted and
-  archived related rows.
+- An eager `populate()` does not add the filters: it returns soft-deleted and archived related rows. A lazy `populate()` on a loaded model (`owner.Notes.populate()`, `note.Owner.populate()`) adds them, and `withDeleted()` / `withArchived()` in its callback removes them.
 - Both filters apply only when the column is in `descriptor.Columns`. A model whose table info did
   not load is not filtered.
 - `@UpdatedAt()` is stamped only when at least one other column changed. A no-op `update()` writes

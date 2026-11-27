@@ -17,6 +17,7 @@ import { hydratedKey, hydratedValue } from './column-values.js';
 import { assertAssignedKeys, generateClientSideKeys, isCompositePk, pkColumns, pkKeyStringFor, pkValueOf, setPkValue, whereNotAnyPk } from './primary-keys.js';
 import { startVersion, startVersionOf } from './versioning.js';
 import { OrmException } from './exceptions.js';
+import type { IQueryStatement } from './statements.js';
 
 const relationSyncs = new WeakMap<object, { readonly relation: string; readonly owner: Constructor<ModelBase> }>();
 
@@ -58,6 +59,17 @@ function applySyncCallback(statement: IRelationSyncStatement, callback?: (this: 
       this.Statements.push(...added);
     });
   }
+}
+
+/** Adds the owner key of a lazy populate marked like createQuery's scopes, so an OR of the populate callback cannot capture it. */
+function whereOwnerKey<Q extends { Statements: IQueryStatement[] }>(query: Q, addKey: (query: Q) => void): Q {
+  const from = query.Statements.length;
+  addKey(query);
+  for (const statement of query.Statements.slice(from)) {
+    statement.Scope = true;
+  }
+
+  return query;
 }
 
 /**
@@ -455,7 +467,9 @@ export class SingleRelation<R extends ModelBase, O extends ModelBase = ModelBase
     const targetDescriptor = extractModelDescriptor(this.Relation!.TargetModel);
     const joinColumn = this.Relation!.PrimaryKey || targetDescriptor!.PrimaryKey[0];
 
-    query.where({ [joinColumn]: (this._owner as any)[this.Relation!.ForeignKey] });
+    whereOwnerKey(query, (q) => {
+      q.where({ [joinColumn]: (this._owner as any)[this.Relation!.ForeignKey] });
+    });
 
     if (callback) {
       callback.apply(query);
@@ -815,7 +829,11 @@ export class OneToManyRelationList<T extends ModelBase, O extends ModelBase> ext
    * constructor is not the declared target. Only attach's back-reference wiring is kept.
    */
   public async populate<Q extends typeof ModelBase>(callback?: (this: ISelectQueryBuilder<T[]> & Q['_queryScopes']) => void): Promise<void> {
-    const query = (this.Relation.TargetModel as any).where(this.Relation.ForeignKey, this.OwnerJoinValue);
+    const { query } = createQuery(this.Relation.TargetModel, SelectQueryBuilder<T[]>);
+    query.select('*');
+    whereOwnerKey(query, (q) => {
+      q.where(this.Relation.ForeignKey, this.OwnerJoinValue);
+    });
     if (callback) {
       callback.apply(query);
     }

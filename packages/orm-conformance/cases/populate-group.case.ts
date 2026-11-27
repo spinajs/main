@@ -262,6 +262,45 @@ export const POPULATE_GROUP_CASES = [
       return { original: ids(await query), copy: ids(await copy) };
     },
   }),
+  // the query's OR once captured the group: `Title = ? OR Title = ? AND ( Name = ? )` kept Ann's Hello
+  defineCase({
+    name: 'populate-group-parent-or',
+    seed: GROUP,
+    order: 'ordered',
+    run: async () =>
+      ids(
+        await CfPost.where('Title', 'Hello')
+          .orWhere('Title', 'Bob post')
+          .populate('Author', function () {
+            this.where('Name', 'bob');
+          }),
+      ),
+  }),
+  // the callback's OR once captured the owner key: `UserId = ? AND Title = ? OR Title = ?` read bob's post into Ann's list
+  defineCase({
+    name: 'populate-group-lazy-has-many-or',
+    seed: GROUP,
+    order: 'ordered',
+    run: async () => {
+      const ann = await CfUser.where('Id', 1).firstOrFail();
+      await ann.Posts.populate(function () {
+        this.where('Title', 'Hello').orWhere('Title', 'Bob post');
+      });
+      return ids(ann.Posts);
+    },
+  }),
+  defineCase({
+    name: 'populate-group-lazy-belongs-to-or',
+    seed: GROUP,
+    order: 'ordered',
+    run: async () => {
+      const post = await CfPost.where('Id', 3).firstOrFail();
+      await post.Author.populate(function () {
+        this.where('Name', 'bob').orWhere('Name', 'Ann');
+      });
+      return post.Author.Value?.Name ?? null;
+    },
+  }),
   defineCase({
     name: 'populate-group-raw-or',
     seed: GROUP,
@@ -293,5 +332,8 @@ export const POPULATE_GROUP_EXPECTED: Readonly<Record<string, unknown>> = {
   'populate-group-stream': [1],
   'populate-group-many-to-many-key-filter': [3],
   'populate-group-clone-narrowed': { original: [1], copy: [] },
+  'populate-group-parent-or': [3],
+  'populate-group-lazy-has-many-or': [1],
+  'populate-group-lazy-belongs-to-or': 'bob',
   'populate-group-raw-or': [1],
 };
