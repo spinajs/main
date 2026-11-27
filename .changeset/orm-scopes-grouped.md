@@ -1,5 +1,5 @@
 ---
-"@spinajs/orm": patch
+"@spinajs/orm": minor
 "@spinajs/orm-sql": patch
 "@spinajs/authz-orm": patch
 ---
