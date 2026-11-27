@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 
-import { AuthzEventSink, GLOBAL, SYSTEM } from '@spinajs/authz';
+import { AuthzEventSink, SYSTEM } from '@spinajs/authz';
 import type { AuthzCommand, AuthzEvent, Principal, PrincipalRef, ResourceRef } from '@spinajs/authz';
 import { Config } from '@spinajs/configuration';
 import { Injectable, Singleton } from '@spinajs/di';
@@ -10,7 +10,7 @@ import { DateTime } from 'luxon';
 
 import { GROUP_TYPE, TEAM_ADMIN_ROLE, TEAM_MEMBER_ROLE, TEAM_OWNER_ROLE, TEAM_PURGED_EVENT, TEAM_TYPE, TeamService } from '../api.js';
 import type { CreateTeamInput, MemberEntry, Page, Paged, PrincipalTeams, PurgeReport, Teammates, TeamSubject, TeamView, UpdateTeamInput } from '../api.js';
-import { asSystem, assertAllowed, domainContainer, execute, teamsDomain } from '../host.js';
+import { asSystem, assertAllowed, domainContainer, execute, rootScope, teamsDomain } from '../host.js';
 import { deleteInvitations } from '../invitations/rows.js';
 import { anyTeam, liveGroup, liveTeam, teamLineage } from '../lookup.js';
 import { principalTeammates, principalTeams } from '../membership.js';
@@ -42,7 +42,7 @@ export class DefaultTeamService extends TeamService {
     const description = readDescription(input?.description);
     const owner = ownerOf(actor, input?.owner);
     const parent = input?.parentId == null ? null : await liveTeam(input.parentId, 'parentId');
-    await assertAllowed(actor, 'team:create', parent ? teamRef(parent.id) : GLOBAL);
+    await assertAllowed(actor, 'team:create', parent ? teamRef(parent.id) : rootScope().root());
     await this.assertSlugFree(slug);
 
     const now = DateTime.now();
@@ -99,7 +99,7 @@ export class DefaultTeamService extends TeamService {
     const team = await liveTeam(id, 'id');
     const parent = parentId === null ? null : await liveTeam(parentId, 'parentId');
     await assertAllowed(actor, 'team:update', teamRef(team.id));
-    await assertAllowed(actor, 'team:create', parent ? teamRef(parent.id) : GLOBAL);
+    await assertAllowed(actor, 'team:create', parent ? teamRef(parent.id) : rootScope().root());
     const from = team.parent_id ?? null;
     const to = parent?.id ?? null;
     if (from === to) return toTeamView(team);
