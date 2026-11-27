@@ -119,6 +119,8 @@ describe('@spinajs/tenancy/cli in a spinajs run', () => {
     }
     expect(await spinajs('scope', '--all-tenants', ' ')).to.be.instanceOf(InvalidArgument);
     expect(await spinajs('scope', '--tenant', 'acme', '--all-tenants', 'audit')).to.be.instanceOf(CommanderError);
+    expect(await spinajs('scope', '--tenant', 'acme', '--tenant', 'initech')).to.be.instanceOf(CommanderError);
+    expect(await spinajs('--all-tenants', 'audit', 'scope', '--all-tenants', 'other')).to.be.instanceOf(CommanderError);
     expect(observed.runs).to.deep.eq([]);
   });
 

@@ -1,6 +1,6 @@
 import { Injectable } from '@spinajs/di';
 import { Log, Logger } from '@spinajs/log-common';
-import { CliCommandHook } from '@spinajs/cli';
+import { CliCommandHook, InvalidArgumentError } from '@spinajs/cli';
 import type { CliHookCommand, IOption } from '@spinajs/cli';
 // Through the package entry: a CLI process may load nothing else of this package, and the entry registers the registries.
 import { admitTenant, allTenantsScope, tenantScopeOf } from '../index.js';
@@ -9,9 +9,15 @@ import { establishTenantScope } from '../scope.js';
 /** Below the default order: a hook of another package runs inside the tenant the command names. */
 export const TENANT_CLI_HOOK_ORDER = -100;
 
+// commander keeps the last of two values; a command line that names two scopes is refused instead of guessed.
+const once = (value: string, previous: unknown): string => {
+  if (previous !== undefined) throw new InvalidArgumentError('given more than once');
+  return value;
+};
+
 const OPTIONS: readonly IOption[] = [
-  { flags: '--tenant <id>', description: 'Run the command inside this tenant', conflicts: 'allTenants' },
-  { flags: '--all-tenants <reason>', description: 'Run the command across all tenants; the reason is logged', conflicts: 'tenant' },
+  { flags: '--tenant <id>', description: 'Run the command inside this tenant', conflicts: 'allTenants', parser: once },
+  { flags: '--all-tenants <reason>', description: 'Run the command across all tenants; the reason is logged', conflicts: 'tenant', parser: once },
 ];
 
 /** `--tenant <id>` runs a command inside that tenant, `--all-tenants <reason>` across all of them, neither with no tenant scope. */
