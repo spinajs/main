@@ -8,6 +8,9 @@ import WebSocket from 'ws';
 import { randomUUID } from 'crypto';
 import { DateTime } from 'luxon';
 
+// loggable-endpoint.ts is a byte copy of telemetry-otel's, so this package need not depend on it: keep the two identical.
+import { loggableEndpoint, loggableReason } from './loggable-endpoint.js';
+
 /**
  * Renders a websocket error for the log. The event stompjs hands to `onWebSocketError`
  * comes straight from the socket implementation and can reference the underlying
@@ -47,6 +50,21 @@ export function describeWebSocketError(err: unknown): string {
     return 'unserializable error';
   }
 }
+
+/**
+ * The cause a failed connect carries instead of the event `ws` hands to stompjs: its target is the socket, whose URL and
+ * upgrade request hold the broker URL with its userinfo and query.
+ */
+function socketFailure(event: unknown, reason: string): Error {
+  const inner = typeof event === 'object' && event !== null && 'error' in event && event.error instanceof Error ? event.error : event;
+  const failure = new Error(reason);
+  if (!(inner instanceof Error)) return failure;
+  failure.name = inner.name;
+  return 'code' in inner && typeof inner.code === 'string' ? Object.assign(failure, { code: inner.code }) : failure;
+}
+
+// stompjs prints every frame it sends, the CONNECT frame with its passcode header too.
+const PASSCODE_HEADER = /^passcode:.*$/gm;
 
 /**
  * Default time to wait for a broker RECEIPT frame when publishing a message
@@ -235,11 +253,17 @@ export class StompQueueClient extends QueueClient {
    * stompjs sets `binaryType`, the on* handlers and closes it itself.
    */
   protected createWebSocket(): Stomp.IStompSocket {
-    if (!this.Options.host) {
+    const host = this.Options.host;
+    if (!host) {
       throw new InvalidArgument(`Queue connection ${this.Options.name} has no host configured`);
     }
 
-    return new WebSocket(this.Options.host, Stomp.Versions.default.protocolVersions()) as unknown as Stomp.IStompSocket;
+    try {
+      return new WebSocket(host, Stomp.Versions.default.protocolVersions()) as unknown as Stomp.IStompSocket;
+    } catch (err) {
+      // `ws` quotes an address it cannot parse
+      throw new InvalidArgument(`Queue connection ${this.Options.name} cannot open a websocket to ${loggableEndpoint(host)}: ${loggableReason(err, host)}`);
+    }
   }
 
   /** Reads `options.prefetch`; same key as queue-amqp-transport. */
@@ -273,17 +297,19 @@ export class StompQueueClient extends QueueClient {
   public async resolve() {
     // createWebSocket() runs inside stompjs's un-awaited connect loop, where a throw would be
     // an unhandled rejection and leave this promise pending
-    if (!this.Options.host) {
+    const host = this.Options.host;
+    if (!host) {
       throw new InvalidArgument(`Queue connection ${this.Options.name} has no host configured`);
     }
 
     this.PrefetchSize = this.readPrefetch();
     this.VirtualTopics = this.readVirtualTopics();
 
-    this.Log.info({ host: this.Options.host, clientId: this.ClientId }, 'Connecting to STOMP queue at ${host} with client-id: ${clientId} ...');
+    const broker = loggableEndpoint(host);
+    this.Log.info({ host: broker, clientId: this.ClientId }, 'Connecting to STOMP queue at ${host} with client-id: ${clientId} ...');
 
     this.Client = this.createClient({
-      brokerURL: this.Options.host,
+      brokerURL: host,
       connectHeaders: {
         login: this.Options.login,
         passcode: this.Options.password,
@@ -307,7 +333,7 @@ export class StompQueueClient extends QueueClient {
     // stompjs is chatty; keep it at trace unless the connection asks for debug output
     const debugLevel = this.Options.debug ? 'debug' : 'trace';
     this.Client.debug = (str: string) => {
-      this.Log[debugLevel](`${str}, Client-id: ${this.ClientId}, name: ${this.Options.name}`);
+      this.Log[debugLevel](`${loggableReason(str.replace(PASSCODE_HEADER, 'passcode:***'), host)}, Client-id: ${this.ClientId}, name: ${this.Options.name}`);
     };
 
     // lifecycle handlers that simply log - installed once, never reassigned
@@ -320,11 +346,11 @@ export class StompQueueClient extends QueueClient {
       this.Log.warn({ clientId: this.ClientId }, 'Disconnected from STOMP client, client-id: ${clientId}');
     };
 
-    this.Client.onWebSocketClose = (evt) => {
+    this.Client.onWebSocketClose = (evt: { code?: number; reason?: string } | undefined) => {
       // 1000 = clean close, 1006 = abnormal ( connect failed / dropped without a close frame ),
       // anything else usually comes from the broker with a reason
       this.Log.warn(
-        { code: evt?.code ?? 'unknown', reason: evt?.reason, clientId: this.ClientId },
+        { code: evt?.code ?? 'unknown', reason: evt?.reason && loggableReason(evt.reason, host), clientId: this.ClientId },
         'STOMP websocket closed ( code: ${code}${?reason}, reason: ${reason}${/reason} ), client-id: ${clientId} ( will auto-reconnect if active )',
       );
     };
@@ -384,15 +410,16 @@ export class StompQueueClient extends QueueClient {
       this.Client.onStompError = (frame) => {
         // Compliant brokers terminate the connection after an ERROR frame.
         // Bad login / passcode typically surfaces here.
-        const brokerMessage = frame.headers['message'] ?? '';
+        const brokerMessage = loggableReason(frame.headers['message'] ?? '', host);
+        const details = loggableReason(frame.body, host);
         this.Log.error({ brokerMessage }, 'Broker reported error: ${brokerMessage}');
-        this.Log.error({ details: frame.body }, 'Additional details: ${details}');
+        this.Log.error({ details }, 'Additional details: ${details}');
 
         if (!settled) {
           settled = true;
           const hint = /already connected|InvalidClientID/i.test(brokerMessage) ? ` - client-id ${this.ClientId} is in use by another connection; give every replica a stable, unique QUEUE_INSTANCE_ID ( or options.clientIdSuffix )` : '';
           this.Client.deactivate();
-          reject(new UnexpectedServerError(`Cannot connect to queue server at ${this.Options.host}: ${brokerMessage}${hint}`, frame));
+          reject(new UnexpectedServerError(`Cannot connect to queue server at ${broker}: ${brokerMessage}${hint}`, Object.assign(new Error(brokerMessage), { body: details })));
         }
       };
 
@@ -401,12 +428,12 @@ export class StompQueueClient extends QueueClient {
         // thrown here ( a bad log call, a serializer choking on the event ) becomes an
         // uncaughtException and, worse, would leave the initial-connect promise pending
         // forever, hanging whoever awaits resolve() ( QueueService boot ).
-        const reason = describeWebSocketError(err);
+        const reason = loggableReason(describeWebSocketError(err), host);
 
         if (!settled) {
           settled = true;
           void this.Client.deactivate();
-          reject(new UnexpectedServerError(`Cannot connect to queue server at ${this.Options.host}, websocket error: ${reason}`, err));
+          reject(new UnexpectedServerError(`Cannot connect to queue server at ${broker}, websocket error: ${reason}`, socketFailure(err, reason)));
         }
 
         try {
