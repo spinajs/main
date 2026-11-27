@@ -16,9 +16,14 @@ import { NodeBus, PeerQueueService } from './support/nodes.js';
 
 let seq = 0;
 
-async function node(broker: string) {
+async function memoryClient(broker: string): Promise<MemoryQueueClient> {
   const client = new MemoryQueueClient({ name: `n${++seq}`, options: { broker } } as never);
   await client.resolve();
+  return client;
+}
+
+async function node(broker: string) {
+  const client = await memoryClient(broker);
   const bus = new NodeBus(new PeerQueueService(client));
   const heard: AuthzChange[] = [];
   bus.subscribe((c) => heard.push(c));
@@ -290,8 +295,7 @@ describe('QueueChangeBus in a container', () => {
   it('ends with the container that resolved it, also when it only published: DI.dispose() stops consuming and the retry', async () => {
     const uninstallLog = installTestLog();
     const broker = `bus-${++seq}`;
-    const clients = [new MemoryQueueClient({ name: `n${++seq}`, options: { broker } } as never), new MemoryQueueClient({ name: `n${++seq}`, options: { broker } } as never)];
-    for (const c of clients) await c.resolve();
+    const clients = [await memoryClient(broker), await memoryClient(broker)];
     [SubscribingBus.service, PublishOnlyBus.service] = clients.map((c) => new PeerQueueService(c));
     try {
       const app = DI.child();
