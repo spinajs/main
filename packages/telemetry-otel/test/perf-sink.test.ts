@@ -1,5 +1,5 @@
 import 'mocha';
-import { createHook } from 'node:async_hooks';
+import { AsyncLocalStorage, createHook } from 'node:async_hooks';
 import { expect } from 'chai';
 import { AggregationTemporality, DataPointType, MetricReader, PeriodicExportingMetricReader } from '@opentelemetry/sdk-metrics';
 import type { MetricData, PushMetricExporter, ResourceMetrics } from '@opentelemetry/sdk-metrics';
@@ -252,6 +252,29 @@ describe('OtelPerfSink', () => {
       expect(sink.active).to.eq(false);
     });
   }
+
+  it('exports in no request context, also when the first measurement came from a request', async () => {
+    const als = new AsyncLocalStorage<{ request: string }>();
+    const stores: unknown[] = [];
+    const recording: PushMetricExporter = {
+      export: (_metrics, done) => {
+        stores.push(als.getStore());
+        done({ code: 0 });
+      },
+      forceFlush: async () => undefined,
+      shutdown: async () => undefined,
+    };
+    const sink = new OtelPerfSink();
+    configure(sink, true, undefined, null);
+    als.run({ request: 'req-of-tenant-A' }, () => {
+      sink.start(new PeriodicExportingMetricReader({ exporter: recording, exportIntervalMillis: 5, exportTimeoutMillis: 5 }));
+      sink.collect({ name: 'cache.hit', kind: 'counter', value: 1 });
+    });
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    await sink.dispose();
+    expect(stores).to.not.be.empty;
+    expect(stores.filter((store) => store !== undefined)).to.deep.eq([]);
+  });
 
   it('shuts its provider down on dispose, and a metric that arrives afterwards does not start another', async () => {
     const sink = new OtelPerfSink();

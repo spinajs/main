@@ -1,3 +1,4 @@
+import { AsyncResource } from 'node:async_hooks';
 import { Autoinject, Container, Injectable, Singleton } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 import { Config, Configuration, registerConfigurationSchemaAtImport } from '@spinajs/configuration';
@@ -38,6 +39,10 @@ const METRICS_CONFIGURATION_SCHEMA = {
 };
 
 registerConfigurationSchemaAtImport(METRICS_CONFIGURATION_SCHEMA);
+
+// The reader's timer and sockets keep the async context they are created in, and the first measurement usually runs
+// inside a request: without this scope every export would pin that request's stores for the life of the process.
+const PROCESS_SCOPE = new AsyncResource('OtelPerfSink');
 
 /**
  * Every Perf measurement as an OpenTelemetry instrument named after it: a counter for Perf.count, a histogram in ms for
@@ -89,18 +94,7 @@ export class OtelPerfSink extends PerfSink {
     if (!configuration) return;
     this.settled = true;
     if (!this.enabled) return;
-    const exporting = reader ?? this.otlpReader();
-    if (!exporting) return;
-    // The resource of the traces (tracing.serviceName, tracing.resourceAttributes), so both signals name one service.
-    const { serviceName, resourceAttributes } = readTracingOptions(configuration);
-    this.provider = new MeterProvider({
-      resource: resourceFromAttributes({ [ATTR_SERVICE_NAME]: serviceName, ...resourceAttributes }),
-      readers: [exporting],
-      views: [{ instrumentName: '*', aggregationCardinalityLimit: MAX_SERIES_PER_INSTRUMENT }],
-    });
-    this.meter = this.provider.getMeter(PERF_METER_NAME);
-    this.dropped = this.meter.createCounter(DROPPED_METRIC, { description: 'Perf measurements OtelPerfSink did not export' });
-    if (!reader) this.log.info({ endpoint: loggableEndpoint(this.endpoint) }, 'otel metrics export started (endpoint=${endpoint})');
+    PROCESS_SCOPE.runInAsyncScope(() => this.open(configuration, reader));
   }
 
   public collect(metric: IPerfMetric): void {
@@ -145,6 +139,21 @@ export class OtelPerfSink extends PerfSink {
       this.log.warn({ error: err }, 'otel metrics export: the metrics of the last interval were not exported');
     }
     await super.dispose();
+  }
+
+  private open(configuration: Configuration, reader: MetricReader | undefined): void {
+    const exporting = reader ?? this.otlpReader();
+    if (!exporting) return;
+    // The resource of the traces (tracing.serviceName, tracing.resourceAttributes), so both signals name one service.
+    const { serviceName, resourceAttributes } = readTracingOptions(configuration);
+    this.provider = new MeterProvider({
+      resource: resourceFromAttributes({ [ATTR_SERVICE_NAME]: serviceName, ...resourceAttributes }),
+      readers: [exporting],
+      views: [{ instrumentName: '*', aggregationCardinalityLimit: MAX_SERIES_PER_INSTRUMENT }],
+    });
+    this.meter = this.provider.getMeter(PERF_METER_NAME);
+    this.dropped = this.meter.createCounter(DROPPED_METRIC, { description: 'Perf measurements OtelPerfSink did not export' });
+    if (!reader) this.log.info({ endpoint: loggableEndpoint(this.endpoint) }, 'otel metrics export started (endpoint=${endpoint})');
   }
 
   private otlpReader(): MetricReader | undefined {
