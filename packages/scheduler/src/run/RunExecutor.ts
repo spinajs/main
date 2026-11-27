@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { ROOT_CONTEXT, context, trace } from '@opentelemetry/api';
 import type { Context, Span } from '@opentelemetry/api';
 import { Autoinject, DI, Injectable, NewInstance } from '@spinajs/di';
@@ -23,6 +24,7 @@ import { jsonValue, toStructuredError } from '../tracking/structured.js';
 import type { ExecutionOutcome } from './outcome.js';
 import { RunContext } from './RunContext.js';
 import { withRunContext } from './current.js';
+import { runScheduleHooks, scheduleRunInfo } from './hooks.js';
 import { journalAttemptEnd } from './end.js';
 import { RunEventWriter } from './RunEventWriter.js';
 import { RunFinalizer } from './RunFinalizer.js';
@@ -45,6 +47,17 @@ export interface RunDecision {
   countsAsFailure: boolean;
   keepScheduleLease: boolean;
   nextAttemptAt: number | null;
+}
+
+/**
+ * Aborts `to` when `from` aborts, inside the async context this is called in: the task's abort listeners then run in
+ * the context of its body (its tenant), not in that of the timer, heartbeat or caller that aborted the run.
+ */
+function relayAbort(from: AbortSignal, to: AbortController): void {
+  const inBody = AsyncLocalStorage.snapshot();
+  const relay = () => inBody(() => to.abort(from.reason));
+  if (from.aborted) relay();
+  else from.addEventListener('abort', relay, { once: true });
 }
 
 /**
@@ -125,7 +138,8 @@ export class RunExecutor {
     });
     await this.Events.write(run, run.Attempt, { type: 'status', status: 'running', reason: null });
 
-    const ctx = await this.createContext(run, def, ac.signal, cfg, () => abort('lease-lost'));
+    const body = new AbortController();
+    const ctx = await this.createContext(run, def, body.signal, cfg, () => abort('lease-lost'));
     const scheduleLease = run.Forced ? null : runScheduleKey(run);
     const renewEveryMs = Math.floor(cfg.leaseTtl / 3);
     const heartbeat = new Heartbeat({
@@ -155,7 +169,14 @@ export class RunExecutor {
     try {
       await this.Signals.runStarted(run, startedAt);
       // a synchronous throw from an overridden invoke() is a task failure like any other
-      const work = new Promise<unknown>((resolve) => resolve(this.invoke(def, ctx)));
+      const work = new Promise<unknown>((resolve) =>
+        resolve(
+          this.hooked(run, () => {
+            relayAbort(ac.signal, body);
+            return this.invoke(def, ctx);
+          }),
+        ),
+      );
       outcome = await this.settle(work, ac.signal, cfg.shutdownGrace);
       // a task that failed settles as an outcome, it does not throw into traced()
       if (outcome.kind === 'error') markSpanErrorType(span, outcome.error);
@@ -261,7 +282,7 @@ export class RunExecutor {
       };
       const sent = await this.boundedEmit(
         // a synchronous throw is a failed emit like a rejection
-        new Promise((resolve) => resolve((job as unknown as typeof QueueJob).emit(payload))),
+        new Promise((resolve) => resolve(this.hooked(run, () => Promise.resolve((job as unknown as typeof QueueJob).emit(payload))))),
         signal,
         Math.max(0, emitDeadline - this.Clock.now()),
         cfg.shutdownGrace,
@@ -397,6 +418,11 @@ export class RunExecutor {
   protected async invoke(def: ScheduleDefinition, ctx: RunContext): Promise<unknown> {
     const task = await Promise.resolve(DI.resolve(def.task));
     return withRunContext(ctx, () => Promise.resolve(task.execute(ctx)));
+  }
+
+  /** The run's body under every `ScheduleRunHook`. */
+  protected hooked<T>(run: RunModel, work: () => Promise<T>): Promise<T> {
+    return runScheduleHooks(scheduleRunInfo(run), work);
   }
 
   protected async settle(work: Promise<unknown>, signal: AbortSignal, graceMs: number): Promise<ExecutionOutcome> {

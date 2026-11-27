@@ -14,9 +14,10 @@ import {
   ScheduledTask,
   SchedulerService,
   ScheduleModel,
+  ScheduleRunHook,
   undefineSchedule,
 } from '../src/index.js';
-import type { FakeClock } from '../src/index.js';
+import type { FakeClock, ScheduleRunInfo } from '../src/index.js';
 import { bootTestEnv } from './support/env.js';
 import { deferred, makeDef, queuedRun } from './support/fixtures.js';
 
@@ -41,6 +42,14 @@ const seed = (name: string, tenant: string, extra: Partial<ScheduleModel> = {}):
   });
 const rowOf = (name: string, tenant: string): Promise<ScheduleModel> =>
   ScheduleModel.where({ Name: name, Tenant: tenant }).first();
+
+// Stands in for @spinajs/tenancy/scheduler: without a ScheduleRunHook a tenant instance's run is refused.
+class PassThrough extends ScheduleRunHook {
+  public aroundRun<T>(_run: ScheduleRunInfo, next: () => Promise<T>): Promise<T> {
+    return next();
+  }
+}
+DI.register(PassThrough).as(ScheduleRunHook);
 
 let gate = deferred();
 class Quick extends ScheduledTask {

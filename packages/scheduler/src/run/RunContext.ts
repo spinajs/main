@@ -18,6 +18,7 @@ import { RunStepModel } from '../models/RunStepModel.js';
 import type { RunProgressPatch } from '../store/LeaseStore.js';
 import type { DbClock } from '@spinajs/durable';
 import { safeJson, toStructuredError } from '../tracking/structured.js';
+import { scheduleTenantOf, type ScheduleTenant } from './hooks.js';
 import type { ExecutionOutcome } from './outcome.js';
 import { computeRunProgress, normalizeProgress, ProgressInput } from './progress.js';
 import type { RunEventWriter } from './RunEventWriter.js';
@@ -121,6 +122,8 @@ export class RunContext {
   public readonly firedAt: Date;
   public readonly params: Record<string, unknown>;
   public readonly triggeredBy: TriggeredBy | null;
+  /** The tenant of the schedule instance; undefined for the global instance. */
+  public readonly tenant: ScheduleTenant | undefined;
   public readonly signal: AbortSignal;
   public readonly log: RunLogger;
 
@@ -161,6 +164,7 @@ export class RunContext {
     this.firedAt = new Date(r.StartedAt ?? init.clock.now());
     this.params = r.Params ?? {};
     this.triggeredBy = r.TriggeredBy ?? null;
+    this.tenant = scheduleTenantOf(r.Tenant);
     this.signal = init.signal;
     this.plannedWeight = init.plannedWeight ?? 0;
     this.lastMessage = r.Message ?? null;

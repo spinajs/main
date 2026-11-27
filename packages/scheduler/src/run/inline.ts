@@ -58,6 +58,11 @@ export class InlineRunExecutor extends RunExecutor {
     return context.active();
   }
 
+  /** An inline run keeps the scope of the code that started it. */
+  protected override hooked<T>(_run: RunModel, work: () => Promise<T>): Promise<T> {
+    return work();
+  }
+
   protected override invoke(def: ScheduleDefinition, ctx: RunContext): Promise<unknown> {
     const body = this.bodies.get(ctx.runId);
     if (!body) return super.invoke(def, ctx);
