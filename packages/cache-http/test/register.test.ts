@@ -2,7 +2,7 @@ import 'mocha';
 import { expect } from 'chai';
 import { CacheConfigError } from '@spinajs/cache';
 import { InvalidArgument } from '@spinajs/exceptions';
-import { BaseController, BasePath, CacheControl, Get, Middleware, Ok, ParameterType, RouteMiddleware, RouteType } from '@spinajs/http';
+import { BaseController, BasePath, CacheControl, Get, IdempotencyScopePart, Middleware, Ok, ParameterType, RouteMiddleware, RouteType } from '@spinajs/http';
 import type { IController, IMiddlewareDescriptor, IRoute, IRouteParameter } from '@spinajs/http';
 import { createTestApp } from '@spinajs/testing';
 import type { TestApp } from '@spinajs/testing';
@@ -13,6 +13,13 @@ import { SILENT_LOGGER } from './support/server.js';
 /** Declares what authz-http's AuthzFieldsMiddleware declares: its reply is shaped for the caller. */
 class PerCallerFilter extends RouteMiddleware {
   public static readonly PerPrincipalReply = true;
+}
+
+/** What tenancy-http's TenantIdempotencyScope is: a tenant in the key. */
+class TenantPart extends IdempotencyScopePart {
+  public partOf(): string | undefined {
+    return undefined;
+  }
 }
 
 @BasePath('items')
@@ -121,6 +128,16 @@ describe('ResponseCacheMiddleware registration', () => {
 
   it('shares a route whose arguments come from the URL, the container, Accept or a header in vary', async () => {
     await reading({ ...SHARED, vary: ['X-Region', 'user-agent', 'Cookie'] }, ...[ParameterType.FromQuery, ParameterType.QueryField, ParameterType.FromParams, ParameterType.ParamField, ParameterType.FromDi, ParameterType.RequestType, ParameterType.UserAgent, ParameterType.FromCookie].map((type, Index) => ({ ...arg(type, `a${Index}`), Index })), { ...arg(ParameterType.FromHeader, 'xRegion', { key: 'x-region' }), Index: 8 }, { ...arg(ParameterType.FromHeader, 'accept', { key: undefined }), Index: 9 }, { ...arg(ParameterType.FromHeader, 'transform', { key: 'X-Data-Transform' }), Index: 10 });
+  });
+
+  it('refuses a tenant scope while nothing puts a tenant into the key', async () => {
+    const err = await rejection(mount({ ...SHARED, scope: 'tenant' }, RouteType.GET));
+    expect(err).to.be.instanceOf(InvalidArgument);
+    expect((err as Error).message).to.eq("GET /items/list: @ResponseCache scope 'tenant' needs a tenant in the key: install @spinajs/tenancy-http, or register an IdempotencyScopePart or a CacheScope");
+
+    app.container.register(TenantPart).as(IdempotencyScopePart);
+    await mount({ ...SHARED, scope: 'tenant' }, RouteType.GET);
+    expect(((await rejection(reading({ ...SHARED, scope: 'tenant' }, arg(ParameterType.FromCookie, 'sid')))) as Error).message).to.contain("scope 'tenant' would give one caller's reply to others, but the route reads the header cookie");
   });
 
   it('names the route in an option it refuses at import', () => {

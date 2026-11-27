@@ -21,3 +21,5 @@ Limits of this version:
   argument (session, IP, body, the current principal or user, an application's own resolver) fails the registration:
   cache such a route with scope `'principal'`. An action that takes `@Req()` or `@Res()` logs a warning at registration:
   what it reads of the request is not in the key.
+- A `'tenant'` route fails the registration unless something puts the tenant into the key: `@spinajs/tenancy-http`,
+  an `IdempotencyScopePart` or a `CacheScope`.

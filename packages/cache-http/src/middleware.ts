@@ -5,7 +5,7 @@ import type { IContainer } from '@spinajs/di';
 import { InvalidArgument } from '@spinajs/exceptions';
 import { Logger } from '@spinajs/log';
 import type { Log } from '@spinajs/log';
-import { CacheService, cache, cacheSettings } from '@spinajs/cache';
+import { CacheScope, CacheService, cache, cacheSettings } from '@spinajs/cache';
 import type { Cache, CacheLookup, CacheOptions } from '@spinajs/cache';
 import { BaseController, CacheControl, DataTransformer, IdempotencyScopePart, ParameterType, RouteClientGone, RouteMiddleware, RouteType, sendReply } from '@spinajs/http';
 import type { CapturedJsonReply, IActionLocalStoregeContext, IController, IRoute, IRouteInvocation, IRouteOutcome, IRouteParameter } from '@spinajs/http';
@@ -118,6 +118,10 @@ export class ResponseCacheMiddleware extends RouteMiddleware {
     const shaper = this.options.scope === 'principal' ? undefined : [...controller.Descriptor.Middlewares, ...route.Middlewares].find((m) => repliesPerPrincipal(m.Type));
     if (shaper !== undefined) {
       throw new InvalidArgument(`@ResponseCache scope '${this.options.scope}' would give one caller's reply to others, but ${shaper.Type.name} shapes the reply per principal: cache this route per principal or not at all`);
+    }
+    // without a tenant part the tenant key is the shared one
+    if (this.options.scope === 'tenant' && this.ScopeParts.length === 0 && !this.Container.hasRegistered(CacheScope)) {
+      throw new InvalidArgument(`${String(route.Type).toUpperCase()} ${path}: @ResponseCache scope 'tenant' needs a tenant in the key: install @spinajs/tenancy-http, or register an IdempotencyScopePart or a CacheScope`);
     }
     const unkeyed = this.options.scope === 'principal' ? undefined : this.unkeyedArgument(route, path);
     if (unkeyed !== undefined) {
