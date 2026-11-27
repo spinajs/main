@@ -17,40 +17,60 @@ chai.use(chaiAsPromised);
 class FakePoolConnection {
   public statements: string[] = [];
   public events: string[] = [];
+  /** Statements and lifecycle events in the order they happened. */
+  public trace: string[] = [];
   public released = 0;
+
+  /** `failing` names the statements and lifecycle events ('begin', 'commit', 'rollback') that fail. */
+  constructor(private readonly failing: ReadonlySet<string> = new Set()) {}
 
   public query(stmt: string, paramsOrCb: any, cb?: any) {
     const callback = typeof paramsOrCb === 'function' ? paramsOrCb : cb;
     this.statements.push(stmt);
-    callback?.(null, []);
+    this.trace.push(stmt);
+    callback?.(this.failure(stmt), []);
   }
 
   public beginTransaction(cb: (err?: unknown) => void) {
-    this.events.push('begin');
-    cb(null as any);
+    this.lifecycle('begin', cb);
   }
 
   public commit(cb: (err?: unknown) => void) {
-    this.events.push('commit');
-    cb(null as any);
+    this.lifecycle('commit', cb);
   }
 
   public rollback(cb: (err?: unknown) => void) {
-    this.events.push('rollback');
-    cb(null as any);
+    this.lifecycle('rollback', cb);
   }
 
   public release() {
     this.released++;
     this.events.push('release');
+    this.trace.push('release');
+  }
+
+  public destroy() {
+    this.events.push('destroy');
+    this.trace.push('destroy');
+  }
+
+  private lifecycle(event: string, cb: (err?: unknown) => void) {
+    this.events.push(event);
+    this.trace.push(event);
+    cb(this.failure(event));
+  }
+
+  private failure(name: string): Error | null {
+    return this.failing.has(name) ? new Error(`${name} failed`) : null;
   }
 }
 
 class FakePool {
   public handedOut: FakePoolConnection[] = [];
+  public failing = new Set<string>();
 
   public getConnection(cb: (err: unknown, connection: FakePoolConnection) => void) {
-    const connection = new FakePoolConnection();
+    const connection = new FakePoolConnection(this.failing);
     this.handedOut.push(connection);
     cb(null, connection);
   }
@@ -114,7 +134,7 @@ describe('MySQL transaction primitives', () => {
       await driver.transaction(async () => 'inner');
     });
 
-    expect(driver.LastConnection.statements).to.deep.equal(['SAVEPOINT `sp_1`', 'RELEASE SAVEPOINT `sp_1`']);
+    expect(driver.LastConnection.statements).to.deep.equal(['SET autocommit = 0', 'SAVEPOINT `sp_1`', 'RELEASE SAVEPOINT `sp_1`', 'SET autocommit = 1']);
     // one connection for the whole nest — nesting must not acquire a second one
     expect(driver.FakePool.handedOut).to.have.length(1);
   });
@@ -130,7 +150,7 @@ describe('MySQL transaction primitives', () => {
         .catch(() => undefined);
     });
 
-    expect(driver.LastConnection.statements).to.deep.equal(['SAVEPOINT `sp_1`', 'ROLLBACK TO SAVEPOINT `sp_1`']);
+    expect(driver.LastConnection.statements).to.deep.equal(['SET autocommit = 0', 'SAVEPOINT `sp_1`', 'ROLLBACK TO SAVEPOINT `sp_1`', 'SET autocommit = 1']);
     expect(driver.LastConnection.events).to.deep.equal(['begin', 'commit', 'release']);
   });
 
@@ -154,5 +174,60 @@ describe('MySQL transaction primitives', () => {
 
     await expect(driver.transaction(async () => 1, { isolation: 'SERIALIZABLE' })).to.be.rejected;
     expect(driver.FakePool.handedOut).to.have.length(0);
+  });
+});
+
+describe('MySQL transaction session: autocommit', () => {
+  const fail = async () => {
+    throw new Error('boom');
+  };
+
+  it('switches autocommit off before begin and back on before the connection returns to the pool, on commit and on rollback', async () => {
+    const committed = new TestableMySqlDriver();
+    await committed.transaction(async () => 'ok', { isolation: 'SERIALIZABLE' });
+    expect(committed.LastConnection.trace).to.deep.equal(['SET TRANSACTION ISOLATION LEVEL SERIALIZABLE', 'SET autocommit = 0', 'begin', 'commit', 'SET autocommit = 1', 'release']);
+
+    const rolledBack = new TestableMySqlDriver();
+    await expect(rolledBack.transaction(fail)).to.be.rejectedWith('boom');
+    expect(rolledBack.LastConnection.trace).to.deep.equal(['SET autocommit = 0', 'begin', 'rollback', 'SET autocommit = 1', 'release']);
+  });
+
+  it('destroys the connection when SET autocommit = 1 fails, so no later user gets a session that never commits', async () => {
+    const driver = new TestableMySqlDriver();
+    driver.FakePool.failing.add('SET autocommit = 1');
+
+    await driver.transaction(async () => 'ok');
+
+    expect(driver.LastConnection.trace).to.deep.equal(['SET autocommit = 0', 'begin', 'commit', 'SET autocommit = 1', 'destroy']);
+  });
+
+  it('destroys the connection without restoring autocommit when no COMMIT or ROLLBACK succeeded: the restore would commit the open transaction', async () => {
+    const driver = new TestableMySqlDriver();
+    driver.FakePool.failing.add('commit').add('rollback');
+
+    await expect(driver.transaction(async () => 'ok')).to.be.rejectedWith('commit failed');
+
+    expect(driver.LastConnection.trace).to.deep.equal(['SET autocommit = 0', 'begin', 'commit', 'rollback', 'destroy']);
+  });
+
+  it('restores autocommit after a failed COMMIT whose ROLLBACK succeeded', async () => {
+    const driver = new TestableMySqlDriver();
+    driver.FakePool.failing.add('commit');
+
+    await expect(driver.transaction(async () => 'ok')).to.be.rejectedWith('commit failed');
+
+    expect(driver.LastConnection.trace).to.deep.equal(['SET autocommit = 0', 'begin', 'commit', 'rollback', 'SET autocommit = 1', 'release']);
+  });
+
+  it('destroys the connection when the transaction cannot begin after its session was changed', async () => {
+    for (const step of ['SET autocommit = 0', 'begin']) {
+      const driver = new TestableMySqlDriver();
+      driver.FakePool.failing.add(step);
+
+      await expect(driver.transaction(async () => 'ok')).to.be.rejectedWith(`${step} failed`);
+
+      expect(driver.LastConnection.trace.at(-1)).to.equal('destroy');
+      expect(driver.LastConnection.released).to.equal(0);
+    }
   });
 });
