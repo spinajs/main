@@ -33,7 +33,7 @@ The callback receives an `IRenderProgress` (`@spinajs/templates`):
 | `loading` | 15 to 80 | `Loading resources (<n> done, <n> pending, <n> failed)`, or `<task> <done>/<total>, ...` | Right before `page.setContent()` |
 | `rendering` | 80 | `Generating output` | Before `performRender()` |
 | `done` | 100 | `Done` | The file is written |
-| `failed` | the last percent | the error message | Any step threw |
+| `failed` | the last percent | the error message, every URL in it redacted | Any step threw |
 
 - Before any page task line arrives, `loading` uses `loaded / (loaded + pending)`, capped at half of the band: 15 to 48.
 - Once a task line arrives, `loading` uses `sum(min(done, total)) / sum(total)` over all tasks, mapped onto 15 to 80.

@@ -225,6 +225,7 @@ Blocked requests count as `resourcesFailed` in [render progress](02-render-progr
 - The inherited `__checkInstance__()` compares `instanceOptions` with the first element of the options array the container passes (`[options]`). DI caches only the first instance, so a later `DI.resolve(PdfRenderer, [opts])` with the same options reuses it, while each resolve with another option set builds a new renderer, with its own Chromium, that `DI.dispose()` does not close. Keep those instances and `dispose()` them yourself.
 - Give constructor options a default. `Templates` resolves the renderer without options; when that happens first, its instance is the one cached for later `DI.resolve()` calls to match against.
 - `Extension` doubles as `ServiceName`. Two renderers with the same extension are indistinguishable for code that maps renderers by name.
+- An error from `page.goto()` quotes the URL it navigated to (`net::ERR_CONNECTION_REFUSED at <url>`), query and userinfo included. The renderer's own log lines and `failed` message redact it, but the error it rethrows is yours: redact it before you log it.
 - `performRender()` runs after `page.setContent()` resolves, ie. after the `load` event. Wait for anything your page draws later (`page.waitForFunction()`, `page.waitForSelector()`).
 - `renderToFile()` compiles `<name>.pug` for a path ending in an output extension. A path ending in another registered engine's extension is compiled by that engine as is; you can also compile the HTML yourself and call `renderHtmlToFile()`.
 
