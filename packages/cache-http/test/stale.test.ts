@@ -3,6 +3,7 @@ import { expect } from 'chai';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { request } from 'node:http';
 import { CacheScope, cache } from '@spinajs/cache';
+import { Configuration, InvalidConfiguration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 import { BaseController, BasePath, Controllers, Get, HTTP_STATUS_CODE, HttpServer, Ok } from '@spinajs/http';
@@ -12,8 +13,8 @@ import type { Answer } from './support/server.js';
 
 const PUBLIC = 'the test reply is the same for every caller';
 
-/** cache.http.timeout of this file: long enough for a test step, short enough to wait for once. */
-const TIMEOUT_MS = 1500;
+/** cache.http.waitTimeout of this file: long enough for a test step, short enough to wait for once. */
+const WAIT_MS = 1500;
 
 /** How often plan A read the scope since the test started: once per lookup, never for a fill. */
 let scopeReads = 0;
@@ -116,7 +117,16 @@ class Slow extends BaseController {
   @ResponseCache(shared({ ttl: '1m' }))
   public async hang() {
     const n = run('hang');
-    await gate.wait;
+    if (n === 1) await gate.wait;
+    return new Ok({ run: n });
+  }
+
+  /** Slower than cache.http.timeout (200 ms here), faster than cache.http.waitTimeout. */
+  @Get('report')
+  @ResponseCache(shared({ ttl: '1m' }))
+  public async report() {
+    const n = run('report');
+    await settle(600);
     return new Ok({ run: n });
   }
 
@@ -137,7 +147,7 @@ async function until(check: () => boolean, ms = 3000): Promise<void> {
 const settle = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
 /** The warnings of a route whose request stopped waiting for another request's run of its key. */
-const waitsGivenUp = (route: string): number => cacheWarnings().filter((text) => text.includes(route) && text.includes('wait for a run')).length;
+const waitsGivenUp = (route: string): number => cacheWarnings().filter((text) => text.includes(route) && text.includes('cache.http.waitTimeout')).length;
 
 describe('@ResponseCache with concurrent and stale requests', function () {
   this.timeout(60000);
@@ -148,7 +158,7 @@ describe('@ResponseCache with concurrent and stale requests', function () {
       c.register(TenantScope).as(CacheScope);
     },
     [],
-    TIMEOUT_MS,
+    { waitTimeout: WAIT_MS },
   );
 
   /** The response cache of every route of Slow, kept to be read after the server is disposed. */
@@ -171,7 +181,7 @@ describe('@ResponseCache with concurrent and stale requests', function () {
 
   after(() => {
     // runs after useServer's after: the server is stopped and the application disposed
-    expect([middlewares.length, inTheAir()]).to.deep.eq([8, 0]);
+    expect([middlewares.length, inTheAir()]).to.deep.eq([9, 0]);
   });
 
   beforeEach(() => {
@@ -266,15 +276,39 @@ describe('@ResponseCache with concurrent and stale requests', function () {
     });
   }
 
-  it('stops waiting for a run that does not end within cache.http.timeout, and runs its own route', async () => {
+  it('stops waiting at cache.http.waitTimeout for a run that does not end, and runs its own route', async () => {
     const first = get('/slow/hang');
     await until(() => runs.get('hang') === 1);
-    const waiter = get('/slow/hang');
-    // the first run is still held: the waiter gave up on it
-    await until(() => runs.get('hang') === 2, TIMEOUT_MS * 3);
-    expect(waitsGivenUp('/slow/hang')).to.eq(1);
+    // the first run is held to the end of the test: both waiters give up on it and answer
+    const answers = await Promise.all([get('/slow/hang'), get('/slow/hang')]);
+    // each ran its own route, or found the one the other stored: never the held first run
+    expect(answers.map((a) => [a.status, byRun(a) === '{"run":1}'])).to.deep.eq([
+      [200, false],
+      [200, false],
+    ]);
+    expect([waitsGivenUp('/slow/hang'), inTheAir()]).to.deep.eq([1, 0]);
+    expect((await get('/slow/hang')).body).to.not.deep.eq({ run: 1 });
     gate.release();
-    expect([(await first).body, (await waiter).body]).to.deep.eq([{ run: 1 }, { run: 2 }]);
+    expect((await first).body).to.deep.eq({ run: 1 });
+  });
+
+  it('runs a route slower than cache.http.timeout once for 20 concurrent misses of its key', async () => {
+    const answers = await Promise.all(Array.from({ length: 20 }, () => get('/slow/report')));
+    expect([runs.get('report'), new Set(answers.map(byRun)).size]).to.deep.eq([1, 1]);
+  });
+
+  it('refuses a cache.http.waitTimeout that is not a whole number of milliseconds above 0, as it refuses such a timeout', async () => {
+    const config = await server.app!.resolve(Configuration);
+    for (const value of [0, -5, 1.5, Infinity]) expect(() => config.set('cache.http.waitTimeout', value), String(value)).to.throw(InvalidConfiguration);
+    expect(() => config.set('cache.http.timeout', 0)).to.throw(InvalidConfiguration);
+    config.set('cache.http.waitTimeout', WAIT_MS);
+  });
+
+  it('leaves no flight behind a failed run that no other request of the key follows', async () => {
+    leaderFails = 'throw';
+    gate.release();
+    expect((await get('/slow/flaky?case=lone')).status).to.eq(500);
+    expect(inTheAir()).to.eq(0);
   });
 
   it('hands no request the reply of a run an invalidation reached while it ran', async () => {

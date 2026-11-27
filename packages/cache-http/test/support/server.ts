@@ -69,7 +69,8 @@ export const cacheWarnings = (): string[] =>
 
 // http.routes.middlewares of the next useServer boot: the configuration class is instantiated by the boot itself
 let globalRouteMiddlewares: readonly string[] = [];
-let storeTimeout = 200;
+// cache.http of the next boot
+let cacheHttp: Readonly<Record<string, number>> = {};
 
 class CacheHttpConfiguration extends FrameworkConfiguration {
   public async resolve(): Promise<void> {
@@ -86,7 +87,7 @@ class CacheHttpConfiguration extends FrameworkConfiguration {
         rules: [...SILENT_LOGGER.rules, { name: 'cache', level: 'warn', target: 'Capture' }],
       },
       http: { port: 0, middlewares: [], AcceptHeaders: 1 | 2, routes: { middlewares: [...globalRouteMiddlewares] } },
-      cache: { caches: { hung: { store: 'HangingStore' } }, http: { timeout: storeTimeout } },
+      cache: { caches: { hung: { store: 'HangingStore' } }, http: { timeout: 200, ...cacheHttp } },
       intl: { queryParameter: 'lang', defaultLocale: 'en' },
     };
   }
@@ -100,15 +101,15 @@ export interface Answer {
 
 /**
  * Boots the server in `before` and stops it in `after` of the enclosing describe; `runs` is cleared before each test.
- * `routeMiddlewares` are names of RouteMiddleware registrations for `http.routes.middlewares`; `timeout` is
- * `cache.http.timeout`.
+ * `routeMiddlewares` are names of RouteMiddleware registrations for `http.routes.middlewares`; `overrides` replaces
+ * keys of `cache.http`.
  */
-export function useServer(controllers: readonly (typeof BaseController)[], register: (c: IContainer) => void = () => undefined, routeMiddlewares: readonly string[] = [], timeout = 200) {
+export function useServer(controllers: readonly (typeof BaseController)[], register: (c: IContainer) => void = () => undefined, routeMiddlewares: readonly string[] = [], overrides: Readonly<Record<string, number>> = {}) {
   const server: { port: number; app?: TestApp } = { port: 0 };
 
   before(async () => {
     globalRouteMiddlewares = routeMiddlewares;
-    storeTimeout = timeout;
+    cacheHttp = overrides;
     server.app = await createTestApp({
       configuration: CacheHttpConfiguration,
       register: (c) => {
@@ -150,8 +151,9 @@ export function useServer(controllers: readonly (typeof BaseController)[], regis
 }
 
 /** The error a boot with these controllers fails with; undefined when it boots, and the app is disposed again. */
-export async function bootFailure(controllers: readonly (typeof BaseController)[]): Promise<Error | undefined> {
+export async function bootFailure(controllers: readonly (typeof BaseController)[], overrides: Readonly<Record<string, number>> = {}): Promise<Error | undefined> {
   globalRouteMiddlewares = [];
+  cacheHttp = overrides;
   try {
     const app = await createTestApp({
       configuration: CacheHttpConfiguration,

@@ -102,5 +102,5 @@ export function resolveResponseCacheOptions(options: ResponseCacheOptions): Reso
   if (!isText(cache)) {
     throw new InvalidArgument(`@ResponseCache cache must be the name of a cache, got ${JSON.stringify(cache)}`);
   }
-  return Object.freeze({ ttl, ...(swr === undefined ? {} : { swr }), scope,...(sharedBecause === undefined ? {} : { sharedBecause }), vary, tags: texts(options.tags, 'tags'), cache });
+  return Object.freeze({ ttl, ...(swr === undefined ? {} : { swr }), scope, ...(sharedBecause === undefined ? {} : { sharedBecause }), vary, tags: texts(options.tags, 'tags'), cache });
 }
