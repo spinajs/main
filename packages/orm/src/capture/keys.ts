@@ -83,8 +83,8 @@ const uniqueKeys = (values: readonly unknown[]): string[] => keyTexts(values).ke
 export const columnValue = (row: Readonly<Record<string, unknown>>, column: string): unknown => Reflect.get(row, column);
 
 /**
- * Whether a select on `driver` may call `forUpdate()` and `forShare()`. A dialect without a row lock clause (MSSQL)
- * throws NotSupported from `rowLock()`; SQLite answers '' as its writes lock the database.
+ * Whether a select on `driver` may call `forUpdate()` and `forShare()`. A dialect without row locks throws NotSupported
+ * from `rowLock()`; MSSQL writes them as table hints, SQLite answers '' as its writes lock the database.
  */
 export function supportsRowLocks(driver: OrmDriver): boolean {
   const expressions = driver.Container.resolve(SqlExpressions);
