@@ -206,7 +206,8 @@ class MyModel extends AuthorizationModel {
 }
 ```
 
-`plan.cache` holds a key (the domain, the principal's whole state, the permission, the type), the tags of a type-level
+`plan.cache` holds a key (the domain, the principal's whole state, the permission, the type, the models' `version()`
+values and the store generation a consistency token named), the tags of a type-level
 decision of the principal (`*`, `model:<name>` of the planning models, `subject:` of the principal, its companions and
 its delegation chain, `scope:*`, plus the tags of nested checks and loaded scope nodes) and a TTL:
 `authz.cache.ttlSeconds`, capped by `validUntil` and by the `validUntil` of every nested check the plans rested on. A

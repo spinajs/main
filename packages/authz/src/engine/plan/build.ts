@@ -74,14 +74,14 @@ function saysKeepable(model: AuthorizationModel, def: PermissionDef, type: Resou
 function keptPlan(engine: Engine, plan: AccessPlan, parts: { readonly principal: Principal; readonly delegation: Delegation; readonly models: readonly AuthorizationModel[]; readonly def: PermissionDef; readonly type: ResourceType; readonly run: Run }): AccessPlan {
   const { principal, delegation, models, def, type, run } = parts;
   // No model planned means no model vouched for the plan.
-  if (models.length === 0 || run.nested.uncacheable || scopeFaulted(engine, run.scope) || !models.every((m) => saysKeepable(m, def, type))) return plan;
+  if (run.versions === undefined || models.length === 0 || run.nested.uncacheable || scopeFaulted(engine, run.scope) || !models.every((m) => saysKeepable(m, def, type))) return plan;
   const state = principalState(principal);
   const principals = [principal, ...delegation.chain, ...(delegation.actor === undefined ? [] : [delegation.actor])];
   const tags = tagsOf(engine, models, principals, { type }, undefined, run);
   const until = earliest([plan.kind === 'filter' ? plan.validUntil : undefined, run.nested.until]);
   const ttlMs = Math.min(engine.config.cacheTtlSeconds * 1000, until === undefined ? Infinity : until.getTime() - run.instant.getTime());
   if (state === undefined || tags === undefined || !Number.isFinite(ttlMs) || ttlMs <= 0) return plan;
-  const cache: AccessPlanCache = { key: JSON.stringify([engine.domain, state, def.name, type]), tags, ttlMs };
+  const cache: AccessPlanCache = { key: JSON.stringify([engine.domain, state, def.name, type, generationVersions(engine, run.versions)]), tags, ttlMs };
   return deepFreeze({ ...plan, cache });
 }
 

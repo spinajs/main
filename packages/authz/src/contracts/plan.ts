@@ -21,7 +21,7 @@ export type ModelListPlan =
  * was planned for until a change bumps one of `tags`, and for at most `ttlMs`.
  */
 export interface AccessPlanCache {
-  /** The domain, the principal's whole state, the permission and the type: two plans with one key are one plan. */
+  /** The domain, the principal's whole state, the permission, the type and the models' versions (with the store generation): two plans with one key are one plan. */
   readonly key: string;
   /** Decision tags (`*`, `model:`, `subject:`, `link:`, `scope:`) of a type-level decision of the principal. */
   readonly tags: readonly string[];

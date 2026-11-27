@@ -34,6 +34,14 @@ class ThrowingModel extends ListModel {
   }
 }
 
+class VersionedModel extends KeptModel {
+  current = 'v1';
+
+  version(): string {
+    return this.current;
+  }
+}
+
 class BrokenAdapter extends FakeAdapter {
   override ancestors(): Promise<readonly ResourceRef[] | null> {
     return Promise.reject(new Error('db down'));
@@ -140,5 +148,14 @@ describe('Authorizer.accessPlan: a plan kept beyond its request', () => {
 
     await a.accessPlan(alice, 'doc:other', 'doc', undefined, scope);
     expect((await a.accessPlan(alice, 'doc:read', 'doc', undefined, scope)).cache).to.equal(undefined);
+  });
+
+  it('keys by the models versions as well', async () => {
+    const m = new VersionedModel('v', { listPlan: { kind: 'all' } });
+    const a = make([m]);
+    const first = cacheOf(await a.accessPlan(alice, 'doc:read', 'doc')).key;
+    m.current = 'v2';
+
+    expect(cacheOf(await a.accessPlan(alice, 'doc:read', 'doc')).key).to.not.equal(first);
   });
 });
