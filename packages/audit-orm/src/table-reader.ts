@@ -3,7 +3,7 @@ import type { AuditFilter, AuditPinnedHead, AuditRedaction, AuditSubject, AuditV
 import { Injectable } from '@spinajs/di';
 import type { OrmDriver, SelectQueryBuilder } from '@spinajs/orm';
 
-import { REDACTED_DATA, exceptErasureRecords, auditConnection, findConnection, ofSubject, rowsOf, toStored } from './rows.js';
+import { REDACTED_DATA, exceptErasureRecords, auditConnection, findConnection, ofSubject, ofSubjectType, rowsOf, toStored } from './rows.js';
 import { pruneSealed } from './seal/prune.js';
 import { ARCHIVE_CLOCK_SKEW_MS, verifyTable } from './seal/verify.js';
 import { distinctConnections } from './ship/services.js';
@@ -17,7 +17,7 @@ function scope(driver: OrmDriver, select: Select, filter: AuditFilter): void {
   if (filter.kinds !== undefined) select.whereIn('kind', [...filter.kinds]);
   if (filter.actions !== undefined) select.whereIn('action', [...filter.actions]);
   if (filter.subject !== undefined) select.where(ofSubject(driver, filter.subject));
-  if (filter.subjectType !== undefined) select.where('subject_type', filter.subjectType);
+  if (filter.subjectType !== undefined) select.where(ofSubjectType(driver, filter.subjectType));
   if (filter.actor !== undefined) select.where('actor', filter.actor);
   if (filter.traceId !== undefined) select.where('trace_id', filter.traceId);
 }

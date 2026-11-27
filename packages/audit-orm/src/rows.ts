@@ -22,12 +22,23 @@ export function exceptErasureRecords(this: IWhereBuilder<unknown>): void {
   this.orWhere('action', '<>', ERASURE.action);
 }
 
-/** A where clause for the rows of `subject`, its id compared byte for byte. */
-export function ofSubject(driver: OrmDriver, subject: AuditSubject): (this: IWhereBuilder<unknown>) => void {
-  const exact = driver.Container.resolve(SqlExpressions).equalsExactly(driver.Container.resolve(IdentifierQuoter).quote('subject_id'), { sql: '?', bindings: [subject.id] });
+// MySQL's and SQL Server's `=` ignore trailing spaces; the plain equality stays beside this for the index seek, this one decides.
+function exactly(driver: OrmDriver, column: string, value: string): RawQuery {
+  const f = driver.Container.resolve(SqlExpressions).equalsExactly(driver.Container.resolve(IdentifierQuoter).quote(column), { sql: '?', bindings: [value] });
+  return RawQuery.create(f.sql, [...f.bindings]);
+}
+
+/** A where clause for the rows of subjects of `type`, compared byte for byte. */
+export function ofSubjectType(driver: OrmDriver, type: string): (this: IWhereBuilder<unknown>) => void {
   return function (this: IWhereBuilder<unknown>) {
-    // MySQL's and SQL Server's `=` ignore trailing spaces; the plain equality stays for the index seek, the exact one decides.
-    this.where('subject_type', subject.type).where('subject_id', subject.id).where(RawQuery.create(exact.sql, [...exact.bindings]));
+    this.where('subject_type', type).where(exactly(driver, 'subject_type', type));
+  };
+}
+
+/** A where clause for the rows of `subject`, its type and id compared byte for byte. */
+export function ofSubject(driver: OrmDriver, subject: AuditSubject): (this: IWhereBuilder<unknown>) => void {
+  return function (this: IWhereBuilder<unknown>) {
+    this.where('subject_type', subject.type).where('subject_id', subject.id).where(exactly(driver, 'subject_type', subject.type)).where(exactly(driver, 'subject_id', subject.id));
   };
 }
 

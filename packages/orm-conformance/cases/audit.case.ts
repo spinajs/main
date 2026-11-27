@@ -113,17 +113,28 @@ export const AUDIT_CASES = [
     name: 'audit-exact-subject-trailing-space',
     seed: EMPTY,
     order: 'ordered',
-    // MySQL and SQL Server compare 't1:42' equal to 't1:42 ' (a composite key's text); archived and buffered rows alike.
-    expected: { of: ['t1:42', 't1:42'], erased: 3, archived: ['t1:42:true', 't1:42 :false', 't1:42:true'], buffered: ['t1:42 :false', 't1:42:true'] },
+    // MySQL and SQL Server compare 't1:42' equal to 't1:42 ' (a composite key's text) and 'doc' to 'doc '; archived and buffered rows alike.
+    expected: { of: ['t1:42', 't1:42'], erased: 3, archived: ['doc|t1:42:true', 'doc|t1:42 :false', 'doc|t1:42:true', 'doc |t1:42:false'], buffered: ['doc|t1:42 :false', 'doc|t1:42:true', 'doc |t1:42:false'] },
     run: ({ driver }) =>
       withTables(driver, async () => {
-        const subject = (n: number, id: string): AuditEvent => ({ ...event(n), subject: { type: 'doc', id } });
-        await DI.resolve(ArchiveAuditSink).deliver({ trail: TRAIL, source: driver.Options.Name, events: [subject(1, 't1:42'), subject(2, 't1:42 '), subject(3, 't1:42')] });
-        await DI.resolve(OutboxAuditStore).append({ trail: trailConfig(TRAIL), events: [subject(4, 't1:42 '), subject(5, 't1:42')] });
+        const subject = (n: number, id: string, type = 'doc'): AuditEvent => ({ ...event(n), subject: { type, id } });
+        await DI.resolve(ArchiveAuditSink).deliver({ trail: TRAIL, source: driver.Options.Name, events: [subject(1, 't1:42'), subject(2, 't1:42 '), subject(3, 't1:42'), subject(6, 't1:42', 'doc ')] });
+        await DI.resolve(OutboxAuditStore).append({ trail: trailConfig(TRAIL), events: [subject(4, 't1:42 '), subject(5, 't1:42'), subject(7, 't1:42', 'doc ')] });
         const of = (await audit().trail(TRAIL).of({ type: 'doc', id: 't1:42' })).map((e) => e.subject?.id);
         const erased = await audit().trail(TRAIL).forget({ type: 'doc', id: 't1:42' });
-        const blank = async (table: string): Promise<string[]> => rowsOf(await driver.select().from(table).where('kind', 'data').orderBy('seq')).map((r) => `${String(r.subject_id)}:${String(r.data === '')}`);
+        const blank = async (table: string): Promise<string[]> => rowsOf(await driver.select().from(table).where('kind', 'data').orderBy('seq')).map((r) => `${String(r.subject_type)}|${String(r.subject_id)}:${String(r.data === '')}`);
         return { of, erased, archived: await blank(ARCHIVE), buffered: await blank('audit_outbox') };
       }),
   }),
 ];
+
+export type TrailRows = Map<unknown, { subject: string; row: string }>;
+
+/** Every row of a trail table by `seq`, all columns serialised, so a comparison sees any changed byte. */
+export async function trailRows(driver: OrmDriver, table: string): Promise<TrailRows> {
+  const rows = rowsOf(await driver.select().from(table).orderBy('seq'));
+  return new Map(rows.map((r) => [r.seq, { subject: `${String(r.subject_type)}|${String(r.subject_id)}`, row: JSON.stringify(r, (_, v: unknown) => (typeof v === 'bigint' ? String(v) : v)) }]));
+}
+
+/** The subjects of the rows of `before` that `after` changed or lost. */
+export const changedRows = (before: TrailRows, after: TrailRows): string[] => [...before].filter(([seq, b]) => after.get(seq)?.row !== b.row).map(([, b]) => b.subject);

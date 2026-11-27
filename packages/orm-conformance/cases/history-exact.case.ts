@@ -1,11 +1,12 @@
-import { trailConfig } from '@spinajs/audit';
-import { rowsOf } from '@spinajs/audit-orm';
+import { audit, trailConfig } from '@spinajs/audit';
 import { Connection, Model, ModelBase, Primary } from '@spinajs/orm';
 import { History, OrmHistory_2026_11_16_00_00_00, historyOf, registerHistory } from '@spinajs/orm-history';
 import type { AsOf, TrackedModel, TrackedRow } from '@spinajs/orm-history';
 
 import { CONFORMANCE_CONNECTION, CfUser, defineCase } from '../src/index.js';
 import type { ConformanceDb } from '../src/index.js';
+import { changedRows, trailRows } from './audit.case.js';
+import type { TrailRows } from './audit.case.js';
 import { EMPTY } from './seeds.js';
 
 export interface CfKey extends TrackedRow {}
@@ -50,8 +51,6 @@ async function withKeys<T>({ driver, orm }: ConformanceDb, run: () => Promise<T>
 
 const stateOf = (a: AsOf): string => (a.state === 'present' ? `present:${String(a.row.Name)}` : a.state === 'absent' ? `absent:${a.seq === null ? 'never' : 'deleted'}` : a.state);
 
-const payloads = async (db: ConformanceDb): Promise<Map<unknown, unknown>> => new Map(rowsOf(await db.driver.select().from(trailConfig('history').table)).map((r) => [r.seq, r.data]));
-
 export const HISTORY_EXACT_CASES = [
   defineCase({
     name: 'history-exact-subject-look-alikes',
@@ -65,9 +64,14 @@ export const HISTORY_EXACT_CASES = [
       before: 'absent:never',
       ownAfter: 'present:mine 2',
       spacedAfter: 'absent:deleted',
+      typed: ['cf_keys |ABC'],
+      since: 10,
+      forgotTyped: 1,
+      byTyped: ['cf_keys |ABC'],
       forgotSpaced: 0,
+      bySpaced: [],
       forgot: 2,
-      blanked: ['ABC', 'ABC'],
+      byOwn: ['cf_keys|ABC', 'cf_keys|ABC'],
     },
     run: (db) =>
       withKeys(db, async () => {
@@ -77,6 +81,9 @@ export const HISTORY_EXACT_CASES = [
           await row.destroy();
           await tick();
         }
+        // The subject type is compared exactly too: an entity 'cf_keys ' is another subject.
+        await audit().record({ kind: 'data', action: 'insert', subject: { type: 'cf_keys ', id: 'ABC' }, data: { after: { Id: 'ABC', Name: 'typed' } } }, { trail: 'history', mode: 'confirmed' });
+        await tick();
         const before = new Date();
         await tick();
         const mine = await CfKey.create({ Id: 'ABC', Name: 'mine' });
@@ -86,14 +93,17 @@ export const HISTORY_EXACT_CASES = [
         await tick();
         const after = new Date();
         const ops = async (id: string): Promise<string[]> => (await CfKey.history().of(id)).map((e) => `${e.op}:${e.id}`);
-        const result = { own: await ops('ABC'), spaced: await ops('ABC '), before: stateOf(await CfKey.history().asOf('ABC', before)), ownAfter: stateOf(await CfKey.history().asOf('ABC', after)), spacedAfter: stateOf(await CfKey.history().asOf('ABC ', after)) };
-        const kept = await payloads(db);
+        const typed = (await audit().trail('history').of({ type: 'cf_keys ', id: 'ABC' })).map((e) => `${String(e.subject?.type)}|${String(e.subject?.id)}`);
+        const result = { own: await ops('ABC'), spaced: await ops('ABC '), before: stateOf(await CfKey.history().asOf('ABC', before)), ownAfter: stateOf(await CfKey.history().asOf('ABC', after)), spacedAfter: stateOf(await CfKey.history().asOf('ABC ', after)), typed, since: (await CfKey.history().since(0)).length };
+        const rows = (): Promise<TrailRows> => trailRows(db.driver, trailConfig('history').table);
+        const kept = await rows();
+        const forgotTyped = await audit().trail('history').forget({ type: 'cf_keys ', id: 'ABC' });
+        const afterTyped = await rows();
         const forgotSpaced = await CfKey.history().forget('ABC   ');
+        const afterSpaced = await rows();
         const forgot = await CfKey.history().forget('ABC');
-        const now = await payloads(db);
-        const ids = new Map(rowsOf(await db.driver.select().from(trailConfig('history').table)).map((r) => [r.seq, r.subject_id]));
-        const blanked = [...kept].filter(([seq, data]) => now.get(seq) !== data).map(([seq]) => ids.get(seq));
-        return { ...result, forgotSpaced, forgot, blanked };
+        const byOwn = changedRows(afterSpaced, await rows());
+        return { ...result, forgotTyped, byTyped: changedRows(kept, afterTyped), forgotSpaced, bySpaced: changedRows(afterTyped, afterSpaced), forgot, byOwn };
       }),
   }),
   defineCase({
