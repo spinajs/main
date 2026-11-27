@@ -177,7 +177,8 @@ export class RedisSessionStore extends SessionProvider {
   public async delete(sessionId: string): Promise<boolean> {
     const key = this.sessionKey(sessionId);
     const raw = await this.Client.get(key);
-    const row = raw ? this.toSession(sessionId, raw, true) : null;
+    // Quiet: this read only finds the index sets, and restore deletes through here a row it has just logged.
+    const row = raw ? this.toSession(sessionId, raw, true, true) : null;
 
     const multi = this.Client.multi().del(key);
     for (const set of row ? this.indexSetsOf(row) : []) {
@@ -409,9 +410,10 @@ export class RedisSessionStore extends SessionProvider {
    * The session of a stored value; null for a value without a readable Subject.
    * `lenient` (lookups, touch): an unparseable value is absent, and a row whose
    * Data does not decode keeps the owner its fields give with an empty Data, so
-   * one bad row cannot make a revokeAll throw.
+   * one bad row cannot make a revokeAll throw. `quiet`: an unreadable
+   * Expiration is not logged.
    */
-  protected toSession(sessionId: string, raw: string, lenient = false): ISession | null {
+  protected toSession(sessionId: string, raw: string, lenient = false, quiet = false): ISession | null {
     let stored: IStoredSession;
     let data: Map<string, unknown>;
     try {
@@ -448,17 +450,24 @@ export class RedisSessionStore extends SessionProvider {
       Impersonator: refOf(stored.Impersonator),
       State: stored.State === 'active' ? 'active' : 'pending',
       Creation: this.creationOf(stored.Creation),
-      Expiration: stored.Expiration === undefined ? undefined : this.instant(stored.Expiration),
+      Expiration: stored.Expiration === undefined ? undefined : this.instant(stored.Expiration, stored.Subject, quiet),
       Data: data,
       ExternalKey: typeof stored.ExternalKey === 'string' ? stored.ExternalKey : undefined,
     });
   }
 
   /** Only an absent Expiration means "never": a present value that is not ISO text naming a valid instant counts as already passed. */
-  protected instant(value: unknown): DateTime {
+  protected instant(value: unknown, subject: string, quiet = false): DateTime {
     // luxon reads the number 2099 as the ISO year 2099; the store only ever writes text.
     const at = typeof value === 'string' ? DateTime.fromISO(value) : undefined;
-    return at?.isValid ? at : DateTime.fromMillis(0);
+    if (at?.isValid) {
+      return at;
+    }
+    if (!quiet) {
+      // The session id is the storage key of a bearer credential: the warning names the subject only.
+      this.Log.warn(`A session of ${subject} has an Expiration that is not an ISO 8601 instant; it is treated as expired`);
+    }
+    return DateTime.fromMillis(0);
   }
 
   /** An unreadable Creation is past every lifetime cap; left invalid, SlidingCappedExpiration renews to an invalid instant that touch writes as "never". */
