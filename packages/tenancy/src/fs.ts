@@ -497,8 +497,8 @@ export class TenantFsLayer extends FsProviderLayer {
 /**
  * Refuses an action on a prefixed provider outside a tenant scope, before any other middleware runs; inside a tenant, an
  * action that reaches tenants' files without the view (a listed provider's shared files through publishedFs() or a kept
- * instance, a dedicated provider by its own name), and an unzip into a tenant's whole root (defence in depth: the
- * extractor skips '../' entries; lifted once `@spinajs/fs` checks entry names itself).
+ * instance, a dedicated provider by its own name), and an unzip into a tenant's whole root (a check of its own, kept
+ * although `@spinajs/fs` already refuses a whole archive with an entry that resolves outside the destination).
  */
 @Injectable(FsMiddleware)
 export class TenantFsGuard extends FsMiddleware {
