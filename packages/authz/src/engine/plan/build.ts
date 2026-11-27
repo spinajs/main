@@ -1,7 +1,7 @@
 import { quote } from '@spinajs/util';
 import { AuthzConfigError } from '../../contracts/errors.js';
 import { compareDenyReasons } from '../../contracts/decision.js';
-import type { AccessPlan, ListPlanRequest, ModelListPlan } from '../../contracts/plan.js';
+import type { AccessPlan, AccessPlanCache, ListPlanRequest, ModelListPlan } from '../../contracts/plan.js';
 import type { AuthorizationModel } from '../../contracts/model.js';
 import type { PermissionDef } from '../../contracts/permission.js';
 import type { Principal, ResourceType } from '../../contracts/principal.js';
@@ -11,13 +11,14 @@ import type { Delegation } from '../delegation.js';
 import { combinePlans, nonePlan, readModelPlan, withinOf, CEILING_DENIAL } from '../plan.js';
 import type { PlanAnswer } from '../plan.js';
 import { settleWithin } from '../run.js';
-import { describeError } from '../vote.js';
+import { deepFreeze, describeError } from '../vote.js';
 import { hostFor } from '../context/host.js';
 import { relation } from '../context/request.js';
 import { ceilingOf } from '../pipeline/delegate.js';
 import { admits, contextCacheKey, principalCacheId } from '../support/misc.js';
 import { logAt } from '../support/plumbing.js';
 import { generationVersions } from '../pipeline/index.js';
+import { scopeFaulted, tagsOf } from '../cache/store.js';
 import { CachedPlan } from '../types.js';
 import type { Engine, Run } from '../types.js';
 
@@ -35,7 +36,7 @@ export function cachedPlan(engine: Engine, key: string, run: Run): AccessPlan | 
   return until !== undefined && until.getTime() <= run.instant.getTime() ? undefined : entry.plan;
 }
 
-export async function buildPlan(engine: Engine, d: Delegation, def: PermissionDef, type: ResourceType, env: Readonly<Record<string, unknown>>, run: Run): Promise<{ readonly plan: AccessPlan; readonly faulted: boolean }> {
+export async function buildPlan(engine: Engine, d: Delegation, def: PermissionDef, type: ResourceType, env: Readonly<Record<string, unknown>>, run: Run, keepFor?: Principal): Promise<{ readonly plan: AccessPlan; readonly faulted: boolean }> {
   const ceiling = ceilingOf(d, def, { type }, undefined, run.instant);
   if (ceiling.denials.length > 0) return { plan: nonePlan([...ceiling.denials].sort(compareDenyReasons)[0]), faulted: false };
   const within = withinOf(ceiling.restrict);
@@ -48,9 +49,40 @@ export async function buildPlan(engine: Engine, d: Delegation, def: PermissionDe
   const host = hostFor(engine, run);
   const cacheId = principalCacheId(runAs);
   const label = `${def.name} on ${quote(type)}`;
-  const answers = await Promise.all(route.models.filter((m) => admits(m, runAs)).map((m) => modelPlan(engine, m, req, new ModelContext(host, m.name, run.scope, run.instant, 0, undefined, contextCacheKey(m.name, cacheId, 'listPlan')), label)));
+  const models = route.models.filter((m) => admits(m, runAs));
+  const answers = await Promise.all(models.map((m) => modelPlan(engine, m, req, new ModelContext(host, m.name, run.scope, run.instant, 0, undefined, contextCacheKey(m.name, cacheId, 'listPlan')), label)));
   const bounds = { ...(within ? { within } : {}), ...(ceiling.expiresAt ? { validUntil: ceiling.expiresAt } : {}) };
-  return { plan: combinePlans(answers, bounds), faulted: answers.some((a) => a.faulted) || run.nested.faulted };
+  const plan = combinePlans(answers, bounds);
+  const faulted = answers.some((a) => a.faulted) || run.nested.faulted;
+  return { plan: keepFor === undefined || faulted ? plan : keptPlan(engine, plan, { principal: keepFor, delegation: d, models, def, type, run }), faulted };
+}
+
+/** A model that throws while answering keeps nothing: the plan stays inside its request. */
+function saysKeepable(model: AuthorizationModel, def: PermissionDef, type: ResourceType): boolean {
+  try {
+    return model.listPlanCacheable?.(def, type) === true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The plan with `cache` when at least one model planned it and every one says its plans rest on announced state. Its
+ * tags are those a type-level decision of the principal would carry, nested checks and loaded scope nodes included, so a
+ * change that drops such a decision drops what the plan filtered; a nested check that could not be cached keeps nothing.
+ */
+export function keptPlan(engine: Engine, plan: AccessPlan, parts: { readonly principal: Principal; readonly delegation: Delegation; readonly models: readonly AuthorizationModel[]; readonly def: PermissionDef; readonly type: ResourceType; readonly run: Run }): AccessPlan {
+  const { principal, delegation, models, def, type, run } = parts;
+  // No model planned means no model vouched for the plan.
+  if (models.length === 0 || run.nested.uncacheable || scopeFaulted(engine, run.scope) || !models.every((m) => saysKeepable(m, def, type))) return plan;
+  const state = principalState(principal);
+  const principals = [principal, ...delegation.chain, ...(delegation.actor === undefined ? [] : [delegation.actor])];
+  const tags = tagsOf(engine, models, principals, { type }, undefined, run);
+  const until = plan.kind === 'filter' ? plan.validUntil : undefined;
+  const ttlMs = Math.min(engine.config.cacheTtlSeconds * 1000, until === undefined ? Infinity : until.getTime() - run.instant.getTime());
+  if (state === undefined || tags === undefined || !Number.isFinite(ttlMs) || ttlMs <= 0) return plan;
+  const cache: AccessPlanCache = { key: JSON.stringify([engine.domain, state, def.name, type]), tags, ttlMs };
+  return deepFreeze({ ...plan, cache });
 }
 
 /** A failure, a timeout, a ctx fault or a malformed plan is a deny-all with model_error: fail closed like an indeterminate vote (B04). */

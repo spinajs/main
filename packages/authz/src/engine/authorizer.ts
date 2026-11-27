@@ -152,7 +152,8 @@ export class Authorizer {
     const key = env === undefined && !fresh ? planKey(this.engine, gate.principal, def, type, run) : undefined;
     const hit = key === undefined ? undefined : cachedPlan(this.engine, key, run);
     if (hit) return hit;
-    const built = await buildPlan(this.engine, delegation, def, type, envOf(this.engine, env, run.instant), run);
+    // Kept beyond the request exactly when the request memo would keep it: no env, not fresh, a canonical principal.
+    const built = await buildPlan(this.engine, delegation, def, type, envOf(this.engine, env, run.instant), run, key === undefined ? undefined : gate.principal);
     if (key !== undefined && !built.faulted) run.scope.set(key, new CachedPlan(built.plan, run.generation));
     return built.plan;
   }

@@ -26,6 +26,7 @@ A model is a class that extends `AuthorizationModel` and votes on checks. RBAC a
 | `summarize(principal, at, ctx)` | no | The roles and permissions the principal holds at `at`. Without it `covers()` is always false in a domain that routes the model. |
 | `listSupport(permission, type)` | no | `true`, or `{ reason }` when the model cannot plan the list. Absent: it cannot. |
 | `listPlan(req, ctx)` | no | The model's list plan; called only when `listSupport` answered `true`. |
+| `listPlanCacheable(permission, type)` | no | `true` when every list plan of the pair may be kept beyond its request ([Plans a cache may keep](#plans-a-cache-may-keep)). Absent: none may. |
 | `invalidate(tags)` | no | Drop the model's own caches for these change tags. |
 | `version()` | no | A string that changes when the model's data changes (a config hash). Part of every cache key. |
 | `dispose()` | no | Release resources. |
@@ -187,6 +188,38 @@ Route it with `authz: { combine: { types: { payout: { algorithm: 'unanimous', mo
 - **Report reasons with priorities.** One `denies[]` entry per deny source, each with `reason.priority` (lower wins) and, for ties, `sortKey`.
 - **Declare honest capabilities.** A residual op left out of `residuals` is refused; a `sync: 'always'` model that does IO breaks `filterNow`.
 - **`init` registers, nothing else.** A model that calls `ctx.registerPermissions()` after `init` returned gets `AuthzConfigError`.
+
+## Plans a cache may keep
+
+`accessPlan` makes a plan for one request. A cache that keeps the rows a plan filtered, per principal, may do so only
+when the plan carries `cache` (`AccessPlanCache`). The engine sets it when every model that planned says so, the call
+passed no `env`, the permission is not `consistency: 'fresh'`, no model failed, and every nested `ctx.check()` the
+plans rested on could be cached:
+
+```ts
+class MyModel extends AuthorizationModel {
+  // true only when every plan of permission on type rests on stored state whose changes this model publishes on the
+  // ChangeBus, and on time only through validUntil: never on env, actor or session facts
+  listPlanCacheable(permission: PermissionDef, type: ResourceType): boolean {
+    return true;
+  }
+}
+```
+
+`plan.cache` holds a key (the domain, the principal's whole state, the permission, the type), the tags of a type-level
+decision of the principal (`*`, `model:<name>` of the planning models, `subject:` of the principal, its companions and
+its delegation chain, `scope:*`, plus the tags of nested checks and loaded scope nodes) and a TTL:
+`authz.cache.ttlSeconds`, capped by `validUntil`. A model without the method keeps nothing, and a method that throws
+counts as no. `@spinajs/authz-abac` does not implement it, because its plans are decided with the request's env. A
+cache outside authz turns these tags into its own through the `AuthzCacheTags` port (`render(domain, tags)`, undefined
+when the domain's changes do not reach that cache); `@spinajs/authz` registers no implementation, so without one
+nothing is cached.
+
+- **Answer `true` only for state you announce.** A plan kept for a principal is dropped only by a change that bumps one
+  of its tags, or by its TTL. A plan that rests on anything else (the env, the time of day, a table no change names)
+  would keep showing rows after access was revoked.
+- **A `none` plan is kept without the expiry of the deny that made it**: the principal sees no rows until the TTL ends,
+  even when the deny expired earlier.
 
 ## Best practices
 
