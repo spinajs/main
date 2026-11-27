@@ -194,14 +194,19 @@ async function exactSeparated(ir: PolicyIR, a: Permission, b: Permission): Promi
   return { result: undecided ? 'unknown' : 'holds', engine: 'exact', opaque };
 }
 
-/** Does the tuple sit on a relation a holder selector names (`role:<r>@<t>`, `role:<r>`, `<t>#<rel>`, `public:<t>#<rel>`, `public`)? */
+/** Does the tuple, whatever its subject, sit on the relation a `role:<r>@<t>`, `role:<r>` or `<t>#<rel>` selector names? */
+function onRelation(ir: PolicyIR, selector: string, t: WitnessTuple): boolean {
+  const role = /^role:([^@]+)(?:@(.+))?$/.exec(selector);
+  if (role !== null) return (ir.principal.roles[role[1]] ?? []).some((r) => r.type === t.object.type && r.relation === t.relation && (role[2] === undefined || role[2] === r.type));
+  return selector === `${t.object.type}#${t.relation}`;
+}
+
+/** Does a holder selector select the tuple? `public` and `public:<t>#<rel>` select wildcard tuples, every other form named ones, as `matchesHolder` reads them. */
 function onHolder(ir: PolicyIR, selector: string, t: WitnessTuple): boolean {
   const wildcard = t.subject.id === '*';
   if (selector === 'public') return wildcard;
   if (selector.startsWith('public:')) return wildcard && selector === `public:${t.object.type}#${t.relation}`;
-  const role = /^role:([^@]+)(?:@(.+))?$/.exec(selector);
-  if (role !== null) return (ir.principal.roles[role[1]] ?? []).some((r) => r.type === t.object.type && r.relation === t.relation && (role[2] === undefined || role[2] === r.type));
-  return selector === `${t.object.type}#${t.relation}`;
+  return !wildcard && onRelation(ir, selector, t);
 }
 
 /**
@@ -212,7 +217,8 @@ function holderAdmits(ir: PolicyIR, selectors: readonly string[], mode: 'without
   if (mode === 'without') return (t) => !selectors.some((s) => onHolder(ir, s, t));
   return (t, u) => {
     const names = t.subject.relation === undefined && (t.subject.id === '*' || (t.subject.type === u.principal.type && t.subject.id === u.principal.id));
-    return !names || selectors.some((s) => onHolder(ir, s, t));
+    // Both modes err towards a counterexample: here a public tuple on a named relation still serves that holder.
+    return !names || selectors.some((s) => onHolder(ir, s, t) || onRelation(ir, s, t));
   };
 }
 
