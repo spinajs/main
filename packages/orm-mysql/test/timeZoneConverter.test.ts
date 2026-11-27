@@ -46,8 +46,15 @@ describe('mysql datetimes in the connection time zone', function () {
     expect((converter.fromDB('2026-09-30 22:00:00.000') as DateTime).toMillis()).to.eq(AT.getTime());
   });
 
-  it('writes the process wall clock by default', async () => {
+  it('writes and reads the UTC wall clock by default', async () => {
     const { converter } = await converterOf();
+
+    expect(converter.toDB(AT, null as any, null as any)).to.eq('2026-09-30 22:00:00.000');
+    expect((converter.fromDB('2026-09-30 22:00:00.000') as DateTime).toMillis()).to.eq(AT.getTime());
+  });
+
+  it("writes the process wall clock with TimeZone: 'SYSTEM'", async () => {
+    const { converter } = await converterOf('SYSTEM');
 
     expect(converter.toDB(AT, null as any, null as any)).to.eq(DateTime.fromJSDate(AT).toFormat('yyyy-MM-dd HH:mm:ss.SSS'));
     expect((converter.fromDB(DateTime.fromJSDate(AT).toFormat('yyyy-MM-dd HH:mm:ss')) as DateTime).toMillis()).to.eq(AT.getTime());

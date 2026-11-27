@@ -7,7 +7,7 @@ import { DI } from '@spinajs/di';
 import { DeleteQueryBuilder, extractModelDescriptor, InsertQueryBuilder, MIGRATION_DESCRIPTION_SYMBOL, SelectQueryBuilder, UpdateQueryBuilder } from '@spinajs/orm';
 import type { OrmDriver } from '@spinajs/orm';
 
-import { AuthzScopeAttribute_2026_10_02_00_00_00, DbScopeAttributeStore, ScopeAttributeRecord } from '../../src/index.js';
+import { AuthzScopeAttribute_2026_10_02_00_00_00, DbScopeAttributeStore, ScopeAttributeRecord, scopeAttributeId } from '../../src/index.js';
 import { TestDb } from '../support/db.js';
 import type { Dialect } from '../support/db.js';
 import { createScopeAttributeTables, dropScopeAttributeTables } from '../support/scope-attributes.js';
@@ -115,10 +115,10 @@ describe('DbScopeAttributeStore', function () {
         await dropScopeAttributeTables(db, dialect);
       });
 
-      it('the migration creates the table with its key and seeds one version row', async () => {
+      it('the migrations create the table with the key id and seed one version row', async () => {
         const info = await driver.tableInfo(TABLE, driver.Options.Database);
-        expect(info.map((c) => c.Name).sort()).to.deep.equal(['path', 'scope_id', 'scope_type', 'updated_at', 'updated_by', 'value_json', 'value_num', 'value_text']);
-        expect(info.filter((c) => c.PrimaryKey).map((c) => c.Name).sort()).to.deep.equal(['path', 'scope_id', 'scope_type']);
+        expect(info.map((c) => c.Name).sort()).to.deep.equal(['id', 'path', 'scope_id', 'scope_type', 'updated_at', 'updated_by', 'value_json', 'value_num', 'value_text']);
+        expect(info.filter((c) => c.PrimaryKey).map((c) => c.Name)).to.deep.equal(['id']);
         expect(((await driver.select().from(VERSION_TABLE)) as unknown[]).length).to.equal(1);
       });
 
@@ -307,11 +307,11 @@ describe('DbScopeAttributeStore', function () {
       });
 
       it('a row that holds no scalar, or no JSON, fails the read', async () => {
-        await driver.insert().into(TABLE).values({ scope_type: 'org', scope_id: 'o1', path: 'bad', value_json: '[1]', updated_at: new Date() });
+        await driver.insert().into(TABLE).values({ id: scopeAttributeId('org', 'o1', 'bad'), scope_type: 'org', scope_id: 'o1', path: 'bad', value_json: '[1]', updated_at: new Date() });
         const notScalar = await rejection(store.get(o1));
         expect(notScalar).to.be.instanceOf(AuthzConfigError);
         expect(notScalar.message).to.equal('authz_scope_attribute row "bad": value_json holds [1], not a scalar');
-        await driver.insert().into(TABLE).values({ scope_type: 'org', scope_id: 'o2', path: 'bad', value_json: 'gold', updated_at: new Date() });
+        await driver.insert().into(TABLE).values({ id: scopeAttributeId('org', 'o2', 'bad'), scope_type: 'org', scope_id: 'o2', path: 'bad', value_json: 'gold', updated_at: new Date() });
         const notJson = await rejection(store.get(o2));
         expect(notJson).to.be.instanceOf(AuthzConfigError);
         expect(notJson.message).to.equal('authz_scope_attribute row "bad": value_json holds "gold", not JSON');
