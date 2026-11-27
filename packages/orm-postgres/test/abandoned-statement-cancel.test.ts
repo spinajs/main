@@ -62,6 +62,44 @@ async function postmaster() {
   };
 }
 
+/** A peer that accepts and then neither answers nor closes: a proxy holding the connection. */
+async function silentPeer() {
+  const held: net.Socket[] = [];
+  let accepted: () => void = () => undefined;
+  const server = net.createServer({ allowHalfOpen: true }, (socket) => {
+    held.push(socket);
+    socket.resume();
+    accepted();
+  });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const address = server.address();
+  if (address === null || typeof address === 'string') {
+    throw new Error('no TCP address');
+  }
+
+  return {
+    port: address.port,
+    next: () => new Promise<void>((resolve) => (accepted = resolve)),
+    close: () => {
+      held.forEach((socket) => socket.destroy());
+      return new Promise<void>((resolve) => server.close(() => resolve()));
+    },
+  };
+}
+
+/** Whether `promise` settles within a few turns of the event loop: enough for socket events on localhost, no wall-clock wait. */
+async function settles(promise: Promise<unknown> | undefined): Promise<boolean> {
+  let settled = false;
+  void promise?.then(
+    () => (settled = true),
+    () => (settled = true),
+  );
+  for (let turn = 0; turn < 20 && !settled; turn++) {
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+  return settled;
+}
+
 const decode = (request: Buffer) => [request.readInt32BE(0), request.readInt32BE(4), request.readInt32BE(8), request.readInt32BE(12)];
 
 describe('postgres abandoned statement cancel (unit)', function () {
@@ -70,12 +108,12 @@ describe('postgres abandoned statement cancel (unit)', function () {
   let driver: ProbeDriver;
   let server: Awaited<ReturnType<typeof postmaster>>;
 
-  const resolveDriver = async (options?: Record<string, unknown>) => {
-    driver = await DI.resolve(ProbeDriver, [{ Name: 'pg-cancel-unit', Driver: 'orm-driver-postgres', ...(options ? { Options: options } : {}) }]);
+  const resolveDriver = async (entry: Record<string, unknown> = {}) => {
+    driver = await DI.resolve(ProbeDriver, [{ Name: 'pg-cancel-unit', Driver: 'orm-driver-postgres', ...entry }]);
   };
 
   /** A client of the pool's own class whose backend sent `key`, answering every statement with `outcome`. */
-  const pooledClient = (outcome: () => Promise<unknown>, key: typeof KEY | null = KEY, port = server.port) => {
+  const pooledClient = (outcome: () => Promise<unknown>, key: object | null = KEY, port = server.port) => {
     const Client = driver.clientClass();
     expect(Client, 'the pool builds its clients from a class that keeps the cancel key').to.exist;
     const client = new Client!();
@@ -100,6 +138,7 @@ describe('postgres abandoned statement cancel (unit)', function () {
   });
 
   afterEach(async () => {
+    sinon.restore();
     DI.clearCache();
     await server.close();
   });
@@ -147,7 +186,7 @@ describe('postgres abandoned statement cancel (unit)', function () {
   });
 
   it('sends nothing when Options.CancelAbandonedStatements is false', async () => {
-    await resolveDriver({ CancelAbandonedStatements: false });
+    await resolveDriver({ Options: { CancelAbandonedStatements: false } });
     const { release } = pooledClient(timedOut);
     await expect(driver.executeOnDb('SELECT 1', [], QueryContext.Select)).to.be.rejected;
     expect(release.args).to.deep.equal([[true]]);
@@ -182,4 +221,22 @@ describe('postgres abandoned statement cancel (unit)', function () {
     await arrived;
     expect(server.requests.map(decode)).to.deep.equal([[16, 80877102, KEY.processID, KEY.secretKey]]);
   });
+
+  it('ends the cancel connection within a bound of its own when Pool.AcquireTimeout is 0', async () => {
+    await resolveDriver({ Pool: { AcquireTimeout: 0 } });
+    const peer = await silentPeer();
+    const accepted = peer.next();
+    pooledClient(timedOut, KEY, peer.port);
+    const clock = sinon.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      await expect(driver.executeOnDb('SELECT 1', [], QueryContext.Select)).to.be.rejectedWith(OrmException);
+      await accepted;
+      clock.tick(60_000);
+      expect(await settles(driver.cancels[0]), 'the cancel connection ended').to.equal(true);
+    } finally {
+      clock.restore();
+      await peer.close();
+    }
+  });
+
 });
