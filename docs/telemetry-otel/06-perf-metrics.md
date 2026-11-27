@@ -58,8 +58,10 @@ limit, `value` for a value that is not a finite number or a negative counter del
 
 Recording a measurement only updates the sink's in-memory aggregation; the export runs on the reader's own timer
 (unreferenced, so it never keeps the process alive). A collector that is down, slow or answers with an error loses
-that interval's export, reported through the OpenTelemetry diagnostic logger, and never reaches the code that
-measured. An `otel.metrics.endpoint` that is not a URL logs `otel metrics export not started` once at `error` and
+that interval's export and never reaches the code that measured. The first failed export of an outage logs one
+`warn` on the `otel` logger (`otel metrics export to <endpoint> failed`); the next failures are not logged until an
+export succeeds. The OpenTelemetry diagnostic logger also gets one error per failed interval, but it is silent unless
+the application installs one (`diag.setLogger`). An `otel.metrics.endpoint` that is not a URL logs `otel metrics export not started` once at `error` and
 leaves the sink inactive.
 
 `@spinajs/tracing` owns the tracer provider and has no meter provider, so the sink keeps a private `MeterProvider`

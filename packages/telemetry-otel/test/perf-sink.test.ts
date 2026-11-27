@@ -1,5 +1,6 @@
 import 'mocha';
 import { AsyncLocalStorage, createHook } from 'node:async_hooks';
+import { createServer } from 'node:http';
 import { expect } from 'chai';
 import { AggregationTemporality, DataPointType, MetricReader, PeriodicExportingMetricReader } from '@opentelemetry/sdk-metrics';
 import type { MetricData, PushMetricExporter, ResourceMetrics } from '@opentelemetry/sdk-metrics';
@@ -284,6 +285,40 @@ describe('OtelPerfSink', () => {
     await sink.dispose();
     expect(stores).to.not.be.empty;
     expect(stores.filter((store) => store !== undefined)).to.deep.eq([]);
+  });
+
+  it('logs the first failed export of an outage once, and again after an export succeeded', async () => {
+    let status = 400;
+    let requests = 0;
+    const receiver = createServer((req, res) => {
+      requests++;
+      req.resume();
+      req.on('end', () => res.writeHead(status).end());
+    });
+    await new Promise<void>((resolve) => receiver.listen(0, '127.0.0.1', resolve));
+    const until = async (done: () => boolean): Promise<void> => {
+      while (!done()) await new Promise((resolve) => setTimeout(resolve, 10));
+    };
+    try {
+      const sink = new OtelPerfSink();
+      const address = receiver.address();
+      if (address === null || typeof address === 'string') throw new Error('the receiver has no port');
+      const endpoint = `http://127.0.0.1:${address.port}/v1/metrics`;
+      const logged = configure(sink, true, { 'otel.metrics.endpoint': endpoint }, null);
+      setField(sink, 'exportIntervalMs', 20);
+      sink.collect({ name: 'cache.hit', kind: 'counter', value: 1 });
+      await until(() => requests >= 4);
+      expect(logged.warnings).to.have.length(1);
+      status = 200;
+      const answered = requests;
+      await until(() => requests >= answered + 2);
+      status = 400;
+      await until(() => logged.warnings.length === 2);
+      await sink.dispose();
+      expect(logged.warnings[0]).to.deep.include({ endpoint });
+    } finally {
+      await new Promise((resolve) => receiver.close(resolve));
+    }
   });
 
   it('shuts its provider down on dispose, and a metric that arrives afterwards does not start another', async () => {

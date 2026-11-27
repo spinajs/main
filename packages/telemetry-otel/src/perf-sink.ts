@@ -7,7 +7,7 @@ import type { IPerfMetric } from '@spinajs/log';
 import { readTracingOptions } from '@spinajs/tracing';
 import type { Attributes, Counter, Gauge, Histogram, Meter } from '@opentelemetry/api';
 import { MeterProvider, PeriodicExportingMetricReader } from '@opentelemetry/sdk-metrics';
-import type { MetricReader } from '@opentelemetry/sdk-metrics';
+import type { MetricReader, PushMetricExporter, ResourceMetrics } from '@opentelemetry/sdk-metrics';
 import { OTLPMetricExporter } from '@opentelemetry/exporter-metrics-otlp-http';
 import { resourceFromAttributes } from '@opentelemetry/resources';
 import { ATTR_SERVICE_NAME } from '@opentelemetry/semantic-conventions';
@@ -162,7 +162,9 @@ export class OtelPerfSink extends PerfSink {
       if (!/^https?:$/.test(new URL(this.endpoint).protocol)) throw new TypeError('not an http: or https: URL');
       const exportIntervalMillis = this.exportIntervalMs;
       return new PeriodicExportingMetricReader({
-        exporter: new OTLPMetricExporter({ url: this.endpoint, timeoutMillis: EXPORT_TIMEOUT_MS }),
+        exporter: new FailureLoggingExporter(new OTLPMetricExporter({ url: this.endpoint, timeoutMillis: EXPORT_TIMEOUT_MS }), (error) =>
+          this.log.warn({ endpoint: loggableEndpoint(this.endpoint), reason: error?.message }, 'otel metrics export to ${endpoint} failed (${reason}); further failures are not logged until an export succeeds'),
+        ),
         exportIntervalMillis,
         exportTimeoutMillis: Math.min(EXPORT_TIMEOUT_MS, exportIntervalMillis),
       });
@@ -193,6 +195,44 @@ export class OtelPerfSink extends PerfSink {
 
   private drop(reason: 'instruments' | 'value'): void {
     this.dropped?.add(1, { reason });
+  }
+}
+
+type ExportDone = Parameters<PushMetricExporter['export']>[1];
+
+/** The SDK reports a failed export to the OpenTelemetry diagnostic logger only, which is silent unless an app installs one. */
+class FailureLoggingExporter implements PushMetricExporter {
+  public readonly selectAggregationTemporality?: PushMetricExporter['selectAggregationTemporality'];
+  public readonly selectAggregation?: PushMetricExporter['selectAggregation'];
+  private failing = false;
+
+  constructor(
+    private readonly inner: PushMetricExporter,
+    private readonly onFirstFailure: (error: Error | undefined) => void,
+  ) {
+    this.selectAggregationTemporality = inner.selectAggregationTemporality?.bind(inner);
+    this.selectAggregation = inner.selectAggregation?.bind(inner);
+  }
+
+  public export(metrics: ResourceMetrics, done: ExportDone): void {
+    this.inner.export(metrics, (result) => {
+      // 0 is ExportResultCode.SUCCESS of @opentelemetry/core, which this package does not depend on.
+      if (result.code === 0) {
+        this.failing = false;
+      } else if (!this.failing) {
+        this.failing = true;
+        this.onFirstFailure(result.error);
+      }
+      done(result);
+    });
+  }
+
+  public forceFlush(): Promise<void> {
+    return this.inner.forceFlush();
+  }
+
+  public shutdown(): Promise<void> {
+    return this.inner.shutdown();
   }
 }
 
