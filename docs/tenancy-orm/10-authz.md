@@ -41,9 +41,19 @@ Importing the entry registers `AuthzTenantAccess`, and `@spinajs/tenancy` uses i
 
 - A principal that holds `tenant:enter` at another tenant only, or no tenant role at all, is refused
   (`TenantUnavailable` with `reason: 'forbidden'` from `admitTenant`).
-- `SYSTEM` is allowed, as authz allows it everything (by identity: a copy of it with `type: 'system'` is refused).
-- When authz cannot answer (for example `authz.orm.domain` names a domain that does not exist), `canEnter` rejects
-  with that error, and so do `admitTenant` and `tenantsOf`: nobody enters.
+- `canEnter` refuses a forged `system` principal (a copy of `SYSTEM`) and `UNATTENDED`. `admitTenant` asks it only for
+  an authenticated principal, so anonymous and `UNATTENDED` callers are admitted to an active tenant as before.
+- `SYSTEM` enters every tenant: authz allows it everything, by identity. The attribute rule refused it.
+- A role whose grants match `tenant:enter` by glob (`*`, `tenant:*`, `*:enter`) gives entry wherever it is held. Held at
+  `$global`, that is every tenant, and `tenantsOf` lists all of them. Narrow such roles, or deny `tenant:enter`.
+- A configuration error (for example `authz.orm.domain` names a domain that does not exist) makes `canEnter`,
+  `admitTenant` and `tenantsOf` reject. A fault of the assignment store refuses instead: `canEnter` is `false`,
+  `admitTenant` throws `forbidden` and `tenantsOf` lists nothing. Once the store answers again, access returns.
+- `canEnter` answers authz only and does not read the tenant state; `admitTenant` and `tenantsOf` admit and list active
+  tenants only.
+- A revoke through `AuthzAdmin` takes effect at once. A change that does not reach this process's change bus (another
+  node without a shared bus, a direct database edit) takes up to `authz.cache.ttlSeconds` (60 s by default). A suspended
+  tenant is admitted by `admitTenant` until `tenancy.registryCacheMs` (5 s by default) passes.
 - Import the entry before the first `admitTenant()`, `tenantAccess()` or `tenantRegistry()` call: `@spinajs/tenancy`
   picks the access check once per container.
 
