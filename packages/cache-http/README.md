@@ -25,7 +25,8 @@ Limits of this version:
   `http.routes.middlewares`) and on the data transformer `x-data-transform` names, not on server middlewares.
 - `ResponseCacheMiddleware` is mounted by `@ResponseCache()`; mounted with `@Middleware()` it fails the registration.
 - On a `'tenant'` or `'shared'` route only arguments from the URL (`@Query`, `@Param`), the container and `Accept` are
-  in the key. A `@Header`, `@Cookie`, `User-Agent` or `Referer` argument needs its header in `vary`; any other
+  in the key. A `@Header`, `@Cookie`, `User-Agent` or `Referer` argument needs its header in `vary`, and `@Header()`
+  must name its header (`@Header('x-region')`): http names an argument only after the routes are registered; any other
   argument (session, IP, body, the current principal or user, an application's own resolver) fails the registration:
   cache such a route with scope `'principal'`. An action that takes `@Req()` or `@Res()` logs a warning at registration:
   what it reads of the request is not in the key.

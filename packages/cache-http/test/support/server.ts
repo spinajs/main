@@ -85,8 +85,7 @@ class CacheHttpConfiguration extends FrameworkConfiguration {
         rules: [...SILENT_LOGGER.rules, { name: 'cache', level: 'warn', target: 'Capture' }],
       },
       http: { port: 0, middlewares: [], AcceptHeaders: 1 | 2, routes: { middlewares: [...globalRouteMiddlewares] } },
-      cache: { caches: { hung: { store: 'HangingStore' } }, http: { timeout: 200 } },
-    };
+      cache: { caches: { hung: { store: 'HangingStore' } }, http: { timeout: 200 } },    };
   }
 }
 
@@ -143,4 +142,24 @@ export function useServer(controllers: readonly (typeof BaseController)[], regis
   const get = (path: string, headers: Record<string, string> = {}): Promise<Answer> => send('GET', path, headers);
 
   return { server, send, get };
+}
+
+/** The error a boot with these controllers fails with; undefined when it boots, and the app is disposed again. */
+export async function bootFailure(controllers: readonly (typeof BaseController)[]): Promise<Error | undefined> {
+  globalRouteMiddlewares = [];
+  try {
+    const app = await createTestApp({
+      configuration: CacheHttpConfiguration,
+      register: (c) => {
+        for (const type of controllers) c.register(type).as(BaseController);
+        c.register(CaptureLogTarget).as('CaptureLogTarget');
+      },
+      resolve: [fsService, Controllers],
+      bootTimeout: 50000,
+    });
+    await app.dispose();
+    return undefined;
+  } catch (error) {
+    return error instanceof Error ? error : new Error(String(error));
+  }
 }

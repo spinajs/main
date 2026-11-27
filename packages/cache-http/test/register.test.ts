@@ -115,19 +115,28 @@ describe('ResponseCacheMiddleware registration', () => {
   });
 
   it('refuses a tenant or shared scope on a route that reads a request input the key does not hold', async () => {
-    const refused: [IRouteParameter, string][] = [[arg(ParameterType.FromHeader, 'secret', { key: 'X-Secret' }), 'the header x-secret'], [arg(ParameterType.FromHeader, 'xRegion', { key: undefined }), 'the header xregion'], [arg(ParameterType.FromCookie, 'sid'), 'the header cookie'], [arg(ParameterType.UserAgent, 'agent'), 'the header user-agent'], [arg(ParameterType.Referer, 'from'), 'the header referer'], ...[ParameterType.FromSession, ParameterType.Headers, ParameterType.Ip, ParameterType.RequestId, ParameterType.FromBody, 'CurrentPrincipalArg', 'CurrentUserArg', 'AuthnSessionDataArg'].map((type): [IRouteParameter, string] => [arg(type, 'value'), `the argument value of type '${type}'`])];
-    for (const [param, what] of refused) {
+    // at onRegister http has not named the arguments yet: Name is '' as in a real boot
+    const header = 'or name the header in vary';
+    const url = 'or read the value from the URL';
+    const refused: [IRouteParameter, string, string][] = [
+      [arg(ParameterType.FromHeader, '', { key: 'X-Secret' }), 'the header x-secret, which is not in the key', header],
+      [arg(ParameterType.FromHeader, '', { key: undefined }), 'the header of the argument #1, which @Header() does not name', "or write @Header('<name>') and name the header in vary"],
+      [arg(ParameterType.FromCookie, ''), 'the header cookie, which is not in the key', header],
+      [arg(ParameterType.UserAgent, ''), 'the header user-agent, which is not in the key', header],
+      [arg(ParameterType.Referer, ''), 'the header referer, which is not in the key', header],
+      ...[ParameterType.FromSession, ParameterType.Headers, ParameterType.Ip, ParameterType.RequestId, 'CurrentPrincipalArg', 'CurrentUserArg', 'AuthnSessionDataArg'].map((type): [IRouteParameter, string, string] => [arg(type, ''), `the argument #1 of type '${type}', which is not in the key`, url]),
+    ];
+    for (const [param, what, hint] of refused) {
       const err = await rejection(reading(SHARED, param));
       expect(err, what).to.be.instanceOf(InvalidArgument);
-      const hint = what.startsWith('the header') ? ', or name the header in vary' : ', or read the value from the URL';
-      expect((err as Error).message).to.eq(`GET /items/list: @ResponseCache scope 'shared' would give one caller's reply to others, but the route reads ${what}, which is not in the key: cache it with scope 'principal'${hint}`);
+      expect((err as Error).message).to.eq(`GET /items/list: @ResponseCache scope 'shared' would give one caller's reply to others, but the route reads ${what}: cache it with scope 'principal', ${hint}`);
     }
     // per principal the key holds the caller: the same arguments mount
     for (const [param] of refused) await reading({ ttl: '1m' }, param);
   });
 
   it('shares a route whose arguments come from the URL, the container, Accept or a header in vary', async () => {
-    await reading({ ...SHARED, vary: ['X-Region', 'user-agent', 'Cookie'] }, ...[ParameterType.FromQuery, ParameterType.QueryField, ParameterType.FromParams, ParameterType.ParamField, ParameterType.FromDi, ParameterType.RequestType, ParameterType.UserAgent, ParameterType.FromCookie].map((type, Index) => ({ ...arg(type, `a${Index}`), Index })), { ...arg(ParameterType.FromHeader, 'xRegion', { key: 'x-region' }), Index: 8 }, { ...arg(ParameterType.FromHeader, 'accept', { key: undefined }), Index: 9 }, { ...arg(ParameterType.FromHeader, 'transform', { key: 'X-Data-Transform' }), Index: 10 });
+    await reading({ ...SHARED, vary: ['X-Region', 'user-agent', 'Cookie'] }, ...[ParameterType.FromQuery, ParameterType.QueryField, ParameterType.FromParams, ParameterType.ParamField, ParameterType.FromDi, ParameterType.RequestType, ParameterType.UserAgent, ParameterType.FromCookie].map((type, Index) => ({ ...arg(type, `a${Index}`), Index })), { ...arg(ParameterType.FromHeader, 'xRegion', { key: 'x-region' }), Index: 8 }, { ...arg(ParameterType.FromHeader, '', { key: 'Accept' }), Index: 9 }, { ...arg(ParameterType.FromHeader, 'transform', { key: 'X-Data-Transform' }), Index: 10 });
   });
 
   it('refuses a tenant scope while nothing puts a tenant into the key', async () => {

@@ -33,13 +33,17 @@ const HEADER_ARGUMENTS: ReadonlyMap<string, readonly string[]> = new Map([
 const REQUEST_OBJECTS: ReadonlySet<string> = new Set([ParameterType.Req, ParameterType.Res]);
 const FROM_HEADER: string = ParameterType.FromHeader;
 
-/** The request headers an argument reads, undefined for an argument that reads no header. */
-function headersOf({ Type, Name, Options }: IRouteParameter): readonly string[] | undefined {
+/**
+ * The request headers an argument reads, undefined for one that reads no header; [] for `@Header()` without a key, whose
+ * header is its argument's name, which http fills in only after the routes are registered.
+ */
+function headersOf({ Type, Options }: IRouteParameter): readonly string[] | undefined {
   if (Type !== FROM_HEADER) return HEADER_ARGUMENTS.get(Type);
   const options: unknown = Options;
-  const key = typeof options === 'object' && options !== null && 'key' in options && typeof options.key === 'string' && options.key !== '' ? options.key : Name;
-  return [key.toLowerCase()];
+  return typeof options === 'object' && options !== null && 'key' in options && typeof options.key === 'string' && options.key !== '' ? [options.key.toLowerCase()] : [];
 }
+
+const nameOf = ({ Name, Index }: IRouteParameter): string => (Name === '' ? `#${Index + 1}` : Name);
 
 /** `static PerPrincipalReply = true`: the convention of a middleware whose reply depends on who asks (AuthzFieldsMiddleware). */
 const repliesPerPrincipal = (type: object): boolean => 'PerPrincipalReply' in type && type.PerPrincipalReply === true;
@@ -130,8 +134,7 @@ export class ResponseCacheMiddleware extends RouteMiddleware {
     }
     const unkeyed = this.options.scope === 'principal' ? undefined : this.unkeyedArgument(route, path);
     if (unkeyed !== undefined) {
-      const hint = unkeyed.startsWith('the header') ? 'or name the header in vary' : 'or read the value from the URL';
-      throw new InvalidArgument(`${String(route.Type).toUpperCase()} ${path}: @ResponseCache scope '${this.options.scope}' would give one caller's reply to others, but the route reads ${unkeyed}, which is not in the key: cache it with scope 'principal', ${hint}`);
+      throw new InvalidArgument(`${String(route.Type).toUpperCase()} ${path}: @ResponseCache scope '${this.options.scope}' would give one caller's reply to others, but the route reads ${unkeyed[0]}: cache it with scope 'principal', ${unkeyed[1]}`);
     }
     const service = await this.Container.resolve(CacheService);
     cacheSettings(service.config, this.options.cache);
@@ -244,8 +247,8 @@ export class ResponseCacheMiddleware extends RouteMiddleware {
     return shaper === undefined ? undefined : `${shaper.constructor.name} shapes the reply per principal, which scope '${this.options.scope}' would share`;
   }
 
-  /** What a route argument reads of the request that the key of a wider scope does not hold. */
-  private unkeyedArgument(route: IRoute, path: string): string | undefined {
+  /** What a route argument reads of the request that the key of a wider scope does not hold, and what to do about it. */
+  private unkeyedArgument(route: IRoute, path: string): readonly [string, string] | undefined {
     const keyed = new Set(['accept', 'x-data-transform', ...this.options.vary.map((name) => name.toLowerCase())]);
     for (const param of route.Parameters.values()) {
       if (REQUEST_OBJECTS.has(param.Type)) {
@@ -253,9 +256,10 @@ export class ResponseCacheMiddleware extends RouteMiddleware {
         continue;
       }
       const headers = headersOf(param);
-      if (headers === undefined && !KEYED_ARGUMENTS.has(param.Type)) return `the argument ${param.Name} of type '${param.Type}'`;
+      if (headers?.length === 0) return [`the header of the argument ${nameOf(param)}, which @Header() does not name`, "or write @Header('<name>') and name the header in vary"];
+      if (headers === undefined && !KEYED_ARGUMENTS.has(param.Type)) return [`the argument ${nameOf(param)} of type '${param.Type}', which is not in the key`, 'or read the value from the URL'];
       const unkeyed = headers?.find((header) => !keyed.has(header));
-      if (unkeyed !== undefined) return `the header ${unkeyed}`;
+      if (unkeyed !== undefined) return [`the header ${unkeyed}, which is not in the key`, 'or name the header in vary'];
     }
     return undefined;
   }
