@@ -1,4 +1,4 @@
-import { ORM_DB_VALUE_CONVERTERS, IQueryStatement, JoinMethod, LazyQueryStatement, QueryBuilder, SelectQueryBuilder, WhereBuilder, ModelBase, SqlOperator, BetweenStatement, JoinStatement, ColumnStatement, ColumnRawStatement, InStatement, InQueryStatement, InSetStatement, StartsWithStatement, IQueryStatementResult, RawQueryStatement, WhereStatement, ExistsQueryStatement, ColumnMethodStatement, WhereQueryStatement, WithRecursiveStatement, GroupByStatement, RawQuery, DateWrapper, DateTimeWrapper, TextWrapper, Wrap, ColumnCompareStatement, ColumnConditionStatement, IWhereBuilder, OuterColumn, outerBuilder, qualifierOf, WrapStatement, ValueConverter, extractModelDescriptor, escapeLikeValue, IdentifierQuoter, LIKE_ESCAPE_CHARACTER, SET_DELIMITER, IJoinStatementOptions, OrmDriver, ConcatExpression, SqlExpressions, LikeLiteral } from '@spinajs/orm';
+import { ORM_DB_VALUE_CONVERTERS, IQueryStatement, JoinMethod, LazyQueryStatement, QueryBuilder, SelectQueryBuilder, WhereBuilder, ModelBase, SqlOperator, BetweenStatement, JoinStatement, ColumnStatement, ColumnRawStatement, InStatement, InQueryStatement, InSetStatement, StartsWithStatement, ExactlyStatement, IQueryStatementResult, RawQueryStatement, WhereStatement, ExistsQueryStatement, ColumnMethodStatement, WhereQueryStatement, WithRecursiveStatement, GroupByStatement, RawQuery, DateWrapper, DateTimeWrapper, TextWrapper, Wrap, ColumnCompareStatement, ColumnConditionStatement, IWhereBuilder, OuterColumn, outerBuilder, qualifierOf, WrapStatement, ValueConverter, extractModelDescriptor, escapeLikeValue, IdentifierQuoter, LIKE_ESCAPE_CHARACTER, SET_DELIMITER, IJoinStatementOptions, OrmDriver, ConcatExpression, SqlExpressions, LikeLiteral } from '@spinajs/orm';
 /* eslint-disable prettier/prettier */
 import { SqlWhereCompiler } from './compilers.js';
 import { Autoinject, Constructor, IContainer, NewInstance } from '@spinajs/di';
@@ -699,6 +699,33 @@ export class SqlStartsWithStatement extends StartsWithStatement {
 
   public clone(): IQueryStatement {
     return _carryQuoter(new (this.constructor as new (column: string, prefix: string, tableAlias: string) => SqlStartsWithStatement)(this._column, this._prefix, this._tableAlias!), this);
+  }
+}
+
+/** `(col = ? AND <equalsExactly>)`: the plain equality seeks an index on `col`, the dialect's exact one decides. */
+@NewInstance()
+export class SqlExactlyStatement extends ExactlyStatement {
+  @Autoinject(IdentifierQuoter)
+  public Quoter: IdentifierQuoter;
+
+  @Autoinject(SqlExpressions)
+  public Expressions: SqlExpressions;
+
+  public build(): IQueryStatementResult {
+    const value = this.value();
+    const column = _columnWrap(this.Quoter, this._column, this._tableAlias);
+    const exact = this.Expressions.equalsExactly(column, { sql: '?', bindings: [value] });
+
+    return {
+      Bindings: [value, ...exact.bindings],
+      Statements: [`(${column} = ? AND ${exact.sql})`],
+    };
+  }
+
+  public clone(): IQueryStatement {
+    const clone = _carryQuoter(new (this.constructor as new (column: string, value: string, tableAlias: string) => SqlExactlyStatement)(this._column, this._value, this._tableAlias!), this);
+    clone.Expressions = this.Expressions;
+    return clone;
   }
 }
 

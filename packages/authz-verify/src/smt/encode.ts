@@ -1,5 +1,5 @@
 import { parseSubjectTypeRef } from '@spinajs/authz-ir';
-import type { ObjectRef, ParsedSubjectType, PolicyIR, RelationDef, RelationName, Rewrite, TupleSubjectRef } from '@spinajs/authz-ir';
+import type { ObjectRef, ParsedSubjectType, PolicyIR, RelationDef, RelationName, Rewrite, TupleSubjectRef, TypeName } from '@spinajs/authz-ir';
 import type { Permission } from '@spinajs/authz';
 
 import type { WitnessTuple } from '../witness.js';
@@ -18,6 +18,7 @@ export interface EncodeOptions {
 const own = (o: object, k: string): boolean => Object.prototype.hasOwnProperty.call(o, k);
 const label = (o: ObjectRef): string => `${o.type}:${o.id}`;
 const subjectLabel = (s: TupleSubjectRef): string => `${label(s)}${s.relation === undefined ? '' : `#${s.relation}`}${s.caveat === undefined ? '' : `[${s.caveat.name}]`}`;
+const notDefined = (type: TypeName, name: RelationName): Unsupported => new Unsupported(`${type}#${name} is not defined in the IR`);
 
 /**
  * The checks of a `PolicyIR` over a finite universe as boolean formulas: one variable per possible tuple, one
@@ -95,6 +96,7 @@ export class Encoder {
       let f: Formula = false;
       if (type !== undefined && own(type.permissions, name)) f = this.rewrite(object, name, type.permissions[name], depth);
       else if (type !== undefined && own(type.relations, name)) f = this.stored(object, name, depth);
+      else throw notDefined(object.type, name);
       this.defs.set(key, f);
       return { var: key };
     } finally {
@@ -128,7 +130,7 @@ export class Encoder {
 
   private stored(object: ObjectRef, name: RelationName, depth: number): Formula {
     const rel = this.ir.types[object.type].relations[name];
-    if (rel === undefined) return false;
+    if (rel === undefined) throw notDefined(object.type, name);
     return or(...rel.allowed.map(parseSubjectTypeRef).map((a) => this.subject(object, name, rel, a, depth)));
   }
 
@@ -142,7 +144,7 @@ export class Encoder {
     if (rel.source.kind === 'self') return a.caveat === undefined && a.relation === undefined && !a.wildcard && a.type === object.type && label(object) === label(p);
     if (rel.source.kind === 'column' && (a.caveat !== undefined || a.relation !== undefined || a.wildcard)) return false;
     if (a.relation !== undefined) {
-      if (!own(this.ir.types, a.type)) return false;
+      if (!own(this.ir.types, a.type)) throw notDefined(a.type, a.relation);
       return or(...this.universe.objects[a.type].map((y) => and(this.tuple(object, name, { ...y, relation: a.relation, ...caveat }), when, this.node(y, a.relation!, depth + 1))));
     }
     if (a.type !== p.type) return false;
@@ -156,7 +158,7 @@ export class Encoder {
 
   private arrow(object: ObjectRef, tupleset: RelationName, computed: RelationName, depth: number): Formula {
     const rel = this.ir.types[object.type].relations[tupleset];
-    if (rel === undefined) return false;
+    if (rel === undefined) throw notDefined(object.type, tupleset);
     const out: Formula[] = [];
     for (const a of rel.allowed.map(parseSubjectTypeRef)) {
       if (a.relation !== undefined || a.wildcard || !own(this.ir.types, a.type)) continue;

@@ -32,6 +32,8 @@ export interface IPostgresTransactionContext extends ITransactionContext {
   savepointRollbackFailure?: Error;
   /** The error of a statement that got no answer from the server (pg's query_timeout): it may still run there, and a COMMIT would commit it. */
   abandoned?: unknown;
+  /** The first statement failure since `BEGIN` or the last `ROLLBACK TO SAVEPOINT`. */
+  failure?: Error;
 }
 
 /**
@@ -307,7 +309,7 @@ export class PostgresOrmDriver extends SqlDriver {
           return result.rows;
       }
     } catch (err) {
-      throw mapPostgresError(
+      const mapped = mapPostgresError(
         err,
         {
           Host: this.Options.Host,
@@ -317,6 +319,8 @@ export class PostgresOrmDriver extends SqlDriver {
         stmt,
         params,
       );
+      if (txContext) txContext.failure ??= mapped;
+      throw mapped;
     }
   }
 
@@ -728,7 +732,11 @@ export class PostgresOrmDriver extends SqlDriver {
     if (tx.abandoned !== undefined) {
       throw new OrmException(`transaction on connection ${this.Options.Name} was not committed: one of its statements got no answer from the server and may still be running there, so the transaction is rolled back instead; retry the whole transaction`, undefined, undefined, undefined, tx.abandoned);
     }
-    await tx.connection.query('COMMIT');
+    const result = await tx.connection.query('COMMIT');
+    // A COMMIT of an aborted transaction raises no error: PostgreSQL rolls it back and answers with this tag.
+    if (result.command === 'ROLLBACK') {
+      throw new OrmException(`transaction on connection ${this.Options.Name} was aborted by an earlier failed statement whose error was caught; PostgreSQL rolled it back when it was asked to commit, and nothing of it was written; the first failure: ${tx.failure?.message ?? 'unknown'}`, undefined, undefined, undefined, tx.failure);
+    }
   }
 
   protected async _rollback(ctx: ITransactionContext): Promise<void> {
@@ -761,6 +769,8 @@ export class PostgresOrmDriver extends SqlDriver {
       tx.savepointRollbackFailure ??= err instanceof Error ? err : new Error(String(err));
       throw err;
     }
+    // A savepoint can only be taken in a healthy transaction, so rolling back to it heals the transaction.
+    tx.failure = undefined;
   }
 
   protected _dispose(ctx: ITransactionContext): Promise<void> {
