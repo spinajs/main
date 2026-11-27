@@ -5,6 +5,7 @@ import { defined } from '../models/converters.js';
 import { definitionHash, serializeDefinition, timingKey } from '../registry/definitions.js';
 import { nextOccurrence } from '../time/spec.js';
 import type { ScheduleDefinition } from '../interfaces.js';
+import { GLOBAL_TENANT, scheduleRow } from './keys.js';
 
 export function initialNextRun(def: ScheduleDefinition, now: number): number | null {
   if (!def.enabled || def.runOn === 'all') return null;
@@ -30,7 +31,7 @@ export class DefinitionSync {
 
   public async sync(defs: ScheduleDefinition[], now: number, options: DefinitionSyncOptions = {}): Promise<void> {
     const owner = options.owner ?? true;
-    const rows = await ScheduleModel.all();
+    const rows = (await ScheduleModel.all()).filter((r) => r.Tenant === GLOBAL_TENANT);
     const byName = new Map(rows.map((r) => [r.Name, r]));
 
     for (const def of defs) {
@@ -60,7 +61,7 @@ export class DefinitionSync {
           UpdatedAt: now,
         }),
       )
-        .where('Name', def.name)
+        .where(scheduleRow(def.name))
         .where('DefinitionHash', existing.DefinitionHash);
     }
 
@@ -68,7 +69,9 @@ export class DefinitionSync {
     const known = new Set(defs.map((d) => d.name));
     for (const r of rows) {
       if (!known.has(r.Name) && !r.Orphaned) {
-        await ScheduleModel.update({ Orphaned: true, UpdatedAt: now }).where('Name', r.Name).where('Orphaned', false);
+        await ScheduleModel.update({ Orphaned: true, UpdatedAt: now })
+          .where(scheduleRow(r.Name))
+          .where('Orphaned', false);
         this.Log.warn(`schedule ${r.Name} has no definition any more; marked orphaned (scheduler:prune removes it)`);
       }
     }
@@ -78,6 +81,7 @@ export class DefinitionSync {
     try {
       await ScheduleModel.create({
         Name: def.name,
+        Tenant: GLOBAL_TENANT,
         Definition: serialized,
         DefinitionHash: hash,
         NextRunAt: initialNextRun(def, now),
@@ -89,7 +93,7 @@ export class DefinitionSync {
         UpdatedAt: now,
       });
     } catch (err) {
-      if (!(await ScheduleModel.where('Name', def.name).first())) throw err;
+      if (!(await ScheduleModel.where(scheduleRow(def.name)).first())) throw err;
       this.Log.trace(`schedule ${def.name} already inserted by another replica: ${(err as Error).message}`);
     }
   }

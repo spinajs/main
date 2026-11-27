@@ -2,7 +2,7 @@ import { expect } from 'chai';
 import { DI } from '@spinajs/di';
 import { Orm } from '@spinajs/orm';
 import type { OrmDriver } from '@spinajs/orm';
-import { RunModel, ScheduleModel, Scheduler_2026_11_26_00_00_00 } from '../../src/index.js';
+import { RunModel, runsOf, scheduleKey, ScheduleModel, Scheduler_2026_11_26_00_00_00 } from '../../src/index.js';
 import { queuedRun } from '../support/fixtures.js';
 import { bootRealDb, REAL_DB_TARGETS } from './real-db.js';
 
@@ -43,19 +43,22 @@ for (const target of REAL_DB_TARGETS) {
     it('rebuilds a table of the old shape and keeps its row, BIGINT and boolean columns included', async () => {
       const migration = new Scheduler_2026_11_26_00_00_00();
       await migration.down(driver());
-      await driver().insert().into('__scheduler').values({
-        Name: 'nightly',
-        Definition: '{}',
-        DefinitionHash: 'h1',
-        NextRunAt: T,
-        Paused: true,
-        HardPaused: false,
-        ConsecutiveFailures: 3,
-        LeaseOwner: 'r1',
-        LeaseUntil: T + 60_000,
-        Orphaned: false,
-        UpdatedAt: T,
-      });
+      await driver()
+        .insert()
+        .into('__scheduler')
+        .values({
+          Name: 'nightly',
+          Definition: '{}',
+          DefinitionHash: 'h1',
+          NextRunAt: T,
+          Paused: true,
+          HardPaused: false,
+          ConsecutiveFailures: 3,
+          LeaseOwner: 'r1',
+          LeaseUntil: T + 60_000,
+          Orphaned: false,
+          UpdatedAt: T,
+        });
 
       await migration.up(driver());
       await migration.up(driver());
@@ -79,9 +82,19 @@ for (const target of REAL_DB_TARGETS) {
       expect(await ScheduleModel.where('Name', 'close-day')).to.have.length(2);
     });
 
-    it('stores the tenant of a run', async () => {
+    it('stores the tenant of a run and finds a global run by a NULL tenant only', async () => {
+      const globalRun = await queuedRun('close-day', T);
       const acme = await queuedRun('close-day', T, { Tenant: 'acme' });
       expect((await RunModel.where('Id', acme.Id).first()).Tenant).to.eq('acme');
+
+      expect((await RunModel.query().where(runsOf(scheduleKey('close-day')))).map((r) => r.Id)).to.deep.eq([
+        globalRun.Id,
+      ]);
+      // '' marks the global instance on __scheduler only; on a run it would match nothing
+      expect(await RunModel.where({ Schedule: 'close-day', Tenant: '' })).to.have.length(0);
+      expect((await RunModel.query().where(runsOf({ name: 'close-day', tenant: 'acme' }))).map((r) => r.Id)).to.deep.eq(
+        [acme.Id],
+      );
     });
 
     it('rolls back to the global rows, twice without harm', async () => {

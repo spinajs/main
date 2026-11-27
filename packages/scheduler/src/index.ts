@@ -30,6 +30,7 @@ export * from './bootstrap.js';
 export * from './store/DefinitionSync.js';
 export * from './store/replica.js';
 export * from './store/LeaseStore.js';
+export * from './store/keys.js';
 export * from './run/events.js';
 export * from './run/journal.js';
 export * from './run/LatestProgress.js';

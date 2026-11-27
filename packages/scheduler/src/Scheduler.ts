@@ -21,6 +21,15 @@ import { RunFinalizer } from './run/RunFinalizer.js';
 import { SchedulerSignals } from './signals.js';
 import { DefinitionSync } from './store/DefinitionSync.js';
 import { LeaseStore, OccurrenceInput, RunExpiry } from './store/LeaseStore.js';
+import {
+  GLOBAL_TENANT,
+  instanceId,
+  runScheduleKey,
+  runsOf,
+  runTenantOf,
+  scheduleKey,
+  type ScheduleKey,
+} from './store/keys.js';
 import { defaultReplicaId } from './store/replica.js';
 import { Clock, DbClock, TimerHandle } from '@spinajs/durable';
 import { fireTime } from './time/occurrences.js';
@@ -268,10 +277,12 @@ export class Scheduler extends AsyncService implements IInstanceCheck {
     if (local.length === 0) return;
     const halted = new Set(
       (
-        await ScheduleModel.query().whereIn(
-          'Name',
-          local.map((d) => d.name),
-        )
+        await ScheduleModel.query()
+          .where('Tenant', GLOBAL_TENANT)
+          .whereIn(
+            'Name',
+            local.map((d) => d.name),
+          )
       )
         .filter((r) => r.Paused || r.Orphaned)
         .map((r) => r.Name),
@@ -288,10 +299,10 @@ export class Scheduler extends AsyncService implements IInstanceCheck {
       if (halted.has(def.name)) continue;
 
       if (this.runsScheduleLocally(def.name)) {
-        await this.recordWithoutRunning(def, 'skipped', due, now, 'overlap', null);
+        await this.recordWithoutRunning(def, scheduleKey(def.name), 'skipped', due, now, 'overlap', null);
         continue;
       }
-      const run = await this.createRun(def, {
+      const run = await this.createRun(def, scheduleKey(def.name), {
         status: 'running',
         trigger: 'schedule',
         scheduledAt: due,
@@ -304,19 +315,19 @@ export class Scheduler extends AsyncService implements IInstanceCheck {
   }
 
   /**
-   * A non-forced local run holds its schedule's lease. Once that lease expires (a stalled heartbeat),
+   * A non-forced local run holds its instance's lease. Once that lease expires (a stalled heartbeat),
    * the database lets this replica take it again, so only this check keeps a second run out.
    */
-  protected holdsScheduleLocally(schedule: string): boolean {
+  protected holdsScheduleLocally(key: ScheduleKey): boolean {
     for (const h of this.active.values()) {
-      if (h.schedule === schedule && !this.forced.has(h.runId)) return true;
+      if (h.schedule === key.name && h.tenant === key.tenant && !this.forced.has(h.runId)) return true;
     }
     return false;
   }
 
-  /** Any run of the schedule on this replica, forced or not, its inline runs included. */
+  /** Any run of the global schedule on this replica, forced or not, its inline runs included. */
   protected runsScheduleLocally(schedule: string): boolean {
-    for (const h of this.active.values()) if (h.schedule === schedule) return true;
+    for (const h of this.active.values()) if (h.schedule === schedule && h.tenant === GLOBAL_TENANT) return true;
     return this.Inline.isRunningLocally(schedule, this.ReplicaId);
   }
 
@@ -326,7 +337,7 @@ export class Scheduler extends AsyncService implements IInstanceCheck {
     if (this.active.has(run.Id)) return false;
     // a manual run of a `runOn: 'all'` schedule is forced, but must not overlap this replica's own runs of it
     if (this.Registry.find(run.Schedule)?.runOn === 'all') return !this.runsScheduleLocally(run.Schedule);
-    return run.Forced || !this.holdsScheduleLocally(run.Schedule);
+    return run.Forced || !this.holdsScheduleLocally(runScheduleKey(run));
   }
 
   /** Claims a queued or retrying run with the normal lease rules and executes it in this process. */
@@ -356,17 +367,28 @@ export class Scheduler extends AsyncService implements IInstanceCheck {
       const def = this.Registry.find(row.Name);
       if (!def || !def.enabled || def.runOn !== 'leader' || row.NextRunAt === null) continue;
       if (now < fireTime(def, row.NextRunAt)) continue;
-      await this.fireOccurrence(def, row.NextRunAt, now);
+      await this.fireOccurrence(def, { name: row.Name, tenant: row.Tenant }, row.NextRunAt, now);
     }
   }
 
-  protected async fireOccurrence(def: ScheduleDefinition, expected: number, now: number): Promise<void> {
+  protected async fireOccurrence(
+    def: ScheduleDefinition,
+    key: ScheduleKey,
+    expected: number,
+    now: number,
+  ): Promise<void> {
     const plan = planOccurrence(def, expected, now);
-    const input: OccurrenceInput = { name: def.name, expectedNextRunAt: expected, nextRunAt: plan.next, now };
+    const input: OccurrenceInput = {
+      name: key.name,
+      tenant: key.tenant,
+      expectedNextRunAt: expected,
+      nextRunAt: plan.next,
+      now,
+    };
 
-    if (plan.kind === 'run' && !this.holdsScheduleLocally(def.name) && (await this.Leases.tryClaimOccurrence(input))) {
+    if (plan.kind === 'run' && !this.holdsScheduleLocally(key) && (await this.Leases.tryClaimOccurrence(input))) {
       const message = plan.skipped ? `caught up; ${missedCount(plan)} earlier occurrence(s) were not run` : null;
-      const run = await this.createRun(def, {
+      const run = await this.createRun(def, key, {
         status: 'running',
         trigger: plan.trigger,
         scheduledAt: plan.scheduledAt,
@@ -378,10 +400,15 @@ export class Scheduler extends AsyncService implements IInstanceCheck {
       return;
     }
 
-    await this.onNotClaimed(def, plan, input);
+    await this.onNotClaimed(def, key, plan, input);
   }
 
-  protected async onNotClaimed(def: ScheduleDefinition, plan: OccurrencePlan, input: OccurrenceInput): Promise<void> {
+  protected async onNotClaimed(
+    def: ScheduleDefinition,
+    key: ScheduleKey,
+    plan: OccurrencePlan,
+    input: OccurrenceInput,
+  ): Promise<void> {
     // a catch-up occurrence waits for the lease instead of being skipped
     if (plan.kind === 'run' && plan.trigger === 'catch-up') return;
     // the replica that advances NextRunAt owns the decision for this occurrence
@@ -389,13 +416,13 @@ export class Scheduler extends AsyncService implements IInstanceCheck {
 
     if (plan.kind === 'misfire') {
       const message = `missed ${missedCount(plan)} occurrence(s)`;
-      await this.recordWithoutRunning(def, 'misfired', plan.scheduledAt, input.now, 'misfire', message);
+      await this.recordWithoutRunning(def, key, 'misfired', plan.scheduledAt, input.now, 'misfire', message);
       return;
     }
 
-    const running = await this.runningRunId(def.name);
-    if (def.overlap === 'queue' && !(await this.hasQueued(def.name))) {
-      const run = await this.createRun(def, {
+    const running = await this.runningRunId(key);
+    if (def.overlap === 'queue' && !(await this.hasQueued(key))) {
+      const run = await this.createRun(def, key, {
         status: 'queued',
         trigger: plan.trigger,
         scheduledAt: plan.scheduledAt,
@@ -408,15 +435,16 @@ export class Scheduler extends AsyncService implements IInstanceCheck {
       return;
     }
 
-    await this.recordWithoutRunning(def, 'skipped', plan.scheduledAt, input.now, 'overlap', running);
+    await this.recordWithoutRunning(def, key, 'skipped', plan.scheduledAt, input.now, 'overlap', running);
   }
 
-  protected async hasQueued(schedule: string): Promise<boolean> {
-    return Number(await RunModel.count((b) => b.where('Schedule', schedule).where('Status', 'queued'))) > 0;
+  protected async hasQueued(key: ScheduleKey): Promise<boolean> {
+    return Number(await RunModel.count((b) => b.where(runsOf(key)).where('Status', 'queued'))) > 0;
   }
 
-  protected async runningRunId(schedule: string): Promise<string | null> {
-    const r = await RunModel.where('Schedule', schedule)
+  protected async runningRunId(key: ScheduleKey): Promise<string | null> {
+    const r = await RunModel.query()
+      .where(runsOf(key))
       .where('Status', 'running')
       .orderByDescending('StartedAt')
       .first();
@@ -425,6 +453,7 @@ export class Scheduler extends AsyncService implements IInstanceCheck {
 
   protected async recordWithoutRunning(
     def: ScheduleDefinition,
+    key: ScheduleKey,
     status: 'skipped' | 'misfired',
     scheduledAt: number,
     now: number,
@@ -432,7 +461,7 @@ export class Scheduler extends AsyncService implements IInstanceCheck {
     detail: string | null,
   ): Promise<void> {
     const message = status === 'skipped' && detail ? `run ${detail} was still in progress` : detail;
-    const run = await this.createRun(def, {
+    const run = await this.createRun(def, key, {
       status,
       trigger: 'schedule',
       scheduledAt,
@@ -446,10 +475,11 @@ export class Scheduler extends AsyncService implements IInstanceCheck {
     await this.Finalizer.finalized({ run, def, status, error: null, now, countsAsFailure: false });
   }
 
-  protected createRun(def: ScheduleDefinition, o: NewRun): Promise<RunModel> {
+  protected createRun(def: ScheduleDefinition, key: ScheduleKey, o: NewRun): Promise<RunModel> {
     return RunModel.create({
       Id: uuidv4(),
       Schedule: def.name,
+      Tenant: runTenantOf(key),
       Trigger: o.trigger,
       TriggeredBy: null,
       ParentRunId: null,
@@ -477,7 +507,7 @@ export class Scheduler extends AsyncService implements IInstanceCheck {
   }
 
   protected async claimQueued(now: number): Promise<void> {
-    // oldest first, one claim attempt per schedule per tick keeps queued runs in order
+    // oldest first, one claim attempt per instance per tick keeps queued runs in order
     const tried = new Set<string>();
     // each page skips the schedules already paged, so one schedule's long queue cannot hide the others
     const paged: string[] = [];
@@ -491,8 +521,9 @@ export class Scheduler extends AsyncService implements IInstanceCheck {
           continue;
         }
         if (!run.Forced) {
-          if (tried.has(run.Schedule)) continue;
-          tried.add(run.Schedule);
+          const instance = instanceId(runScheduleKey(run));
+          if (tried.has(instance)) continue;
+          tried.add(instance);
         }
         if (!this.mayClaimLocally(run)) continue;
         const def = this.Registry.find(run.Schedule);

@@ -18,6 +18,11 @@ import { jsonValue, toStructuredError } from '../tracking/structured.js';
 
 export const SCHEDULER_JOB_NAMESPACE = '5f0c5c2e-8f52-4a39-9d55-0b6f2c6f9a41';
 
+/** Namespace of the job ids of tenant instances: no global schedule's key can produce one of them. */
+export const SCHEDULER_TENANT_JOB_NAMESPACE = '2b1d7c3e-49a0-4f6b-8d2e-7a5c9e1f3b64';
+
+type RunKeyFields = Pick<RunModel, 'Id' | 'Schedule' | 'Trigger' | 'ScheduledAt'> & { Tenant?: string | null };
+
 /** Fields set on the emitted job next to `JobId`. */
 export interface ScheduledJobPayload {
   SchedulerRunId: string;
@@ -26,13 +31,17 @@ export interface ScheduledJobPayload {
   Params: Record<string, unknown>;
 }
 
-export function emitJobKey(schedule: string, scheduledAt: number): string {
-  return `${schedule}:${new Date(scheduledAt).toISOString()}`;
+export function emitJobKey(schedule: string, scheduledAt: number, tenant?: string | null): string {
+  const key = `${schedule}:${new Date(scheduledAt).toISOString()}`;
+  return tenant ? `${tenant}:${key}` : key;
 }
 
+const jobNamespace = (tenant: string | null | undefined) =>
+  tenant ? SCHEDULER_TENANT_JOB_NAMESPACE : SCHEDULER_JOB_NAMESPACE;
+
 // queue_jobs.JobId is VARCHAR(36); the readable key does not fit, a name-based UUID does.
-export function emitJobId(schedule: string, scheduledAt: number): string {
-  return uuidv5(emitJobKey(schedule, scheduledAt), SCHEDULER_JOB_NAMESPACE);
+export function emitJobId(schedule: string, scheduledAt: number, tenant?: string | null): string {
+  return uuidv5(emitJobKey(schedule, scheduledAt, tenant), jobNamespace(tenant));
 }
 
 /**
@@ -40,23 +49,20 @@ export function emitJobId(schedule: string, scheduledAt: number): string {
  * share (all retries of one retry-failed call), and the queue skips a job id that already finished,
  * so they are keyed on the run instead of the occurrence.
  */
-export function runJobKey(run: Pick<RunModel, 'Id' | 'Schedule' | 'Trigger' | 'ScheduledAt'>): string {
+export function runJobKey(run: RunKeyFields): string {
   if ((run.Trigger === 'schedule' || run.Trigger === 'catch-up') && run.ScheduledAt !== null) {
-    return emitJobKey(run.Schedule, run.ScheduledAt);
+    return emitJobKey(run.Schedule, run.ScheduledAt, run.Tenant);
   }
   return `${run.Schedule}:run:${run.Id}`;
 }
 
 /** The run's message while it waits for its job; it carries the readable key the job id is derived from. */
-export function emitMessage(
-  jobName: string,
-  run: Pick<RunModel, 'Id' | 'Schedule' | 'Trigger' | 'ScheduledAt'>,
-): string {
+export function emitMessage(jobName: string, run: RunKeyFields): string {
   return `emitted ${jobName} ${runJobKey(run)}`;
 }
 
-export function runJobId(run: Pick<RunModel, 'Id' | 'Schedule' | 'Trigger' | 'ScheduledAt'>): string {
-  return uuidv5(runJobKey(run), SCHEDULER_JOB_NAMESPACE);
+export function runJobId(run: RunKeyFields): string {
+  return uuidv5(runJobKey(run), jobNamespace(run.Tenant));
 }
 
 export function mirrorStatus(s: JobStatus): RunStatus | null {

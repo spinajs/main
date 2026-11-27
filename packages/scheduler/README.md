@@ -171,7 +171,9 @@ metric; a data-derived name such as `` `page-${i}` `` grows the series without b
 `ScheduledAt` and `Params`. Its job id is a UUIDv5 of `daily-digest:<scheduled ISO
 time>` for scheduled and catch-up runs, and of `daily-digest:run:<run id>` for manual
 runs and retries (`queue_jobs.JobId` is 36 characters; the readable key is in the
-run's message). The run ends `emitted`, and every loop replica's tick mirrors the
+run's message). A run of a tenant's instance of the schedule prefixes the key with the
+tenant (`acme:daily-digest:<scheduled ISO time>`) and takes its UUID from a namespace of
+its own, so two tenants' runs of one occurrence never share a job id. The run ends `emitted`, and every loop replica's tick mirrors the
 `queue_jobs` row onto it until it ends `succeeded`, `failed` or `dead` (progress
 capped at 99 until success).
 

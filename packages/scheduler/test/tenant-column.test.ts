@@ -144,7 +144,9 @@ describe('Scheduler_2026_11_26_00_00_00: one schedule row per tenant', () => {
     await migration.up(driver());
     // the state a dying MySQL migration leaves after DROP TABLE __scheduler: the rows wait in the copy
     await driver().index().table('__scheduler').name('__scheduler_due').drop();
-    await driver().schema().alterTable('__scheduler', (t) => t.rename('__scheduler_keyed'));
+    await driver()
+      .schema()
+      .alterTable('__scheduler', (t) => t.rename('__scheduler_keyed'));
 
     await migration.up(driver());
 

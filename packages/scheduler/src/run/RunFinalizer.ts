@@ -5,6 +5,7 @@ import type { ScheduleDefinition } from '../interfaces.js';
 import type { RunModel } from '../models/RunModel.js';
 import { SchedulerSignals } from '../signals.js';
 import { LeaseStore } from '../store/LeaseStore.js';
+import { runScheduleKey } from '../store/keys.js';
 import { ErrorTracker } from '../tracking/ErrorTracker.js';
 import { HealthTracker } from '../tracking/HealthTracker.js';
 
@@ -60,19 +61,19 @@ export class RunFinalizer {
 
     // A skipped/misfired record must not replace the run that is actually in progress.
     if (status !== 'skipped' && status !== 'misfired') {
-      await DI.resolve(LeaseStore).recordLast(run.Schedule, now, status, run.Id);
+      await DI.resolve(LeaseStore).recordLast(runScheduleKey(run), now, status, run.Id);
     }
 
     if (status === 'succeeded') {
       await this.bestEffort(`record the success of ${run.Schedule}`, async () => {
-        await this.Health.recordSuccess(run.Schedule, now);
+        await this.Health.recordSuccess(runScheduleKey(run), now);
         await this.Signals.healthChanged(run.Schedule, 0);
       });
     }
     let pausedAfter: number | null = null;
     if (status !== 'succeeded' && input.countsAsFailure) {
       await this.bestEffort(`record the failure of ${run.Schedule}`, async () => {
-        const h = await this.Health.recordFailure(run.Schedule, input.def?.pauseAfterFailures, now);
+        const h = await this.Health.recordFailure(runScheduleKey(run), input.def?.pauseAfterFailures, now);
         await this.Signals.healthChanged(run.Schedule, h.consecutive);
         if (h.paused) pausedAfter = h.consecutive;
       });

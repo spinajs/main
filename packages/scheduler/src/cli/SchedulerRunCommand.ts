@@ -13,6 +13,7 @@ import { formatEvent } from '../cli-support/format.js';
 import { collect, parseParams } from '../cli-support/params.js';
 import { SchedulerCommand } from '../cli-support/SchedulerCommand.js';
 import { RunModel } from '../models/RunModel.js';
+import { runScheduleKey, runsOf } from '../store/keys.js';
 import { Scheduler } from '../Scheduler.js';
 import { Clock, DbClock } from '@spinajs/durable';
 
@@ -74,7 +75,8 @@ export class SchedulerRunCommand extends SchedulerCommand {
   protected async assertTakenElsewhere(runId: string): Promise<void> {
     const run = await this.runRow(runId);
     if (!run || run.Status !== 'queued') return;
-    const blocking = await RunModel.where('Schedule', run.Schedule)
+    const blocking = await RunModel.query()
+      .where(runsOf(runScheduleKey(run)))
       .where('Status', 'running')
       .where('Id', '<>', runId)
       .orderByDescending('StartedAt')
