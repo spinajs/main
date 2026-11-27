@@ -389,8 +389,8 @@ export class DefaultSessionIssuer extends SessionIssuer {
       return next !== current;
     }
     const delta = next.toMillis() - current.toMillis();
-    // An expiry that moves back (a lowered maxLifetime) is written at once, so restore sees the row expire.
-    return delta < 0 || delta >= thresholdMs;
+    // An expiry that moves back (a lowered maxLifetime) or turns unreadable (delta NaN) is written at once, so restore sees the row expire.
+    return !(delta >= 0 && delta < thresholdMs);
   }
 
   protected async need(h: SessionHandle): Promise<ISession> {
