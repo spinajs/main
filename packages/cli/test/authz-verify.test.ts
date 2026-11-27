@@ -78,6 +78,20 @@ describe('spinajs authz:verify', function () {
     }
   });
 
+  it('fails never() of a role that shares its relation with a role earlier in sort order', async () => {
+    for (const bound of [2, 3]) {
+      lines = [];
+      process.exitCode = undefined;
+      await run('second-role.assertions.js', { ir: 'second-role.ir.json', bound });
+      expect(lines).to.deep.equal([
+        'fail AZV001 never(role:reader, doc:read)  violated (exact)',
+        '     principal user:u1 with doc:d1#viewer@user:u1 gets doc:read allow on doc:d1',
+        '1 error(s), 0 warning(s), 0 info',
+      ]);
+      expect(process.exitCode, `-k ${bound}`).to.equal(1);
+    }
+  });
+
   it('fails isolated() whose exception names a relation that holds a public group', async () => {
     for (const bound of [2, 3]) {
       for (const failOn of ['error', 'warning'] as const) {

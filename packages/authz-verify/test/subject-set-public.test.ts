@@ -22,6 +22,8 @@ interface Shape {
   readonly underTenant?: boolean;
   /** Each set type gets a permission `<type>:see` that its members hold, so its relation is a holder of its own. */
   readonly see?: boolean;
+  /** `<type>#<relation>` keys of a second role `other`; `member` sorts first, so a relation both hold is labelled `member`'s. */
+  readonly other?: string[];
 }
 
 /** `tenant#member` allows `group#member`, and the group allows everyone, unless the shape says otherwise. */
@@ -42,7 +44,7 @@ function policy(shape: Shape = {}): PolicyIR {
     permissions: { 'tenant:enter': bind('tenant', 'enter'), 'tenant:manage': bind('tenant', 'manage'), ...(shape.see === true ? Object.fromEntries(Object.keys(sets).map((t) => [`${t}:see`, bind(t, 'see')])) : {}) },
     caveats: {},
     combine: { default: { algorithm: 'deny-overrides' } },
-    principal: { ceiling: false, delegation: false, ancestry: 'parent', roles: { member: [{ type: 'tenant', relation: 'member' }] } },
+    principal: { ceiling: false, delegation: false, ancestry: 'parent', roles: { member: [{ type: 'tenant', relation: 'member' }], ...(shape.other === undefined ? {} : { other: shape.other.map((key) => ({ type: key.split('#')[0], relation: key.split('#')[1] })) }) } },
     opaque: [],
   };
 }
@@ -67,6 +69,9 @@ const shapes: Record<string, Shape> = {
   cycle3: { sets: cycle3 },
   namedCycle3: { sets: namedCycle3 },
   cycle4: { sets: cycle4 },
+  twoRoles: { other: ['tenant#member'] },
+  twoRolesNamed: { member: ['user', 'group#member'], sets: { group: ['user'] }, other: ['tenant#member'] },
+  twoRolesCycle: { sets: cycle, other: ['tenant#member', 'team#member'] },
 };
 
 const tupleNames = (v: Verdict): string[] => (v.counterexample?.tuples ?? []).map((t) => `${t.object.type}:${t.object.id}#${t.relation}@${t.subject.type}:${t.subject.id}${t.subject.relation === undefined ? '' : `#${t.subject.relation}`}`);
@@ -181,7 +186,8 @@ describe('a public member behind a subject set', function () {
         let pairs = 0;
         for (const [name, shape] of Object.entries(shapes)) {
           const inner = Object.keys(shape.sets ?? { group: [] }).flatMap((t) => [never(`${t}#member`), never(`public:${t}#member`)]);
-          for (const a of [never('tenant#member'), never('role:member'), never('public:tenant#member'), never('tenant#guest'), ...inner, onlyVia('tenant#member'), onlyVia('tenant#member', 'public:tenant#member')]) {
+          const other = shape.other === undefined ? [] : ['role:other', ...shape.other.map((key) => `role:other@${key.split('#')[0]}`)].map((h) => never(h));
+          for (const a of [never('tenant#member'), never('role:member'), never('public:tenant#member'), never('tenant#guest'), ...inner, ...other, onlyVia('tenant#member'), onlyVia('tenant#member', 'public:tenant#member')]) {
             const label = `${name} ${JSON.stringify(a)}`;
             const exact = await verdictOf(policy(shape), a, k);
             const search = await verdictOf(policy({ ...shape, enter: twin }), a, k);
@@ -190,7 +196,7 @@ describe('a public member behind a subject set', function () {
             pairs++;
           }
         }
-        expect(pairs).to.eq(94);
+        expect(pairs).to.eq(127);
       });
     });
   }

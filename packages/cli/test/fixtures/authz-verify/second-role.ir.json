@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "types": {
+    "user": { "relations": {}, "permissions": {} },
+    "doc": {
+      "relations": { "viewer": { "allowed": ["user"], "source": { "kind": "tuples", "store": "authz_rebac_tuple" } } },
+      "permissions": {}
+    }
+  },
+  "permissions": { "doc:read": { "type": "doc", "relation": "viewer", "list": false, "source": { "origin": "config:authz" } } },
+  "caveats": {},
+  "combine": { "default": { "algorithm": "deny-overrides" } },
+  "principal": { "ceiling": false, "delegation": false, "ancestry": "parent", "roles": { "auditor": [{ "type": "doc", "relation": "viewer" }], "reader": [{ "type": "doc", "relation": "viewer" }] } },
+  "opaque": []
+}
