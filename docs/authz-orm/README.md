@@ -31,7 +31,7 @@ The import registers `OrmResourceAdapter`, `AuthzOrmContributor`, the write obse
 | [Access lists](01-access-lists.md) | `.accessible()`, `.within()` and `.withAccess()` turn an access plan into where conditions of the query builder. |
 | [Plan term compilers](02-plan-term-compilers.md) | `PlanTermCompiler` in `@spinajs/authz-orm/plan`: the extension point that compiles each plan term onto a where group. |
 | [The `authz` connection and records](03-authz-connection-and-records.md) | The ancestor and scope attribute tables on the alias `db.Aliases.authz`, and `DbScopeAttributeStore`. |
-| [Declaring access resources](04-access-resources.md) | `@AccessResource`, `@Parent`, `@Owner`, `@Self` and `registerAccessResource()`: which models are resources and how they relate. |
+| [Declaring access resources](04-access-resources.md) | `@AccessResource`, `@Parent`, `@Owner`, `@Self` and `registerAccessResource()`: which models are resources and how they relate, and the `authz:rls` row level security migration. |
 | [Single-object checks](05-single-object-checks.md) | `OrmResourceAdapter`: refs, ancestors, row loads and the `owner` / `self` relations for `assert()` and `@Access`. |
 | [The ancestor table](06-ancestor-table.md) | `AncestorObserver`, `reparent()` and the `authz:ancestors-verify` / `authz:ancestors-rebuild` commands keep the closure table right. |
 | [The runtime guard](07-runtime-guard.md) | `AccessGuardMiddleware` flags a multi-row select of a resource without `.accessible()`, `.unscoped()` or `SYSTEM`. |
@@ -144,4 +144,4 @@ The full checklist is in [Declaring access resources](04-access-resources.md#pro
 - [`@spinajs/authz-abac`](../authz-abac/README.md): the ABAC model; its policies vote on the same rows and pass `env` facts from `.accessible(perm, { env })`.
 - [`@spinajs/eslint-plugin-authz`](../eslint-plugin-authz/README.md): `@spinajs/authz/require-accessible` flags at edit time what the runtime guard flags at run time.
 - [`@spinajs/orm`](../orm/README.md): the query builders, query middlewares, `db.Aliases` and transactions this package builds on.
-- [`@spinajs/cli`](../cli/README.md): runs the `authz:ancestors-verify` and `authz:ancestors-rebuild` commands.
+- [`@spinajs/cli`](../cli/README.md): runs the `authz:ancestors-verify`, `authz:ancestors-rebuild` and `authz:rls` commands.
