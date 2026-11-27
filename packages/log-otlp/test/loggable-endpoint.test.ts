@@ -63,3 +63,62 @@ describe("loggableExportError", () => {
     expect(loggableExportError({ response: { status: 503 } }, endpoint)).to.deep.eq({ name: "Error", message: "[object Object]", status: 503 });
   });
 });
+
+// The cases of telemetry-otel's loggableReason tests, on the message alone.
+describe("loggableExportError message, as telemetry-otel's loggableReason", () => {
+  const ENDPOINT = "http://pl4nteduser:p%40ss%3Apl4ntedpct@127.0.0.1:4318/ingest/0f8c2a4be1d94c3e9a7b5d6e8f901234/v1/traces?token=planted-token&weird=PLWEIRD&PLQBARE#PLFRAG";
+  const SAFE = "http://127.0.0.1:4318/ingest/***/v1/traces";
+  const PLANTED = ["pl4nteduser", "p%40ss", "p@ss", "pl4ntedpct", "planted-token", "PLWEIRD", "PLQBARE", "PLFRAG", "0f8c2a4be1d94c3e9a7b5d6e8f901234"];
+  const messageOf = (error: unknown, endpoint = ENDPOINT): string => loggableExportError(error, endpoint).message;
+
+  function expectNonePlanted(message: string): void {
+    for (const planted of PLANTED) expect(message).to.not.contain(planted);
+  }
+
+  it("is the error message, with the class on its own", () => {
+    expect(loggableExportError(new URIError("URI malformed"), ENDPOINT)).to.deep.eq({ name: "URIError", message: "URI malformed" });
+  });
+
+  it("prints the endpoint the message repeats in its redacted form", () => {
+    expect(messageOf(new Error(`Could not parse user-provided export URL: '${ENDPOINT}'`))).to.eq(`Could not parse user-provided export URL: '${SAFE}'`);
+  });
+
+  it("redacts the endpoint the message repeats normalized, percent-encoded or cut short", () => {
+    const upper = ENDPOINT.replace("http://", "HTTP://");
+    const echoes: Array<[endpoint: string, echo: string]> = [
+      [upper, new URL(upper).href],
+      [ENDPOINT, encodeURIComponent(ENDPOINT)],
+      [ENDPOINT, encodeURI(ENDPOINT)],
+      [ENDPOINT, `${ENDPOINT.slice(0, 50)}...`],
+      [ENDPOINT, ENDPOINT.slice(0, 20)],
+    ];
+    for (const [endpoint, echo] of echoes) {
+      const message = messageOf(new Error(`refused ${echo} now`), endpoint);
+      expectNonePlanted(message);
+      expect(message).to.match(/^refused .* now$/);
+    }
+  });
+
+  it("masks a part of the endpoint the message names on its own", () => {
+    for (const part of ["p@ss:pl4ntedpct", "pl4nteduser", "token=planted-token", "PLWEIRD", "PLQBARE", "#PLFRAG", "0f8c2a4be1d94c3e9a7b5d6e8f901234"]) {
+      const message = messageOf(new Error(`collector said ${part}`));
+      expectNonePlanted(message);
+      expect(message).to.contain("***");
+    }
+  });
+
+  it("redacts an endpoint that does not parse, whole or cut short", () => {
+    const unparsable = "http://user:planted-secret@127.0.0.1:99999/v1/traces?token=planted-token";
+    expect(messageOf(new Error(`bad '${unparsable}'`), unparsable)).to.eq("bad '<not a URL>'");
+    expect(messageOf(new Error(`bad '${unparsable.slice(0, 40)}'`), unparsable)).to.eq("bad '<not a URL>'");
+  });
+
+  it("redacts the request URL axios builds from an endpoint that does not parse", () => {
+    // axios strips the base's trailing slashes before it appends /v1/logs, so the URL is no exact copy of the endpoint.
+    expect(messageOf(new TypeError("Invalid URL: http://user:planted-secret@127.0.0.1:99999/v1/logs"), "http://user:planted-secret@127.0.0.1:99999//")).to.eq("Invalid URL: <not a URL>v1/logs");
+  });
+
+  it("names a thrown value that is not an Error by its text, redacted", () => {
+    expect(messageOf(`down: ${ENDPOINT}`)).to.eq(`down: ${SAFE}`);
+  });
+});

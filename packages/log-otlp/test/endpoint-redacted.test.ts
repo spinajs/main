@@ -22,6 +22,19 @@ class ProbeTarget extends OtlpLogTarget {
   }
 }
 
+// No axios message quotes the URL today, so the interceptor makes the failure's message quote the endpoint.
+class QuotingTarget extends ProbeTarget {
+  public static quote: (endpoint: string) => string = (endpoint) => endpoint;
+
+  public override resolve(): void {
+    super.resolve();
+    this.AxiosInstance.interceptors.response.use(undefined, (error: unknown) => {
+      if (error instanceof Error) error.message = `${error.message} at ${QuotingTarget.quote(this.Options.endpoint)}`;
+      throw error;
+    });
+  }
+}
+
 type Call = [level: string, ...args: unknown[]];
 
 function captureLog(target: OtlpLogTarget): Call[] {
@@ -65,8 +78,8 @@ async function closedPort(): Promise<number> {
   return listener.port;
 }
 
-async function ship(endpoint: string): Promise<{ calls: Call[]; stored: unknown; text: string }> {
-  const target = new ProbeTarget({ name: "Otlp", type: "OtlpLogTarget", layout: "${message}", enabled: true, endpoint, headers: { "x-api-key": HEADER }, interval: 100000, bufferSize: 100000, timeout: 1000 });
+async function ship(endpoint: string, Target: typeof ProbeTarget = ProbeTarget): Promise<{ calls: Call[]; stored: unknown; text: string }> {
+  const target = new Target({ name: "Otlp", type: "OtlpLogTarget", layout: "${message}", enabled: true, endpoint, headers: { "x-api-key": HEADER }, interval: 100000, bufferSize: 100000, timeout: 1000 });
   const calls = captureLog(target);
   target.resolve();
   target.write({ Level: LogLevel.Info, Variables: { error: undefined, level: "INFO", logger: "app", message: "hello" } });
@@ -133,5 +146,31 @@ describe("OtlpLogTarget logs its endpoint without credentials", () => {
       ["error", { error }, RETAINED],
       ["error", { error, records: 1 }, DROPPED],
     ]);
+  });
+
+  it("redacts a failure message that quotes the endpoint", async () => {
+    const listener = await listen(401);
+    try {
+      QuotingTarget.quote = (endpoint) => endpoint;
+      const { calls, stored, text } = await ship(plantedEndpoint(listener.port), QuotingTarget);
+      expectNoCredential(text);
+      const message = `Request failed with status code 401 at http://127.0.0.1:${listener.port}/v1/logs`;
+      expect(calls).to.deep.eq([["error", { error: { name: "AxiosError", message, code: "ERR_BAD_REQUEST", status: 401 }, records: 1 }, DROPPED]]);
+      expect(stored).to.be.instanceOf(Error).and.include({ message });
+    } finally {
+      await listener.close();
+    }
+  });
+
+  it("redacts a failure message that quotes an endpoint that does not parse, cut short", async () => {
+    QuotingTarget.quote = (endpoint) => endpoint.slice(0, 40);
+    const { calls, stored, text } = await ship(plantedEndpoint(99999), QuotingTarget);
+    expectNoCredential(text);
+    const error = { name: "TypeError", message: "Invalid URL at <not a URL>", code: "ERR_INVALID_URL" };
+    expect(calls).to.deep.eq([
+      ["error", { error }, RETAINED],
+      ["error", { error, records: 1 }, DROPPED],
+    ]);
+    expect(stored).to.be.instanceOf(Error).and.include({ message: error.message });
   });
 });
