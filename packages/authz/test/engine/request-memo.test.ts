@@ -63,8 +63,8 @@ const attributeReader = (): StaticModel =>
     vote: async (_req, ctx) => ({ model: 'm', permitWhen: (await ctx.attributes(F1)) === null ? FALSE : TRUE, denyWhen: FALSE, cacheable: false }),
   });
 
-const authorizer = (adapter: GatedAdapter, models: StaticModel[] = []): Authorizer =>
-  new Authorizer({ domain: 'root', registry: registryOf([{ name: 'doc:read', types: ['doc'] }]), models, adapters: [adapter], clock: fakeClock().clock, log: new RecordingLog() });
+const authorizer = (adapter: GatedAdapter, models: StaticModel[] = [], config?: { readonly modelTimeoutMs: number }): Authorizer =>
+  new Authorizer({ domain: 'root', registry: registryOf([{ name: 'doc:read', types: ['doc'] }]), models, adapters: [adapter], clock: fakeClock().clock, log: new RecordingLog(), ...(config ? { config } : {}) });
 
 describe('engine request memo (L1): a read is shared once settled, never while it runs', () => {
   describe('ancestors', () => {
@@ -129,6 +129,17 @@ describe('engine request memo (L1): a read is shared once settled, never while i
       adapter.failing = true;
       expect((await a.check({ principal: alice, permission: 'doc:read' }, scope)).allowed).to.equal(false);
       adapter.failing = false;
+      expect((await a.check({ principal: alice, permission: 'doc:read' }, scope)).allowed).to.equal(true);
+      expect(adapter.attributeCalls).to.have.length(2);
+    });
+
+    it('a timed-out read is not kept: the next check of the request reads again', async () => {
+      const adapter = new GatedAdapter();
+      const a = authorizer(adapter, [attributeReader()], { modelTimeoutMs: 30 });
+      const scope = { cache: new Map<string, unknown>() };
+      adapter.held = true;
+      expect((await a.check({ principal: alice, permission: 'doc:read' }, scope)).allowed).to.equal(false);
+      adapter.held = false;
       expect((await a.check({ principal: alice, permission: 'doc:read' }, scope)).allowed).to.equal(true);
       expect(adapter.attributeCalls).to.have.length(2);
     });

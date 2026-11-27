@@ -86,6 +86,28 @@ describe('Authorizer.checkAll', () => {
     expect(docs.ancestorCalls).to.deep.equal([]);
   });
 
+  it('keeps no ancestors from a batch that settles after an invalidate', async () => {
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    class GatedBatch extends BatchAdapter {
+      override async ancestorsMany(refs: readonly ResourceRef[]): Promise<ReadonlyMap<string, readonly ResourceRef[] | null>> {
+        const found = await super.ancestorsMany(refs);
+        await gate;
+        return found;
+      }
+    }
+    const scope = { cache: new Map<string, unknown>() };
+    const docs = new GatedBatch(['doc'], { rows: docRows() });
+    const a = make([docs]);
+    const all = a.checkAll(alice, [{ permission: 'doc:read', resource: d1 }], scope);
+    for (let i = 0; i < 50 && docs.ancestorsManyCalls.length === 0; i++) await new Promise((resolve) => setImmediate(resolve));
+    a.invalidate(['*']);
+    release();
+    await all;
+    await a.ancestors(d1, scope);
+    expect(docs.ancestorCalls).to.have.length(1);
+  });
+
   it('asks about a ref named twice once', async () => {
     const docs = new BatchAdapter(['doc'], { rows: docRows() });
     const out = await make([docs]).checkAll(alice, [{ permission: 'doc:read', resource: d1 }, { permission: 'doc:read', resource: d1 }]);
