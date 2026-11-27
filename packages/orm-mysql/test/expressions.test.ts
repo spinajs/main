@@ -37,15 +37,27 @@ describe('mysql sql expressions', function () {
     expect(calls).to.deep.eq([["SELECT TIMESTAMPDIFF(MICROSECOND, '1970-01-01 00:00:00', UTC_TIMESTAMP(3)) DIV 1000 AS ms", [], QueryContext.Select]]);
   });
 
+  it('compares exactly with both sides cast, so a plain equality on the same column cannot fold it back', () => {
+    expect(expressions.equalsExactly('`subject_id`', { sql: '?', bindings: ['ABC'] })).to.deep.eq({ sql: 'CAST(`subject_id` AS BINARY) = CAST(? AS BINARY)', bindings: ['ABC'] });
+  });
+
   it('concatenates with CONCAT', () => {
     expect(expressions.concat('?', '`Name`', '?')).to.eq('CONCAT(?, `Name`, ?)');
     expect(expressions.concat('`Name`')).to.eq('`Name`');
   });
 
-  it('ago() subtracts an INTERVAL from NOW(3), the session clock of now(), by default', () => {
-    expect(driver.now().Query).to.eq('NOW(3)');
-    expect(expressions.ago(7, 'day')).to.eq('(NOW(3) - INTERVAL 7 DAY)');
-    expect(driver.ago(30, 'second').Query).to.eq('(NOW(3) - INTERVAL 30 SECOND)');
+  it('ago() subtracts an INTERVAL from UTC_TIMESTAMP(3), the clock of now(), by default', () => {
+    expect(driver.now().Query).to.eq('UTC_TIMESTAMP(3)');
+    expect(expressions.ago(7, 'day')).to.eq('(UTC_TIMESTAMP(3) - INTERVAL 7 DAY)');
+    expect(driver.ago(30, 'second').Query).to.eq('(UTC_TIMESTAMP(3) - INTERVAL 30 SECOND)');
+  });
+
+  it("ago() subtracts an INTERVAL from NOW(3), the session clock of now(), with TimeZone: 'SYSTEM'", async () => {
+    const system = await DI.resolve(MySqlOrmDriver, [{ Name: 'mysql-expr-system', Driver: 'orm-driver-mysql', TimeZone: 'SYSTEM' } as any]);
+
+    expect(system.now().Query).to.eq('NOW(3)');
+    expect(system.Container.resolve(SqlExpressions).ago(7, 'day')).to.eq('(NOW(3) - INTERVAL 7 DAY)');
+    expect(system.ago(30, 'second').Query).to.eq('(NOW(3) - INTERVAL 30 SECOND)');
   });
 
   it('ago() subtracts an INTERVAL from UTC_TIMESTAMP(3), the clock of now(), in a UTC connection', async () => {

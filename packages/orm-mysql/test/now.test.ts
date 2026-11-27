@@ -21,9 +21,17 @@ describe('mysql database now', function () {
     expect(out.bindings).to.deep.eq([]);
   });
 
-  it('is the session clock NOW(3) by default, the clock datetimes are written in', async () => {
-    const driver = await DI.resolve(MySqlOrmDriver, [{ Name: 'mysql-now-system', Driver: 'orm-driver-mysql' } as any]);
+  it('is UTC_TIMESTAMP(3) by default, as in a UTC connection', async () => {
+    const driver = await DI.resolve(MySqlOrmDriver, [{ Name: 'mysql-now-default', Driver: 'orm-driver-mysql' } as any]);
+
+    expect(driver.now().Query).to.eq('UTC_TIMESTAMP(3)');
+    expect(driver.ago(7, 'day').Query).to.eq('(UTC_TIMESTAMP(3) - INTERVAL 7 DAY)');
+  });
+
+  it("is the session clock NOW(3) with TimeZone: 'SYSTEM', the clock datetimes are written in", async () => {
+    const driver = await DI.resolve(MySqlOrmDriver, [{ Name: 'mysql-now-system', Driver: 'orm-driver-mysql', TimeZone: 'SYSTEM' } as any]);
 
     expect(driver.now().Query).to.eq('NOW(3)');
+    expect(driver.ago(7, 'day').Query).to.eq('(NOW(3) - INTERVAL 7 DAY)');
   });
 });
