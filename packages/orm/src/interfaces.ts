@@ -1390,6 +1390,9 @@ export interface IWhereBuilder<T> {
   whereColumn<C extends ColumnRef<Unbox<T>>, R extends ColumnRef<Unbox<T>>>(left: LiteralColumn<Unbox<T>, C> | Wrap, operator: Op, right: LiteralColumn<Unbox<T>, R> | Wrap | OuterColumn | ConcatExpression): this;
   whereStartsWith(column: DeclaredColumn<Unbox<T>>, prefix: string): this;
   whereStartsWith<C extends ColumnRef<Unbox<T>>>(column: LiteralColumn<Unbox<T>, C>, prefix: string): this;
+  /** `column = value` byte for byte on every dialect, trailing spaces included; an index on `column` is still sought. */
+  whereExactly(column: DeclaredColumn<Unbox<T>>, value: string): this;
+  whereExactly<C extends ColumnRef<Unbox<T>>>(column: LiteralColumn<Unbox<T>, C>, value: string): this;
 
   // join-scoped conditions - land in relation JOIN ON clause instead of parent WHERE
   whereOnJoin(callback: WhereFunction<T>): this;

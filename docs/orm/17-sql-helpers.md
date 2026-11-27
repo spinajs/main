@@ -48,7 +48,7 @@ Every other error rejects as `OrmException` with the client's error as `inner`.
 | `contains(haystack, needle)` | `SqlFragment`, true where `needle` occurs in `haystack` | `instr(h, n) > 0` | `strpos(h, n) > 0` | `LOCATE(n, h) > 0` | `CHARINDEX(n, h) > 0` |
 | `equalsExactly(left, right)` | `SqlFragment`, `left = right` byte for byte, whatever the column collation | `l = r` | `l = r` | `CAST(l AS BINARY) = CAST(r AS BINARY)`, which still holds beside a plain `l = r` (MySQL folds a bare `l` to that constant) | `l = r COLLATE Latin1_General_BIN2` plus a `LEN(… + 'x')` check for trailing spaces; binds `right` twice |
 
-`equalsExactly` alone does not seek an index on `left`: the MySQL cast and the MSSQL `COLLATE` hide the column from it. Beside an indexed column, keep the plain `where(column, value)` too: the plain equality seeks, `equalsExactly` decides.
+`equalsExactly` alone does not seek an index on `left`: the MySQL cast and the MSSQL `COLLATE` hide the column from it. Beside an indexed column, keep the plain `where(column, value)` too: the plain equality seeks, `equalsExactly` decides. On a builder, [`whereExactly(column, value)`](05-query-builder.md) emits both.
 
 The base `SqlExpressions` throws `NotSupported` from every method, so a driver that registers none fails loudly instead of emitting another dialect's SQL. To add or fix one, subclass a shipped implementation and register it `.as(SqlExpressions)` in the driver's `resolve()`; see [Adding a new SQL dialect](../orm-sql/07-adding-a-sql-dialect.md).
 

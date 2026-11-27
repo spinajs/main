@@ -21,7 +21,7 @@ Then `forget` records an `erasure` event (`kind: 'custom'`, `action: 'erasure'`,
 
 `subject` and `dataSubject` are not touched, so a subject key must not itself be personal data you have to erase.
 
-A subject is matched by its exact spelling, type and id alike: the trail's text columns compare byte for byte ([Tables](01-trails-and-guarantees.md#tables)), so `forget({ type: 'user', id: 'abc' })` leaves the events of `ABC`, of `'abc '` and of the type `'user '` alone. Reads and `forget` add `SqlExpressions.equalsExactly()` beside the indexed equality, because MySQL's `utf8mb4_bin` and MSSQL's `=` ignore trailing spaces.
+A subject is matched by its exact spelling, type and id alike: the trail's text columns compare byte for byte ([Tables](01-trails-and-guarantees.md#tables)), so `forget({ type: 'user', id: 'abc' })` leaves the events of `ABC`, of `'abc '` and of the type `'user '` alone. Reads and `forget` match with `whereExactly()`, which adds `SqlExpressions.equalsExactly()` beside the indexed equality, because MySQL's `utf8mb4_bin` and MSSQL's `=` ignore trailing spaces.
 
 Pass an id as the database returns it. A `char(n)` key is recorded padded to `n` on PostgreSQL and SQL Server, every entry of the row, its insert included: give `Model.history().of`, `asOf` and `forget` that padded spelling, or use `row.history()`. `Model.history().forget('AB')` of a `char(5)` key erases nothing, returns 0 and still records an `erasure` event.
 

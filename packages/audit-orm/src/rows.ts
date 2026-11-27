@@ -1,7 +1,7 @@
 import { AUDIT_KINDS, AUDIT_OUTCOMES, AuditConfigError, ERASURE, canonicalJson, payloadHash } from '@spinajs/audit';
 import type { AuditEvent, AuditSubject, StoredAuditEvent } from '@spinajs/audit';
 import { DI } from '@spinajs/di';
-import { IdentifierQuoter, Orm, RawQuery, SqlExpressions, instantFromDb } from '@spinajs/orm';
+import { Orm, instantFromDb } from '@spinajs/orm';
 import type { IWhereBuilder, OrmDriver } from '@spinajs/orm';
 
 // Keeps one INSERT of 18 columns (and the one or two a buffer or an archive adds) within the bind-parameter limit of every driver.
@@ -22,23 +22,10 @@ export function exceptErasureRecords(this: IWhereBuilder<unknown>): void {
   this.orWhere('action', '<>', ERASURE.action);
 }
 
-// MySQL's and SQL Server's `=` ignore trailing spaces; the plain equality stays beside this for the index seek, this one decides.
-function exactly(driver: OrmDriver, column: string, value: string): RawQuery {
-  const f = driver.Container.resolve(SqlExpressions).equalsExactly(driver.Container.resolve(IdentifierQuoter).quote(column), { sql: '?', bindings: [value] });
-  return RawQuery.create(f.sql, [...f.bindings]);
-}
-
-/** A where clause for the rows of subjects of `type`, compared byte for byte. */
-export function ofSubjectType(driver: OrmDriver, type: string): (this: IWhereBuilder<unknown>) => void {
-  return function (this: IWhereBuilder<unknown>) {
-    this.where('subject_type', type).where(exactly(driver, 'subject_type', type));
-  };
-}
-
 /** A where clause for the rows of `subject`, its type and id compared byte for byte. */
-export function ofSubject(driver: OrmDriver, subject: AuditSubject): (this: IWhereBuilder<unknown>) => void {
+export function ofSubject(subject: AuditSubject): (this: IWhereBuilder<unknown>) => void {
   return function (this: IWhereBuilder<unknown>) {
-    this.where('subject_type', subject.type).where('subject_id', subject.id).where(exactly(driver, 'subject_type', subject.type)).where(exactly(driver, 'subject_id', subject.id));
+    this.whereExactly('subject_type', subject.type).whereExactly('subject_id', subject.id);
   };
 }
 

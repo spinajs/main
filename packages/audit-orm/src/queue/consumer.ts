@@ -164,7 +164,7 @@ async function blankErased(trailName: string, events: readonly AuditEvent[]): Pr
   const erasures = events.flatMap((e) => (isErasureRecord(e) && e.subject !== undefined ? [{ subject: e.subject, at: e.at }] : []));
   // spinajs-orm-ignore ORM102: one UPDATE per erasure in the batch, which are rare
   for (const { subject, at } of erasures) {
-    await driver.update().in(trail.table).update({ data: REDACTED_DATA }).where(ofSubject(driver, subject)).where('at', '<=', at).where(exceptErasureRecords).where('data', '<>', REDACTED_DATA);
+    await driver.update().in(trail.table).update({ data: REDACTED_DATA }).where(ofSubject(subject)).where('at', '<=', at).where(exceptErasureRecords).where('data', '<>', REDACTED_DATA);
   }
 }
 

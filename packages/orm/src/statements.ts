@@ -586,6 +586,33 @@ export abstract class StartsWithStatement extends QueryStatement {
 }
 
 /**
+ * `column = value` byte for byte. MySQL's and SQL Server's `=` ignore trailing spaces even on a binary collation, so
+ * each dialect adds its `SqlExpressions.equalsExactly()` beside the plain equality, which stays for the index seek.
+ */
+@NewInstance()
+export abstract class ExactlyStatement extends QueryStatement {
+  protected _column: string;
+  protected _value: string;
+
+  constructor(column: string, value: string, tableAlias: string) {
+    super(tableAlias);
+
+    this._column = column || '';
+    this._value = value;
+  }
+
+  public abstract build(): IQueryStatementResult;
+
+  protected value(): string {
+    if (typeof this._value !== 'string') {
+      throw new InvalidArgument(`whereExactly(${this._column}) takes a string value, got ${this._value === null ? 'null' : typeof this._value}`);
+    }
+
+    return this._value;
+  }
+}
+
+/**
  * Delimiter a `@Set()` column is stored with. Must agree with the SetValueConverter,
  * which joins on it.
  */

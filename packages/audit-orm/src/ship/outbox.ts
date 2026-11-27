@@ -52,6 +52,6 @@ export async function removeBlank(driver: OrmDriver, rows: readonly StoredAuditE
 
 /** Blanks the payload of one subject's buffered events; returns how many this call blanked. */
 export async function blankBuffered(driver: OrmDriver, trail: string, subject: AuditSubject): Promise<number> {
-  const { RowsAffected } = await driver.update().in(AUDIT_OUTBOX_TABLE).update({ data: REDACTED_DATA }).where('trail', trail).where(ofSubject(driver, subject)).where(exceptErasureRecords).where('data', '<>', REDACTED_DATA);
+  const { RowsAffected } = await driver.update().in(AUDIT_OUTBOX_TABLE).update({ data: REDACTED_DATA }).where('trail', trail).where(ofSubject(subject)).where(exceptErasureRecords).where('data', '<>', REDACTED_DATA);
   return RowsAffected;
 }
