@@ -2,7 +2,7 @@ import * as chai from 'chai';
 import 'mocha';
 
 import { Authorizer } from '../../src/engine/authorizer.js';
-import { SYSTEM, TRUE } from '../../src/index.js';
+import { FALSE, SYSTEM, TRUE } from '../../src/index.js';
 import type { AccessPlan, AccessPlanCache, EvaluationContext, ListPlanRequest, PermissionDef, ResourceRef, ResourceType, Vote } from '../../src/index.js';
 import { FakeAdapter, ListModel, RecordingLog, fakeClock, principal, registryOf } from './fakes.js';
 import type { ListModelOptions } from './fakes.js';
@@ -62,12 +62,10 @@ function cacheOf(plan: AccessPlan): AccessPlanCache {
   return plan.cache;
 }
 
+const planOnNestedWrite = async (_req: unknown, ctx: EvaluationContext) => ((await ctx.check({ principal: alice, permission: 'doc:write', resource: { type: 'doc', id: 'd1' } })).allowed ? { kind: 'all' } : { kind: 'abstain' });
+
 /** A plan resting on a nested check of doc:write on d1, whose vote is cacheable or not. */
-const nestedChecker = (cacheable: boolean, vote: Partial<Vote> = {}): KeptModel =>
-  new KeptModel('n', {
-    vote: { permitWhen: TRUE, cacheable, ...vote },
-    listPlan: async (_req: unknown, ctx: EvaluationContext) => ((await ctx.check({ principal: alice, permission: 'doc:write', resource: { type: 'doc', id: 'd1' } })).allowed ? { kind: 'all' } : { kind: 'abstain' }),
-  });
+const nestedChecker = (cacheable: boolean, vote: Partial<Vote> = {}): KeptModel => new KeptModel('n', { vote: { permitWhen: TRUE, cacheable, ...vote }, listPlan: planOnNestedWrite });
 
 describe('Authorizer.accessPlan: a plan kept beyond its request', () => {
   it('carries the tags of a type-level decision of the principal, a key and the decision ttl when every model says so', async () => {
@@ -136,6 +134,18 @@ describe('Authorizer.accessPlan: a plan kept beyond its request', () => {
 
     expect(cacheOf(plan).ttlMs).to.equal(5_000);
     expect(cacheOf(await make([nestedChecker(true)]).accessPlan(alice, 'doc:read', 'doc')).ttlMs).to.equal(60_000);
+  });
+
+  it('shows the nested bound in validUntil, so the request memo ends with the grant too', async () => {
+    const expiry = new Date(clock.now.getTime() + 5_000);
+    const live = (): Vote => (clock.now.getTime() < expiry.getTime() ? { model: 'n', permitWhen: TRUE, denyWhen: FALSE, cacheable: true, validUntil: expiry } : { model: 'n', permitWhen: FALSE, denyWhen: FALSE, cacheable: true });
+    const a = make([new KeptModel('n', { vote: live, listPlan: planOnNestedWrite })]);
+    const scope = { cache: new Map<string, unknown>() };
+    const first = await a.accessPlan(alice, 'doc:read', 'doc', undefined, scope);
+
+    expect(first.kind === 'filter' ? first.validUntil?.getTime() : undefined).to.equal(expiry.getTime());
+    clock.advance(6_000);
+    expect((await a.accessPlan(alice, 'doc:read', 'doc', undefined, scope)).kind).to.equal('none');
   });
 
   it('keeps nothing once the request saw a fault a model caught', async () => {

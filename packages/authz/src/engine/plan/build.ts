@@ -51,7 +51,8 @@ export async function buildPlan(engine: Engine, d: Delegation, def: PermissionDe
   const label = `${def.name} on ${quote(type)}`;
   const models = route.models.filter((m) => admits(m, runAs));
   const answers = await Promise.all(models.map((m) => modelPlan(engine, m, req, new ModelContext(host, m.name, run.scope, run.instant, 0, undefined, contextCacheKey(m.name, cacheId, 'listPlan')), label)));
-  const bounds = { ...(within ? { within } : {}), ...(ceiling.expiresAt ? { validUntil: ceiling.expiresAt } : {}) };
+  const until = earliest([ceiling.expiresAt, run.nested.until]);
+  const bounds = { ...(within ? { within } : {}), ...(until ? { validUntil: until } : {}) };
   const plan = combinePlans(answers, bounds);
   const faulted = answers.some((a) => a.faulted) || run.nested.faulted;
   return { plan: keepFor === undefined || faulted ? plan : keptPlan(engine, plan, { principal: keepFor, delegation: d, models, def, type, run }), faulted };
