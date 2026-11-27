@@ -1,4 +1,4 @@
-import { createHash } from 'crypto';
+import { createHash, randomBytes } from 'crypto';
 import { inspect } from 'util';
 import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
@@ -501,21 +501,30 @@ describe('redis session provider', function () {
 
     const printed = (args: unknown[]) => [...args.map(String), ...args.map((a) => inspect(a, { depth: null }))].join(' ');
 
+    const STORED_DATA = 'refresh-token-kept-in-the-stored-data';
+    // The Map reviver's TypeError quotes this whole value.
+    const QUOTING_DATA = `{"dataType":"Map","value":["${STORED_DATA}"]}`;
+    const LEVELS = ['trace', 'debug', 'info', 'warn', 'error', 'fatal', 'security', 'success'] as const;
+
     async function warnings<T>(run: () => Promise<T>): Promise<[T, string[]]> {
       const log = DI.resolve(Log, ['redis-session-store']);
       const calls: unknown[][] = [];
-      log.warn = (...args: unknown[]) => {
-        calls.push(args);
-      };
+      for (const level of LEVELS) {
+        log[level] = (...args: unknown[]) => {
+          calls.push(args);
+        };
+      }
       try {
         return [await run(), calls.map(printed)];
       } finally {
-        Reflect.deleteProperty(log, 'warn');
+        for (const level of LEVELS) {
+          Reflect.deleteProperty(log, level);
+        }
       }
     }
 
-    const runsOf = (secret: string) => Array.from({ length: secret.length - 15 }, (_, i) => secret.slice(i, i + 16));
-    const leaks = (text: string, secrets: string[]) => secrets.flatMap(runsOf).filter((run) => text.includes(run));
+    const runsOf = (secret: string) => Array.from({ length: secret.length - 7 }, (_, i) => secret.slice(i, i + 8));
+    const leaks = (text: string, secrets: string[]) => [...secrets, STORED_DATA].flatMap(runsOf).filter((run) => text.includes(run));
 
     for (const [label, value] of [
       ['a JSON number', '42'],
@@ -524,7 +533,7 @@ describe('redis session provider', function () {
       it(`restore of a stored value that is ${label} still throws, and the error names neither the session id nor its storage key`, async () => {
         const store = await makeProvider(SLIDING);
         await store.truncate();
-        const raw = `raw-session-id-of-the-cookie-${label.replace(/\W+/g, '-')}`;
+        const raw = randomBytes(24).toString('hex');
         const key = await storedAs(store, raw, () => value);
 
         const [error, lines] = await warnings(() => store.restore(key).then(() => undefined, (err: unknown) => err));
@@ -538,7 +547,7 @@ describe('redis session provider', function () {
     it('a listing skips a stored value that is not a JSON object with one warning that names neither the session id nor its storage key', async () => {
       const store = await makeProvider(SLIDING);
       await store.truncate();
-      const raw = 'raw-session-id-of-the-cookie-not-an-object';
+      const raw = randomBytes(24).toString('hex');
       const key = await storedAs(store, raw, () => '42');
 
       const [listed, lines] = await warnings(() => store.listBySubject(user('u-42')));
@@ -551,8 +560,8 @@ describe('redis session provider', function () {
     it('a listing reads a stored value whose Data does not decode with an empty Data and one warning that names the subject, never the session id or its storage key', async () => {
       const store = await makeProvider(SLIDING);
       await store.truncate();
-      const raw = 'raw-session-id-of-the-cookie-undecodable-data';
-      const key = await storedAs(store, raw, (value) => ({ ...value, Data: '{bad' }));
+      const raw = randomBytes(24).toString('hex');
+      const key = await storedAs(store, raw, (value) => ({ ...value, Data: QUOTING_DATA }));
 
       const [listed, lines] = await warnings(() => store.listBySubject(user('u-42')));
       expect(ids(listed)).to.deep.equal([key]);
