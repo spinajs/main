@@ -5,6 +5,7 @@ import type { AuthzTx, PrincipalRef } from '@spinajs/authz';
 import '@spinajs/authz-orm/changelog';
 import type { Policy } from '../../contracts.js';
 import { UniqueViolation } from '@spinajs/orm';
+import type { ISelectQueryBuilder } from '@spinajs/orm';
 import { DateTime } from 'luxon';
 
 import { PolicyStore } from '../../contracts.js';
@@ -83,8 +84,19 @@ export class DbPolicyStore extends PolicyStore {
   }
 }
 
+const EXPIRY_SET = 'expires_at_set';
+
 /**
- * The policy row `id` holds: undefined without one, null when its JSON no longer parses. Such a row can still be
+ * The datetime converters read a stored value that is no datetime (text, a MySQL zero date, a Postgres infinity) as
+ * null, which would load the policy as one that never expires. The same select tells whether the column holds a value.
+ */
+function refuseUnreadableExpiry(rows: readonly (PolicyFields & Pick<PolicyRecord, typeof EXPIRY_SET>)[]): void {
+  const hit = rows.find((r) => r.expires_at_set === true && r.expires_at === null);
+  if (hit) throw new AuthzConfigError(`${AUTHZ_POLICY_TABLE}: the expires_at of policy ${JSON.stringify(hit.id)} is not a datetime the store can read`);
+}
+
+/**
+ * The policy row `id` holds: undefined without one, null when hydrateRecords refuses it. Such a row can still be
  * replaced and deleted (load, version and policy reads refuse it); its change is logged without the image.
  */
 async function storedPolicy(id: string): Promise<Policy | null | undefined> {
@@ -101,11 +113,16 @@ const JSON_COLUMNS = ['permissions', 'resource_types', 'principal_types', 'actor
 
 const notParsing = (detail: string, cause?: unknown) => new AuthzConfigError(`${AUTHZ_POLICY_TABLE}: a row holds a JSON column that does not parse (${detail})`, cause === undefined ? undefined : { cause });
 
-/** Awaits a PolicyRecord query; a JSON column that does not parse becomes an AuthzConfigError naming the table. */
-export async function hydrateRecords(query: PromiseLike<PolicyRecord[]>): Promise<PolicyRecord[]> {
+/**
+ * Awaits a PolicyRecord query; a JSON column that does not parse, or an expiry no converter reads, becomes an
+ * AuthzConfigError naming the table.
+ */
+export async function hydrateRecords(query: ISelectQueryBuilder<PolicyRecord[]>): Promise<PolicyRecord[]> {
   let rows: PolicyRecord[];
   try {
-    rows = await query;
+    rows = await query.select('*').selectCondition(EXPIRY_SET, function () {
+      this.whereNotNull('expires_at');
+    });
   } catch (err) {
     if (!(err instanceof SyntaxError)) throw err;
     throw notParsing(err.message, err);
@@ -116,6 +133,7 @@ export async function hydrateRecords(query: PromiseLike<PolicyRecord[]>): Promis
       if (typeof r[column] === 'string') throw notParsing(`${column}: ${JSON.stringify((r[column] as string).slice(0, 40))}`);
     }
   }
+  refuseUnreadableExpiry(rows);
   return rows;
 }
 
