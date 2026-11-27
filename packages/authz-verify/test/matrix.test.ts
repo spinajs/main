@@ -8,8 +8,10 @@ describe('permissionMatrix', () => {
   it('rates every holder against every permission', () => {
     const m = permissionMatrix(invoicesIR());
     expect(m.permissions).to.deep.equal(['invoice:approve', 'invoice:read', 'invoice:update']);
-    expect(m.holders.map(holderKey)).to.deep.equal(['invoice#owner', 'role:accountant@org', 'role:clerk@$global']);
+    // A group member behind `org#accountant@group#member` is an accountant too.
+    expect(m.holders.map(holderKey)).to.deep.equal(['group#member', 'invoice#owner', 'role:accountant@org', 'role:clerk@$global']);
     expect(m.cells).to.deep.equal({
+      'group#member': { 'invoice:approve': 'always', 'invoice:read': 'always', 'invoice:update': 'conditional' },
       'invoice#owner': { 'invoice:approve': 'never', 'invoice:read': 'conditional', 'invoice:update': 'never' },
       'role:accountant@org': { 'invoice:approve': 'always', 'invoice:read': 'always', 'invoice:update': 'conditional' },
       'role:clerk@$global': { 'invoice:approve': 'never', 'invoice:read': 'conditional', 'invoice:update': 'never' },

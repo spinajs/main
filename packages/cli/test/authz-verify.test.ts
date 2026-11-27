@@ -79,6 +79,20 @@ describe('spinajs authz:verify', function () {
     }
   });
 
+  it('fails isolated() whose exception names a relation that holds a public group', async () => {
+    for (const bound of [2, 3]) {
+      for (const failOn of ['error', 'warning'] as const) {
+        lines = [];
+        process.exitCode = undefined;
+        await run('subject-set-public.assertions.js', { ir: 'subject-set-public.ir.json', bound, failOn });
+        expect(lines[0]).to.equal(`fail AZV001 isolated(tenant, except tenant#member)  violated (bounded k=${bound})`);
+        expect(lines[1]).to.match(/^ {5}principal user:u1 with tenant:t\d#member@group:g\d#member, group:g\d#member@user:\* gets tenant:enter allow on tenant:t\d$/);
+        expect(lines.at(-1)).to.equal('1 error(s), 0 warning(s), 0 info');
+        expect(process.exitCode, `-k ${bound} --fail-on ${failOn}`).to.equal(1);
+      }
+    }
+  });
+
   it('refuses a module whose default export is not an assertion set', async () => {
     let error: unknown;
     try {

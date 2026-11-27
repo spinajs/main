@@ -2,7 +2,7 @@ import type { OpaqueRef, PolicyIR } from '@spinajs/authz-ir';
 import type { Permission } from '@spinajs/authz';
 
 import { RewriteAutomaton, holderKey } from './graph.js';
-import type { HolderRef } from './graph.js';
+import type { HolderRef, StoredRead } from './graph.js';
 import { explore, reachersOf } from './monotone.js';
 import { matchesHolder } from './verdict.js';
 
@@ -14,7 +14,10 @@ export interface PermissionMatrix {
   readonly holders: HolderRef[];
   /** Sorted. */
   readonly permissions: Permission[];
-  /** Holder key to permission to access, over the holder's own paths. A holder also has what `everyone` has. */
+  /**
+   * Holder key to permission to access, over the holder's own paths and the paths that read its relation behind a
+   * subject set. A holder also has what `everyone` has.
+   */
   readonly cells: Record<string, Record<Permission, Access>>;
   /** Per permission, what every principal holds through an anyone term, whatever its row says; a permission no such term reaches is left out. */
   readonly everyone: Record<Permission, Access>;
@@ -41,6 +44,27 @@ export function accessOf(m: PermissionMatrix, holder: string, permission: Permis
   return access;
 }
 
+/** The relations some subject set reads behind the relation that allows it, at any depth. */
+function setMembers(ir: PolicyIR, a: RewriteAutomaton): StoredRead[] {
+  const out = new Map<string, StoredRead>();
+  for (const [type, def] of Object.entries(ir.types)) for (const relation of Object.keys(def.relations)) for (const r of a.behind(type, relation)) out.set(`${r.type}#${r.relation}`, r);
+  return [...out.values()];
+}
+
+/**
+ * A path that reads one of `members` behind a subject set goes to that relation's holder, or to its public holder
+ * when it ends on a wildcard, as never() reads them.
+ */
+function reachedBehind(a: RewriteAutomaton, start: string, members: readonly StoredRead[]): Array<[HolderRef, Access]> {
+  const out: Array<[HolderRef, Access]> = [];
+  for (const r of members) {
+    for (const x of explore(a, start, undefined, (e) => e.type === r.type && e.relation === r.relation).accepted) {
+      if (x.behind === true && x.holder.kind !== 'anyone') out.push([a.holder(r, x.holder.kind === 'public'), x.conditional ? 'conditional' : 'always']);
+    }
+  }
+  return out;
+}
+
 export function permissionMatrix(ir: PolicyIR): PermissionMatrix {
   const a = new RewriteAutomaton(ir);
   const permissions = Object.keys(ir.permissions).sort();
@@ -48,18 +72,25 @@ export function permissionMatrix(ir: PolicyIR): PermissionMatrix {
   const reached = new Map<string, Map<Permission, Access>>();
   const opaque: Record<Permission, OpaqueRef[]> = {};
   const everyone: Record<Permission, Access> = {};
+  const record = (holder: HolderRef, permission: Permission, access: Access): void => {
+    const key = holderKey(holder);
+    holders.set(key, holder);
+    const row = reached.get(key) ?? new Map<Permission, Access>();
+    reached.set(key, row);
+    row.set(permission, stronger(row.get(permission) ?? 'never', access));
+  };
+  const members = setMembers(ir, a);
   for (const permission of permissions) {
-    const ex = explore(a, a.start(permission)!);
+    const start = a.start(permission)!;
+    const ex = explore(a, start);
     const refs = [...ir.opaque, ...ex.opaque.map((name): OpaqueRef => ({ kind: 'rewrite', name }))];
     if (refs.length > 0) opaque[permission] = refs;
     for (const r of reachersOf(ir, permission, ex)) {
-      const key = holderKey(r.holder);
       const access: Access = r.conditional ? 'conditional' : 'always';
-      holders.set(key, r.holder);
-      if (!reached.has(key)) reached.set(key, new Map());
-      reached.get(key)!.set(permission, access);
+      record(r.holder, permission, access);
       if (r.holder.kind === 'anyone') everyone[permission] = stronger(own(everyone, permission) ? everyone[permission] : 'never', access);
     }
+    for (const [holder, access] of reachedBehind(a, start, members)) record(holder, permission, access);
   }
   const keys = [...holders.keys()].sort();
   const cells: Record<string, Record<Permission, Access>> = {};

@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "types": {
+    "user": { "relations": {}, "permissions": {} },
+    "$global": { "relations": {}, "permissions": {} },
+    "group": {
+      "relations": {
+        "parent": { "allowed": ["$global"], "source": { "kind": "ancestor", "via": "$global" } },
+        "member": { "allowed": ["user:*"], "source": { "kind": "tuples", "store": "authz_rebac_tuple" } }
+      },
+      "permissions": {}
+    },
+    "tenant": {
+      "relations": {
+        "parent": { "allowed": ["$global"], "source": { "kind": "ancestor", "via": "$global" } },
+        "member": { "allowed": ["group#member"], "source": { "kind": "tuples", "store": "authz_rebac_tuple" } }
+      },
+      "permissions": {}
+    }
+  },
+  "permissions": { "tenant:enter": { "type": "tenant", "relation": "member", "list": false, "source": { "origin": "config:authz" } } },
+  "caveats": {},
+  "combine": { "default": { "algorithm": "deny-overrides" } },
+  "principal": { "ceiling": false, "delegation": false, "ancestry": "parent", "roles": { "member": [{ "type": "tenant", "relation": "member" }] } },
+  "opaque": []
+}
