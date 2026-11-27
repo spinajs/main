@@ -1,6 +1,6 @@
 import ts from 'typescript';
 import { symbolMarker } from '../markers.js';
-import { isModelType } from '../model-members.js';
+import { isModelType, modelOf } from '../model-members.js';
 
 export interface QueryValue {
   /** The expression the value was read from. */
@@ -59,8 +59,9 @@ export function modelShape(checker: ts.TypeChecker, type: ts.Type): { model: str
   const bare = checker.getNonNullableType(type);
   const many = checker.isArrayType(bare);
   const element = many ? checker.getTypeArguments(bare as ts.TypeReference)[0] : bare;
-  if (!element || !isModelType(checker, element)) return undefined;
-  return { model: element.getSymbol()?.name ?? 'unknown', shape: many ? 'many' : 'one' };
+  const model = element && modelOf(checker, element);
+  if (!model) return undefined;
+  return { model: model.getSymbol()?.name ?? 'unknown', shape: many ? 'many' : 'one' };
 }
 
 const withPrefixes = (paths: string[]): string[] => paths.flatMap((path) => path.split('.').map((_, i, parts) => parts.slice(0, i + 1).join('.')));

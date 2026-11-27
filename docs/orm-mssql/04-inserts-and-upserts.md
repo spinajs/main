@@ -103,6 +103,15 @@ WHEN NOT MATCHED THEN INSERT ([Email],[Name]) VALUES (?,?); SELECT SCOPE_IDENTIT
 ```
 
 4. The upsert of a model compiles to [the keys batch](#the-keys-batch) with the `OUTPUT` clause after the `MERGE`, and `executeOnDb()` returns the same object as for an insert: `RowsAffected` is the `MERGE`'s own count (`1` for a row inserted or updated), `InsertedKeys` the key of that row. An upsert without a model keeps `; SELECT SCOPE_IDENTITY() as ID;` and `executeOnDb()` returns the `[{ ID }]` rows; `MsSqlServerResponseMapper.read()` reports their count as `RowsAffected` and the last row's `ID` as `LastInsertId`, `0` when it is `NULL`.
+5. An upsert takes one row: an upsert of several rows is not supported yet. `MsSqlOnDuplicateQueryCompiler.compile()` throws `NotSupported('mssql upsert takes one row per statement, …')` before the `MERGE` is sent, also when `MaxBindings` / `MaxInsertRows` would split the insert into statements of one row: the `MERGE` matches and inserts a single source row. Upsert one row per call, inside one `transaction()` when the rows belong together:
+
+```ts
+await driver.transaction(async () => {
+  for (const row of rows) {
+    await driver.insert().into('customers').values(row).onDuplicate('Email').update(['Name']);
+  }
+});
+```
 
 ## Services and extension points
 
@@ -198,6 +207,7 @@ export class InsertMissingMsSqlDriver extends MsSqlOrmDriver {
 - **`orIgnore()` with `onDuplicate()` compiles the `MERGE`.** The upsert decides what a conflict does, and `orIgnore()` has no effect.
 - **Any unique key counts, and identities are spent.** A duplicate under any unique constraint or index of the table is ignored, not only the one the caller had in mind. A duplicate key that a trigger raises in another table is not ignored: the insert fails. A refused insert still uses up an `IDENTITY` value. A model inserted with `InsertOrIgnore` whose row was ignored keeps an empty key.
 - **`InsertBehaviour.InsertOrReplace` throws** `OrmException('mssql insert or replace is not supported')` at compile time. Use `InsertBehaviour.InsertOrUpdate`.
+- **An upsert takes one row per statement.** Several rows with `onDuplicate()` throw `NotSupported` before the `MERGE` is sent; a multi-row `MERGE` is not supported yet. Upsert the rows one at a time, in one `transaction()` when they belong together.
 - **`MERGE` matches on every unique column**, joined with `AND`, against the inserted values. It works on a builder query without a model: `driver.insert().into('t').values({...}).onDuplicate('Email').update(['Name'])`.
 - **`SCOPE_IDENTITY()` after a `MERGE` that updated is not reliable.** On a fresh session it is `NULL`; on a pooled session that inserted before, it can be the identity of that earlier insert, in another table. `LastInsertId` of an upsert is therefore no key; the key of a model upserted with `InsertOrUpdate` comes from `OUTPUT`.
 - **Large batches are split.** `MaxBindings` is `2000` and `MaxInsertRows` `1000`, so a multi-row insert becomes several statements of at most 1000 rows and 2000 parameters, run in one transaction.

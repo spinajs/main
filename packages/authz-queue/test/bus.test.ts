@@ -6,16 +6,24 @@ import type { Class } from '@spinajs/di';
 import { Configuration, ConfigurationSource, FrameworkConfiguration, JsFileSource } from '@spinajs/configuration';
 import type { IConfigLike } from '@spinajs/configuration';
 import type { AuthzChange } from '@spinajs/authz';
+import { TestLog, testHost } from '@spinajs/authz-testing';
+import { InvalidOperation } from '@spinajs/exceptions';
+import { DefaultQueueService, QueueService } from '@spinajs/queue';
 
-import { AuthzBusRouteSource, AuthzChangeEvent, reviveChange } from '../src/index.js';
+import { AuthzBusRouteSource, AuthzChangeEvent, QueueChangeBus, reviveChange } from '../src/index.js';
 import { MemoryBroker, MemoryQueueClient } from './support/memory-client.js';
 import { NodeBus, PeerQueueService } from './support/nodes.js';
 
 let seq = 0;
 
-async function node(broker: string) {
+async function memoryClient(broker: string): Promise<MemoryQueueClient> {
   const client = new MemoryQueueClient({ name: `n${++seq}`, options: { broker } } as never);
   await client.resolve();
+  return client;
+}
+
+async function node(broker: string) {
+  const client = await memoryClient(broker);
   const bus = new NodeBus(new PeerQueueService(client));
   const heard: AuthzChange[] = [];
   bus.subscribe((c) => heard.push(c));
@@ -24,6 +32,16 @@ async function node(broker: string) {
 }
 
 const change = (extra: Partial<AuthzChange> = {}): AuthzChange => ({ tags: ['subject:user:alice'], at: new Date('2030-01-02T03:04:05.000Z'), ...extra });
+
+const consumers = (client: MemoryQueueClient) => client.subscriptions.filter((s) => s.active).length;
+
+async function until(what: string, done: () => boolean, ms = 1000): Promise<void> {
+  const deadline = Date.now() + ms;
+  while (!done()) {
+    if (Date.now() > deadline) throw new Error(`timed out waiting until ${what}`);
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+}
 
 describe('QueueChangeBus', () => {
   let broker: string;
@@ -127,7 +145,68 @@ describe('QueueChangeBus', () => {
     );
     expect(a.heard).to.have.length(1);
   });
+
+  it('a disposed bus consumes nothing more: a change from another node reaches no subscriber, and a second dispose is harmless', async () => {
+    const [a, b] = [await start(), await start()];
+
+    await b.bus.dispose();
+    await b.bus.dispose();
+    await a.bus.publish(change());
+
+    expect(consumers(b.client)).to.eq(0);
+    expect(b.heard).to.have.length(0);
+  });
+
+  it('a publish after dispose is refused and does not consume again', async () => {
+    const [a] = [await start()];
+    const sent = a.client.published.length;
+
+    await a.bus.dispose();
+    await a.bus.publish(change()).then(
+      () => expect.fail('should reject'),
+      (e: unknown) => expect(e).to.be.instanceOf(InvalidOperation),
+    );
+
+    expect(consumers(a.client)).to.eq(0);
+    expect(a.client.published).to.have.length(sent);
+  });
+
+  it('a subscribe after dispose throws instead of leaving a subscriber that never hears the other nodes', async () => {
+    const [a] = [await start()];
+
+    await a.bus.dispose();
+
+    expect(() => a.bus.subscribe(() => undefined)).to.throw(InvalidOperation);
+    expect(consumers(a.client)).to.eq(0);
+  });
+
+  it('a start that fails after dispose logs no retry', async () => {
+    const uninstallLog = captureLog();
+    try {
+      const bus = new LateBus();
+      bus.subscribe(() => undefined);
+
+      const disposing = bus.dispose();
+      bus.failStart(new Error('broker down'));
+      await disposing;
+      await new Promise((resolve) => setTimeout(resolve, 10));
+
+      expect(TestLog.messages('error').filter((m) => m.includes('cannot listen'))).to.deep.equal([]);
+    } finally {
+      uninstallLog();
+    }
+  });
 });
+
+/** Its start fails when the test says so. */
+class LateBus extends QueueChangeBus {
+  failStart: (err: Error) => void = () => undefined;
+  protected queueService(): Promise<QueueService> {
+    return new Promise((_resolve, reject) => {
+      this.failStart = reject;
+    });
+  }
+}
 
 describe('AuthzBusRouteSource', () => {
   const ROUTE = ['queue', 'routing', 'AuthzChangeEvent'];
@@ -220,5 +299,182 @@ describe('reviveChange', () => {
     expect(Object.keys(c).sort()).to.deep.equal(['at', 'tags']);
     expect(c.at).to.be.instanceOf(Date);
     expect(Number.isNaN(c.at.getTime())).to.equal(false);
+  });
+});
+
+// One client per bus: a client's unsubscribe ends every consumer on it.
+class SubscribingBus extends QueueChangeBus {
+  static service: QueueService;
+  protected async queueService(): Promise<QueueService> {
+    return SubscribingBus.service;
+  }
+}
+
+class PublishOnlyBus extends QueueChangeBus {
+  static service: QueueService;
+  protected async queueService(): Promise<QueueService> {
+    return PublishOnlyBus.service;
+  }
+}
+
+class UnreachableBus extends QueueChangeBus {
+  static attempts = 0;
+  protected retryMs = 5;
+  protected async queueService(): Promise<QueueService> {
+    UnreachableBus.attempts++;
+    throw new Error('broker down');
+  }
+}
+
+// TestLog as the Log, also when `@spinajs/log` registered one first (installTestLog does nothing then). By the key the
+// container files Log under: the package does not depend on `@spinajs/log-common`.
+function captureLog(): () => void {
+  DI.register(TestLog).as('Log');
+  TestLog.clear();
+  return () => {
+    DI.uncache(TestLog);
+    DI.unregister(TestLog);
+    TestLog.clear();
+  };
+}
+
+/** Uses the default queueService(): the QueueService of the root. */
+class DefaultQueueBus extends QueueChangeBus {}
+
+/** Mocha fails a test on an unhandled rejection by itself; its listeners are set aside so the test can assert there is none. */
+async function unhandledRejectionsDuring(run: () => Promise<void>): Promise<unknown[]> {
+  const seen: unknown[] = [];
+  const collect = (reason: unknown) => seen.push(reason);
+  const others = process.listeners('unhandledRejection');
+  process.removeAllListeners('unhandledRejection');
+  process.on('unhandledRejection', collect);
+  try {
+    await run();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  } finally {
+    process.removeListener('unhandledRejection', collect);
+    for (const listener of others) process.on('unhandledRejection', listener);
+  }
+  return seen;
+}
+
+// Last in the file: DI.dispose() clears the root container's cache.
+describe('QueueChangeBus in a container', () => {
+  const DISPOSE = 'di.dispose';
+  let broker: string;
+  let clients: MemoryQueueClient[];
+
+  /** A child whose SubscribingBus and PublishOnlyBus each talk to a client of their own. */
+  async function app() {
+    const own = [await memoryClient(broker), await memoryClient(broker)];
+    clients.push(...own);
+    [SubscribingBus.service, PublishOnlyBus.service] = own.map((c) => new PeerQueueService(c));
+    return DI.child();
+  }
+
+  beforeEach(() => {
+    broker = `bus-${++seq}`;
+    clients = [];
+  });
+
+  afterEach(async () => {
+    for (const c of clients) await c.dispose();
+    MemoryBroker.drop(broker);
+  });
+
+  it('listens on its container once, however often it publishes and subscribes', async () => {
+    const child = await app();
+    const before = child.listenerCount(DISPOSE);
+    const bus = child.resolve(SubscribingBus);
+
+    for (let i = 0; i < 5; i++) {
+      bus.subscribe(() => undefined);
+      await bus.publish(change());
+    }
+
+    expect(child.listenerCount(DISPOSE)).to.eq(before + 1);
+    await child.dispose();
+  });
+
+  it('a dispose of its own takes its listener off the container, also off a root that drops its cache after each bus', async () => {
+    const child = await app();
+    const before = child.listenerCount(DISPOSE);
+    const bus = child.resolve(PublishOnlyBus);
+    await bus.publish(change());
+
+    await bus.dispose();
+
+    expect(child.listenerCount(DISPOSE)).to.eq(before);
+    await child.dispose();
+
+    const atRoot = DI.RootContainer.listenerCount(DISPOSE);
+    for (let i = 0; i < 15; i++) {
+      const rootBus = DI.resolve(PublishOnlyBus);
+      await rootBus.publish(change());
+      await rootBus.dispose();
+      DI.uncache(PublishOnlyBus);
+    }
+    expect(DI.RootContainer.listenerCount(DISPOSE)).to.eq(atRoot);
+  });
+
+  it('containers made and disposed again and again leave no listener behind', async () => {
+    const before = DI.RootContainer.listenerCount(DISPOSE);
+
+    for (let i = 0; i < 15; i++) {
+      const child = await app();
+      await child.resolve(PublishOnlyBus).publish(change());
+      await child.dispose();
+      expect(child.listenerCount(DISPOSE)).to.eq(0);
+    }
+
+    expect(DI.RootContainer.listenerCount(DISPOSE)).to.eq(before);
+  });
+
+  it('ends with the container that resolved it, also when it only published: DI.dispose() stops consuming and the retry', async () => {
+    const uninstallLog = captureLog();
+    try {
+      const child = await app();
+      child.resolve(SubscribingBus).subscribe(() => undefined);
+      await child.resolve(PublishOnlyBus).publish(change());
+      child.resolve(UnreachableBus).subscribe(() => undefined);
+      await until('both buses consume and the unreachable one retried', () => clients.every((c) => consumers(c) === 1) && UnreachableBus.attempts >= 2);
+
+      await DI.dispose();
+      await until('both buses stopped consuming', () => clients.every((c) => consumers(c) === 0));
+      const attempts = UnreachableBus.attempts;
+      await new Promise((resolve) => setTimeout(resolve, 30));
+
+      expect(UnreachableBus.attempts).to.eq(attempts);
+    } finally {
+      uninstallLog();
+    }
+  });
+
+  it('a DI.dispose() that disposed the DefaultQueueService first ends in one warn, not in an unhandled rejection', async () => {
+    const config = await testHost.installHost();
+    const uninstallLog = captureLog();
+    config.set(['queue'], {
+      default: broker,
+      routing: {},
+      connections: [{ service: 'MemoryQueueClient', name: broker, defaultQueueChannel: '/queue/test', defaultTopicChannel: '/topic/test', options: { broker } }],
+    });
+    try {
+      const queue = await DI.resolve(QueueService);
+      expect(queue).to.be.instanceOf(DefaultQueueService);
+      const client = queue.get(broker);
+      if (!(client instanceof MemoryQueueClient)) throw new Error('the queue did not build a MemoryQueueClient');
+      // Built and cached by the root, as a bus registered by the import is when a domain resolves it.
+      DI.resolve(DefaultQueueBus).subscribe(() => undefined);
+      await until('the bus consumes', () => consumers(client) === 1);
+
+      const unhandled = await unhandledRejectionsDuring(() => DI.dispose());
+
+      expect(unhandled.map((e) => String(e))).to.deep.equal([]);
+      expect(TestLog.messages('warn').filter((m) => m.includes('at container dispose'))).to.have.length(1);
+      expect(DI.RootContainer.Cache.has(DefaultQueueService), 'nothing resolved a QueueService again').to.eq(false);
+    } finally {
+      uninstallLog();
+      await testHost.uninstallHost();
+    }
   });
 });

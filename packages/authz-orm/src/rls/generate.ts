@@ -1,7 +1,7 @@
 import type { AuthorizationModel, ModelListPlan, PermissionDef, PlanTerm, ResourceType } from '@spinajs/authz';
 
 import type { PlanTermCompiler, RlsPlanSource, RlsSqlContext } from '../plan/index.js';
-import { SESSION_BYPASS, pgIdent, rlsContext } from './sql.js';
+import { SESSION_BYPASS, pgIdent, pgLiteral, rlsContext } from './sql.js';
 import type { RlsTable } from './sql.js';
 
 /** `@AccessResource(type, { rls })`: `true` refuses what the database cannot evaluate (AUTHZ020), `'partial'` widens it (AUTHZ021). */
@@ -147,8 +147,17 @@ async function tablePolicies(r: RlsResource, input: RlsGenerateInput, diagnostic
     names.push(policyName(r.type, 'bypass'));
     up.push(`CREATE POLICY ${policyName(r.type, 'bypass')} ON ${table} FOR ALL TO ${pgIdent(input.bypassRole)} USING (${SESSION_BYPASS}) WITH CHECK (true)`);
   }
-  const down = [...names.map((n) => `DROP POLICY IF EXISTS ${n} ON ${table}`), `ALTER TABLE ${table} NO FORCE ROW LEVEL SECURITY`, `ALTER TABLE ${table} DISABLE ROW LEVEL SECURITY`];
+  const down = [...names.map((n) => `DROP POLICY IF EXISTS ${n} ON ${table}`), disableWhenNoPolicyLeft(table)];
   return { up, down };
+}
+
+/** `tenant:rls` may keep its own policies on the table; switching RLS off would leave them unenforced. */
+function disableWhenNoPolicyLeft(table: string): string {
+  const body = `BEGIN IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_policy WHERE polrelid = ${pgLiteral(table)}::regclass) THEN ALTER TABLE ${table} NO FORCE ROW LEVEL SECURITY; ALTER TABLE ${table} DISABLE ROW LEVEL SECURITY; END IF; END`;
+  // a quoted table name may hold '$$', which would end a plain dollar quote
+  let tag = '$$';
+  for (let n = 0; body.includes(tag); n++) tag = `$spina${n}$`;
+  return `DO ${tag} ${body} ${tag}`;
 }
 
 /**
