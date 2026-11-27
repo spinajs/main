@@ -1,5 +1,5 @@
 import ts from 'typescript';
-import type { LiteralContext } from '../decorators.js';
+import { literalValue, type LiteralContext } from '../decorators.js';
 
 export function initializerOf(symbol: ts.Symbol | undefined, ctx: LiteralContext): ts.Expression | undefined {
   const decl = symbol && (symbol.flags & ts.SymbolFlags.Alias ? ctx.checker.getAliasedSymbol(symbol) : symbol).valueDeclaration;
@@ -15,6 +15,36 @@ export function objectLiteralOf(expr: ts.Expression, ctx: LiteralContext): ts.Ob
   if (!ts.isIdentifier(expr) && !ts.isPropertyAccessExpression(expr)) return undefined;
   const initializer = initializerOf(ctx.checker.getSymbolAtLocation(ts.isIdentifier(expr) ? expr : expr.name), ctx);
   return initializer && objectLiteralOf(initializer, ctx);
+}
+
+/** What an options object does with one key: nothing, or sets it to `value`, absent when the build cannot follow it. */
+export type MemberRead = { set: false } | { set: true; value?: ts.Expression };
+
+const MEMBER_UNSET: MemberRead = { set: false };
+const MEMBER_UNREAD: MemberRead = { set: true };
+
+function memberRead(member: ts.ObjectLiteralElementLike, key: string, ctx: LiteralContext): MemberRead {
+  if (ts.isSpreadAssignment(member)) return memberOf(member.expression, key, ctx);
+  const name = ts.isComputedPropertyName(member.name) ? literalValue(member.name.expression, ctx) : member.name.text;
+  if (name !== key) return typeof name === 'string' || typeof name === 'number' ? MEMBER_UNSET : MEMBER_UNREAD;
+  if (ts.isPropertyAssignment(member)) return { set: true, value: member.initializer };
+  // literalValue resolves a shorthand name to the property itself, not to the variable it copies
+  if (ts.isShorthandPropertyAssignment(member)) {
+    const initializer = initializerOf(ctx.checker.getShorthandAssignmentValueSymbol(member), ctx);
+    return initializer ? { set: true, value: initializer } : MEMBER_UNREAD;
+  }
+  return MEMBER_UNREAD;
+}
+
+/** The last member that may set `key` decides, as in the object the runtime receives; options the build cannot follow may set it. */
+export function memberOf(options: ts.Expression, key: string, ctx: LiteralContext): MemberRead {
+  const literal = objectLiteralOf(options, ctx);
+  if (!literal) return MEMBER_UNREAD;
+  for (const member of [...literal.properties].reverse()) {
+    const read = memberRead(member, key, ctx);
+    if (read.set) return read;
+  }
+  return MEMBER_UNSET;
 }
 
 function symbolReadsConstantsOnly(symbol: ts.Symbol | undefined, ctx: LiteralContext): boolean {
