@@ -107,8 +107,13 @@ await settings.unset('acme', 'mail.from');
 ```
 
 `set(id, path, value)` and `unset(id, path)` write a tenant's [configuration overrides](../tenancy/07-configuration-overrides.md)
-and return the tenant record as the registry reads it. Whoever may call them can change, for that tenant, every path the
-application lists; guard the route or command that calls them.
+and return the tenant record as the registry reads it.
+
+**The service does no authorization.** Whoever may call it can change, for the tenant it names, every path the
+application lists. The caller guards: authorize the caller for that tenant, and take the id from the route the caller
+was authorized for (`PUT /tenants/:tenant/settings` passes `:tenant`) or from `currentTenant()`, never from a request
+body. `TenantMismatch` (below) catches a mistake, not an attacker: code that leaves its scope with `runAcrossTenants`
+passes it.
 
 - `path` must be one of the paths `tenancy.config.overridable` lists, exactly. Any other path, a free-form key such as
   `plan`, a parent or a child of a listed path and every path under a closed root (`db`, `authn`, `tenancy`, ...) are
@@ -135,16 +140,16 @@ application lists; guard the route or command that calls them.
 After the write the service drops the tenant from the registry cache and loads its settings again, so the next read in
 this process answers the new value, also when a background refresh that read the old row was still running. One gap
 stays: a request admitted at the same moment, whose registry read began before the write, can put the old settings
-back in this process until the next admission or refresh of the tenant. Other processes see it once their copy is older than `tenancy.registryCacheMs`
-(5000 by default): a request, which admits the tenant, after at most `tenancy.registryCacheMs`; code that reads without
+back in this process until the next admission or refresh of the tenant. Other processes see the new value once their
+copy is older than `tenancy.registryCacheMs` (5000 by default): a request, which admits the tenant, after at most `tenancy.registryCacheMs`; code that reads without
 admitting gets the old value at the first read past that interval, which starts the refresh, and the new one after it,
 at most about twice the interval after the write. A failed refresh keeps the last settings and is tried again one
 `tenancy.registryCacheMs` later. With `tenancy.registryCacheMs: 0` only an admission or `loadTenantSettings` reads them again.
 
 Each write reads the tenant's whole settings object, changes one path and writes the whole object back. In one process
-the writes of one tenant take turns, so parallel calls (a settings form that saves each field with its own request to
-one replica) all keep their change; writes of different tenants do not wait for each other, and a refused write
-neither fails nor delays the ones queued behind it. **Two processes that write the same tenant's settings at the same
+the writes of one tenant through the container's `TenantSettingsService` take turns, so parallel calls (a settings form that saves each field with its own request to
+one replica) all keep their change; writes of different tenants do not wait for each other, and a refused write does
+not fail or stop the ones queued behind it. **Two processes that write the same tenant's settings at the same
 moment can lose one of the two changes**: each stored object is the complete, checked result of one call, but the
 other call's change is gone although that call succeeded.
 

@@ -85,7 +85,7 @@ export class TenantSettingsService {
   /** The last write queued for each tenant; it never rejects. */
   private readonly writing = new Map<string, Promise<void>>();
 
-  /** @throws InvalidArgument for a path that is not listed, TenantMismatch inside another tenant's scope, InvalidOperation for a deleting or deleted tenant, InvalidConfiguration for a refused value */
+  /** @throws InvalidArgument for a path that is not listed, a non-finite number or settings over 65,535 bytes of JSON, TenantMismatch inside another tenant's scope, InvalidOperation for a deleting or deleted tenant, InvalidConfiguration for a refused value */
   public async set(id: string, path: string, value: unknown): Promise<TenantRecord> {
     const segments = this.listedPath(path);
     const json = jsonForm(value);
