@@ -4,6 +4,7 @@ import { Injectable, Bootstrapper, DI, IContainer, token } from '@spinajs/di';
 import { fs, IFsConfiguration, IProviderConfiguration } from './interfaces.js';
 import { Log, Logger } from '@spinajs/log-common';
 import { FILE_PROVIDER } from './tokens.js';
+import { layeredFs } from './layers.js';
 
 export * from './interfaces.js';
 export * from './local-provider.js';
@@ -17,6 +18,7 @@ export * from './tokens.js';
 export * from './fp.js';
 export * from './paths.js';
 export * from './actions.js';
+export * from './layers.js';
 export * from './streams.js';
 export * from './schemas/fs.configuration.js';
 
@@ -131,8 +133,8 @@ export class FsBootstrapper extends Bootstrapper {
       if (!instance) {
         throw new ResolveException(`File provider ${name} not registered, make sure you have registered file provider with name ${name}`);
       }
-      
-      return instance;
+
+      return layeredFs(instance);
     }).asToken(FILE_PROVIDER);
   }
 }

@@ -20,6 +20,7 @@ Two services hold the package together: `fsService` creates the providers, and t
 | `fsService` | `fsService` class, singleton; an `AsyncService`, so `DI.resolve(fsService)` returns a promise | `fsService` | none | Subclass it and `DI.register(MySubclass).as(fsService)` before the first `DI.resolve(fsService)`. Override `resolve()` (call `super.resolve()`). |
 | `FsBootstrapper` | `Bootstrapper`, through `@Injectable(Bootstrapper)` | `FsBootstrapper` | none | Leave it; replace the factory it registers. |
 | Provider lookup | `'__file_provider__'`, a factory; the last registered factory wins | name lookup in `'__file_provider_instance__'` | none | `DI.register(factory).as('__file_provider__')` after `FsBootstrapper.bootstrap()` ran. |
+| Provider layer | `FsProviderLayer`, `Array.ofType`; register a singleton class | none | `@spinajs/tenancy/fs` | `@Injectable(FsProviderLayer)` on a class that extends it; see [Provider layers](#provider-layers). |
 | Provider map | `'__file_provider_instance__'`, a `Map<string, fs>` built with `asMapValue()` | filled by `fsService` | none | Read it with `DI.get<Map<string, fs>>('__file_provider_instance__')`, eg. to list providers. Do not write to it outside `fsService`. `fsService.dispose()` removes the names it published, unless a newer `fsService` published the name again or another provider now sits under it. |
 
 ### `fsService`: custom implementation
@@ -54,11 +55,11 @@ The [CLI commands](11-cli-commands.md) and other packages resolve `fsService` by
 
 ### Provider lookup factory
 
-Replace the factory to change how a name maps to a provider. This one keeps old provider names working after a rename, so stored `fs://` URIs and `@FileSystem()` names stay valid.
+Replace the factory to change how a name maps to a provider. This one keeps old provider names working after a rename, so stored `fs://` URIs and `@FileSystem()` names stay valid. A replacement returns `layeredFs(instance)`, as the default factory does: a factory that returns the map entry itself skips the [provider layers](#provider-layers).
 
 ```ts sample
 import { DI, IContainer, ResolveException } from '@spinajs/di';
-import { fs } from '@spinajs/fs';
+import { fs, layeredFs } from '@spinajs/fs';
 
 const PROVIDER_ALIASES: Record<string, string> = {
   'user-uploads': 'uploads',
@@ -75,7 +76,7 @@ export function registerProviderAliases(): void {
       throw new ResolveException(`File provider ${name} not registered`);
     }
 
-    return instance;
+    return layeredFs(instance);
   }).as('__file_provider__');
 }
 ```
@@ -98,7 +99,29 @@ const all = DI.get<Map<string, fs>>(FILE_PROVIDER_INSTANCES);
 - `fsService` registers each provider in the map as soon as it is created, so a provider that runs `getFs()` in its own `resolve()` finds the ones created before it.
 - The map is a DI value, so `DI.clearCache()` keeps it. `fsService.dispose()` (also through `DI.dispose()`) removes the names it published, so `getFs()` no longer serves them; a name a newer `fsService` published again stays, and entries others added with `asMapValue()` stay.
 - `@FileSystem()` reads the provider through `getFs()` on every property access, so a replaced factory applies there too.
-- `getFs()` returns an `fs` instance unchanged without calling the factory.
+- `getFs()` returns an `fs` instance unchanged without calling the factory, so no provider layer applies to it.
+
+## Provider layers
+
+A class registered as `FsProviderLayer` decides what a lookup by name hands out: `getFs(name)`, `provider(name)`, `@FileSystem(name)`, `fs://` URIs and every helper that takes a provider name get `layer.wrap(provider)` instead of the published provider. `@spinajs/tenancy/fs` registers one that hands out a tenant's view of the providers listed in `tenancy.fs.prefixed`. With no layer registered a lookup answers the published provider. `publishedFs(name)` always answers the published provider, and so does the provider map.
+
+```ts
+@Injectable(FsProviderLayer)
+export class ReadOnlyArchive extends FsProviderLayer {
+  private readonly views = new Map<string, fs>();
+
+  public wrap(provider: fs): fs {
+    if (provider.Name !== 'archive') return provider;
+    let view = this.views.get(provider.Name);
+    if (view === undefined) this.views.set(provider.Name, (view = new ReadOnlyFs(provider)));
+    return view;
+  }
+}
+```
+
+`wrap` runs on every lookup: cache what it builds. A wrapping provider implements the `do*` hooks and calls the wrapped provider's public actions from them; those run inside the outer action, where no middleware runs a second time. Layers apply in registration order, each to what the one before handed out. `layeredFs(provider, container = DI.RootContainer)` applies the registered layers to a provider you hold.
+
+Register a layer as a singleton class. `Array.ofType` leaves a factory and a `@NewInstance()` class out of its result, so a lookup throws `InvalidOperation` while one is registered instead of handing out the published provider.
 
 ## Best practices
 
