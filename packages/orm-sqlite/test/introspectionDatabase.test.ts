@@ -129,11 +129,12 @@ describe('sqlite introspection of a table in an attached database', function () 
     it('tableInfo reads the columns, keys and Unique flags of that schema', async () => {
       const columns = await sqlite().tableInfo('p_up', 's');
 
-      expect(columns.map((c) => [c.Name, c.PrimaryKey, c.Unique, c.Schema])).to.deep.equal([
-        ['Id', true, false, 's'],
-        ['Code', false, true, 's'],
-        ['Name', false, false, 's'],
+      expect(columns.map((c) => [c.Name, c.PrimaryKey, c.Unique])).to.deep.equal([
+        ['Id', true, false],
+        ['Code', false, true],
+        ['Name', false, false],
       ]);
+      expect(columns.every((c) => c.Schema === 's')).to.equal(true);
     });
 
     it('tableInfo reads the foreign keys of that schema', async () => {
@@ -236,11 +237,12 @@ describe('sqlite introspection of a table in an attached database', function () 
       const statements = await statementsDuring(async () => (columns = await sqlite().tableInfo('p_pin')));
 
       expect(statements).to.deep.equal(['PRAGMA table_info("p_pin");', 'PRAGMA index_list("p_pin")', 'PRAGMA index_info("sqlite_autoindex_p_pin_1")', 'PRAGMA foreign_key_list("p_pin")']);
-      expect(columns.map((c) => [c.Name, c.Unique, c.Schema])).to.deep.equal([
-        ['Id', false, 's'],
-        ['Code', true, 's'],
-        ['ParentId', false, 's'],
+      expect(columns.map((c) => [c.Name, c.Unique])).to.deep.equal([
+        ['Id', false],
+        ['Code', true],
+        ['ParentId', false],
       ]);
+      expect(columns.every((c) => c.Schema === 's')).to.equal(true);
     });
 
     it('tableIndexes reads the unqualified table with the same pragmas', async () => {
