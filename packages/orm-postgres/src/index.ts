@@ -260,6 +260,15 @@ export class PostgresOrmDriver extends SqlDriver {
     return false;
   }
 
+  private async queryInTransaction(tx: IPostgresTransactionContext, sql: string, params: unknown[]): Promise<pg.QueryResult> {
+    try {
+      return await tx.connection.query(sql, params);
+    } catch (err) {
+      if (!answeredByServer(err)) tx.abandoned ??= err;
+      throw err;
+    }
+  }
+
   protected async _executeOnDbOnce(stmt: string, params: any[], context: QueryContext): Promise<any> {
     const finalQuery = toDriverStatement(stmt, params);
 
@@ -273,12 +282,7 @@ export class PostgresOrmDriver extends SqlDriver {
       if (txContext?.connection) {
         // A transaction owns its client for its whole lifetime — statements must never
         // land on another pooled connection.
-        try {
-          result = await txContext.connection.query(finalQuery, params);
-        } catch (err) {
-          if (!answeredByServer(err)) txContext.abandoned ??= err;
-          throw err;
-        }
+        result = await this.queryInTransaction(txContext, finalQuery, params);
       } else {
         const client = await this.acquireClient();
 
