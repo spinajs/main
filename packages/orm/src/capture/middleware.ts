@@ -5,6 +5,7 @@ import { InvalidOperation } from '@spinajs/exceptions';
 import { DeleteQueryBuilder, InsertQueryBuilder, UpdateQueryBuilder } from '../builders.js';
 import type { QueryBuilder } from '../builders.js';
 import { extractModelDescriptor } from '../descriptor.js';
+import type { OrmDriver } from '../driver.js';
 import type { LiveIndex } from '../introspection.js';
 import { WriteCaptureLimitExceeded } from '../exceptions.js';
 import { QueryMiddleware } from '../interfaces.js';
@@ -92,8 +93,12 @@ const isUpsert = (query: InsertQueryBuilder): boolean => query.Ignore === true |
 const indexCache = new WeakMap<object, Promise<LiveIndex[] | undefined>>();
 
 function indexesOf(query: InsertQueryBuilder, plan: Plan): Promise<LiveIndex[] | undefined> {
-  const read = async () => query.Driver.tableIndexes?.(plan.table);
-  const key = extractModelDescriptor(plan.statement.model)?.Columns;
+  const descriptor = extractModelDescriptor(plan.statement.model);
+  // The database the write is qualified with, passed as the ORM passes it to tableInfo() when it reflects the model
+  // (PostgreSQL reads its own `Database` as its default schema); `query.Driver` may be another connection of the server.
+  const database = descriptor?.Connection ? DI.resolve<OrmDriver | undefined>('OrmConnection', [descriptor.Connection])?.Options.Database : undefined;
+  const read = async () => query.Driver.tableIndexes?.(plan.table, database);
+  const key = descriptor?.Columns;
   if (!key) return read();
   const cached =
     indexCache.get(key) ??
