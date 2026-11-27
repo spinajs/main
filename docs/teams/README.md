@@ -15,7 +15,7 @@ npm install @spinajs/teams
 | Feature | What it does |
 | --- | --- |
 | [Invitations](01-invitations.md) | Link and email invitations into a team or group: create, revoke, resend, and accept once per user under a use limit. |
-| [Teams and tenancy](#teams-and-tenancy) | With `@spinajs/tenancy`, `teams.tenancy` says whether teams live inside tenants; `true` needs `@spinajs/tenancy-orm/teams` |
+| [Teams and tenancy](#teams-and-tenancy) | With `@spinajs/tenancy` the app must set `teams.tenancy`; in this release only `false` boots, and teams stay global. |
 
 ## Quick start
 
@@ -45,12 +45,17 @@ An app that imports `@spinajs/tenancy` must set `teams.tenancy`:
 { "teams": { "tenancy": false } }
 ```
 
-- `false` keeps one global tree of teams, as without tenancy.
-- `true` puts teams, groups and invitations inside tenants and needs `import '@spinajs/tenancy-orm/teams'`, which
-  registers a root scope inside the tenant.
+`false` keeps one global tree of teams: a team can hold users of several tenants, and a team id of one tenant is found
+from another. Teams, groups and invitations are not confined to a tenant: `listTeams` lists the readable teams of every
+tenant, and `getTeam` serves a team of another tenant to an actor the authz check allows. `false` is the only value
+that boots with `@spinajs/tenancy` until `@spinajs/tenancy-orm/teams` ships in a later release; `true` then puts teams
+inside tenants. In this release `true` refuses the boot.
 
-The authz domain boot (`TeamsTenancyCheck`, an `AuthzContributor`) refuses `teams.tenancy` unset while tenancy is
-imported, `true` without the teams bridge and `false` with it. Without `@spinajs/tenancy` the key may stay unset.
+`TeamsTenancyCheck`, an `AuthzContributor`, checks the key when the authz domain boots: it refuses `teams.tenancy` unset
+(or empty, `null`) while tenancy is imported, and any value but `true` or `false`. An HTTP app boots that domain when
+the server starts listening; a worker or a CLI without HTTP boots it at the first team operation the authz service
+checks, so the refusal comes there, not at process start. `teamsOf` and `teammatesOf` read the role stores without
+the authz service and never reach the check. Without `@spinajs/tenancy` the key may stay unset.
 
 ## Related packages
 
@@ -59,4 +64,3 @@ imported, `true` without the teams bridge and `false` with it. Without `@spinajs
 - [`@spinajs/authz-orm`](../authz-orm/README.md): the ancestor table that puts groups and app resources under a team.
 - [`@spinajs/authz-abac`](../authz-abac/README.md): the archived-team policies.
 - [`@spinajs/email`](../email/README.md): sends invitation mails.
-- [`@spinajs/tenancy-orm`](../tenancy-orm/README.md): `@spinajs/tenancy-orm/teams` puts teams, groups and invitations inside tenants.
