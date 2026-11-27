@@ -148,13 +148,7 @@ export class DynamoDbSessionProvider extends SessionProvider {
       return null;
     }
 
-    let session: ISession | null;
-    try {
-      session = this.toSession(result.Item);
-    } catch (err) {
-      this.Log.warn(`Session item ${sessionId} has undecodable Data: ${(err as Error).message}`);
-      return null;
-    }
+    const session = this.toSession(result.Item);
 
     // TTL deletion is eventual: an expired item may still be there.
     if (!session || this.isExpired(session)) {
@@ -374,10 +368,10 @@ export class DynamoDbSessionProvider extends SessionProvider {
   }
 
   /**
-   * The session of an item; null for an item without a readable Subject.
-   * `lenient` (revocation and listing): an item whose Data does not decode
-   * keeps the owner its attributes give and an empty Data, so one bad item
-   * cannot make a revokeAll throw.
+   * The session of an item; null for an item without a readable Subject, and
+   * for one whose Data does not decode. `lenient` (revocation and listing): such
+   * an item keeps the owner its attributes give and an empty Data, so one bad
+   * item cannot make a revokeAll throw.
    */
   protected toSession(item: AttributeMap, lenient = false): ISession | null {
     const subject = refOf(item.Subject?.S);
@@ -388,11 +382,12 @@ export class DynamoDbSessionProvider extends SessionProvider {
     let data: Map<string, unknown>;
     try {
       data = decodeSessionData(item.Data?.S);
-    } catch (err) {
+    } catch {
+      // The SessionId is a bearer credential's storage key, and the decoder's message can quote the stored Data.
+      this.Log.warn(`A session of ${principalKey(subject)} has Data that does not decode; ${lenient ? 'it is read with an empty Data' : 'it is treated as signed out'}`);
       if (!lenient) {
-        throw err;
+        return null;
       }
-      this.Log.warn(`Session item with undecodable Data read without its Data`);
       data = new Map();
     }
 
