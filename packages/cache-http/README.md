@@ -38,11 +38,13 @@ Limits of this version:
 - What the action reads of the request without an argument is not in the key either. On a `'tenant'` or `'shared'`
   route a reply that builds URLs from the request host (`req.hostname`, `req.protocol`) needs `vary: ['host']`, and
   `x-forwarded-host` (and `x-forwarded-proto`) behind a proxy: otherwise one caller's `Host` header plants its links in
-  the reply every caller gets. Without `@spinajs/intl-http` the language is not in the key: an action that reads
-  `Accept-Language` itself needs `vary: ['accept-language']`.
-- On a `'tenant'` or `'shared'` route a reply whose `Vary` names `Cookie` or `Authorization` is not stored: it was
-  made for one caller. Other names are not checked against the key (CORS adds `Vary: Origin` to every reply); a
-  header the body depends on belongs in `vary`.
+  the reply every caller gets. An action that reads `Accept-Language` itself needs `vary: ['accept-language']`, with or
+  without `@spinajs/intl-http`, which never reads that header.
+- On a `'tenant'` or `'shared'` route a reply whose route sets its own `Vary` naming `Cookie` or `Authorization` is
+  not stored: it was made for one caller. Only a `Vary` the route sets itself is checked: `@spinajs/intl-http` adds
+  `Vary: Cookie, X-Lang` and CORS `Vary: Origin` to every reply, and the language intl-http detects (from `?lang`, the
+  `lang` cookie or `X-Lang`) is in the key. intl-http joins its names into a `Vary` the route sets, so such a route is
+  not stored on a wider scope. A header the body depends on belongs in `vary`.
 - A reply that says `Cache-Control: no-cache` is not stored: a hit never asks the action again.
 - A hit sends the stored `Content-Type`, `Location`, `ETag` and, of the headers the route set in its reply, only those
   that describe the body (`Content-Language`, `Content-Disposition`, `Last-Modified`, `Link`, `Cache-Control`,

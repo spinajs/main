@@ -167,14 +167,19 @@ describe('the stored reply', () => {
     }
   });
 
-  it('is not taken on a wider scope from a response that varies on the cookie or the credentials of its caller', () => {
-    for (const vary of ['Cookie', 'accept, authorization', ['origin', ' COOKIE ']]) {
-      expect(replyToStore({ reply: STORED }, headersOf({ vary }), 'tenant'), String(vary)).to.eq(undefined);
-      expect(replyToStore({ reply: STORED }, headersOf({ vary }), 'shared'), String(vary)).to.eq(undefined);
-      expect(replyToStore({ reply: STORED }, headersOf({ vary }), 'principal'), String(vary)).to.deep.eq(KEPT);
+  it("is not taken on a wider scope when the route's own Vary names the cookie or the credentials of its caller", () => {
+    for (const vary of ['Cookie', 'accept, authorization', 'origin,  COOKIE ']) {
+      const reply = jsonReply({ headers: { ...STORED.headers, vary } });
+      expect(replyToStore({ reply }, headersOf({ vary }), 'tenant'), vary).to.eq(undefined);
+      expect(replyToStore({ reply }, headersOf({ vary }), 'shared'), vary).to.eq(undefined);
+      expect(replyToStore({ reply }, headersOf({ vary }), 'principal'), vary).to.deep.eq({ ...KEPT, headers: { ...KEPT.headers, vary } });
     }
-    // CORS varies every reply on Origin: it changes headers a middleware sets again on a hit, not the body
-    expect(replyToStore({ reply: STORED }, headersOf({ vary: 'Origin' }), 'shared')).to.not.eq(undefined);
+  });
+
+  it("is taken on a wider scope when only a server middleware's Vary names the cookie: intl-http keys the language, CORS sets its headers again", () => {
+    for (const vary of ['Cookie, X-Lang', 'Origin']) {
+      expect(replyToStore({ reply: STORED }, headersOf({ vary }), 'shared'), vary).to.deep.eq(KEPT);
+    }
   });
 
   it('keeps only the headers that describe the body, on every scope: X-Request-Id or a CSRF token belong to one request', () => {
