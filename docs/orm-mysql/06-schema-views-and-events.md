@@ -85,6 +85,7 @@ MySQL commits implicitly before and after `CREATE`, `ALTER`, `DROP`, `TRUNCATE` 
 
 - `Migration.Transaction.Mode = PerMigration` or `PerRun` opens a transaction, but a migration that fails after its third `CREATE TABLE` leaves all three applied.
 - A data change made before DDL in the same transaction is committed by that DDL.
+- A data change made after the DDL stays in the transaction. The driver runs a transaction with `autocommit = 0`, so the transaction's `COMMIT` or rollback decides it (see [Transactions](03-transactions.md#important-behaviour)).
 - `down()` may run against a half-applied `up()`.
 
 ### Migrations
