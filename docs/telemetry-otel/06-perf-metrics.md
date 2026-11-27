@@ -64,8 +64,9 @@ Recording a measurement only updates the sink's in-memory aggregation; the expor
 that interval's export and never reaches the code that measured. The first failed export of an outage logs one
 `warn` on the `otel` logger (`otel metrics export to <endpoint> failed`); the next failures are not logged until an
 export succeeds. The OpenTelemetry diagnostic logger also gets one error per failed interval, but it is silent unless
-the application installs one (`diag.setLogger`). An `otel.metrics.endpoint` that is not a URL logs `otel metrics export not started` once at `error` and
-leaves the sink inactive.
+the application installs one (`diag.setLogger`). An `otel.metrics.endpoint` that is not a URL, or a `%` sequence that does not decode in the headers variables, logs
+`otel metrics export not started: no OTLP exporter for <endpoint> (<reason>)` once at `error`, with the endpoint
+redacted in both places, and leaves the sink inactive.
 
 `@spinajs/tracing` owns the tracer provider and has no meter provider, so the sink keeps a private `MeterProvider`
 and never registers a global one. Disposing the container disposes the sink: it exports what is left, waits for that
