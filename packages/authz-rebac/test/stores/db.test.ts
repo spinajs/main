@@ -9,7 +9,7 @@ import type { OrmDriver, QueryContext } from '@spinajs/orm';
 
 import { fakeModelInitContext } from '@spinajs/authz-testing';
 
-import { AUTHZ_REBAC_TUPLE_TABLE, AuthzRebacCaveats_2026_11_06_00_00_00, AuthzRebac_2026_10_21_00_00_00, CAVEAT_CONTEXT_MAX, DbTupleStore, RebacModel, RebacTupleHandler, TupleCaveatConflict, TupleStore, caveatKey } from '../../src/index.js';
+import { AUTHZ_REBAC_TUPLE_TABLE, AuthzRebacCaveats_2026_11_06_00_00_00, AuthzRebac_2026_10_21_00_00_00, CAVEAT_CONTEXT_MAX, DbTupleStore, RebacModel, RebacScopeForgetter, RebacTupleHandler, TupleCaveatConflict, TupleStore, caveatKey } from '../../src/index.js';
 import type { Tuple } from '../../src/index.js';
 import { bootDb, rawQuery } from '../support/db.js';
 import type { TestDb } from '../support/db.js';
@@ -105,6 +105,13 @@ describe('authz-rebac: DbTupleStore (sqlite)', function () {
     await store.write([tuple(d1, 'viewer', set('group', 'eng', 'member')), tuple(d1, 'viewer', set('group', 'eng', 'member'))], [], user('admin'));
     const rows = (await rawQuery(db.driver, `SELECT namespace, object_id, relation, subject_key, subject_type, subject_id, subject_relation, created_by FROM ${AUTHZ_REBAC_TUPLE_TABLE}`)) as Record<string, unknown>[];
     expect(rows).to.deep.equal([{ namespace: 'doc', object_id: 'd1', relation: 'viewer', subject_key: 'group:eng#member', subject_type: 'group', subject_id: 'eng', subject_relation: 'member', created_by: 'user:admin' }]);
+  });
+
+  it('withSubjectObject answers the tuples whose subject is the object or one of its sets, in find order', async () => {
+    const store = new DbTupleStore();
+    const tuples = [tuple(d2, 'viewer', set('doc', 'd1', 'member')), tuple(d2, 'parent', { type: 'doc', id: 'd1' }), tuple(d2, 'viewer', set('doc', 'd10', 'member')), tuple(d2, 'viewer', user('d1')), tuple(d1, 'viewer', user('dave'))];
+    await db.driver.transaction((tx) => store.writeIn({ driver: tx }, tuples, [], user('admin')));
+    expect(await store.withSubjectObject(d1)).to.deep.equal([tuples[1], tuples[0]]);
   });
 
   it('writeIn joins a transaction: a rollback undoes the write', async () => {
@@ -283,6 +290,19 @@ for (const pg of [false, true]) {
         ]),
       ).to.equal(undefined);
       expect(await store.read(d1, 'viewer')).to.deep.equal([dave(other)]);
+    });
+
+    it('scope.forget removes the rows on the node and the rows whose subject is the node or a set of it', async () => {
+      await rawQuery(db.driver, `DELETE FROM ${AUTHZ_REBAC_TUPLE_TABLE}`);
+      const eng = ref('group', 'eng');
+      const kept = tuple(d2, 'viewer', set('group', 'engineering', 'member'));
+      await store.write([tuple(eng, 'member', user('bob')), tuple(d1, 'viewer', set('group', 'eng', 'member')), tuple(ref('group', 'all'), 'member', set('group', 'eng', 'member')), kept], [], user('admin'));
+      const container = DI.child();
+      container.register(() => store).as(TupleStore);
+      const ctx: AdminCallContext = { domain: 'test', now: new Date(), authz: { models: () => [] } as unknown as AuthzService, actor: SYSTEM, container, dryRun: false };
+      const out = await db.driver.transaction((tx) => new RebacScopeForgetter().forget(eng, ctx, { driver: tx }));
+      expect(out.affected).to.equal(3);
+      expect((await store.find({})).items).to.deep.equal([kept]);
     });
   });
 }

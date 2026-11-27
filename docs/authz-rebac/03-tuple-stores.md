@@ -26,6 +26,8 @@ interface Tuple { readonly object: ResourceRef; readonly relation: string; reado
 | `reverseTuples(subjects, relation, objectType)` | The tuples `#relation@s` for the subjects, caveats included. The default calls `reverseMany`, then `read` once per object: a custom store that keeps caveats should override it. |
 | `caveatsOn(objectType, relation, subjects)` | The distinct caveats among those tuples; the default runs one `find` per subject. |
 
+Both stores here also have `withSubjectObject(ref)`: the tuples whose subject is `ref` itself or a subject set of it (`#viewer@group:eng#member`, `#parent@folder:f1`), in `find` order. `scope.forget` uses it; it is not part of `TupleStore`, so a store of your own does not need it. On `DbTupleStore` it filters `subject_type` and `subject_id`, which no index covers: one table scan per call.
+
 Subject keys (`subjectKey`): `type:id` for a principal or an object, `type:id#relation` for a subject set; `:` in the type and `#` in the id are escaped, so keys never collide.
 
 ### `MemoryTupleStore`

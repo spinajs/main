@@ -3,7 +3,7 @@ import 'mocha';
 
 import { MemoryTupleStore, objectKey, readTuple, subjectKey, tupleKey } from '../../src/index.js';
 import { tupleStoreContract } from '../support/store-contract.js';
-import { d1, set, tuple, user } from '../support/world.js';
+import { d1, d2, set, tuple, user } from '../support/world.js';
 
 const expect = chai.expect;
 
@@ -28,6 +28,12 @@ describe('authz-rebac: MemoryTupleStore', () => {
     await store.write([], [tuple(d1, 'viewer', user('alice'))], user('admin'));
     expect(seen).to.have.length(1);
     expect(store.version()).to.not.equal(before);
+  });
+
+  it('withSubjectObject answers the tuples whose subject is the object or one of its sets, in find order', async () => {
+    const tuples = [tuple(d2, 'viewer', set('doc', 'd1', 'member')), tuple(d2, 'parent', { type: 'doc', id: 'd1' }), tuple(d2, 'viewer', set('doc', 'd10', 'member')), tuple(d2, 'viewer', user('d1')), tuple(d1, 'viewer', user('dave'))];
+    const store = new MemoryTupleStore(tuples);
+    expect(await store.withSubjectObject(d1)).to.deep.equal([tuples[1], tuples[0]]);
   });
 
   it('hands out copies: changing a read tuple does not change the store', async () => {
