@@ -1,0 +1,109 @@
+import 'mocha';
+import { expect } from 'chai';
+
+import type { PolicyIR, RelationDef, Rewrite } from '@spinajs/authz-ir';
+
+import { accessOf, holderKey, permissionMatrix, verifyAssertion } from '../src/index.js';
+import type { Assertion } from '../src/index.js';
+import { randomPolicy } from './oracle.js';
+
+const noSolver = { k: 2, solver: async () => undefined };
+const source = { origin: 'config:authz' };
+const tuples = (allowed: string[]): RelationDef => ({ allowed, source: { kind: 'tuples', store: 'authz_rebac_tuple' } });
+const viewer: Rewrite = { computed: 'viewer' };
+const never = (holder: string, permission = 'doc:read'): Assertion => ({ kind: 'never', holder, permission });
+
+/** `roles` maps a role to `<type>#<relation>` keys. */
+function policy(roles: Record<string, string[]>, read: Rewrite = viewer): PolicyIR {
+  return {
+    version: 1,
+    types: {
+      user: { relations: {}, permissions: {} },
+      doc: { relations: { viewer: tuples(['user']), commenter: tuples(['user']) }, permissions: { read } },
+    },
+    permissions: { 'doc:read': { type: 'doc', relation: 'read', list: false, source } },
+    caveats: {},
+    combine: { default: { algorithm: 'deny-overrides' } },
+    principal: { ceiling: false, delegation: false, ancestry: 'parent', roles: Object.fromEntries(Object.entries(roles).map(([r, keys]) => [r, keys.map((key) => ({ type: key.split('#')[0], relation: key.split('#')[1] }))])) },
+    opaque: [],
+  };
+}
+
+const HIDDEN: Rewrite[] = [{ opaque: 'model:legacy' }, { computed: 'undefined_relation' }];
+
+/** Each permission of a seeded policy gains a part the analysis cannot see: beside it, under it, or instead of it. */
+function withHiddenParts(seed: number): PolicyIR {
+  const ir = randomPolicy(seed);
+  let i = seed;
+  for (const def of Object.values(ir.types)) {
+    for (const [name, r] of Object.entries(def.permissions)) {
+      const hidden = HIDDEN[i % HIDDEN.length];
+      const shapes: Rewrite[] = [{ union: [r, hidden] }, { intersection: [r, hidden] }, hidden];
+      def.permissions[name] = shapes[i % shapes.length];
+      i++;
+    }
+  }
+  return ir;
+}
+
+/** Every selector `never()` takes for the policy: the rows, every role and role on a type, every relation, and the public forms. */
+function selectors(ir: PolicyIR): string[] {
+  const relations = Object.entries(ir.types).flatMap(([t, def]) => Object.keys(def.relations).map((r) => `${t}#${r}`));
+  const roles = Object.entries(ir.principal.roles).flatMap(([role, keys]) => [`role:${role}`, ...keys.map((k) => `role:${role}@${k.type}`)]);
+  return [...new Set([...permissionMatrix(ir).holders.map(holderKey), ...roles, ...relations, ...relations.map((r) => `public:${r}`), 'public'])];
+}
+
+describe('accessOf and never() on the same policy', function () {
+  this.timeout(120_000);
+
+  it('does not answer never for a permission that reaches an opaque term or an undefined name', async () => {
+    for (const read of [{ opaque: 'model:legacy' }, { computed: 'undefined_relation' }, { union: [{ computed: 'commenter' }, { opaque: 'model:legacy' }] }]) {
+      const ir = policy({}, read);
+      const m = permissionMatrix(ir);
+      for (const holder of ['doc#viewer', 'public']) {
+        const v = await verifyAssertion(ir, never(holder), noSolver);
+        expect([JSON.stringify(read), holder, v.result], 'never() is not decided').to.deep.equal([JSON.stringify(read), holder, 'unknown']);
+        expect([JSON.stringify(read), holder, accessOf(m, holder, 'doc:read')]).to.deep.equal([JSON.stringify(read), holder, 'conditional']);
+      }
+    }
+  });
+
+  it('keeps always where a holder reaches the permission beside an opaque term', async () => {
+    const ir = policy({}, { union: [viewer, { opaque: 'model:legacy' }] });
+    expect(await verifyAssertion(ir, never('doc#viewer'), noSolver)).to.include({ result: 'violated', engine: 'exact' });
+    expect(accessOf(permissionMatrix(ir), 'doc#viewer', 'doc:read')).to.equal('always');
+  });
+
+  it('answers never for no selector where never() is unknown through a hidden part, on seeded policies', async () => {
+    let unknown = 0;
+    for (let seed = 1; seed <= 16; seed++) {
+      const ir = withHiddenParts(seed);
+      const m = permissionMatrix(ir);
+      for (const holder of selectors(ir)) {
+        for (const permission of m.permissions) {
+          const v = await verifyAssertion(ir, never(holder, permission), noSolver);
+          if (v.result !== 'unknown' || !v.opaque.some((o) => o.kind === 'rewrite')) continue;
+          unknown++;
+          expect(`seed ${seed} ${holder} ${permission}: ${accessOf(m, holder, permission)}`).to.not.match(/: never$/);
+        }
+      }
+    }
+    expect(unknown).to.be.greaterThan(1000);
+  });
+
+  // Known limit: the matrix labels a relation by its first role only, and a role's row names one relation per type,
+  // so these reads answer never where never() is violated.
+  it('answers never for a second role and for a relation beside another one of the same role (known limit)', async () => {
+    const either: Rewrite = { union: [viewer, { computed: 'commenter' }] };
+    const cases: Array<[string, PolicyIR, string]> = [
+      ['second role', policy({ auditor: ['doc#viewer'], reader: ['doc#viewer'] }), 'role:reader'],
+      ['second role on a type', policy({ auditor: ['doc#viewer'], reader: ['doc#viewer'] }), 'role:reader@doc'],
+      ['collapsed relation', policy({ auditor: ['doc#viewer', 'doc#commenter'], reader: ['doc#commenter'] }, either), 'doc#commenter'],
+      ['one role on two relations', policy({ auditor: ['doc#viewer', 'doc#commenter'] }, either), 'doc#commenter'],
+    ];
+    for (const [name, ir, holder] of cases) {
+      expect(await verifyAssertion(ir, never(holder), noSolver), name).to.include({ result: 'violated', engine: 'exact' });
+      expect(accessOf(permissionMatrix(ir), holder, 'doc:read'), name).to.equal('never');
+    }
+  });
+});
