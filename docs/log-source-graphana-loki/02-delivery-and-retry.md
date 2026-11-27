@@ -11,8 +11,8 @@ The Loki target never blocks or throws into the code that logs. It buffers entri
 3. A flush starts when the buffer reaches `bufferSize`, on every `interval` tick, on `forceFlush()` and on `dispose()`. Only one flush runs at a time; a second call returns the running flush. Entries written during a flush wait for the next one.
 4. The flush hands the whole buffer to `send(batch)`, which posts it through `RetryPipeline`. The pipeline retries transient failures (table below), up to 5 retries.
 5. Success: `HasError` becomes `false`, `Error` becomes `null`, the overflow warning re-arms, and a trace message reports the count.
-6. Transient failure after the last retry: `HasError` becomes `true`, `Error` holds the error, an error is logged, and `Queue.requeueFront(batch)` puts the batch back at the front. The cap applies again, so a long outage drops the oldest entries.
-7. Permanent failure: `HasError` becomes `true`, every entry of the batch goes to `OnDropped(entry)`, an error is logged, and the batch is dropped. It is **not** retried.
+6. Transient failure after the last retry: `HasError` becomes `true`, `Error` holds an `Error` with the failure's `name`, `message`, `code` and HTTP `status` (not the axios error, whose request carries the host and the `Authorization` header), the same is logged, and `Queue.requeueFront(batch)` puts the batch back at the front. The cap applies again, so a long outage drops the oldest entries.
+7. Permanent failure: `HasError` becomes `true`, `Error` and the logged error are as in step 6, every entry of the batch goes to `OnDropped(entry)`, and the batch is dropped. It is **not** retried.
 
 ```mermaid
 sequenceDiagram

@@ -1638,6 +1638,7 @@ export interface ResourceRef {
 export type ResourceType = string;
 
 // SYSTEM (@spinajs/principal)
+/** @spinajs system-principal */
 export declare const SYSTEM: Principal;
 // value
 const SYSTEM = Object.freeze({

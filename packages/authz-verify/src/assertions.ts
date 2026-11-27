@@ -120,24 +120,27 @@ function permissionsMatching(ir: PolicyIR, glob: string): Permission[] {
 
 async function never(ir: PolicyIR, holder: string, glob: string, options: BoundedOptions): Promise<Verdict> {
   const verdicts: Verdict[] = [];
+  const m = new RewriteAutomaton(ir);
   for (const permission of permissionsMatching(ir, glob)) {
     // An anyone term needs no holder, so whoever the selector names reaches the permission through it. A reacher
     // is labelled by its relation's first role only, so the relation is matched by every role that holds it, and a
     // public member of that relation is one of its holders, as the bounded search reads it. The match runs inside
     // the exploration: it keeps one path per holder key, and a role's key names no relation.
-    const automaton = new RewriteAutomaton(ir);
-    const start = automaton.start(permission);
+    const start = m.start(permission);
     const selected = (h: HolderRef): boolean => h.kind === 'anyone' || matchesHolder(holder, h) || namesRelation(ir, holder, h.type, h.relation);
-    const hits = start === undefined ? [] : reachersOf(ir, permission, explore(automaton, start, selected));
+    const ex = start === undefined ? undefined : explore(m, start, selected);
+    const hits = ex === undefined ? [] : reachersOf(ir, permission, ex);
     hits.push(...reachedBehind(ir, permission, holder));
     const sure = hits.find((r) => !r.conditional);
     if (sure !== undefined) {
       const counterexample = await confirm(ir, sure.witness, { [permission]: 'allow' }, sure.paths[0]);
       verdicts.push({ result: 'violated', engine: 'exact', counterexample, opaque: [] });
-    } else if (hits.length === 0) {
+    } else if (hits.length === 0 && (ex === undefined || ex.opaque.length === 0)) {
+      // No hit is a proof only when the reachers are an upper bound; what answers an opaque part may grant anyone.
       verdicts.push({ result: 'holds', engine: 'exact', opaque: [] });
     } else {
-      verdicts.push(await bounded(ir, { checks: [{ permission, allowed: true }], admit: holderAdmits(ir, [holder], 'only') }, options));
+      const b = await bounded(ir, { checks: [{ permission, allowed: true }], admit: holderAdmits(ir, [holder], 'only') }, options);
+      verdicts.push(ex === undefined ? b : { ...b, opaque: mergeOpaque(opaqueOf(ir, ex), b.opaque) });
     }
   }
   return combine(verdicts, ir);

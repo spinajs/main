@@ -1,4 +1,4 @@
-import type { OpaqueRef, PolicyIR } from '@spinajs/authz-ir';
+import type { OpaqueRef, PolicyIR, TypeName } from '@spinajs/authz-ir';
 import type { Permission } from '@spinajs/authz';
 
 import { outcome } from '../witness.js';
@@ -54,6 +54,12 @@ export async function releaseSolver(): Promise<void> {
   await releaseZ3();
 }
 
+/** Why `universes` is empty; `holds` would claim a search that never ran. */
+function nothingToSearch(ir: PolicyIR, resourceType: TypeName): string {
+  if (Object.prototype.hasOwnProperty.call(ir.types, resourceType)) return 'no relation of the IR names a principal type, so there is no principal to search with';
+  return `the IR declares no type ${resourceType}, so there is no resource to search on`;
+}
+
 /**
  * Searches every universe of `k` objects per type for a scenario that answers the query, re-running each model
  * through the reference evaluator before calling it a counterexample (G7). No model means `holds` up to `k`.
@@ -65,7 +71,10 @@ export async function bounded(ir: PolicyIR, query: BoundedQuery, options: Bounde
   const first = query.checks[0];
   if (first === undefined || !Object.prototype.hasOwnProperty.call(ir.permissions, first.permission)) return { result: 'unknown', engine: 'bounded', bound: k, opaque: opaqueOf(ir) };
   let opaque = opaqueOf(ir);
-  for (const u of universes(ir, k, ir.permissions[first.permission].type)) {
+  const resourceType = ir.permissions[first.permission].type;
+  const searched = universes(ir, k, resourceType);
+  if (searched.length === 0) return { result: 'unknown', engine: 'bounded', bound: k, opaque, message: nothingToSearch(ir, resourceType) };
+  for (const u of searched) {
     let found: Found;
     try {
       found = await search(ir, query, u, solver, options.attempts ?? 8);
