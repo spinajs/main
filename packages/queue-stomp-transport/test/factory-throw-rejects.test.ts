@@ -224,9 +224,9 @@ describe('stomp transport - a websocket factory that throws rejects resolve()', 
 
       expect(outcome.state).to.equal('rejected');
       const error = outcome.state === 'rejected' ? outcome.error : undefined;
-      expect(error).to.be.instanceOf(InvalidArgument);
       const text = deepText([error, error instanceof Error ? error.cause : undefined, client.calls]);
       for (const planted of PLANTED) expect(text).to.not.contain(planted);
+      expect(error).to.be.instanceOf(InvalidArgument);
       expect(messageOf(error)).to.contain('Queue connection stomp-factory-throw').and.to.contain(shown(port));
       expect(unhandled.map(deepText)).to.deep.equal([]);
       expect(client.attempts).to.be.at.most(1);
