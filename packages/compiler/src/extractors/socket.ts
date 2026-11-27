@@ -4,7 +4,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { PolicyRef, SocketCommandEntry, SocketContractEntry, SocketControllerEntry, SocketEventEntry, TypeRef } from '@spinajs/manifest';
 import type { Extractor, ExtractorContext } from '../context.js';
-import { findDecorator, literalValue, type DecoratorInfo } from '../decorators.js';
+import { findDecorator, identifierName, literalValue, type DecoratorInfo } from '../decorators.js';
 import { policyGroupsOf } from './policies.js';
 import { owningPackage } from '../owning-package.js';
 
@@ -47,16 +47,29 @@ function resultOf(m: NamedMethod, className: string, ctx: ExtractorContext): Pic
   return item ? { result: ctx.typeRef(item, m, hint), stream: true } : { result: ctx.typeRef(returned, m, hint) };
 }
 
-/** `@SocketAccess` joins the `@SocketPolicy` groups as one more alternative, like `@Access` on a route. */
-function guardsOf(node: ts.HasDecorators, scope: 'route' | 'class', ctx: ExtractorContext): { access?: string[]; policies: PolicyRef[][] } {
+/** The policy class `@SocketAccess` mounts (http-socket access.ts). */
+export const SOCKET_ACCESS_POLICY = 'SocketAccessPolicy';
+
+type SocketScope = 'handler' | 'class';
+
+/** The `also` policies of `@SocketAccess(permission, { also: [A, B] })`, by class name. */
+function alsoOf(node: ts.HasDecorators): string[] {
+  const options = findDecorator(node, 'SocketAccess')?.args[1];
+  if (!options || !ts.isObjectLiteralExpression(options)) return [];
+  const also = options.properties.find((p): p is ts.PropertyAssignment => ts.isPropertyAssignment(p) && p.name.getText() === 'also')?.initializer;
+  return also && ts.isArrayLiteralExpression(also) ? also.elements.map((e) => identifierName(e) ?? 'unknown') : [];
+}
+
+/** `@SocketAccess` joins the `@SocketPolicy` groups as one more alternative: its policy and the `also` policies, ANDed. */
+function guardsOf(node: ts.HasDecorators, scope: SocketScope, ctx: ExtractorContext): { access?: string[]; policies: PolicyRef[][] } {
   const access = socketAccessOf(node, ctx);
-  const policies = policyGroupsOf(node, ctx, scope);
-  if (access) policies.push([{ type: 'AccessPolicy', options: [scope] }]);
+  const policies = policyGroupsOf(node, ctx, scope === 'class' ? 'class' : 'route');
+  if (access) policies.push([{ type: SOCKET_ACCESS_POLICY, options: [scope] }, ...alsoOf(node).map((type) => ({ type, options: [] as unknown[] }))]);
   return { ...(access ? { access } : {}), policies };
 }
 
 function eventOf(m: NamedMethod, className: string, ev: DecoratorInfo, ctx: ExtractorContext): SocketEventEntry {
-  const { access, policies } = guardsOf(m, 'route', ctx);
+  const { access, policies } = guardsOf(m, 'handler', ctx);
   return {
     name: (literalValue(ev.args[0], ctx) as string | undefined) ?? m.name.text,
     handler: m.name.text,
@@ -67,7 +80,7 @@ function eventOf(m: NamedMethod, className: string, ev: DecoratorInfo, ctx: Extr
 }
 
 function commandOf(m: NamedMethod, className: string, cmd: DecoratorInfo, ctx: ExtractorContext): SocketCommandEntry {
-  const { access, policies } = guardsOf(m, 'route', ctx);
+  const { access, policies } = guardsOf(m, 'handler', ctx);
   return {
     name: (literalValue(cmd.args[0], ctx) as string | undefined) ?? m.name.text,
     handler: m.name.text,

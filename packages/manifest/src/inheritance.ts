@@ -4,6 +4,10 @@ import { IDEMPOTENCY_MIDDLEWARE, idempotencyOf } from './route-idempotency.js';
 
 const ACCESS_POLICY = 'AccessPolicy';
 const FIELDS_MIDDLEWARE = 'AuthzFieldsMiddleware';
+const SOCKET_ACCESS_POLICY = 'SocketAccessPolicy';
+
+// A fragment written before the socket group had its own name carries `AccessPolicy` there.
+const isSocketAccessGroup = (group: PolicyRef[]): boolean => group[0]?.type === SOCKET_ACCESS_POLICY || group[0]?.type === ACCESS_POLICY;
 
 /** What a subclass declares on a method it redeclares; `route` is set when the method carries a verb decorator. */
 export interface RouteOverride {
@@ -145,7 +149,7 @@ export function inheritSocketHandlers(entry: SocketControllerEntry, bases: reado
     // A class's own @SocketAccess replaces the inherited one; other inherited class groups stay alternatives before its own.
     // Groups already present are skipped, so merging an entry that already carries its bases changes nothing.
     const present = new Set(policies.map((g) => JSON.stringify(g)));
-    const inherited = (base.policies ?? []).filter((g) => (access === undefined || !g.some((p) => p.type === 'AccessPolicy')) && !present.has(JSON.stringify(g)));
+    const inherited = (base.policies ?? []).filter((g) => (access === undefined || !isSocketAccessGroup(g)) && !present.has(JSON.stringify(g)));
     policies = [...inherited, ...policies];
     access ??= base.access;
     commands.push(...base.commands.filter((c) => !commands.some((own) => own.handler === c.handler)).map((c) => ({ ...c, inheritedFrom: c.inheritedFrom ?? base.id })));

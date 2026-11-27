@@ -1,14 +1,16 @@
 import ts from 'typescript';
 import type { SourceRef } from '@spinajs/manifest';
 import type { ExtractorContext } from '../context.js';
-import { findDecorator, identifierName } from '../decorators.js';
+import { findDecorator, identifierName, literalValue } from '../decorators.js';
 import { baseClassOf } from '../schema/framework-members.js';
 import { classSymbolOf, modelIdOf } from './access-resources.js';
 
-/** What an `AccessPolicy` ref of an entry point carries after its permissions. */
+/** What an access ref of an entry point carries after its permissions. */
 export interface AccessOptions {
   allowAnonymous?: true;
   resource?: { type: string } | { model: string };
+  /** `@SocketAccess(…, { unfilteredInput })`: why the payload skips the input field filter. */
+  unfilteredInput?: string;
 }
 
 // The argument that names the resource type, per extractor of authz-http and http-socket.
@@ -31,14 +33,24 @@ function extractorOf(expr: ts.Expression, ctx: ExtractorContext): AccessOptions[
 const propertyOf = (options: ts.ObjectLiteralExpression, name: string): ts.Expression | undefined =>
   options.properties.find((p): p is ts.PropertyAssignment => ts.isPropertyAssignment(p) && p.name.getText() === name)?.initializer;
 
-/** The literal `resource` extractor and `allowAnonymous` of the `@Access` / `@SocketAccess` on `node`. */
+/** A reason the extractor cannot read still skips the filter at run time, so its source text stands in for it. */
+function unfilteredInputOf(expr: ts.Expression | undefined, ctx: ExtractorContext): string | undefined {
+  if (!expr) return undefined;
+  const reason = literalValue(expr, ctx);
+  if (typeof reason !== 'string') return expr.getText();
+  // The decorator throws on an empty reason when the module loads, so an empty one never runs.
+  return reason.trim() === '' ? undefined : reason;
+}
+
+/** The literal `resource` extractor, `allowAnonymous` and `unfilteredInput` of the `@Access` / `@SocketAccess` on `node`. */
 export function accessOptionsOf(node: ts.HasDecorators | undefined, ctx: ExtractorContext): AccessOptions {
   const options = node && findDecorator(node, ...ACCESS_DECORATORS)?.args[1];
   if (!options || !ts.isObjectLiteralExpression(options)) return {};
   const resourceExpr = propertyOf(options, 'resource');
   const resource = resourceExpr && extractorOf(resourceExpr, ctx);
   const anonymous = propertyOf(options, 'allowAnonymous')?.kind === ts.SyntaxKind.TrueKeyword;
-  return { ...(anonymous ? { allowAnonymous: true as const } : {}), ...(resource ? { resource } : {}) };
+  const unfilteredInput = unfilteredInputOf(propertyOf(options, 'unfilteredInput'), ctx);
+  return { ...(anonymous ? { allowAnonymous: true as const } : {}), ...(resource ? { resource } : {}), ...(unfilteredInput !== undefined ? { unfilteredInput } : {}) };
 }
 
 /** The class-level options as the runtime inherits them: the nearest class of the chain that declares `@Access` / `@SocketAccess`. */

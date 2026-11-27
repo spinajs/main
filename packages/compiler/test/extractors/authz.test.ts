@@ -5,6 +5,7 @@ import { analyzePackage } from '../../src/index.js';
 import { combineScopes, ignoreCommentsOf } from '../../src/extractors/authz.js';
 
 const access = (...permissions: string[]) => ({ type: 'AccessPolicy', options: permissions });
+const socketAccess = (...permissions: string[]) => ({ type: 'SocketAccessPolicy', options: permissions });
 const admin = { type: 'AdminPolicy', options: [] };
 
 describe('authz section', () => {
@@ -54,17 +55,17 @@ describe('authz section', () => {
 
   it('captures class-level and event @SocketAccess and @SocketPolicy', () => {
     const docs = fragment.socketControllers.find((c) => c.className === 'DocsSocket')!;
-    expect(docs).to.deep.include({ access: ['doc:read'], policies: [[admin], [{ type: 'AccessPolicy', options: ['class'] }]] });
-    expect(docs.events.find((e) => e.name === 'seen')).to.deep.include({ access: ['doc:read'], policies: [[{ type: 'AccessPolicy', options: ['route'] }]] });
+    expect(docs).to.deep.include({ access: ['doc:read'], policies: [[admin], [{ type: 'SocketAccessPolicy', options: ['class'] }]] });
+    expect(docs.events.find((e) => e.name === 'seen')).to.deep.include({ access: ['doc:read'], policies: [[{ type: 'SocketAccessPolicy', options: ['handler'] }]] });
     const open = fragment.socketControllers.find((c) => c.className === 'OpenSocket')!;
     expect(open).to.not.have.any.keys('access', 'policies');
     expect(open.events[0]).to.not.have.any.keys('access', 'policies');
   });
 
   it('lists socket commands and events with the class and handler scopes combined', () => {
-    expect(entry('docs.edit')).to.deep.include({ kind: 'socket-command', access: [[admin, access('doc:update')], [access('doc:read'), access('doc:update')]] });
-    expect(entry('docs.ping')?.access).to.deep.equal([[admin], [access('doc:read')]]);
-    expect(entry('docs.seen')).to.deep.include({ kind: 'socket-event', access: [[admin, access('doc:read')], [access('doc:read'), access('doc:read')]] });
+    expect(entry('docs.edit')).to.deep.include({ kind: 'socket-command', access: [[admin, socketAccess('doc:update')], [socketAccess('doc:read'), socketAccess('doc:update')]] });
+    expect(entry('docs.ping')?.access).to.deep.equal([[admin], [socketAccess('doc:read')]]);
+    expect(entry('docs.seen')).to.deep.include({ kind: 'socket-event', access: [[admin, socketAccess('doc:read')], [socketAccess('doc:read'), socketAccess('doc:read')]] });
     expect(entry('hello')).to.deep.include({ kind: 'socket-event', access: [] });
   });
 
@@ -86,17 +87,17 @@ describe('authz section', () => {
 
   it('gives a socket subclass the class guards of its base, its own @SocketAccess replacing the inherited one', () => {
     const child = fragment.socketControllers.find((c) => c.className === 'ChildSocket')!;
-    expect(child).to.deep.include({ access: ['doc:read'], policies: [[admin], [{ type: 'AccessPolicy', options: ['class'] }]] });
-    expect(entry('child.own')?.access).to.deep.equal([[admin], [access('doc:read')]]);
-    expect(entry('child.base')?.access).to.deep.equal([[admin], [access('doc:read')]]);
+    expect(child).to.deep.include({ access: ['doc:read'], policies: [[admin], [{ type: 'SocketAccessPolicy', options: ['class'] }]] });
+    expect(entry('child.own')?.access).to.deep.equal([[admin], [socketAccess('doc:read')]]);
+    expect(entry('child.base')?.access).to.deep.equal([[admin], [socketAccess('doc:read')]]);
     const narrow = fragment.socketControllers.find((c) => c.className === 'NarrowSocket')!;
-    expect(narrow).to.deep.include({ access: ['doc:update'], policies: [[admin], [{ type: 'AccessPolicy', options: ['class'] }]] });
-    expect(entry('narrow.base')?.access).to.deep.equal([[admin], [access('doc:update')]]);
+    expect(narrow).to.deep.include({ access: ['doc:update'], policies: [[admin], [{ type: 'SocketAccessPolicy', options: ['class'] }]] });
+    expect(entry('narrow.base')?.access).to.deep.equal([[admin], [socketAccess('doc:update')]]);
   });
 
   it('records the literal resource extractor and anonymous access with the permissions', () => {
-    const share = { type: 'AccessPolicy', options: ['doc:share', { allowAnonymous: true, resource: { type: 'doc' } }] };
-    expect(entry('narrow.share')?.access).to.deep.equal([[admin, share], [access('doc:update'), share]]);
+    const share = { type: 'SocketAccessPolicy', options: ['doc:share', { allowAnonymous: true, resource: { type: 'doc' } }] };
+    expect(entry('narrow.share')?.access).to.deep.equal([[admin, share], [socketAccess('doc:update'), share]]);
     expect(entry('GET /open/note/:id')?.access).to.deep.equal([[{ type: 'AccessPolicy', options: ['doc:read', { allowAnonymous: true, resource: { type: 'doc' } }] }]]);
     expect(entry('GET /open/model/:id')?.access).to.deep.equal([[{ type: 'AccessPolicy', options: ['doc:update', { resource: { model: 'authz-pkg:Note' } }] }]]);
     expect(entry('GET /open/typed/:id')?.access).to.deep.equal([[{ type: 'AccessPolicy', options: ['report:run', { resource: { type: 'report' } }] }]]);
