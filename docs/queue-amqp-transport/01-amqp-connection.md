@@ -61,7 +61,7 @@ When neither `username` nor `password` reaches amqplib, amqplib logs in as `gues
 
 ### Logged broker address
 
-The `Connecting to AMQP queue at ...` line (`info`, on every connect and reconnect) and the connect error print the broker without credentials and query: a URL `host` as scheme, host, port and vhost (`amqps://user:pass@broker:5671/prod?heartbeat=30` prints `amqps://broker:5671/prod`), a value that `new URL()` rejects as `<not a URL>`, and any other `host` as `amqp://<host>:<port>/<options.vhost>`. A vhost segment longer than 16 characters or with other characters than letters, digits, `.`, `_`, `~` and `-` (a percent-encoded `/%2F`, for one) prints as `***`. Prefer `login` / `password` over credentials in the URL.
+The `Connecting to AMQP queue at ...` line (`info`, on every connect and reconnect) and the connect error print the broker without credentials and query: a URL `host` as scheme, host, port and vhost (`amqps://user:pass@broker:5671/prod?heartbeat=30` prints `amqps://broker:5671/prod`), a value that `new URL()` rejects as `<not a URL>`, and any other `host` as `amqp://<host>:<port>/<options.vhost>`. The vhost is printed as the URL carries it (`/%2F` for the default vhost written encoded); a URL with an `@` after the host (an unencoded `/`, `?` or `#` in the password) prints as `<not a URL>`. Prefer `login` / `password` over credentials in the URL.
 
 ## Configuration
 
@@ -201,7 +201,7 @@ Import the module that declares the class before `QueueService` resolves; see [E
 - Use an `amqps://` URL with `options.ca` in production; a plain `amqp://` host sends credentials in clear text.
 - Give each app a distinct `app.name`. The broker management UI then shows `<app>-<env>-<connection>` for each connection.
 - Set `options.heartbeat` (or `?heartbeat=` in the `host` URL) so dead TCP connections are detected and the reconnect starts.
-- Keep secrets out of the `host` URL when the URL is logged: the connect log prints `host` as configured. Use `login` and `password` instead.
+- Prefer `login` and `password` over credentials in the `host` URL. The logs print the broker without them (see [Logged broker address](#logged-broker-address)), but the URL still sits in every config file and environment dump that holds it.
 
 ## Patterns and antipatterns
 
@@ -214,7 +214,7 @@ Import the module that declares the class before `QueueService` resolves; see [E
 ```
 
 ```ts
-// Don't: credentials in the URL end up in the "Connecting to AMQP queue at ..." log line
+// Don't: the password sits in the URL, in every config file and environment dump that holds it
 { service: 'AmqpQueueClient', name: 'rabbit', host: 'amqp://app:s3cret@rabbitmq.internal' }
 
 // Do: keep the URL free of secrets
