@@ -43,10 +43,10 @@ A select whose where statements are exactly one primary-key equality is a single
 
 Inside a route whose `@Access` decision is conditional (its residual is not `TRUE`: a type-level rule, or `conditional: 'action'`), no check covered that row, so the guard flags a single-object load like any other select. Outside a request, where no decision is stored, single-object loads pass as before.
 
-- The `IS NULL` statements the ORM adds for `@SoftDelete` and `@Archived` columns do not count.
+- The `IS NULL` filters the ORM adds for `@SoftDelete` and `@Archived` columns do not count. A `whereNull('deleted_at')` the query writes itself is a statement of its own and makes it a list.
 - `whereIn(pk, [one value])` counts as one equality; two values do not.
-- Any other statement, a second key, or an `OR` makes it a list.
-- The `OR` counts wherever it stands after the first statement, the `IS NULL` statements included. The ORM joins where statements without grouping them, so on a `@SoftDelete` model `Task.query().orWhere('id', 42)` reads `deleted_at IS NULL OR id = 42`: every live row. `Task.where('id', 42).orWhere('deleted_at', null)` is a list for the same reason. An `orWhere()` that is the only statement (`Task.query().withDeleted().withArchived().orWhere('id', 42)`) is still one equality.
+- Any other statement, a second key, or an `OR` between two statements makes it a list.
+- The ORM ANDs its `IS NULL` filters with the query's statements as one group, so an `orWhere()` on the key that is the only statement is one equality: `Task.query().orWhere('id', 42)` reads `deleted_at IS NULL AND archived_at IS NULL AND id = ?`, one row, and passes, also with `first()` or `selectCount()`. `Task.where('id', 42).orWhere('deleted_at', null)` reads `… AND ( id = ? OR deleted_at IS NULL )`, every live row: a list.
 
 ## `guardMode()`
 
