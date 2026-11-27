@@ -89,6 +89,27 @@ describe('sqlite sql expressions', function () {
     expect(() => driver().Container.resolve(SqlExpressions).ago(-1, 'day')).to.throw(InvalidArgument, 'ago(): amount must be a non-negative integer');
   });
 
+  it('equalsExactly matches byte for byte also on a column declared COLLATE NOCASE', async () => {
+    await driver().executeOnDb('CREATE TABLE exact_nocase (Name TEXT COLLATE NOCASE)', [], QueryContext.Schema);
+    await driver()
+      .insert()
+      .into('exact_nocase')
+      .values([{ Name: 'a' }, { Name: 'A' }, { Name: 'A ' }]);
+    const exact = driver().Container.resolve(SqlExpressions).equalsExactly('Name', { sql: '?', bindings: ['A'] });
+    const rows = (await driver().executeOnDb(`SELECT Name FROM exact_nocase WHERE ${exact.sql}`, [...exact.bindings], QueryContext.Select)) as Array<{ Name: string }>;
+
+    expect(rows.map((r) => r.Name)).to.deep.eq(['A']);
+  });
+
+  it('equalsExactly still seeks the index of a column of the default collation', async () => {
+    await driver().executeOnDb('CREATE TABLE exact_binary (Name TEXT)', [], QueryContext.Schema);
+    await driver().executeOnDb('CREATE INDEX exact_binary_name ON exact_binary (Name)', [], QueryContext.Schema);
+    const exact = driver().Container.resolve(SqlExpressions).equalsExactly('Name', { sql: '?', bindings: ['A'] });
+    const plan = (await driver().executeOnDb(`EXPLAIN QUERY PLAN SELECT Name FROM exact_binary WHERE ${exact.sql}`, [...exact.bindings], QueryContext.Select)) as Array<{ detail: string }>;
+
+    expect(plan.map((p) => p.detail).join(' ')).to.contain('USING COVERING INDEX exact_binary_name');
+  });
+
   it('adds no clause for a row lock: a write transaction locks the whole database', () => {
     const plain = driver().select().from('t').where('Id', 1).toDB().expression;
     expect(driver().select().from('t').where('Id', 1).forUpdate().toDB().expression).to.eq(plain);

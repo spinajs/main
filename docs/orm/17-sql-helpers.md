@@ -46,7 +46,7 @@ Every other error rejects as `OrmException` with the client's error as `inner`.
 | `castText(expression, length?)` | `expression` as text; `length` bounds the type where the dialect needs one | `CAST(x AS TEXT)` | `CAST(x AS TEXT)` | `CAST(x AS CHAR[(n)])` | `CAST(x AS NVARCHAR(n \| MAX))` |
 | `datetimeText(expression)` | A datetime column as text, never shifted into the process zone. The text differs by dialect: SQLite returns the stored ISO 8601 text (`yyyy-MM-ddTHH:mm:ss.SSSZ`), PostgreSQL a `timestamptz` in the UTC session (`yyyy-MM-dd HH:mm:ss[.SSS]+00`), MySQL and MSSQL `yyyy-MM-dd HH:mm:ss.SSS` | `x` (stored as text) | `CAST(x AS TEXT)` | `CAST(x AS CHAR)` | `CONVERT(varchar(23), x, 121)` |
 | `contains(haystack, needle)` | `SqlFragment`, true where `needle` occurs in `haystack` | `instr(h, n) > 0` | `strpos(h, n) > 0` | `LOCATE(n, h) > 0` | `CHARINDEX(n, h) > 0` |
-| `equalsExactly(left, right)` | `SqlFragment`, `left = right` byte for byte, whatever the column collation | `l = r` | `l = r` | `l = CAST(r AS BINARY)` | `l = r COLLATE Latin1_General_BIN2` plus a `LEN(… + 'x')` check for trailing spaces; binds `right` twice |
+| `equalsExactly(left, right)` | `SqlFragment`, `left = right` byte for byte, whatever the column collation | `l = r COLLATE BINARY` | `l = r` | `l = CAST(r AS BINARY)` | `l = r COLLATE Latin1_General_BIN2` plus a `LEN(… + 'x')` check for trailing spaces; binds `right` twice |
 
 The base `SqlExpressions` throws `NotSupported` from every method, so a driver that registers none fails loudly instead of emitting another dialect's SQL. To add or fix one, subclass a shipped implementation and register it `.as(SqlExpressions)` in the driver's `resolve()`; see [Adding a new SQL dialect](../orm-sql/07-adding-a-sql-dialect.md).
 

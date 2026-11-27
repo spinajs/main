@@ -15,9 +15,9 @@ export class SqliteSqlExpressions extends SqlExpressions {
     return { sql: `instr(${haystack.sql}, ${needle.sql}) > 0`, bindings: [...haystack.bindings, ...needle.bindings] };
   }
 
-  // BINARY is the default collation.
+  // A column declared COLLATE NOCASE would fold case in a plain `=`; the operand's explicit collation wins over it.
   public equalsExactly(left: string, right: SqlFragment): SqlFragment {
-    return { sql: `${left} = ${right.sql}`, bindings: [...right.bindings] };
+    return { sql: `${left} = ${right.sql} COLLATE BINARY`, bindings: [...right.bindings] };
   }
 
   public epochMillis(): string {
