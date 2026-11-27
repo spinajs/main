@@ -210,7 +210,7 @@ the row was unreadable reads the assignment as never expiring. In `authz_assignm
 
 ```sql
 -- PostgreSQL
-SELECT id, expires_at::text FROM authz_assignment WHERE NOT isfinite(expires_at) OR expires_at > '275760-09-13';
+SELECT id, expires_at::text FROM authz_assignment WHERE NOT isfinite(expires_at) OR expires_at > '275760-09-13 00:00:00+00';
 -- MySQL
 SELECT id, CAST(expires_at AS CHAR) FROM authz_assignment WHERE CAST(expires_at AS CHAR) LIKE '%-00%';
 -- SQLite
