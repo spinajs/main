@@ -96,7 +96,7 @@ Public members a user can rely on:
 | `write(entry: ILogEntry): void` | Buffers one entry. Never throws and never rejects |
 | `forceFlush(): Promise<void>` | Exports everything buffered now; waits for an in-flight export first. Resolves even when the export fails |
 | `dispose(): Promise<void>` | Stops the flush timer and makes a final flush |
-| `HasError: boolean`, `Error: unknown` | Set after a failed export, cleared after a successful one |
+| `HasError: boolean`, `Error: unknown` | Set after a failed export, cleared after a successful one. `Error` is an `Error` with the failure's `name`, `message`, `code` and HTTP `status`, not the axios error (whose request config holds the endpoint and `headers`) |
 | `Options: IOtlpTargetOptions` | The merged, flattened options |
 
 ## Important behaviour
@@ -112,7 +112,7 @@ Public members a user can rely on:
 
 - Set `resource["service.name"]`: most OTLP backends group and search logs by it.
 - Keep `bufferSize` well below `maxBufferSize`, so a few failed exports can be retried before records are dropped.
-- Put secrets in `options.headers` from configuration or environment, not in the `endpoint` URL: the URL is logged in the target's trace line.
+- Put secrets in `options.headers` from configuration or environment, not in the `endpoint` URL. The target's log lines print the endpoint without userinfo, query and fragment, with a path segment that may be a token as `***` and an endpoint that does not parse as `<not a URL>`, and its `error` lines carry `{ name, message, code, status }` of the failure instead of the axios error. axios sends userinfo in the URL as an `Authorization: Basic` header, which replaces an `Authorization` header from `headers`.
 - Route the OTLP target behind a `FallbackGroupTarget` when losing logs during a collector outage is not acceptable. See [Drop hook and fallback targets](04-drop-hook-and-fallback.md).
 - Call `Log.flushAll()` before `process.exit()`. The automatic `beforeExit` drain from `@spinajs/log` does not run on hard exits.
 
