@@ -242,7 +242,8 @@ function sides(u: Universe, type: TypeName): [ObjectRef, ObjectRef] {
 function boundary(e: Encoder, u: Universe, type: TypeName): Formula[] {
   const [t1, t2] = sides(u, type);
   const inside = (o: ObjectRef): Formula => and(e.under(o, t1), not(e.under(o, t2)));
-  const out: Formula[] = [and(e.under(u.resource, t2), not(e.under(u.resource, t1)))];
+  // A principal that is itself the resource is inside it: reaching itself crosses nothing.
+  const out: Formula[] = [and(e.under(u.resource, t2), not(e.under(u.resource, t1))), not(e.under(u.principal, t2))];
   for (const [name, t] of [...e.tuples]) {
     if (t.subject.relation === undefined && t.subject.type === u.principal.type && t.subject.id === u.principal.id) out.push(or(not({ var: name }), inside(t.object)));
   }
