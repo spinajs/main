@@ -6,7 +6,7 @@ import type { MetricData, PushMetricExporter, ResourceMetrics } from '@opentelem
 import { DI } from '@spinajs/di';
 import { Perf } from '@spinajs/log';
 import { OtelPerfSink } from '../src/perf-sink.js';
-import { setField, silentLog } from './support.js';
+import { setField } from './support.js';
 
 /** Collects on demand: what an exporter would receive, without a network. */
 class TestReader extends MetricReader {
@@ -36,6 +36,8 @@ class BrokenExporter implements PushMetricExporter {
 interface Logged {
   errors: Record<string, unknown>[];
   warnings: Record<string, unknown>[];
+  /** Every log call of any level, fields and message, with an error's message spelled out. */
+  text: () => string;
 }
 
 /**
@@ -45,11 +47,16 @@ interface Logged {
 function configure(sink: OtelPerfSink, enabled: boolean, config: Record<string, unknown> = { 'tracing.serviceName': 'test-service' }, reader: MetricReader | null = new TestReader()): Logged {
   const values = new Map(Object.entries(config));
   const configuration = { get: (path: string, fallback?: unknown) => (values.has(path) ? values.get(path) : fallback) };
-  const logged: Logged = { errors: [], warnings: [] };
+  const calls: unknown[][] = [];
+  const logged: Logged = { errors: [], warnings: [], text: () => JSON.stringify(calls, (_key, value: unknown) => (value instanceof Error ? `${value.name}: ${value.message}` : value)) };
   setField(sink, 'enabled', enabled);
   setField(sink, 'endpoint', values.get('otel.metrics.endpoint') ?? 'http://127.0.0.1:9/v1/metrics');
   setField(sink, 'exportIntervalMs', 60_000);
-  setField(sink, 'log', { ...silentLog, error: (fields: Record<string, unknown>) => void logged.errors.push(fields), warn: (fields: Record<string, unknown>) => void logged.warnings.push(fields) });
+  setField(sink, 'log', {
+    info: (...args: unknown[]) => void calls.push(args),
+    error: (fields: Record<string, unknown>, ...rest: unknown[]) => void (logged.errors.push(fields), calls.push([fields, ...rest])),
+    warn: (fields: Record<string, unknown>, ...rest: unknown[]) => void (logged.warnings.push(fields), calls.push([fields, ...rest])),
+  });
   setField(sink, 'Container', { get: () => configuration });
   if (reader) sink.start(reader);
   return logged;
@@ -203,6 +210,18 @@ describe('OtelPerfSink', () => {
     sink.collect({ name: 'cache.hit', kind: 'counter', value: 1 });
     expect(sink.active).to.eq(false);
     expect(logged.errors).to.have.length(1);
+  });
+
+  it('logs the endpoint without its userinfo and query string', () => {
+    for (const endpoint of ['http://user:pw-secret@127.0.0.1:9/v1/metrics?token=q-secret', 'not a url user:pw-secret@host?token=q-secret']) {
+      const sink = new OtelPerfSink();
+      const logged = configure(sink, true, { 'otel.metrics.endpoint': endpoint }, null);
+      sink.start();
+      expect(logged.text()).to.contain('otel metrics export');
+      expect(logged.text()).to.not.contain('pw-secret');
+      expect(logged.text()).to.not.contain('q-secret');
+      void sink.dispose();
+    }
   });
 
   for (const mode of ['hang', 'throw', 'fail'] as const) {

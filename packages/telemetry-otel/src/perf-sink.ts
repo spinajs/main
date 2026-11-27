@@ -96,7 +96,7 @@ export class OtelPerfSink extends PerfSink {
     });
     this.meter = this.provider.getMeter(PERF_METER_NAME);
     this.dropped = this.meter.createCounter(DROPPED_METRIC, { description: 'Perf measurements OtelPerfSink did not export' });
-    if (!reader) this.log.info({ endpoint: this.endpoint }, 'otel metrics export started (endpoint=${endpoint})');
+    if (!reader) this.log.info({ endpoint: loggableEndpoint(this.endpoint) }, 'otel metrics export started (endpoint=${endpoint})');
   }
 
   public collect(metric: IPerfMetric): void {
@@ -151,9 +151,10 @@ export class OtelPerfSink extends PerfSink {
         exportIntervalMillis,
         exportTimeoutMillis: Math.min(EXPORT_TIMEOUT_MS, exportIntervalMillis),
       });
-    } catch (err) {
+    } catch {
       this.exporterFailed = true;
-      this.log.error({ error: err, endpoint: this.endpoint }, 'otel metrics export not started: no OTLP exporter for ${endpoint}');
+      // Not the error: its message repeats the endpoint as configured.
+      this.log.error({ endpoint: loggableEndpoint(this.endpoint) }, 'otel metrics export not started: no OTLP exporter for ${endpoint}');
       return undefined;
     }
   }
@@ -177,6 +178,16 @@ export class OtelPerfSink extends PerfSink {
 
   private drop(reason: 'instruments' | 'value'): void {
     this.dropped?.add(1, { reason });
+  }
+}
+
+/** The endpoint without userinfo and query, for logs. */
+function loggableEndpoint(endpoint: string): string {
+  try {
+    const url = new URL(endpoint);
+    return `${url.protocol}//${url.host}${url.pathname}`;
+  } catch {
+    return '<not a URL>';
   }
 }
 
