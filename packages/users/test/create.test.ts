@@ -44,10 +44,6 @@ async function nothingWritten(login: string): Promise<void> {
   expect(await User.query().withDeleted().whereLogin(login).first(), 'no row, not even a soft-deleted one').to.not.exist;
 }
 
-@Connection('default')
-@Model('users')
-class DiscardAppUser extends User {}
-
 const deletes: { model: string; rows: number }[] = [];
 
 class DeleteRecorder extends WriteObserver {
@@ -311,14 +307,31 @@ describe('create(user, roles?)', function () {
       }
     });
 
-    it("is deleted through the application's user model", async () => {
-      DI.register(DiscardAppUser).asValue(RBAC_USER_MODEL, true);
-      sinon.stub(TestPasswordService.prototype, 'set').rejects(new Error('credential store down'));
+    it('is deleted through the class it was inserted with, never a row of a user model on another table', async () => {
+      const driver = User.query().Driver;
+      await driver.schema().createTable('app_users', (table) => {
+        table.int('Id').primaryKey();
+        table.string('Login', 32);
+      });
+      for (let id = 1; id <= 20; id++) await driver.insert().into('app_users').values({ Id: id, Login: `other${id}` });
 
-      await expect(create({ Email: 'appmodel@spinajs.pl', Login: 'appmodel', Password: 'passw0rd123' })).to.be.rejectedWith('credential store down');
+      // Unsupported (the docs keep a user model on `users`), but nothing refuses it. Declared after the boot:
+      // db.StrictTableCheck refuses a registered model whose table is missing.
+      @Connection('default')
+      @Model('app_users')
+      class OtherTableUser extends User {}
+      DI.register(OtherTableUser).asValue(RBAC_USER_MODEL, true);
+      try {
+        sinon.stub(TestPasswordService.prototype, 'set').rejects(new Error('credential store down'));
 
-      expect(deletes.map((d) => d.model)).to.deep.eq(['UserMetadataBase', 'DiscardAppUser']);
-      await nothingWritten('appmodel');
+        await expect(create({ Email: 'othertable@spinajs.pl', Login: 'othertable', Password: 'passw0rd123' })).to.be.rejectedWith('credential store down');
+
+        expect(await driver.select().from('app_users'), 'the other table is untouched').to.have.lengthOf(20);
+        await nothingWritten('othertable');
+      } finally {
+        DI.unregister(OtherTableUser);
+        DI.register(User).asValue(RBAC_USER_MODEL, true);
+      }
     });
   });
 

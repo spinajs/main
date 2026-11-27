@@ -618,13 +618,14 @@ export function assertLoginNotReserved(login: string): void {
 /**
  * Hard-deletes a row `create()` has just inserted, with its metadata. `destroy()` would only soft
  * delete it and keep its login and email taken; the deletes keep their models, so the query
- * middlewares and write observers of `userModel()` see them. A failure here is logged, not thrown:
- * the caller is already reporting the error that made it discard the row.
+ * middlewares and write observers of `UserMetadataBase` and `User` see them. The row is deleted
+ * through `User`, the class `draftOf` inserted it with. A failure here is logged, not thrown: the
+ * caller is already reporting the error that made it discard the row.
  */
 async function discardInsertedUser(u: User): Promise<void> {
   try {
     await createQuery(UserMetadataBase, DeleteQueryBuilder).query.where('user_id', u.Id);
-    await createQuery(userModel(), DeleteQueryBuilder).query.where('Id', u.Id);
+    await createQuery(User, DeleteQueryBuilder).query.where('Id', u.Id);
   } catch (err) {
     DI.resolve(Log, ['rbac']).error({ error: err, userUuid: u.Uuid }, 'Could not remove the account ${userUuid} after its creation failed; delete it by hand.');
   }
