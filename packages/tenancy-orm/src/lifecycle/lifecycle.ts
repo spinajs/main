@@ -199,10 +199,7 @@ export class DefaultTenantLifecycle extends TenantLifecycle {
       return;
     }
     if (row.state !== 'suspended') throw new InvalidOperation(`tenancy-orm: tenant "${row.id}" is ${row.state}; only a suspended tenant resumes`);
-    const running = row.lifecycleRecord().operation;
-    if (running?.kind === 'delete') {
-      throw new InvalidOperation(`tenancy-orm: the deletion of tenant "${row.id}" started at ${running.startedAt}; a deletion is finished, not resumed`);
-    }
+    row.assertDeletionNotStarted();
   }
 
   protected async leased<T>(id: string, fn: (lease: LifecycleLease) => Promise<T>): Promise<T> {

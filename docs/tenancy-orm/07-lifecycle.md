@@ -52,7 +52,8 @@ the row's `suspension` column; `resume(id)` moves a `suspended` tenant back to `
 one statement whose condition is the state it moves from (`active` for a suspension, `suspended` for a resume), so a
 state and its reason are written together and of two calls at once only one changes the row. The model member that
 writes it, `row.writeSuspension(to, suspension)`, makes only these two moves: for a tenant in any other state it changes
-nothing and answers `false`, whatever state the row was read in. Neither call takes the lease: a suspension does not
+nothing and answers `false`, whatever state the row was read in; a move to `active` of a row whose lifecycle record
+names a deletion, or cannot be read, throws `InvalidOperation` instead (also for a `deleting` row). Neither call takes the lease: a suspension does not
 wait for a running operation and never writes the `lifecycle` record that operation holds.
 
 Refused, with the row left as it was:
@@ -66,7 +67,10 @@ Refused, with the row left as it was:
   record names a deletion (`InvalidOperation`): a deletion that started is finished, never undone by a resume. The
   record is read before the statement, so a deletion that records itself while the resume runs is not seen by it and
   the resume is done. Such a deletion is refused by the state instead: its first step, before it removes anything, is
-  the move from `suspended` to `deleting` (`delete()` is not built in this version);
+  the move from `suspended` to `deleting` (`delete()` is not built in this version). Nothing is removed, but the tenant
+  then stays `active` with the deletion's record: after any later suspension it cannot be resumed until the deletion is
+  run again or the record is cleared (an operator sets the row's `lifecycle` column to `NULL` while no lifecycle
+  operation holds the tenant);
 - a concurrent suspend and resume that moved the tenant between the read and the statement (`ConcurrencyConflict`
   "tenant ... changed while it was moved to ...; try again"): the row is as the other call left it. Nothing was
   written, so calling again is safe; the next call is done or refused by the state it then finds.
