@@ -240,9 +240,13 @@ describe('tenant configuration overrides', () => {
       expect(seen.get('plain')).to.equal('noreply@app.test');
     });
 
-    it('checkTenantSettings refuses an overridable value the schema refuses and passes free-form keys', async () => {
+    it('checkTenantSettings refuses an overridable value the schema refuses or the serving path would refuse, and passes free-form keys', async () => {
       await expect(checkTenantSettings({ mail: { from: 'nope' } })).to.be.rejectedWith(InvalidConfiguration);
       await expect(checkTenantSettings({ 'mail.enabled': 'maybe' })).to.be.rejectedWith(InvalidConfiguration);
+      for (const json of ['{"limits":{"hosts":["x.test",{"__proto__":{"polluted":true}}]}}', '{"limits.exports":{"a":{"constructor":{"prototype":{}}}}}']) {
+        const settings: Record<string, unknown> = JSON.parse(json);
+        await expect(checkTenantSettings(settings)).to.be.rejectedWith(InvalidConfiguration, 'reserved key');
+      }
       await checkTenantSettings({ mail: { from: 'ok@acme.test', enabled: 'false' }, plan: 'pro', db: { Connections: [] } });
     });
 

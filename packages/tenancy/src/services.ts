@@ -8,6 +8,7 @@ import { CachedTenantRegistry } from './cache.js';
 import { TenantAccess, TenantRegistry } from './contracts.js';
 import type { TenantProposal, TenantRecord } from './contracts.js';
 import { TenantUnavailable } from './errors.js';
+import { checkTenantValue } from './reserved.js';
 import { TENANCY_DEFAULTS } from './schema.js';
 import { isTenantId } from './scope.js';
 import { TenantSettings, overridablePaths, overridesOf } from './settings.js';
@@ -79,9 +80,10 @@ export async function loadTenantSettings(tenant: string, container: IContainer =
 }
 
 /**
- * Throws InvalidConfiguration when a value of `settings` at an overridable path does not pass the configuration schema,
- * and InvalidOperation while the configuration loads (try again once it has). Keys that name no overridable path are
- * free-form settings and pass. Call it before a tenant's settings are written; the overlay serves the checked value.
+ * Throws InvalidConfiguration when a value of `settings` at an overridable path does not pass the configuration schema
+ * or holds a `__proto__`, `constructor` or `prototype` key, and InvalidOperation while the configuration loads (try
+ * again once it has). Keys that name no overridable path are free-form settings and pass. Call it before a tenant's
+ * settings are written; the overlay serves the checked value.
  */
 export async function checkTenantSettings(settings: Readonly<Record<string, unknown>>, container: IContainer = DI.RootContainer): Promise<void> {
   const configuration = await container.resolve(Configuration);
@@ -89,5 +91,5 @@ export async function checkTenantSettings(settings: Readonly<Record<string, unkn
     throw new InvalidOperation('checkTenantSettings validates through FrameworkConfiguration.check, and the registered Configuration is another class');
   }
   const paths = overridablePaths(configuration.get<unknown>('tenancy.config.overridable'));
-  for (const [path, value] of overridesOf(settings, paths)) configuration.check(path, value);
+  for (const [path, value] of overridesOf(settings, paths)) checkTenantValue(configuration, path, value);
 }

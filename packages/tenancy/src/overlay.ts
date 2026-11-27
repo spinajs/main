@@ -2,10 +2,10 @@ import { Autoinject, Container, Injectable } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 import { ConfigurationOverlay, FrameworkConfiguration } from '@spinajs/configuration';
 import type { Configuration } from '@spinajs/configuration';
-import { InvalidArgument, InvalidOperation } from '@spinajs/exceptions';
+import { InvalidOperation } from '@spinajs/exceptions';
 import { Log, Logger } from '@spinajs/log-common';
 import { TenantSettingsUnavailable } from './errors.js';
-import { reservedKeyIn } from './reserved.js';
+import { checkTenantValue } from './reserved.js';
 import { tenantScope } from './scope.js';
 import { TenancyServices } from './services.js';
 import { CLOSED_CONFIGURATION_ROOTS, overridablePaths, overridesOf } from './settings.js';
@@ -150,10 +150,7 @@ export class TenantConfigurationOverlay extends ConfigurationOverlay {
   private checkedValue(tenant: string, path: string, value: unknown): { value: unknown } | undefined {
     if (this.configuration === undefined) return undefined;
     try {
-      // A path without a schema is served as a copy, and a copy keeps an own __proto__ key for the consumer's Object.assign.
-      const reserved = reservedKeyIn(value);
-      if (reserved !== undefined) throw new InvalidArgument(`the value holds the reserved key '${reserved}'`);
-      return { value: this.configuration.check(path, value) };
+      return { value: checkTenantValue(this.configuration, path, value) };
     } catch (error) {
       if (error instanceof InvalidOperation) throw error;
       this.Log.warn({ tenant, path, error }, 'Tenant ${tenant}: its value of ${path} is refused (the configuration schema, or a reserved key); the shared value applies');
