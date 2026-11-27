@@ -79,6 +79,25 @@ describe('default scopes are ANDed with the rest of the where clause as one grou
     expect(out.bindings).to.deep.equal([5, 1, 3]);
   });
 
+  it('a scope added after the conditions stays after their group, as a keyset predicate is', () => {
+    const keyset = (query: SelectQueryBuilder) =>
+      scoped(
+        query.where(function () {
+          this.where('id', '>', 3);
+        }),
+      );
+
+    const plain = keyset(sqb().from('t').where('a', 1).orWhere('b', 2)).toDB();
+    expect(plain.expression).to.equal('SELECT * FROM `t` WHERE ( `a` = ? OR `b` = ? ) AND ( `id` > ? )');
+    expect(plain.bindings).to.deep.equal([1, 2, 3]);
+
+    const both = keyset(scoped(sqb().from('t').whereNull('deleted_at')).where('a', 1).orWhere('b', 2)).toDB();
+    expect(both.expression).to.equal('SELECT * FROM `t` WHERE `deleted_at` IS NULL AND ( `a` = ? OR `b` = ? ) AND ( `id` > ? )');
+    expect(both.bindings).to.deep.equal([1, 2, 3]);
+
+    expect(keyset(sqb().from('t').where('a', 1).where('b', 2)).toDB().expression).to.equal('SELECT * FROM `t` WHERE `a` = ? AND `b` = ? AND ( `id` > ? )');
+  });
+
   it('groups apart inside a nested group too, and a clone keeps the mark', () => {
     const query = sqb().from('t');
     const scope = scoped(sqb().from('t').whereNull('deleted_at')).Statements[0];
