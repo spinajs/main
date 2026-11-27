@@ -1,5 +1,5 @@
 import { configuredMountPath, controllerMountPath, routeFullPath, servedPath } from './route-path.js';
-import type { ControllerEntry, ParamEntry, PolicyRef, RouteEntry, SocketControllerEntry, SourceRef } from './types.js';
+import type { ControllerEntry, ParamEntry, PolicyRef, RouteEntry, SocketCommandEntry, SocketControllerEntry, SourceRef } from './types.js';
 import { IDEMPOTENCY_MIDDLEWARE, idempotencyOf } from './route-idempotency.js';
 
 const ACCESS_POLICY = 'AccessPolicy';
@@ -137,6 +137,15 @@ export function inheritController(ancestor: ControllerEntry, own: ControllerEntr
   };
 }
 
+/** A redeclared handler starts from a copy of the base's handler descriptor (http-socket `detachInheritedHandlers`), so it keeps that handler's guards. */
+function redeclared(mine: SocketCommandEntry, parent: SocketCommandEntry): SocketCommandEntry {
+  const present = new Set(mine.policies.map((g) => JSON.stringify(g)));
+  const policies = [...parent.policies.filter((g) => (mine.access === undefined || !isSocketAccessGroup(g)) && !present.has(JSON.stringify(g))), ...mine.policies];
+  const access = mine.access ?? parent.access;
+  const fields = mine.access ? mine.fields : parent.fields;
+  return { ...mine, ...(access ? { access } : {}), ...(fields ? { fields } : {}), policies };
+}
+
 /** The runtime merge of `@spinajs/http-socket`, shared so the compiler records exactly what a boot resolves. */
 export function inheritSocketHandlers(entry: SocketControllerEntry, bases: readonly SocketControllerEntry[]): SocketControllerEntry {
   const commands = [...entry.commands];
@@ -153,6 +162,10 @@ export function inheritSocketHandlers(entry: SocketControllerEntry, bases: reado
     policies = [...inherited, ...policies];
     if (access === undefined) fields ??= base.fields;
     access ??= base.access;
+    for (const [i, mine] of commands.entries()) {
+      const parent = mine.inheritedFrom === undefined ? base.commands.find((c) => c.handler === mine.handler) : undefined;
+      if (parent) commands[i] = redeclared(mine, parent);
+    }
     commands.push(...base.commands.filter((c) => !commands.some((own) => own.handler === c.handler)).map((c) => ({ ...c, inheritedFrom: c.inheritedFrom ?? base.id })));
     events.push(...base.events.filter((e) => !events.some((own) => own.name === e.name)).map((e) => ({ ...e, inheritedFrom: e.inheritedFrom ?? base.id })));
     diArgs.push(...(base.diArgs ?? []).filter((a) => !diArgs.some((own) => own.handler === a.handler)));

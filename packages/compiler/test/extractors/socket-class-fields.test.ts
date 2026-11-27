@@ -68,6 +68,45 @@ describe('class-level socket fields from a dependency fragment', function () {
   });
 });
 
+describe('inherited and redeclared socket commands, against the run time', function () {
+  this.timeout(120_000);
+  let fragment: ManifestFragment;
+
+  before(async () => {
+    fragment = await analyzePackage({ tsconfig: 'test/fixtures/socket-redeclared/tsconfig.json', packageRoot: 'test/fixtures/socket-redeclared' });
+  });
+
+  // The run-time column is what a booted http-socket server did with the same classes: the review of this branch
+  // (.superpowers/sdd/v4/finish/build/v4-sx-11c-socket-class-fields-review.md, "Inheritance", runtime.json), fields and permissions checked.
+  const RUN_TIME: Array<[string, string, string, string[]]> = [
+    ['I1Socket', 'a', 'filter', ['doc:read']],
+    ['I1Socket', 'g', 'filter', ['doc:read', 'doc:update']],
+    ['I1Socket', 'p', 'none', ['doc:read', 'doc:update']],
+    ['I2Socket', 'a', 'filter', ['doc:read']],
+    ['I2Socket', 'g', 'filter', ['doc:read', 'doc:update']],
+    ['I2Socket', 'p', 'none', ['doc:read', 'doc:update']],
+    ['I3Socket', 'a', 'none', ['doc:read']],
+    ['I3Socket', 'g', 'filter', ['doc:read', 'doc:update']],
+    ['I3Socket', 'p', 'none', ['doc:read', 'doc:update']],
+    ['I4Socket', 'a', 'filter', ['doc:read']],
+    ['I4Socket', 'g', 'none', ['doc:read', 'doc:update']],
+    ['I4Socket', 'p', 'filter-rows', ['doc:read', 'doc:update']],
+    ['I5Socket', 'a', 'filter', ['doc:read']],
+    ['I5Socket', 'g', 'filter', ['doc:read', 'doc:update']],
+    ['I5Socket', 'p', 'none', ['doc:read', 'doc:update']],
+    ['I5Socket', 'own', 'filter', ['doc:read']],
+  ];
+
+  it('records the fields and the permissions the run time applies, command by command', () => {
+    const build = RUN_TIME.map(([className, handler]) => {
+      const controller = fragment.socketControllers.find((c) => c.className === className)!;
+      const command = controller.commands.find((c) => c.handler === handler)!;
+      return [className, handler, effective(controller, handler), [...(controller.access ?? []), ...(command.access ?? [])]];
+    });
+    expect(build).to.deep.equal(RUN_TIME);
+  });
+});
+
 describe('a manifest without class-level socket fields', function () {
   this.timeout(120_000);
 
