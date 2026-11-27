@@ -6,7 +6,7 @@ Each `queue.connections` entry with `service: 'AmqpQueueClient'` becomes one `Am
 
 1. **Selection.** `DefaultQueueService` (`@spinajs/queue`) injects `queue.connections` with `@AutoinjectService('queue.connections', QueueClient)`. For each entry DI finds the `QueueClient` registration whose class name equals `service`, here `AmqpQueueClient`.
 2. **Factory.** DI resolves `AmqpQueueClient` with the entry as the option. The [client factory](06-client-factory.md) runs: it sets `clientId` to `<app.name>-<APP_ENV>-<name>` unless the entry has one, calls `new AmqpQueueClient(...)`, then `resolve()`.
-3. **Target.** `connect()` clears the per-connection assert caches and calls `buildConnectionTarget()`, which turns `host`, `port`, `login`, `password` and the vhost into an amqplib `Options.Connect` object. See [Connect target](#connect-target).
+3. **Target.** `connect()` clears the per-connection assert caches and calls `buildConnectionTarget()`, which turns `host`, `port`, `login`, `password` and the vhost into an amqplib `Options.Connect` object, or rejects a `host` URL it cannot dial with `InvalidArgument`. See [Connect target](#connect-target).
 4. **Connect.** `createConnection(target, socketOptions)` calls `amqp.connect()`. `socketOptions` is `{ clientProperties: { connection_name: ClientId }, ...options }`. Any failure becomes `UnexpectedServerError('Cannot connect to AMQP queue server at <broker>')`, `<broker>` as in [Logged broker address](#logged-broker-address); its cause holds only the client error's `name`, `code` and redacted message.
 5. **Listeners.** The client logs connection `error` events and calls `onConnectionLost()` on `close`.
 6. **Channels.** It opens a confirm channel for publishing (`PublishChannel`) and a plain channel for consuming (`ConsumeChannel`), gives both `error` and `close` listeners (`watchChannel()`), then sets `prefetch(options.prefetch ?? 1)` on the consume channel.
@@ -55,13 +55,16 @@ sequenceDiagram
 | unset | `amqp` | `localhost` | `port ?? 5672` | `login` / `password` | `options.vhost ?? '/'` | `options.heartbeat`, `.frameMax`, `.locale` |
 | plain name, eg. `rabbitmq.internal` | `amqp` | the value | `port ?? 5672` | `login` / `password` | `options.vhost ?? '/'` | `options.heartbeat`, `.frameMax`, `.locale` |
 | URL, eg. `amqps://user:pass@broker:5671/prod?heartbeat=30` | URL scheme | URL host, IPv6 brackets removed | URL port, else `port`, else `5671` for `amqps` and `5672` otherwise | URL credentials, URL-decoded, when the URL has either; else `login` / `password` | URL path without the leading `/`, kept percent-encoded; `/` when empty | `heartbeat`, `frameMax`, `locale` from the query string, else from `options` |
-| value with `://` that `new URL()` rejects | `amqp` | the whole value | `port ?? 5672` | `login` / `password` | `options.vhost ?? '/'` | `options.heartbeat`, `.frameMax`, `.locale` |
+
+A `host` with `://` that `new URL()` rejects, or whose URL has an `@` after the host, is not dialled: `resolve()` rejects at once with `InvalidArgument('Queue connection <name> has a host that is not a URL: <not a URL>')`, before any connect or lookup, and nothing is retried. Dialled, the whole value or a piece of its userinfo would have gone to the resolver as the host name. The usual cause is an unencoded `/`, `?` or `#` in the user name or password, or an `@` in the vhost or query: write them percent-encoded (`%2F`, `%3F`, `%23`, `%40`; `amqp://user:pa%2Fss@broker`), or set `login` / `password`.
+
+A `host` without `://` that holds an `@` (`user:password@broker`) is refused the same way, with the hint to write it as `amqp://user:password@broker/vhost` or to set `login` / `password`: dialled, the whole value would have gone to the resolver as the host name.
 
 When neither `username` nor `password` reaches amqplib, amqplib logs in as `guest` / `guest`.
 
 ### Logged broker address
 
-The `Connecting to AMQP queue at ...` line (`info`, on every connect and reconnect) and the connect error print the broker without credentials and query: a URL `host` as scheme, host, port and vhost (`amqps://user:pass@broker:5671/prod?heartbeat=30` prints `amqps://broker:5671/prod`), a value that `new URL()` rejects as `<not a URL>`, and any other `host` as `amqp://<host>:<port>/<options.vhost>`. The vhost is printed as the URL carries it (`/%2F` for the default vhost written encoded); a URL with an `@` after the host (an unencoded `/`, `?` or `#` in the password, or an `@` in the vhost or query: write it `%40`) prints as `<not a URL>`, and the connect error's cause then says so instead of quoting the client's message. Prefer `login` / `password` over credentials in the URL.
+The `Connecting to AMQP queue at ...` line (`info`, on every connect and reconnect) and the connect error print the broker without credentials and query: a URL `host` as scheme, host, port and vhost (`amqps://user:pass@broker:5671/prod?heartbeat=30` prints `amqps://broker:5671/prod`), a value that `new URL()` rejects as `<not a URL>`, and any other `host` as `amqp://<host>:<port>/<options.vhost>`. The vhost is printed as the URL carries it (`/%2F` for the default vhost written encoded); a URL with an `@` after the host (an unencoded `/`, `?` or `#` in the password, or an `@` in the vhost or query: write it `%40`) prints as `<not a URL>`, and the refusal's message adds that hint. Prefer `login` / `password` over credentials in the URL.
 
 ## Configuration
 

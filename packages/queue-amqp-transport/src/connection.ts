@@ -51,6 +51,8 @@ function connectFailureText(err: unknown): unknown {
 
 const BROKEN_USERINFO = "the host url has an '@' after the host: percent-encode a '/', '?', '#' or '@' in its userinfo, vhost or query";
 
+const SCHEMELESS_USERINFO = "the host has an '@' but no scheme: write it as amqp://user:password@broker/vhost, or set login / password";
+
 /** A connect failure with only its class, code and a message that cannot repeat the credentials of a url host. */
 function loggableConnectError(err: unknown, host: string | undefined, password: string | undefined): Error {
   // a bare host name given as the endpoint would have every mention of it replaced by '<not a URL>'
@@ -183,15 +185,16 @@ export class AmqpQueueClient extends QueueClient {
 
     // discrete-fields host ( no scheme ) - build straight from the individual config fields
     if (!host || !host.includes('://')) {
+      // dialled, the whole value, userinfo included, would go to the resolver as a host name
+      if (host?.includes('@')) throw new InvalidArgument(`Queue connection ${this.Options.name} has a host that is not a host name: <not a URL>; ${SCHEMELESS_USERINFO}`);
       return this.connectOptionsFromFields(host ?? 'localhost');
     }
 
-    let parsed: URL;
-    try {
-      parsed = new URL(host);
-    } catch {
-      // not a parseable url - treat the whole value as a bare hostname and use the config fields
-      return this.connectOptionsFromFields(host);
+    // dialled anyway, the whole value or a piece of its userinfo would go to the resolver as a host name
+    const parsed = parsedUrl(host);
+    if (parsed === undefined || isBrokenUserinfo(parsed)) {
+      const hint = parsed === undefined ? '' : `; ${BROKEN_USERINFO}`;
+      throw new InvalidArgument(`Queue connection ${this.Options.name} has a host that is not a URL: ${this.LoggableBroker}${hint}`);
     }
 
     const protocol = parsed.protocol.replace(/:$/, '') || 'amqp';
@@ -298,6 +301,7 @@ export class AmqpQueueClient extends QueueClient {
         ...this.Options.options,
       });
     } catch (err) {
+      if (target === undefined && err instanceof InvalidArgument) throw err;
       throw new UnexpectedServerError(`Cannot connect to AMQP queue server at ${this.LoggableBroker}`, loggableConnectError(err, this.Options.host, target?.password));
     }
 
