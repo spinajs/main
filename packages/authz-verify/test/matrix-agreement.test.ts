@@ -4,7 +4,7 @@ import { expect } from 'chai';
 import type { PolicyIR, RelationDef, Rewrite } from '@spinajs/authz-ir';
 
 import { accessOf, holderKey, permissionMatrix, verifyAssertion } from '../src/index.js';
-import type { Assertion } from '../src/index.js';
+import type { Access, Assertion, Verdict } from '../src/index.js';
 import { randomPolicy } from './oracle.js';
 
 const noSolver = { k: 2, solver: async () => undefined };
@@ -43,6 +43,17 @@ function withHiddenParts(seed: number): PolicyIR {
       i++;
     }
   }
+  return ir;
+}
+
+/** The first role holds every relation of the type it holds first, beside the roles that share them. */
+function withDenseRole(seed: number): PolicyIR {
+  const ir = randomPolicy(seed);
+  const [first] = Object.keys(ir.principal.roles).sort();
+  const keys = ir.principal.roles[first];
+  const type = keys[0].type;
+  const more = Object.keys(ir.types[type].relations).filter((r) => r !== 'up' && !keys.some((k) => k.relation === r));
+  ir.principal.roles[first] = [...keys, ...more.map((relation) => ({ type, relation }))];
   return ir;
 }
 
@@ -91,9 +102,7 @@ describe('accessOf and never() on the same policy', function () {
     expect(unknown).to.be.greaterThan(1000);
   });
 
-  // Known limit: the matrix labels a relation by its first role only, and a role's row names one relation per type,
-  // so these reads answer never where never() is violated.
-  it('answers never for a second role and for a relation beside another one of the same role (known limit)', async () => {
+  it('answers always for a second role and for a relation beside another one of the same role', async () => {
     const either: Rewrite = { union: [viewer, { computed: 'commenter' }] };
     const cases: Array<[string, PolicyIR, string]> = [
       ['second role', policy({ auditor: ['doc#viewer'], reader: ['doc#viewer'] }), 'role:reader'],
@@ -103,7 +112,41 @@ describe('accessOf and never() on the same policy', function () {
     ];
     for (const [name, ir, holder] of cases) {
       expect(await verifyAssertion(ir, never(holder), noSolver), name).to.include({ result: 'violated', engine: 'exact' });
-      expect(accessOf(permissionMatrix(ir), holder, 'doc:read'), name).to.equal('never');
+      expect(accessOf(permissionMatrix(ir), holder, 'doc:read'), name).to.equal('always');
     }
+  });
+
+  it('gives every role a row, and each relation of a role that holds two of one type a row of its own', () => {
+    const roles = { auditor: ['doc#viewer', 'doc#commenter'], reader: ['doc#commenter'] };
+    const m = permissionMatrix(policy(roles, { computed: 'commenter' }));
+    expect(m.holders.map(holderKey)).to.deep.equal(['doc#commenter', 'doc#viewer', 'role:auditor@doc', 'role:reader@doc']);
+    expect(m.cells).to.deep.equal({
+      'doc#commenter': { 'doc:read': 'always' },
+      'doc#viewer': { 'doc:read': 'never' },
+      'role:auditor@doc': { 'doc:read': 'always' },
+      'role:reader@doc': { 'doc:read': 'always' },
+    });
+    // The auditor's row is labelled `doc#viewer`, and it reads commenter too.
+    expect(accessOf(m, 'doc#viewer', 'doc:read')).to.equal('never');
+  });
+
+  it('agrees with never() on every selector and permission of seeded policies', async () => {
+    const tally = { holds: 0, violated: 0, unknown: 0 };
+    for (let seed = 1; seed <= 16; seed++) {
+      for (const ir of [randomPolicy(seed), withDenseRole(seed), withHiddenParts(seed)]) {
+        const m = permissionMatrix(ir);
+        for (const holder of selectors(ir)) {
+          for (const permission of m.permissions) {
+            const v = await verifyAssertion(ir, never(holder, permission), noSolver);
+            tally[v.result]++;
+            const expected: Record<Verdict['result'], Access> = { holds: 'never', violated: 'always', unknown: 'conditional' };
+            expect(`seed ${seed} never(${holder}, ${permission}) ${v.result}: ${accessOf(m, holder, permission)}`).to.equal(`seed ${seed} never(${holder}, ${permission}) ${v.result}: ${expected[v.result]}`);
+          }
+        }
+      }
+    }
+    expect(tally.holds).to.be.greaterThan(2000);
+    expect(tally.violated).to.be.greaterThan(500);
+    expect(tally.unknown).to.be.greaterThan(1500);
   });
 });

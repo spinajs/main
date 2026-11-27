@@ -4,6 +4,8 @@ import type { Permission } from '@spinajs/authz';
 import { RewriteAutomaton, holderKey } from './graph.js';
 import type { HolderRef, StoredRead } from './graph.js';
 import { explore, reachersOf } from './monotone.js';
+import type { Reacher } from './monotone.js';
+import { selectedReachers } from './select.js';
 import { matchesHolder } from './verdict.js';
 
 /**
@@ -19,7 +21,8 @@ export interface PermissionMatrix {
   readonly permissions: Permission[];
   /**
    * Holder key to permission to access, over the holder's own paths and the paths that read its relation behind a
-   * subject set. A holder also has what `everyone` has.
+   * subject set; a role's row and a relation row of a role's relation count the relation's public members too. A
+   * holder also has what `everyone` has.
    */
   readonly cells: Record<string, Record<Permission, Access>>;
   /**
@@ -37,12 +40,15 @@ const own = (o: object, k: string): boolean => Object.prototype.hasOwnProperty.c
 
 /**
  * What `holder` gets for `permission`: the most of what everyone holds and the cells of the holders it selects, the
- * public holder of the relation it names included. For a holder key, `never` exactly where `never(holder, permission)`
- * holds on the exact engine, `always` exactly where it is violated there.
+ * public holder of the relation it names included. `never` exactly where `never(holder, permission)` holds on the
+ * exact engine, `always` exactly where it is violated there.
  */
 export function accessOf(m: PermissionMatrix, holder: string, permission: Permission): Access {
   let access: Access = own(m.everyone, permission) ? m.everyone[permission] : 'never';
+  // Such a row exists for a relation of a role that holds two relations of its type; that role's row reads both.
+  const relationRow = m.holders.some((h) => h.kind === 'relation' && holderKey(h) === holder);
   for (const h of m.holders) {
+    if (relationRow && h.kind === 'role') continue;
     const cells = m.cells[holderKey(h)];
     const named: HolderRef = h.kind === 'public' ? { ...h, kind: h.role === undefined ? 'relation' : 'role' } : h;
     if ((matchesHolder(holder, h) || matchesHolder(holder, named)) && own(cells, permission)) access = stronger(access, cells[permission]);
@@ -71,6 +77,26 @@ function reachedBehind(a: RewriteAutomaton, start: string, members: readonly Sto
   return out;
 }
 
+const accessOfHits = (hits: readonly Reacher[]): Access => (hits.length === 0 ? 'never' : hits.some((r) => !r.conditional) ? 'always' : 'conditional');
+
+/**
+ * The rows `never()` reads by selector: one per role on every type it holds, and one per relation of a role that holds
+ * two or more relations of that type, which the role's own row cannot tell apart. A role's row names its first
+ * relation of the type.
+ */
+function selectorRows(ir: PolicyIR): Array<[HolderRef, string]> {
+  const rows = new Map<string, [HolderRef, string]>();
+  for (const role of Object.keys(ir.principal.roles).sort()) {
+    const keys = ir.principal.roles[role];
+    for (const { type, relation } of keys) {
+      const selector = `role:${role}@${type}`;
+      if (!rows.has(selector)) rows.set(selector, [{ kind: 'role', type, relation, role }, selector]);
+      if (keys.filter((k) => k.type === type).length > 1) rows.set(`${type}#${relation}`, [{ kind: 'relation', type, relation }, `${type}#${relation}`]);
+    }
+  }
+  return [...rows.values()];
+}
+
 export function permissionMatrix(ir: PolicyIR): PermissionMatrix {
   const a = new RewriteAutomaton(ir);
   const permissions = Object.keys(ir.permissions).sort();
@@ -80,6 +106,7 @@ export function permissionMatrix(ir: PolicyIR): PermissionMatrix {
   const everyone: Record<Permission, Access> = {};
   const record = (holder: HolderRef, permission: Permission, access: Access): void => {
     const key = holderKey(holder);
+    if (holder.kind === 'role') return;
     holders.set(key, holder);
     const row = reached.get(key) ?? new Map<Permission, Access>();
     reached.set(key, row);
@@ -99,6 +126,12 @@ export function permissionMatrix(ir: PolicyIR): PermissionMatrix {
       if (r.holder.kind === 'anyone') everyone[permission] = stronger(own(everyone, permission) ? everyone[permission] : 'never', access);
     }
     for (const [holder, access] of reachedBehind(a, start, members)) record(holder, permission, access);
+  }
+  for (const [holder, selector] of selectorRows(ir)) {
+    const row = new Map(permissions.map((p) => [p, accessOfHits(selectedReachers(ir, a, p, selector, false).hits)]));
+    if (holder.kind === 'role' && [...row.values()].every((x) => x === 'never')) continue;
+    holders.set(holderKey(holder), holder);
+    reached.set(holderKey(holder), row);
   }
   const keys = [...holders.keys()].sort();
   const cells: Record<string, Record<Permission, Access>> = {};
