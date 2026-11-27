@@ -22,6 +22,24 @@ const splitMember = (m: string): [ListKind, string] => {
   return [m.slice(0, at) as ListKind, m.slice(at + 1)];
 };
 
+const UNKNOWN_COMMAND = /^ERR unknown command '([^']*)', with args beginning with: /;
+
+/** Redis quotes up to 128 characters of the arguments in its unknown-command reply: a checked domain, a stored meta value. */
+function redactUnknownCommand(err: Error): void {
+  const match = UNKNOWN_COMMAND.exec(err.message);
+  if (!match) return;
+  const stack = err.stack;
+  err.message = `ERR unknown command '${match[1]}', with args beginning with: <redacted>`;
+  if (stack === undefined) return;
+  const eol = stack.indexOf('\n');
+  err.stack = `${err.name}: ${err.message}${eol < 0 ? '' : stack.slice(eol)}`;
+}
+
+function strip(err: Error): void {
+  Reflect.deleteProperty(err, 'command');
+  redactUnknownCommand(err);
+}
+
 /**
  * ioredis copies a failed command's arguments onto its error as `command`, and onto each queued
  * error of a transaction in `previousErrors`: keys with the checked domain, stored values, the AUTH password.
@@ -29,9 +47,9 @@ const splitMember = (m: string): [ListKind, string] => {
  */
 function withoutCommand<T>(err: T): T {
   if (!(err instanceof Error)) return err;
-  Reflect.deleteProperty(err, 'command');
+  strip(err);
   if ('previousErrors' in err && Array.isArray(err.previousErrors)) {
-    for (const previous of err.previousErrors) if (previous instanceof Error) Reflect.deleteProperty(previous, 'command');
+    for (const previous of err.previousErrors) if (previous instanceof Error) strip(previous);
   }
   return err;
 }

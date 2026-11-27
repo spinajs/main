@@ -48,7 +48,8 @@ export default {
 - A store failure is not fatal for checks: `EmailVerification` logs it and runs the verifier live.
 - `loadLists()` reads each set with `SMEMBERS`. It is not one atomic snapshot across sources, but each source is consistent.
 - `keyPrefix` isolates apps that share a Redis; give each app its own.
-- Errors from the store carry no `command`, the copy of the failed command's arguments that ioredis attaches: checked domains, stored meta values and, after a refused `AUTH`, the Redis password. The same holds for each item of an `EXECABORT` error's `previousErrors` and for the error the `error` listener logs. Class, `name`, `message` and `stack` are unchanged.
+- Errors from the store carry no `command`, the copy of the failed command's arguments that ioredis attaches: checked domains, stored meta values and, after a refused `AUTH`, the Redis password. The same holds for each item of an `EXECABORT` error's `previousErrors` and for the error the `error` listener logs. Class and `name` are unchanged, and so are `message` and `stack` except in one reply.
+- Redis 6.2 and later answer a command they do not know (renamed with `rename-command`, or missing in a proxy) with `ERR unknown command '<name>', with args beginning with: …`, quoting up to 128 characters of the arguments: a checked domain, or a stored meta value such as the list source URL with its token. The store rewrites that message, and the first line of `stack`, to `ERR unknown command '<name>', with args beginning with: <redacted>`, on the error and on each item of its `previousErrors`; the command name stays.
 
 ## Services and extension points
 
