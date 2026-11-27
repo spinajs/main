@@ -1,6 +1,6 @@
 import { compilePermissionGlob, isPermissionGlob } from '@spinajs/authz';
 import type { Permission } from '@spinajs/authz';
-import type { ObjectRef, OpaqueRef, PolicyIR, TupleSubjectRef, TypeName } from '@spinajs/authz-ir';
+import type { ObjectRef, OpaqueRef, PolicyIR, RelationName, TupleSubjectRef, TypeName } from '@spinajs/authz-ir';
 
 import { ANYONE, RewriteAutomaton } from './graph.js';
 import type { Edge } from './graph.js';
@@ -123,8 +123,9 @@ async function never(ir: PolicyIR, holder: string, glob: string, options: Bounde
   for (const permission of permissionsMatching(ir, glob)) {
     const start = m.start(permission);
     const ex = start === undefined ? undefined : explore(m, start);
-    // An anyone term needs no holder, so whoever the selector names reaches the permission through it.
-    const hits = (ex === undefined ? [] : reachersOf(ir, permission, ex)).filter((r) => r.holder.kind === 'anyone' || matchesHolder(holder, r.holder));
+    // An anyone term needs no holder, so whoever the selector names reaches the permission through it; a public
+    // member of the relation the selector names is one of its holders, as the bounded search reads it.
+    const hits = (ex === undefined ? [] : reachersOf(ir, permission, ex)).filter((r) => r.holder.kind === 'anyone' || matchesHolder(holder, r.holder) || (r.holder.kind === 'public' && namesRelation(ir, holder, r.holder.type, r.holder.relation)));
     const sure = hits.find((r) => !r.conditional);
     if (sure !== undefined) {
       const counterexample = await confirm(ir, sure.witness, { [permission]: 'allow' }, sure.paths[0]);
@@ -194,12 +195,15 @@ async function exactSeparated(ir: PolicyIR, a: Permission, b: Permission): Promi
   return { result: undecided ? 'unknown' : 'holds', engine: 'exact', opaque };
 }
 
-/** Does the tuple, whatever its subject, sit on the relation a `role:<r>@<t>`, `role:<r>` or `<t>#<rel>` selector names? */
-function onRelation(ir: PolicyIR, selector: string, t: WitnessTuple): boolean {
+/** Does a `role:<r>@<t>`, `role:<r>` or `<t>#<rel>` selector name the relation `type#relation`? */
+function namesRelation(ir: PolicyIR, selector: string, type: TypeName, relation: RelationName): boolean {
   const role = /^role:([^@]+)(?:@(.+))?$/.exec(selector);
-  if (role !== null) return (ir.principal.roles[role[1]] ?? []).some((r) => r.type === t.object.type && r.relation === t.relation && (role[2] === undefined || role[2] === r.type));
-  return selector === `${t.object.type}#${t.relation}`;
+  if (role !== null) return (ir.principal.roles[role[1]] ?? []).some((r) => r.type === type && r.relation === relation && (role[2] === undefined || role[2] === r.type));
+  return selector === `${type}#${relation}`;
 }
+
+/** Does the tuple, whatever its subject, sit on the relation the selector names? */
+const onRelation = (ir: PolicyIR, selector: string, t: WitnessTuple): boolean => namesRelation(ir, selector, t.object.type, t.relation);
 
 /** Does a holder selector select the tuple? `public` and `public:<t>#<rel>` select wildcard tuples, every other form named ones, as `matchesHolder` reads them. */
 function onHolder(ir: PolicyIR, selector: string, t: WitnessTuple): boolean {

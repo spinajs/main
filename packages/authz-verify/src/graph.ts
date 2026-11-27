@@ -39,6 +39,7 @@ export interface HolderRef {
   readonly kind: 'role' | 'relation' | 'public' | 'anyone';
   readonly type: TypeName;
   readonly relation: RelationName;
+  /** The role of the relation; a public holder carries it too, so it can be read as that role's. */
   readonly role?: string;
 }
 
@@ -95,7 +96,7 @@ export class RewriteAutomaton {
   /** The holder named by the first stored relation a path reads; `public` when the path ends on a wildcard. */
   holder(read: { readonly type: TypeName; readonly relation: RelationName }, wildcard: boolean): HolderRef {
     const role = this.roles.get(stateKey(read.type, read.relation));
-    if (wildcard) return { kind: 'public', type: read.type, relation: read.relation };
+    if (wildcard) return { kind: 'public', type: read.type, relation: read.relation, ...(role === undefined ? {} : { role }) };
     return role === undefined ? { kind: 'relation', type: read.type, relation: read.relation } : { kind: 'role', type: read.type, relation: read.relation, role };
   }
 
