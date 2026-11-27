@@ -136,6 +136,21 @@ Each helper resolves a provider with `provider(fileSystem)` and calls the instan
 - `IZipResult` gives `fs` (the destination), `asFilePath()`, `asStream(encoding?)`, `asBase64()` and `unlink()`. The first three read the local path, so they need a destination with local paths.
 - `unlink()` returns a promise: `await` it.
 - `unzip()` extracts into `dstFs` (or the same provider; `fsS3` and `fsFTP` use their temp fs) at `destPath`, or a new UUID directory, and returns its resolved path.
+- `unzip()` checks every entry of the archive's central directory before it writes the first one. It rejects with `IOFail` naming the entry, and writes nothing, when the archive holds:
+  - an entry whose path resolves outside the destination (`../x`, `a/../../x`, `..\x`);
+  - an absolute name (`/x`, `C:\x`, `C:x`, `\\server\share\x`);
+  - a symbolic link, or any other entry that is not a file or a directory (zip has no hard-link entries);
+  - a name the [path rules](07-middlewares.md#path-normalisation) refuse: a NUL byte, or a segment that holds `:` or ends in `.` or a space.
+
+  Backslashes in entry names are separators on every platform. Names that differ only by case are written to one file on a case-insensitive disk, and the later entry wins. The entries are streamed to disk one at a time; the archive is never held in memory.
+
+```ts
+try {
+  await uploads.unzip('incoming/archive.zip', 'extracted');
+} catch (err) {
+  // IOFail: Cannot unzip incoming/archive.zip: entry "../config/app.json" resolves outside the destination
+}
+```
 
 ## Important behaviour
 
