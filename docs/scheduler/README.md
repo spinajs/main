@@ -77,7 +77,7 @@ export class RunLogHook extends ScheduleRunHook {
 - **`RunContext.tenant`** is the tenant of the run's instance, read from the run row; a task changing it changes nothing for the hooks, the next attempt or the next run.
 - **Abort listeners run inside the hooks.** A listener a task adds to `ctx.signal` runs in the async context of the task's body, not in that of the timer, heartbeat, shutdown or caller (`cancel`) that aborted the run.
 - **Inline runs are not wrapped.** `runInline` runs `fn` in the scope of the code that called it.
-- **What runs outside the hooks**: the claim, the journal, the heartbeat, the finalizers and the `ScheduleRun*` events of the run.
+- **What runs outside the hooks**: the claim, the journal, the heartbeat, the finalizers and the `ScheduleRun*` events of the run; they run with no request store and no trace parent, whoever woke the loop (`runNow`, `retry` and `retryFailed` wake it from inside a request or command, and every later tick of its timer too).
 
 ## Tracing
 
