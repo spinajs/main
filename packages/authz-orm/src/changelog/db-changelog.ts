@@ -196,9 +196,10 @@ export class DbChangeLog extends ChangeLog {
     const sentinel = (): void => undefined;
     const mark: Mark = { sentinel, written: false };
     const queued = driver.afterCommit(sentinel);
-    const done = this.mark(kind, type, reason).then(() => {
+    const done = (async () => {
+      await this.mark(kind, type, reason);
       mark.written = true;
-    });
+    })();
     marks.set(slot, mark);
     await queued;
     return done;
