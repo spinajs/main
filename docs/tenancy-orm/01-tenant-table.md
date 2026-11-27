@@ -115,7 +115,8 @@ application lists; guard the route or command that calls them.
   refused with `InvalidArgument` before the row is read. To change one key of a listed object, `set` the whole object.
   Free-form settings are written at provisioning or through `TenantModel`.
 - The value is checked in its JSON form, the form the `settings` column stores (a `Date` becomes its ISO text, an
-  `undefined` key is left out); a value without one (`undefined`, a function, a cycle) is refused with `InvalidArgument`.
+  `undefined` key is left out); a value without one (`undefined`, a function, a cycle) is refused with `InvalidArgument`,
+  and so is `NaN`, `Infinity` or `-Infinity` at any depth (JSON would store `null`).
 - A tenant's whole settings object, after the change, holds at most 65,535 bytes of JSON (UTF-8 bytes, what a MySQL
   `TEXT` column holds). A `set` that takes it over the limit throws `InvalidArgument` naming the limit and the size it
   measured, and writes nothing. An `unset` is never refused for its size.

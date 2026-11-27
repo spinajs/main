@@ -130,6 +130,14 @@ describe('TenantSettingsService', function () {
     expect(await stored()).to.deep.equal(record.settings);
   });
 
+  it('refuses NaN, Infinity and -Infinity at any depth of a value: JSON would store them as null', async () => {
+    await expect(service.set('acme', 'notes.text', Number.NaN)).to.be.rejectedWith(InvalidArgument, 'holds NaN, which is not a JSON number');
+    await expect(service.set('acme', 'notes.text', { list: [1, { at: Number.POSITIVE_INFINITY }] })).to.be.rejectedWith(InvalidArgument, 'holds Infinity, which is not a JSON number');
+    await expect(service.set('acme', 'limits.export', { limit: Number.NEGATIVE_INFINITY })).to.be.rejectedWith(InvalidArgument, 'holds -Infinity, which is not a JSON number');
+
+    expect(await stored()).to.deep.equal({ plan: 'pro', 'mail.from': 'old@acme.test' });
+  });
+
   it('refuses settings over 65,535 bytes of JSON, counted in UTF-8 bytes over the whole stored object; an unset still passes', async () => {
     const seed = { plan: 'pro', 'mail.from': 'old@acme.test' };
     const bytes = (text: string) => Buffer.byteLength(JSON.stringify({ ...seed, notes: { text } }));

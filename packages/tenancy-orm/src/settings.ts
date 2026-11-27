@@ -41,12 +41,19 @@ function withoutValue(settings: Settings, segments: readonly string[]): Record<s
   return isRecord(child) ? { ...settings, [head]: withoutValue(child, rest) } : { ...settings };
 }
 
+// JSON.stringify writes them as null, which a `type: number` schema then coerces to 0.
+function finiteNumbers(_key: string, value: unknown): unknown {
+  if (typeof value === 'number' && !Number.isFinite(value)) throw new InvalidArgument(`a setting value holds ${value}, which is not a JSON number`, 'value');
+  return value;
+}
+
 // The check must judge what the JSON column will hold: a Date, a toJSON() or an undefined key is stored otherwise.
 function jsonForm(value: unknown): unknown {
   let text: string | undefined;
   try {
-    text = JSON.stringify(value);
+    text = JSON.stringify(value, finiteNumbers);
   } catch (error) {
+    if (error instanceof InvalidArgument) throw error;
     throw new InvalidArgument('a setting value must be serializable as JSON', 'value', undefined, error);
   }
   if (text === undefined) throw new InvalidArgument('a setting value is JSON (null, a boolean, a number, a string, an array or an object); remove a setting with unset()', 'value');
