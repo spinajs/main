@@ -1,6 +1,7 @@
 import { audit, trailConfig } from '@spinajs/audit';
 import type { AuditEvent } from '@spinajs/audit';
 import { ArchiveAuditSink, AuditArchiveTableMigration, AuditOutboxTableMigration, AuditSealTableMigration, OutboxAuditStore, rowsOf, sealAudit, shipAudit, verifyTable } from '@spinajs/audit-orm';
+import { AuditBatchRecorded, archiveAuditBatch } from '@spinajs/audit-orm/queue';
 import { Configuration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
 import type { OrmDriver } from '@spinajs/orm';
@@ -124,6 +125,23 @@ export const AUDIT_CASES = [
         const erased = await audit().trail(TRAIL).forget({ type: 'doc', id: 't1:42' });
         const blank = async (table: string): Promise<string[]> => rowsOf(await driver.select().from(table).where('kind', 'data').orderBy('seq')).map((r) => `${String(r.subject_type)}|${String(r.subject_id)}:${String(r.data === '')}`);
         return { of, erased, archived: await blank(ARCHIVE), buffered: await blank('audit_outbox') };
+      }),
+  }),
+  defineCase({
+    name: 'audit-exact-subject-arriving-erasure',
+    seed: EMPTY,
+    order: 'ordered',
+    // An erasure that arrives over the queue blanks the archived events of exactly its subject.
+    expected: { changed: ['doc|ABC', 'doc|ABC'], added: ['doc|ABC'] },
+    run: ({ driver }) =>
+      withTables(driver, async () => {
+        const subject = (n: number, id: string, type = 'doc'): AuditEvent => ({ ...event(n), subject: { type, id } });
+        const arrive = (events: AuditEvent[]): Promise<void> => archiveAuditBatch(new AuditBatchRecorded({ Trail: TRAIL, Source: 'app', Events: events.map((e) => ({ ...e, at: e.at.toISOString() })) }));
+        await arrive([subject(1, 'ABC'), subject(2, 'ABC '), subject(3, 'ABC  '), subject(4, 'ABC', 'doc '), subject(5, 'ABC')]);
+        const before = await trailRows(driver, ARCHIVE);
+        await arrive([{ ...subject(6, 'ABC'), kind: 'custom', action: 'erasure', at: new Date(), data: { redacted: 2 } }]);
+        const after = await trailRows(driver, ARCHIVE);
+        return { changed: changedRows(before, after), added: [...after].filter(([seq]) => !before.has(seq)).map(([, r]) => r.subject) };
       }),
   }),
 ];

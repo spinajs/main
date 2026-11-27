@@ -111,7 +111,8 @@ export const HISTORY_EXACT_CASES = [
     seed: EMPTY,
     order: 'ordered',
     // An id stored in one spelling only, a numeric key and a uuid key read and erase as before the exact comparison.
-    expected: { first: ['insert:1', 'update:1'], spacedNumber: [], second: ['insert:2'], uuid: [`insert:${UUID}`], forgotFirst: 2, forgotUuid: 1, secondKept: [false] },
+    // `forget('1 ')` is the text '1 ', not the key 1: it erases nothing and returns 0, so row 1 still has 2 entries to erase.
+    expected: { first: ['insert:1', 'update:1'], spacedNumber: [], second: ['insert:2'], uuid: [`insert:${UUID}`], forgotSpacedNumber: 0, forgotFirst: 2, forgotUuid: 1, secondKept: [false] },
     run: (db) =>
       withKeys(db, async () => {
         const first = await CfUser.create({ Name: 'first', Active: true });
@@ -125,6 +126,7 @@ export const HISTORY_EXACT_CASES = [
           spacedNumber: await ops('1 '),
           second: await ops(2),
           uuid: await ops(UUID, CfKey.history()),
+          forgotSpacedNumber: await historyOf(CfUser).forget('1 '),
           forgotFirst: await historyOf(CfUser).forget(1),
           forgotUuid: await CfKey.history().forget(UUID),
           secondKept: (await historyOf(CfUser).of(2)).map((e) => e.redacted),
