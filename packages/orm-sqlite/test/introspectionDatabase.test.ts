@@ -3,8 +3,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Configuration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
-import { Connection, InsertBehaviour, Model, ModelBase, Orm, Primary, QueryContext, WriteObserver } from '@spinajs/orm';
-import type { CaptureInterest, CapturedWrite, RowChange, WriteStatement } from '@spinajs/orm';
+import { Connection, DefaultMigrationService, InsertBehaviour, Model, ModelBase, Orm, Primary, QueryContext, WriteObserver } from '@spinajs/orm';
+import type { CaptureInterest, CapturedWrite, OrmMigrationService, RowChange, WriteStatement } from '@spinajs/orm';
 import { expect } from 'chai';
 import _ from 'lodash';
 import 'mocha';
@@ -163,6 +163,15 @@ describe('sqlite introspection of a table in an attached database', function () 
       ]);
     });
 
+    // Both automatic indexes are named sqlite_autoindex_p_up_1; an unqualified index_info finds main's first.
+    it('reads the columns of the index of that schema when main has an index of the same name', async () => {
+      await run('DROP TABLE main.p_up');
+      await run('CREATE TABLE main.p_up (Id INTEGER PRIMARY KEY, Code TEXT, Name TEXT UNIQUE)');
+
+      expect((await sqlite().tableIndexes('p_up', 's')).filter((i) => !i.primary).map((i) => [i.name, i.columns])).to.deep.equal([['sqlite_autoindex_p_up_1', ['Code']]]);
+      expect((await sqlite().tableInfo('p_up', 's')).filter((c) => c.Unique).map((c) => c.Name)).to.deep.equal(['Code']);
+    });
+
     it('reads a schema that is not attached as holding no table', async () => {
       expect(await sqlite().tableInfo('p_up', 'nope')).to.equal(null);
       expect(await sqlite().tableIndexes('p_up', 'nope')).to.deep.equal([]);
@@ -252,6 +261,14 @@ describe('sqlite introspection of a table in an attached database', function () 
 
     it('reads p_up of main, not of s', async () => {
       expect((await sqlite().tableInfo('p_up')).map((c) => c.Name)).to.deep.equal(['Id', 'Code', 'Name', 'Extra']);
+    });
+
+    it('keeps reading the migration table where its unqualified CREATE TABLE put it', async () => {
+      const service = await sqlite().Container.resolve<OrmMigrationService>(DefaultMigrationService, [sqlite()]);
+      await service.ensureStorage();
+      await service.ensureStorage();
+
+      expect(await rowsOf("SELECT name FROM main.sqlite_master WHERE name = 'orm_migrations'")).to.have.length(1);
     });
   });
 
