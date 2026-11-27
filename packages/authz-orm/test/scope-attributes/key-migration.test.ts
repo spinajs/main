@@ -2,12 +2,14 @@ import * as chai from 'chai';
 import 'mocha';
 import { createHash } from 'node:crypto';
 
-import { AuthzConfigError } from '@spinajs/authz';
+import { AuthzConfigError, GLOBAL } from '@spinajs/authz';
+import type { ResourceRef } from '@spinajs/authz';
 import { DI } from '@spinajs/di';
 import { QueryMiddleware, SelectQueryBuilder, extractMigrationDescriptor } from '@spinajs/orm';
 import type { OrmDriver, QueryBuilder } from '@spinajs/orm';
 
-import { AuthzScopeAttributeKey_2026_11_25_00_00_00, AuthzScopeAttribute_2026_10_02_00_00_00, SCOPE_ATTRIBUTE_TABLE, SCOPE_ATTRIBUTE_VERSION_TABLE, scopeAttributeId } from '../../src/index.js';
+import { AuthzScopeAttributeKey_2026_11_25_00_00_00, AuthzScopeAttribute_2026_10_02_00_00_00, DbScopeAttributeStore, SCOPE_ATTRIBUTE_TABLE, SCOPE_ATTRIBUTE_VERSION_TABLE, scopeAttributeId } from '../../src/index.js';
+import { createChangeLogTables, dropChangeLogTables } from '../support/changelog.js';
 import { TestDb } from '../support/db.js';
 import type { Dialect } from '../support/db.js';
 
@@ -16,6 +18,8 @@ const expect = chai.expect;
 const REBUILT = `${SCOPE_ATTRIBUTE_TABLE}_rebuilt`;
 const RESTORED = `${SCOPE_ATTRIBUTE_TABLE}_restored`;
 const AT = new Date('2026-11-01T10:00:00.000Z');
+const ALICE = { type: 'user', id: 'alice' };
+const O1: ResourceRef = { type: 'org', id: 'o1' };
 const KEYED_COLUMNS = ['id', 'path', 'scope_id', 'scope_type', 'updated_at', 'updated_by', 'value_json', 'value_num', 'value_text'];
 const LEAF_COLUMNS = ['path', 'scope_id', 'scope_type', 'updated_at', 'updated_by', 'value_json', 'value_num', 'value_text'];
 
@@ -357,6 +361,44 @@ describe('AuthzScopeAttributeKey_2026_11_25_00_00_00', function () {
         expect(await stored()).to.deep.equal(before);
         await key.up(driver);
         await expectKeyed(before);
+      });
+
+      it('a store write after the migration replaces migrated leaves under their ids', async () => {
+        const store = new DbScopeAttributeStore();
+        await oldTable();
+        await key.up(driver);
+        await createChangeLogTables(db, dialect);
+        try {
+          await driver.transaction((d) => store.write(GLOBAL, { set: { tier: 'silver' }, remove: [] }, ALICE, { driver: d }));
+          await driver.transaction((d) => store.write(O1, { set: { 'limits.max': 20, fresh: 'x' }, remove: ['on'] }, ALICE, { driver: d }));
+          const rows = await stored();
+          expect(Object.fromEntries(rows.map((r) => [leafOf(r), r.value_json]))).to.deep.equal({
+            [leafOf({ scope_type: '$global', scope_id: '', path: 'tier' })]: '"silver"',
+            [leafOf({ scope_type: 'org', scope_id: 'o1', path: 'limits.max' })]: '20',
+            [leafOf({ scope_type: 'org', scope_id: 'o1', path: 'fresh' })]: '"x"',
+            [leafOf(OLD_ROWS[3])]: '-2.25',
+          });
+          for (const r of rows) expect(r.id, leafOf(r)).to.equal(idOf(r));
+          expect(await store.get(GLOBAL)).to.deep.equal({ tier: 'silver' });
+        } finally {
+          await dropChangeLogTables(db, dialect);
+        }
+      });
+
+      it('the store keeps scopes apart that differ only by case, accent, a trailing blank or normal form', async () => {
+        const store = new DbScopeAttributeStore();
+        const scopes = [...new Set(VARIANTS.map(([, scopeId]) => scopeId))].map((id): ResourceRef => ({ type: 'org', id }));
+        await oldTable([]);
+        await key.up(driver);
+        await createChangeLogTables(db, dialect);
+        try {
+          for (const [i, scope] of scopes.entries()) await driver.transaction((d) => store.write(scope, { set: { k: i, [`only.${i}`]: true }, remove: [] }, ALICE, { driver: d }));
+          for (const [i, scope] of scopes.entries()) expect(await store.get(scope), JSON.stringify(scope.id)).to.deep.equal({ k: i, only: { [i]: true } });
+          await driver.transaction((d) => store.forget(scopes[1], { driver: d }));
+          expect(await store.get(scopes[0])).to.deep.equal({ k: 0, only: { 0: true } });
+        } finally {
+          await dropChangeLogTables(db, dialect);
+        }
       });
     });
   }

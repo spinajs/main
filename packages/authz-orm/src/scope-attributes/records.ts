@@ -9,6 +9,7 @@ export const SCOPE_ATTRIBUTE_VERSION_TABLE = 'authz_scope_attribute_version';
 
 /** An `authz_scope_attribute` row: one scalar leaf of a scope node's attributes. */
 export interface ScopeAttributeFields {
+  readonly id: string;
   readonly scope_type: string;
   readonly scope_id: string;
   readonly path: string;
@@ -32,13 +33,12 @@ export function scopeAttributeId(scopeType: string, scopeId: string, path: strin
 @Model(SCOPE_ATTRIBUTE_TABLE)
 export class ScopeAttributeRecord extends ModelBase<ScopeAttributeRecord> implements ScopeAttributeFields {
   @Primary({ generated: 'assigned' })
+  public id!: string;
+
   public scope_type!: string;
 
-  // '' for $global, which `generated: 'assigned'` refuses.
-  @Primary()
   public scope_id!: string;
 
-  @Primary({ generated: 'assigned' })
   public path!: string;
 
   @Json()
