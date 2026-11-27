@@ -31,10 +31,12 @@ describe('SafeFetch', () => {
     { label: 'a user name and a password', parts: { user: true, password: true } },
     { label: 'only a user name', parts: { user: true } },
     { label: 'only a password', parts: { password: true } },
+    { label: 'user info after an upper-case scheme', parts: { user: true, password: true }, scheme: 'HTTPS://' },
+    { label: 'user info after backslashes', parts: { user: true, password: true }, scheme: 'https:\\\\' },
   ];
-  for (const { label, parts } of userinfo) {
+  for (const { label, parts, scheme } of userinfo) {
     it(`refuses a URL with ${label} without fetching or quoting it`, async () => {
-      const { url, secrets } = credentialUrl(parts);
+      const { url, secrets } = credentialUrl(parts, scheme);
       stub = stubFetch(() => text(200, 'x'));
       const dnsCalls = dnsTripwire();
       let err: Error;
@@ -50,6 +52,20 @@ describe('SafeFetch', () => {
       expect(dnsCalls.calls).to.deep.eq([]);
     });
   }
+
+  it('fetches a URL with an @ outside the user info', async () => {
+    stub = stubFetch(() => text(200, 'x'));
+    const dnsCalls = dnsTripwire();
+    try {
+      for (const url of ['https://lists.example/a@b/c', 'https://lists.example/x?who=a:b@c', 'https://lists.example/x#a:b@c']) {
+        await http.get(url, { timeoutMs: 100, maxBytes: 10 });
+      }
+    } finally {
+      dnsCalls.restore();
+    }
+    expect(stub.calls).to.have.length(3);
+    expect(dnsCalls.calls).to.deep.eq([]);
+  });
 
   it('sends manual redirects, the headers and a timeout signal', async () => {
     stub = stubFetch(() => text(200, 'ok'));

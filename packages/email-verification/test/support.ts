@@ -82,12 +82,12 @@ export function dnsTripwire(): { calls: string[]; restore(): void } {
 }
 
 /** Made-up credentials and a query token in a URL on a host that must never be resolved. */
-export function credentialUrl(parts: { user?: boolean; password?: boolean } = { user: true, password: true }) {
+export function credentialUrl(parts: { user?: boolean; password?: boolean } = { user: true, password: true }, scheme = 'https://') {
   const user = randomBytes(12).toString('hex');
   const password = randomBytes(12).toString('hex');
   const token = randomBytes(12).toString('hex');
   const userinfo = `${parts.user ? user : ''}${parts.password ? `:${password}` : ''}@`;
-  return { url: `https://${userinfo}lists.invalid/x?token=${token}`, secrets: [...(parts.user ? [user] : []), ...(parts.password ? [password] : []), token] };
+  return { url: `${scheme}${userinfo}lists.invalid/x?token=${token}`, secrets: [...(parts.user ? [user] : []), ...(parts.password ? [password] : []), token] };
 }
 
 /** Every 8-character run of a secret that appears in `text`. */
