@@ -130,4 +130,14 @@ describe('authz:ancestors-verify / authz:ancestors-rebuild', function () {
       await db.useAuthz('sqlite');
     }
   });
+
+  it('refuses to run on two resource types on one table, and writes nothing', async () => {
+    const Ticket = await db.define({ name: 'Ticket', columns: { project_id: 'TEXT' }, rows: [{ id: 'k1', project_id: 'p1' }], decorate: (c, p) => { AccessResource('ticket')(c); Parent('project')(p, 'project_id'); } });
+    await db.define({ name: 'Item', columns: {}, table: db.table(Ticket), decorate: (c, p) => { AccessResource('item')(c); Parent('project')(p, 'project_id'); } });
+    await rebuild();
+    expect(io.err).to.have.length(1);
+    expect(io.err[0]).to.contain(`map to one table '${db.table(Ticket)}'`);
+    expect(io.code()).to.equal(1);
+    expect(await ancestorLinks(db.driver())).to.deep.equal([]);
+  });
 });
