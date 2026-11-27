@@ -1,3 +1,4 @@
+import { DI } from '@spinajs/di';
 import type { Constructor } from '@spinajs/di';
 
 import { lookupValue } from '../column-kind.js';
@@ -32,13 +33,18 @@ export const mergeReads = (reads: readonly Reads[]): Reads => ({ rows: new Map(r
 export async function readRows(driver: OrmDriver, model: Constructor<ModelBase>, table: string, pk: string, columns: readonly string[] | '*', keys: readonly string[], by = pk, lock = false): Promise<Reads> {
   const out = new Map<string, CapturedRow>();
   const keyless: unknown[] = [];
-  const column = findColumn(extractModelDescriptor(model)?.Columns, by);
+  const descriptor = extractModelDescriptor(model);
+  const column = findColumn(descriptor?.Columns, by);
+  // The database of the model's own connection, as createQuery() qualifies the write: `driver` may be another
+  // connection on the same server that runs the write for it.
+  const database = descriptor?.Connection ? DI.resolve<OrmDriver | undefined>('OrmConnection', [descriptor.Connection])?.Options.Database : undefined;
   // A key no row can have is left out rather than bound: binding it fails the cast on some databases and matches a coerced key on others.
   const values = keys.map((k) => (column ? lookupValue(column, k) : k)).filter((v) => v !== undefined);
   // spinajs-orm-ignore ORM102: deliberate batching, one query per IN_CHUNK keys
   for (let i = 0; i < values.length; i += IN_CHUNK) {
     // A builder without a model: table, key and columns are run-time names, and it always runs on the primary.
     const select = driver.select<CapturedRow[]>().from(table);
+    if (database) select.database(database);
     if (columns !== '*') select.columns([...new Set([pk, ...columns])]);
     if (lock) select.forUpdate();
     const rows = await select.whereIn(by, values.slice(i, i + IN_CHUNK));
