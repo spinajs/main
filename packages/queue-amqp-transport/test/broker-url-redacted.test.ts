@@ -226,11 +226,18 @@ describe('amqp transport - the broker url in logs and errors', function () {
 
   it('the default localhost keeps the reason of each address it tried', async () => {
     const port = await closedPort();
-    const { thrown } = await failedConnect({ host: 'localhost', port });
+    const lookup: LookupFunction = (_hostname, options, callback) =>
+      options.all
+        ? callback(null, [
+            { address: '::1', family: 6 },
+            { address: '127.0.0.1', family: 4 },
+          ])
+        : callback(null, '127.0.0.1', 4);
+    const { thrown } = await failedConnect({ host: 'localhost', port, options: { lookup } });
 
     const cause = causeOf(thrown);
-    expect(cause.message).to.match(/ECONNREFUSED/);
-    if (cause.name === 'AggregateError') expect(cause.message).to.contain(`ECONNREFUSED ::1:${port}`).and.contain(`ECONNREFUSED 127.0.0.1:${port}`);
+    expect(cause.name).to.eq('AggregateError');
+    expect(cause.message).to.contain(`ECONNREFUSED ::1:${port}`).and.contain(`ECONNREFUSED 127.0.0.1:${port}`);
   });
 
   it('a client error that quotes the url or the target reaches neither the cause nor a log line', async () => {
