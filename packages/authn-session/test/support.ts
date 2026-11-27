@@ -3,6 +3,7 @@ import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { SessionExpirationProvider, SessionProvider } from '../src/contracts.js';
 import { AbsoluteExpiration, MemorySessionStore, SlidingCappedExpiration, SlidingExpiration } from '../src/index.js';
 import shipped from '../src/config/session.js';
+import { DateTime } from 'luxon';
 
 let overrides: Record<string, unknown> = {};
 let registered = false;
@@ -23,7 +24,17 @@ export class SessionTestConfiguration extends FrameworkConfiguration {
   }
 }
 
-const isPlain = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
+/** Six ways to end up with an invalid DateTime. */
+export const UNREADABLE_INSTANTS: [string, DateTime][] = [
+  ['unparsable ISO text', DateTime.fromISO('not a date')],
+  ['DateTime.invalid', DateTime.invalid('test')],
+  ['millis past the Date range', DateTime.fromMillis(8.64e15 + 1)],
+  ['NaN millis', DateTime.fromMillis(NaN)],
+  ['epoch seconds past the Date range', DateTime.fromSeconds(1e13)],
+  ['arithmetic on an invalid instant', DateTime.invalid('test').plus({ minutes: 30 })],
+];
+
+const isPlain =(v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
 
 function merge(target: Record<string, unknown>, source: Record<string, unknown>): void {
   for (const [k, v] of Object.entries(source)) {

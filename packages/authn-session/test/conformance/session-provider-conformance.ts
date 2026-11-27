@@ -413,6 +413,21 @@ export function runSessionProviderConformance(makeProvider: SessionProviderFacto
         expect(await provider.restore(session.SessionId), 'a logout or ban between read and touch stays in force').to.be.null;
       });
 
+      it('touch of a session whose Creation is not a valid instant stores an expiry that has passed, under every strategy', async () => {
+        for (const expiration of [SLIDING, ABSOLUTE, CAPPED]) {
+          const provider = await makeProvider(expiration);
+          await provider.truncate();
+
+          const subject = userRef('u-unreadable-creation');
+          const session = makeSession({ Subject: subject });
+          await provider.save(session);
+          await provider.touch(makeSession({ SessionId: session.SessionId, Subject: subject, Creation: DateTime.invalid('test'), Expiration: session.Expiration }));
+
+          expect(await provider.restore(session.SessionId), `${expiration.service}: restore`).to.be.null;
+          expect(await provider.listBySubject(subject), `${expiration.service}: listBySubject`).to.be.empty;
+        }
+      });
+
       it('touch writes the Data of the row, also when the expiration does not change (the issuer updates rows only through touch)', async () => {
         const provider = await makeProvider(ABSOLUTE);
         await provider.truncate();
