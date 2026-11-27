@@ -196,6 +196,75 @@ describe('redis session provider', function () {
         expect(await store.restore(id), `${label}: renewed past its cap`).to.equal(null);
       }
     });
+
+    /** An impersonated session from IdP session ek-1, with one stored field rewritten (undefined drops it). */
+    async function savedWith(store: RedisSessionStore, id: string, field: string, value: unknown) {
+      await store.save(session({ SessionId: id, Subject: user('u-42'), Impersonator: user('admin'), ExternalKey: 'ek-1' }));
+      const raw = await stored(`session:${id}`);
+      raw[field] = value;
+      await rawClient().set(`session:${id}`, JSON.stringify(raw));
+    }
+
+    const REVOCATIONS: [field: string, readable: unknown, revoke: (store: RedisSessionStore) => Promise<number>, unreadable: [string, unknown][]][] = [
+      [
+        'Impersonator',
+        'user:admin',
+        (store) => store.deleteBySubject(user('admin'), { includeImpersonations: true }),
+        [['empty text', ''], ['zero', 0], ['false', false], ['null', null], ['an object', {}], ['an array', []], ['a number', 42], ['text without a type', 'admin'], ['an empty type', ':admin'], ['an empty id', 'user:']],
+      ],
+      ['ExternalKey', 'ek-1', (store) => store.deleteByExternalKey('ek-1'), [['zero', 0], ['false', false], ['null', null], ['an object', {}], ['an array', []], ['a number', 42]]],
+    ];
+
+    for (const [field, readable, revoke, unreadable] of REVOCATIONS) {
+      it(`a present but unreadable ${field} ends the session, so the revocation that looks for it cannot leave it live`, async () => {
+        const store = await makeProvider(SLIDING);
+        await store.truncate();
+
+        for (const [label, value] of [['readable', readable], ['absent', undefined], ...unreadable] as [string, unknown][]) {
+          const id = `r-${field}-${label.replace(/\W+/g, '-')}`;
+          await savedWith(store, id, field, value);
+
+          expect(await revoke(store), `${label}: revoked and counted`).to.equal(value === readable ? 1 : 0);
+          const restored = await store.restore(id);
+          if (value === undefined) {
+            expect(restored, `${label}: untouched by the revocation`).to.not.be.null;
+          } else {
+            expect(restored, label).to.equal(null);
+            expect(await rawClient().exists(`session:${id}`), `${label}: deleted`).to.equal(0);
+          }
+
+          const listed = `${id}-listed`;
+          await savedWith(store, listed, field, value);
+          expect(ids(await store.listBySubject(user('u-42'))).includes(listed), `${label}: listed`).to.equal(value === readable || value === undefined);
+          await store.delete(listed);
+        }
+      });
+    }
+
+    it('an unreadable Impersonator or ExternalKey is logged once, naming the subject and the field and never the session id', async () => {
+      const store = await makeProvider(SLIDING);
+      await store.truncate();
+      const log = DI.resolve(Log, ['redis-session-store']);
+      const original = log.warn;
+
+      for (const field of ['Impersonator', 'ExternalKey']) {
+        const id = `r-warn-${field}-bearer-key`;
+        await savedWith(store, id, field, 0);
+        const lines: string[] = [];
+        log.warn = (first: unknown) => {
+          lines.push(String(first));
+        };
+        try {
+          expect(await store.restore(id)).to.equal(null);
+          expect(await store.restore(id)).to.equal(null);
+        } finally {
+          log.warn = original;
+        }
+
+        expect(lines, field).to.have.length(1);
+        expect(lines[0]).to.contain('user:u-42').and.to.contain(field).and.to.not.contain(id);
+      }
+    });
   });
 
   describe('3.0 key layout', () => {

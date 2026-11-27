@@ -52,6 +52,13 @@ function refOf(key: unknown): IdentityRef | undefined {
   return { type: key.slice(0, at).replace(/%(25|3A)/g, (_, code: string) => (code === '25' ? '%' : ':')), id: key.slice(at + 1) };
 }
 
+function unreadableRevocationField(stored: IStoredSession): 'Impersonator' | 'ExternalKey' | undefined {
+  if (stored.Impersonator !== undefined && !refOf(stored.Impersonator)?.id) {
+    return 'Impersonator';
+  }
+  return stored.ExternalKey !== undefined && typeof stored.ExternalKey !== 'string' ? 'ExternalKey' : undefined;
+}
+
 /**
  * Redis-backed session store (ioredis).
  *
@@ -450,10 +457,26 @@ export class RedisSessionStore extends SessionProvider {
       Impersonator: refOf(stored.Impersonator),
       State: stored.State === 'active' ? 'active' : 'pending',
       Creation: this.creationOf(stored.Creation),
-      Expiration: stored.Expiration === undefined ? undefined : this.instant(stored.Expiration, stored.Subject, quiet),
+      Expiration: this.expirationOf(stored, quiet),
       Data: data,
       ExternalKey: typeof stored.ExternalKey === 'string' ? stored.ExternalKey : undefined,
     });
+  }
+
+  /**
+   * Revocations find a row by its Impersonator and ExternalKey: one present but
+   * unreadable would leave the session live after its revocation, so the row
+   * counts as expired. Only an absent field means none.
+   */
+  protected expirationOf(stored: IStoredSession, quiet: boolean): DateTime | undefined {
+    const field = unreadableRevocationField(stored);
+    if (field === undefined) {
+      return stored.Expiration === undefined ? undefined : this.instant(stored.Expiration, stored.Subject, quiet);
+    }
+    if (!quiet) {
+      this.Log.warn(`A session of ${stored.Subject} has an ${field} the store cannot read; it is treated as expired`);
+    }
+    return DateTime.fromMillis(0);
   }
 
   /** Only an absent Expiration means "never": a present value that is not ISO text naming a valid instant counts as already passed. */

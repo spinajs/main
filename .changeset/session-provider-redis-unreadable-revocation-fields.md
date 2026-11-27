@@ -1,0 +1,5 @@
+---
+"@spinajs/session-provider-redis": patch
+---
+
+Security: a stored session whose `Impersonator` or `ExternalKey` is present but cannot be read is now treated as expired: `restore` answers `null` and deletes the key, listings leave it out, and a warning names the subject and the field (never the session id). Before, it read as "not impersonated" or "no IdP session", so revoking the impersonator's sessions (`deleteBySubject(admin, { includeImpersonations: true })`) or an IdP back-channel logout (`deleteByExternalKey`) skipped it and the session stayed live. Unreadable means: an `Impersonator` that is not a principal key with a non-empty type and id (an empty string, `null`, a number, `'admin'`, `'user:'`), an `ExternalKey` that is not a string. Only an absent field means none, which is what the store writes. At upgrade, existing sessions keep working: every version writes a principal key or no `Impersonator`, and a string or no `ExternalKey`. The one exception is a session saved with an impersonator whose id is empty (`'user:'`); it now ends.

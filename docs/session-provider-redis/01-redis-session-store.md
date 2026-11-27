@@ -31,7 +31,7 @@
 1. `GET session:<sessionId>`. No key returns `null`.
 2. `toSession()` parses the JSON. A value that is not a JSON object **throws**.
 3. `Subject`, `Impersonator` and `State` come from their fields. A value without a readable `Subject` returns `null`. `Data` is decoded with `decodeSessionData()`; `Data` that does not decode **throws**.
-4. An expired session (`Expiration <= now`) is deleted with `delete()` and returns `null`. An `Expiration` that is present but [unreadable](#session-key) counts as passed, and the store logs a warning naming the subject (never the session id).
+4. An expired session (`Expiration <= now`) is deleted with `delete()` and returns `null`. An `Expiration` that is present but [unreadable](#session-key) counts as passed, and the store logs a warning naming the subject (never the session id). So does an [unreadable](#session-key) `Impersonator` or `ExternalKey`: a revocation that looks the session up by that field could not find it, so it must not stay live. The warning then names the subject and the field.
 
 ### Touch, `touch(session)`
 
@@ -81,7 +81,7 @@ sequenceDiagram
 
 ### Truncate, `truncate()`
 
-`SCAN` with `MATCH` on the session rows and on both index-set patterns (built from `sessionKey()` and `indexKey()`, behind the escaped `keyPrefix`) in batches of 500, then `DEL` of each batch. It never runs `FLUSHDB`, and keys outside the store's prefix stay.
+`SCAN` with `MATCH` on the session rows and on the three index-set patterns (built from `sessionKey()`, `indexKey()` and `externalIndexKey()`, behind the escaped `keyPrefix`) in batches of 500, then `DEL` of each batch. It never runs `FLUSHDB`, and keys outside the store's prefix stay.
 
 ## Configuration
 
@@ -131,6 +131,7 @@ Every key is written under `authn.session.redis.keyPrefix`; ioredis adds the pre
 | `session:<SessionId>` | string | The [session JSON](#session-key) | `PEXPIREAT` at `Expiration`; none when the session never expires |
 | `session:subject:<principalKey>` | set | `SessionId`s whose `Subject` is the principal | None; stale members are removed when met |
 | `session:impersonator:<principalKey>` | set | `SessionId`s whose `Impersonator` is the principal | None; stale members are removed when met |
+| `session:external:<ExternalKey>` | set | `SessionId`s of one IdP session, read by `deleteByExternalKey` (back-channel logout) | None; stale members are removed when met |
 
 `<principalKey>` is `principalKey(ref)` from `@spinajs/authn/contracts`: the type with `%` escaped as `%25` and `:` as `%3A`, a `:`, then the id. `{ type: 'user', id: '42' }` is `user:42`.
 
@@ -139,11 +140,12 @@ Every key is written under `authn.session.redis.keyPrefix`; ioredis adds the pre
 | Field | Type | Meaning |
 | --- | --- | --- |
 | `Subject` | `string` | Owner as a principal key; while impersonating, the target. A value without a readable `Subject` reads as absent |
-| `Impersonator` | `string`, optional | The impersonating principal key |
+| `Impersonator` | `string`, optional | The impersonating principal key. Only an absent field means not impersonated. Any other value that is not a principal key with a non-empty type and id (an empty string, `null`, a number, `'admin'`, `'user:'`) makes the session count as expired |
 | `State` | `'active' \| 'pending'` | Any other stored value reads as `'pending'` |
 | `Creation` | ISO 8601 string | Issue time. A value that is not an ISO 8601 instant reads as the epoch, so the session is past any `maxLifetime` cap |
 | `Expiration` | ISO 8601 string, optional | Only an absent field means never expires. Any other value that is not an ISO 8601 instant (an empty string, `null`, a number, `false`) counts as already passed |
 | `Data` | `string` | `encodeSessionData(session.Data)`: JSON that keeps `Map`, `Set` and luxon `DateTime` values |
+| `ExternalKey` | `string`, optional | The IdP session the login came from, `sha256(provider + '\0' + sid)`. Only an absent field means none. A value that is not a string (`null`, a number, an object) makes the session count as expired |
 
 ## Services and extension points
 
