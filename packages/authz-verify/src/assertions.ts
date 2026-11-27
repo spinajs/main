@@ -3,7 +3,7 @@ import type { Permission } from '@spinajs/authz';
 import type { ObjectRef, OpaqueRef, PolicyIR, RelationName, TupleSubjectRef, TypeName } from '@spinajs/authz-ir';
 
 import { ANYONE, RewriteAutomaton, stateKey } from './graph.js';
-import type { Edge } from './graph.js';
+import type { Edge, StoredRead } from './graph.js';
 import { explore, implies as exactImplies, onlyVia as exactOnlyVia, reachers, reachersOf } from './monotone.js';
 import type { Reacher } from './monotone.js';
 import type { Encoder } from './smt/encode.js';
@@ -258,13 +258,23 @@ function holderAdmits(ir: PolicyIR, selectors: readonly string[], mode: 'without
     const held = selector.startsWith('public:') ? selector.slice('public:'.length) : selector;
     return { selector, held, behind: behindSelector(ir, m, held) };
   });
+  const reads = new Map<string, StoredRead[]>();
+  const readsOf = (set: string): StoredRead[] => {
+    const known = reads.get(set);
+    if (known !== undefined) return known;
+    const found = m.readsFrom(set);
+    reads.set(set, found);
+    return found;
+  };
   return (t, u) => {
     const wildcard = t.subject.id === '*';
     const at = stateKey(t.object.type, t.relation);
     const set = t.subject.relation;
     if (set !== undefined) {
-      // A set behind a holder makes its members the holder's only through the holder's relation, not through another.
-      const outside = reach.every((r) => !r.behind.has(stateKey(t.subject.type, set)) || namesRelation(ir, r.held, t.subject.type, set));
+      // A set behind the holder makes its members the holder's only on the holder's relation, unless the holder's
+      // members are among the set's (a cycle of sets).
+      const key = stateKey(t.subject.type, set);
+      const outside = reach.every((r) => !r.behind.has(key) || readsOf(key).some((x) => namesRelation(ir, r.held, x.type, x.relation)));
       return outside || reach.some((r) => namesRelation(ir, r.held, t.object.type, t.relation) || r.behind.has(at));
     }
     const names = wildcard || (t.subject.type === u.principal.type && t.subject.id === u.principal.id);
