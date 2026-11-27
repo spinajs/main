@@ -297,11 +297,10 @@ describe('@ResponseCache', function () {
     expect(runs.get('list')).to.eq(4);
   });
 
-  it('answers uncached, with one warning per request, when the store does not answer within cache.http.timeout', async function () {
+  it('answers uncached when the store does not answer within cache.http.timeout, with one warning per route and minute', async function () {
     this.timeout(10000);
-    expect((await get('/items/hung', { 'x-user': 'uma' })).body).to.deep.eq({ run: 1 });
-    expect((await get('/items/hung', { 'x-user': 'uma' })).body).to.deep.eq({ run: 2 });
-    expect(cacheWarnings().filter((text) => text.includes('/items/hung') && text.includes('lookup failed'))).to.have.length(2);
+    for (const n of [1, 2, 3]) expect((await get('/items/hung', { 'x-user': 'uma' })).body).to.deep.eq({ run: n });
+    expect(cacheWarnings().filter((text) => text.includes('/items/hung') && text.includes('lookup failed'))).to.have.length(1);
   });
 
   it('drops a stored reply when one of its tags is invalidated', async () => {

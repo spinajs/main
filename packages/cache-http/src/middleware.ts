@@ -32,6 +32,7 @@ const HEADER_ARGUMENTS: ReadonlyMap<string, readonly string[]> = new Map([
 ]);
 const REQUEST_OBJECTS: ReadonlySet<string> = new Set([ParameterType.Req, ParameterType.Res]);
 const REQ: string = ParameterType.Req;
+const FAILURE_LOG_INTERVAL_MS = 60_000;
 const BODY_ARGUMENTS: ReadonlySet<string> = new Set([
   ParameterType.FromBody,
   ParameterType.BodyField,
@@ -121,6 +122,9 @@ export class ResponseCacheMiddleware extends RouteMiddleware {
 
   // one warning per reason and route
   private readonly warned = new Set<string>();
+
+  // when a cache call of this route (lookup, store) last logged a failure
+  private readonly failedAt = new Map<string, number>();
 
   // settled by the first request: the route's middleware instances exist only after every onRegister ran
   private servable?: boolean;
@@ -240,7 +244,13 @@ export class ResponseCacheMiddleware extends RouteMiddleware {
     try {
       return await Promise.race([this.Storage.run(storage, op), late]);
     } catch (error) {
-      this.Log.warn({ error, route: this.namespace, what }, 'Response cache of ${route}: ${what} failed and is read as a miss');
+      const now = Date.now();
+      const last = this.failedAt.get(what);
+      // a store that is down fails every request: one warning per call and minute, not one per request
+      if (last === undefined || now - last >= FAILURE_LOG_INTERVAL_MS) {
+        this.failedAt.set(what, now);
+        this.Log.warn({ error, route: this.namespace, what }, 'Response cache of ${route}: ${what} failed and is read as a miss; further failures of it in the next minute are not logged');
+      }
       return undefined;
     } finally {
       clearTimeout(timer);

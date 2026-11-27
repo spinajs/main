@@ -19,3 +19,5 @@ On a `'tenant'` or `'shared'` route an action that takes `@Req()` or `@Res()`, o
 A per-principal reply keeps the same headers as a shared one: a route header that is not one of those, such as the first request's `X-Request-Id`, is not replayed to the principal's later requests.
 
 A route whose action reads the request body (`@Body`, a form, a file, the raw body, `@ContentDigest`, `@RequestStream`) fails its registration on every scope, per principal too: the body of a GET request is in no key.
+
+A failing or late cache call logs one warning per route and call (lookup, store) per minute, not one per request.
