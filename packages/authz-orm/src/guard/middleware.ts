@@ -1,6 +1,6 @@
 import { AuthzConfigError, SYSTEM, authzStorage, currentPrincipal } from '@spinajs/authz';
 import { Injectable } from '@spinajs/di';
-import { InStatement, QueryMiddleware, SelectQueryBuilder, SqlOperator, WhereBoolean, WhereStatement, extractModelDescriptor, relationSyncOf } from '@spinajs/orm';
+import { InStatement, QueryMiddleware, SelectQueryBuilder, SqlOperator, WhereBoolean, WhereStatement, relationSyncOf } from '@spinajs/orm';
 import type { IQueryStatement, QueryBuilder } from '@spinajs/orm';
 
 import { ormLog, storageUnscoped } from '../host.js';
@@ -15,18 +15,16 @@ const isScalar = (v: unknown): boolean => typeof v === 'string' || typeof v === 
 
 /**
  * Overview decision 11: exactly one primary-key value (`where(pk, v)`, `get(v)`, `findOrFail([v])`) is
- * a single-object load, which the route's check-before covers. The soft-delete and archive IS NULL
- * statements createQuery adds by default do not count.
+ * a single-object load, which the route's check-before covers. The soft-delete and archive scopes
+ * createQuery adds by default do not count.
  */
 export function isSingleObjectLoad(query: SelectQueryBuilder, entry: ResourceEntry): boolean {
-  const descriptor = extractModelDescriptor(query.Model as never);
-  const defaults = [descriptor?.SoftDelete?.DeletedAt, descriptor?.Archived?.ArchivedAt].filter((c): c is string => typeof c === 'string' && c !== '');
   let keys = 0;
-  for (const [i, s] of (query.Statements as IQueryStatement[]).entries()) {
-    // The ORM joins statements without grouping: `deleted_at IS NULL OR id = 7` reads every live row.
+  const conditions = (query.Statements as IQueryStatement[]).filter((s) => s.Scope !== true);
+  for (const [i, s] of conditions.entries()) {
+    // The scopes compile ANDed with these as one group; an OR among these widens it: `id = 7 OR title = ?`.
     if (i > 0 && s.Boolean === WhereBoolean.OR) return false;
     if (s instanceof WhereStatement) {
-      if (s.Operator === SqlOperator.NULL && typeof s.Column === 'string' && defaults.includes(s.Column)) continue;
       if (s.Column === entry.idColumn && s.Operator === SqlOperator.EQ && isScalar(s.Value)) {
         keys++;
         continue;

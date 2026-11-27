@@ -79,22 +79,27 @@ describe('authz-orm guard: an OR connector makes a select a list', function () {
         await db.clear();
       });
 
-      it("flags an orWhere on the primary key after the soft-delete and archive statements: bob's row is not returned", async () => {
-        expect(await settle(() => Task.query().orWhere('id', 't1'))).to.be.instanceOf(AuthzConfigError);
-        expect(await settle(() => Task.query().withDeleted().orWhere('id', 't1'))).to.be.instanceOf(AuthzConfigError);
-        expect(await settle(() => Task.query().orWhere('id', 't1').whereNull('deleted_at'))).to.be.instanceOf(AuthzConfigError);
+      // The scopes compile ANDed with the rest: `deleted_at IS NULL AND archived_at IS NULL AND id = ?` reads one row.
+      it('lets an orWhere on the primary key after the soft-delete and archive scopes through: it reads that row only', async () => {
+        expect(ids(await inRoute(() => Task.query().orWhere('id', 't1')))).to.deep.equal(['t1']);
+        expect(ids(await inRoute(() => Task.query().withDeleted().orWhere('id', 't1')))).to.deep.equal(['t1']);
+        expect(((await inRoute(() => Task.query().orWhere('id', 't1').first())) as unknown as { id: string }).id).to.equal('t1');
+        expect(await inRoute(() => Task.query().orWhere('id', 't1').selectCount())).to.equal(1);
+      });
+
+      it("flags an orWhere that can read more than one row: bob's row is not returned", async () => {
+        expect(await settle(() => Task.query().orWhere('id', 't1').orWhere('id', 't2'))).to.be.instanceOf(AuthzConfigError);
+        expect(await settle(() => Task.where('id', 't1').orWhere('owner', 'bob'))).to.be.instanceOf(AuthzConfigError);
+        expect(await settle(() => Task.where('id', 't1').orWhere('owner', 'bob').first())).to.be.instanceOf(AuthzConfigError);
+        expect(await settle(() => Task.where('id', 't1').orWhere('owner', 'bob').selectCount())).to.be.instanceOf(AuthzConfigError);
       });
 
       it('flags a primary-key load widened by an orWhere on the soft-delete column', async () => {
         expect(await settle(() => Task.where('id', 't1').orWhere('deleted_at', null))).to.be.instanceOf(AuthzConfigError);
       });
 
-      it('flags first() with an orWhere on the primary key', async () => {
-        expect(await settle(() => Task.query().orWhere('id', 't1').first())).to.be.instanceOf(AuthzConfigError);
-      });
-
-      it('flags a count with an orWhere on the primary key: it would count both rows', async () => {
-        expect(await settle(() => Task.query().orWhere('id', 't1').selectCount())).to.be.instanceOf(AuthzConfigError);
+      it('flags a condition of its own on the soft-delete column next to the key: only the scopes do not count', async () => {
+        expect(await settle(() => Task.query().orWhere('id', 't1').whereNull('deleted_at'))).to.be.instanceOf(AuthzConfigError);
       });
 
       it('still lets single-object loads through, an orWhere that is the only statement included', async () => {
