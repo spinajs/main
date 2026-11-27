@@ -8,6 +8,8 @@ export type ResponseCacheScope = 'principal' | 'tenant' | 'shared';
 export interface ResponseCacheOptions {
   /** How long a stored reply is served: milliseconds or a duration such as '5m'; above 0, capped by cache.maxTtl. */
   readonly ttl: number | string;
+  /** How long after `ttl` a stored reply is still served while one request runs the route again. */
+  readonly swr?: number | string;
   readonly scope?: ResponseCacheScope;
   /** Required with scope 'tenant' or 'shared', refused otherwise: why the reply is the same for every caller who gets it. */
   readonly sharedBecause?: string;
@@ -21,6 +23,8 @@ export interface ResponseCacheOptions {
 
 export interface ResolvedResponseCacheOptions {
   readonly ttl: number | string;
+  /** How long after `ttl` a stored reply is still served while one request runs the route again. */
+  readonly swr?: number | string;
   readonly scope: ResponseCacheScope;
   /** Trimmed; present exactly when the scope is 'tenant' or 'shared'. */
   readonly sharedBecause?: string;
@@ -30,7 +34,7 @@ export interface ResolvedResponseCacheOptions {
   readonly cache: string;
 }
 
-const OPTIONS: ReadonlySet<string> = new Set(['ttl', 'scope', 'sharedBecause', 'vary', 'tags', 'cache']);
+const OPTIONS: ReadonlySet<string> = new Set(['ttl', 'swr', 'scope', 'sharedBecause', 'vary', 'tags', 'cache']);
 const SCOPES: ReadonlySet<unknown> = new Set(['principal', 'tenant', 'shared']);
 
 const isText = (value: unknown): value is string => typeof value === 'string' && value !== '';
@@ -46,6 +50,10 @@ function texts(value: unknown, option: string): string[] {
 
 function aboveZero(ttl: unknown): boolean {
   return (typeof ttl === 'number' || typeof ttl === 'string') && parseDuration(ttl, '@ResponseCache ttl') > 0;
+}
+
+function notBelowZero(swr: unknown): boolean {
+  return swr === undefined || ((typeof swr === 'number' || typeof swr === 'string') && parseDuration(swr, '@ResponseCache swr') >= 0);
 }
 
 /** The trimmed reason of a tenant or shared scope; a wider scope without one, or a reason on the default scope, throws. */
@@ -79,9 +87,12 @@ export function resolveResponseCacheOptions(options: ResponseCacheOptions): Reso
   if (unknown.length > 0) {
     throw new InvalidArgument(`@ResponseCache has no option ${unknown.join(', ')}`);
   }
-  const { ttl, scope = 'principal', cache = 'default' } = options;
+  const { ttl, swr, scope = 'principal', cache = 'default' } = options;
   if (!aboveZero(ttl)) {
     throw new InvalidArgument(`@ResponseCache ttl must be a duration above 0 such as '5m', got ${JSON.stringify(ttl)}`);
+  }
+  if (!notBelowZero(swr)) {
+    throw new InvalidArgument(`@ResponseCache swr must be a duration such as '1m', got ${JSON.stringify(swr)}`);
   }
   if (!SCOPES.has(scope)) {
     throw new InvalidArgument(`@ResponseCache scope must be 'principal', 'tenant' or 'shared', got ${JSON.stringify(scope)}`);
@@ -91,5 +102,5 @@ export function resolveResponseCacheOptions(options: ResponseCacheOptions): Reso
   if (!isText(cache)) {
     throw new InvalidArgument(`@ResponseCache cache must be the name of a cache, got ${JSON.stringify(cache)}`);
   }
-  return Object.freeze({ ttl, scope, ...(sharedBecause === undefined ? {} : { sharedBecause }), vary, tags: texts(options.tags, 'tags'), cache });
+  return Object.freeze({ ttl, ...(swr === undefined ? {} : { swr }), scope,...(sharedBecause === undefined ? {} : { sharedBecause }), vary, tags: texts(options.tags, 'tags'), cache });
 }
