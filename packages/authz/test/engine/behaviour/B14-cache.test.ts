@@ -483,6 +483,33 @@ describe('B14: decision caches (L1 per request, L2 across requests)', () => {
         expect((await a.check(read(alice, D1), fresh())).allowed).to.equal(false);
       });
 
+      /** alice's own vote ends at `own`; it rests on bob's grant, which ends at `expiry`. */
+      const ownAndNested = (own: Date) => {
+        const clock = fakeClock();
+        const cache = new RecordingCache({ clock: clock.clock });
+        const m = new StaticModel('m', {
+          vote: async (req: DecisionRequest, ctx: EvaluationContext) => {
+            if (req.principal.id === bob.id) return pass('m', TRUE, { validUntil: expiry });
+            const d = await ctx.check({ principal: bob, permission: 'doc:write', resource: req.resource, env: {} });
+            return pass('m', d.allowed ? TRUE : FALSE, { validUntil: own });
+          },
+        });
+        const a = new Authorizer({ domain: 'root', registry, models: [m], adapters: [new FakeAdapter(['doc', 'folder'], { rows: rows() })], clock: clock.clock, cache });
+        return { a, cache };
+      };
+
+      it('B14: an outer vote with a later expiry of its own still ends with the nested grant', async () => {
+        const { a, cache } = ownAndNested(new Date(T0 + 9_000));
+        expect((await a.check(read(alice, D1), fresh())).validUntil?.getTime()).to.equal(expiry.getTime());
+        expect(outer(cache)?.ttlMs).to.equal(5_000);
+      });
+
+      it('B14: an outer vote with an earlier expiry of its own ends first', async () => {
+        const { a, cache } = ownAndNested(new Date(T0 + 2_000));
+        expect((await a.check(read(alice, D1), fresh())).validUntil?.getTime()).to.equal(T0 + 2_000);
+        expect(outer(cache)?.ttlMs).to.equal(2_000);
+      });
+
       it('B14: a nested deny that ends bounds the cached outer denial the same way', async () => {
         const { a, cache, clock } = built(bob, true, {}, 'deny');
         expect((await a.check(read(alice, D1), fresh())).allowed).to.equal(false);
