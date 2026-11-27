@@ -10,7 +10,7 @@ import { decideFs, domainService, refOf } from '../middleware/decide.js';
 import type { FsDecideService, FsLog } from '../middleware/decide.js';
 import { fsRowOf, normalizeFsPath } from '../refs/index.js';
 import type { FsPathKind } from '../refs/index.js';
-import { aclSubjectKey, fileAclStore } from './shared.js';
+import { aclSubjectKey, fileAclStore, notLayered } from './shared.js';
 import type { FileAclStore, FsAclRow } from './store.js';
 
 export interface FsAclOptions {
@@ -80,6 +80,8 @@ export class FsAcl {
   private async authorize(fs: string, path: string, principal: Principal): Promise<string> {
     const provider = publishedFs(fs, this.container);
     if (!provider) throw new AuthzConfigError(`FsAcl: filesystem ${JSON.stringify(fs)} has no published provider`);
+    // Before the fs:manage decision, which would read the refused rows through a relation and answer AccessDenied.
+    notLayered(fs);
     const normalised = normalizeFsPath(path, provider.BasePath);
     if (principal === SYSTEM) return normalised;
     const { domain } = fsAccessConfig(fs, this.container);

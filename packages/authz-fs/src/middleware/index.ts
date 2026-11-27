@@ -9,7 +9,7 @@ import type { FsActionContext, FsTarget, fs } from '@spinajs/fs';
 
 import { fsAccessConfig } from '../access-config/index.js';
 import type { FsAccessConfig } from '../access-config/index.js';
-import { FS_ACL_LIMITS, fileAclStore } from '../acl/shared.js';
+import { FS_ACL_LIMITS, fileAclStore, isLayeredFs, notLayered } from '../acl/shared.js';
 import type { FileAclStore } from '../acl/store.js';
 import { fsRowOf } from '../refs/index.js';
 import { decideFs, domainNow, domainService, refOf, validNow, warnDenied } from './decide.js';
@@ -58,6 +58,8 @@ interface Plan {
   /** move/rename: the written target, whatever its filesystem's mode, and whether it existed. */
   readonly destination?: FsTarget;
   readonly destinationExisted?: boolean;
+  /** Whether the destination's file ACL is refused (isLayeredFs); `before` lets it through when its mode is off. */
+  readonly destinationLayered?: boolean;
 }
 
 const PLAN = Symbol('authz-fs.plan');
@@ -99,7 +101,8 @@ export class AuthzFsMiddleware extends FsMiddleware {
   async before(ctx: FsActionContext): Promise<void> {
     const asked = ctx.action === 'signedUrl' ? askedUntil(ctx.args[0]) : undefined;
     const enabled = ctx.targets.map((target) => ({ target, config: this.configOf(target.fs) })).filter((t) => t.config.mode !== 'off');
-    for (const { target } of enabled) {
+    for (const { target, config } of enabled) {
+      notLayered(target.fs.Name, config.mode);
       if (writes(target) && target.path.length > FS_ACL_LIMITS.path) throw new InvalidArgument(`${target.fs.Name}: a path of ${target.path.length} characters is longer than the ${FS_ACL_LIMITS.path} the file ACL holds`, 'path');
     }
 
@@ -124,7 +127,7 @@ export class AuthzFsMiddleware extends FsMiddleware {
       planned.push({ ...probed, existed });
     }
     const destination = MOVES.has(ctx.action) ? ctx.targets.find(writes) : undefined;
-    const plan: Plan = { principal, checked: planned, ...(destination ? { destination, destinationExisted: await occupied(ctx, destination) } : {}) };
+    const plan: Plan = { principal, checked: planned, ...(destination ? { destination, destinationExisted: await occupied(ctx, destination), destinationLayered: isLayeredFs(destination.fs.Name) } : {}) };
     ctx.state.set(PLAN, plan);
   }
 
@@ -219,7 +222,8 @@ export class AuthzFsMiddleware extends FsMiddleware {
    * A destination that existed keeps its rows (first writer) and the source rows go; otherwise the source rows move
    * there, onto another filesystem too (one table): a directory's whole tree, anything else only its own rows. No
    * owner is stamped: the rows travel with the file. A key whose prefix holds keys leaves its rows to the prefix. A
-   * destination too long for a row gets none: the source rows go, its parents' rows cover it.
+   * destination too long for a row gets none: the source rows go, its parents' rows cover it. So does a destination
+   * whose file ACL is refused.
    */
   private async moveRows(plan: Plan): Promise<void> {
     const checked = plan.checked.find((c) => c.target.role === 'source');
@@ -229,7 +233,7 @@ export class AuthzFsMiddleware extends FsMiddleware {
     if (source.fs.Name === destination.fs.Name && source.path === destination.path) return;
     const store = await this.store();
     const tree = checked?.dir === true;
-    if (plan.destinationExisted || !holdsRows(destination)) await (tree ? store.deleteTree(source.fs.Name, source.path) : store.deletePath(source.fs.Name, source.path));
+    if (plan.destinationExisted || plan.destinationLayered || !holdsRows(destination)) await (tree ? store.deleteTree(source.fs.Name, source.path) : store.deletePath(source.fs.Name, source.path));
     else if (tree) await store.moveTree(source.fs.Name, source.path, destination.fs.Name, destination.path);
     else await store.movePath(source.fs.Name, source.path, destination.fs.Name, destination.path);
   }

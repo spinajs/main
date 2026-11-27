@@ -8,6 +8,7 @@ import { FileUploadMiddleware } from '@spinajs/http';
 import type { IUploadOptions, IUploadedFile } from '@spinajs/http';
 
 import { fsAccessConfig } from '../access-config/index.js';
+import { notLayered } from '../acl/shared.js';
 import { decideFs, domainService, refOf } from '../middleware/decide.js';
 import type { FsDecideService, FsLog } from '../middleware/decide.js';
 import { fsRowOf, normalizeFsPath } from '../refs/index.js';
@@ -46,6 +47,7 @@ export class AuthzUploadMiddleware extends FileUploadMiddleware {
     const container = this.options.container ?? DI.RootContainer;
     const config = fsAccessConfig(fsName, container);
     if (config.mode === 'off') return file;
+    notLayered(fsName, config.mode);
 
     const provider = publishedFs(fsName, container) ?? (file.Provider?.Name === fsName ? file.Provider : undefined);
     const path = normalizeFsPath(file.BaseName, provider?.BasePath);

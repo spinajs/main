@@ -130,6 +130,8 @@ A lookup throws `InvalidOperation` instead of handing out the published provider
 - its `wrap()` returns a promise: the next layer would pass it through, and a caller that awaits the lookup would get the published provider;
 - it, or a dependency, is an `AsyncService` that has not resolved yet or whose resolution failed. `fsService.resolve()` resolves the root container's layers last, so register them before it resolves: the boot then waits for them, and a failure fails the boot with its own error. A layer registered later is resolved with `await DI.resolve(Array.ofType(FsProviderLayer))` before its first lookup.
 
+A provider that a layer hands out as another object has no file ACL of `@spinajs/authz-fs`: its ACL store refuses every call for that name, in every mode, and its checks refuse `audit` and `enforce`, because authz-fs cannot tell a view that keeps the provider's paths from one that maps them per tenant ([ACL store](../authz-fs/07-acl-store.md#important-behaviour)). It recognises such a provider only when a root container layer returns a new object: wrap the provider you are given instead of changing it, and register the layer in the root container.
+
 ## Best practices
 
 - Throw `ResolveException` from a custom factory for an unknown name, like the default one. Code that catches it keeps working.
