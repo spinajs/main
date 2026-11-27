@@ -24,6 +24,8 @@ export function startRunSpan(run: RunModel, continues: string | null, parent: Co
         [SpinaAttr.Schedule]: run.Schedule,
         [SpinaAttr.Attempt]: run.Attempt,
         [SpinaAttr.Trigger]: run.Trigger,
+        // the span starts before any ScheduleRunHook enters the tenant, so the row names it
+        ...(run.Tenant ? { [SpinaAttr.Tenant]: run.Tenant } : {}),
         ...(resumed ? { [SpinaAttr.Resumed]: true } : {}),
       },
     },

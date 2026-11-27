@@ -15,6 +15,7 @@
     { "path": "../configuration/tsconfig.build.json" },
     { "path": "../queue/tsconfig.build.json" },
     { "path": "../log-common/tsconfig.build.json" },
+    { "path": "../scheduler/tsconfig.build.json" },
     { "path": "../cli/tsconfig.build.json" }
   ]
 }

@@ -45,6 +45,40 @@ export async function rebuildNow(): Promise<{ documents: number }> {
 - **A failure of the scheduler's own writes rejects with that error.** The schedule lease is released best-effort; the run row keeps its lease until it expires.
 - **`SchedulerService` subclasses written before 4.x** inherit a `runInline` that rejects with `MethodNotImplemented`.
 
+## Run hooks and the tenant of a run
+
+A `ScheduleRunHook` wraps the body of every run the scheduler loop executes, and the emit of an emit-mode run. `@spinajs/tenancy/scheduler` registers one that enters the tenant of the run's schedule instance; an application can register its own the same way.
+
+```ts
+import { Injectable } from '@spinajs/di';
+import { ScheduleRunHook } from '@spinajs/scheduler';
+import type { ScheduleRunInfo } from '@spinajs/scheduler';
+
+@Injectable(ScheduleRunHook)
+export class RunLogHook extends ScheduleRunHook {
+  public aroundRun<T>(run: ScheduleRunInfo, next: () => Promise<T>): Promise<T> {
+    console.log(`run ${run.runId} of ${run.schedule}, tenant ${run.tenant?.id ?? 'none'}`);
+    return next();
+  }
+}
+```
+
+### How it works
+
+1. The executor claims the run, journals the attempt and starts its `run` span (see Tracing).
+2. Every registered `ScheduleRunHook` is resolved for this attempt (`DI.resolve(Array.ofType(ScheduleRunHook))`) and sorted by `order`: the lowest is outermost; among hooks of one order the first registered is outermost.
+3. Each hook gets `{ runId, schedule, tenant }`. `tenant` is `{ id }` of the run row's `Tenant`, the instance the run was claimed for, or `undefined` for the global instance. The object and its `tenant` are frozen.
+4. The innermost `next()` runs the task's `execute(ctx)`, or the emit of the job in emit mode.
+5. A hook that throws fails the attempt like an error of the task: the run is retried, fails or pauses the instance under the schedule's own rules.
+
+### Important behaviour
+
+- **A tenant run needs a hook.** A run of a tenant's instance is refused while no `ScheduleRunHook` is registered: the attempt fails with `InvalidOperation` (`… belongs to tenant 'acme' and no ScheduleRunHook is registered to enter it …`) and the task does not run. Every process that runs the scheduler loop imports `@spinajs/tenancy/scheduler`. A run of the global instance needs none and runs as before.
+- **`RunContext.tenant`** is the tenant of the run's instance, read from the run row; a task changing it changes nothing for the hooks, the next attempt or the next run.
+- **Abort listeners run inside the hooks.** A listener a task adds to `ctx.signal` runs in the async context of the task's body, not in that of the timer, heartbeat, shutdown or caller (`cancel`) that aborted the run.
+- **Inline runs are not wrapped.** `runInline` runs `fn` in the scope of the code that called it.
+- **What runs outside the hooks**: the claim, the journal, the heartbeat, the finalizers and the `ScheduleRun*` events of the run.
+
 ## Tracing
 
 Every attempt of a run executes under an OpenTelemetry span on the provider `@spinajs/tracing` owns.
@@ -52,7 +86,7 @@ Every attempt of a run executes under an OpenTelemetry span on the provider `@sp
 - **A run the scheduler loop starts** gets a root span `run <schedule>` (kind INTERNAL): the loop claims the run long after whatever queued it, so it starts a trace of its own. Each `ctx.step(name, …)` gets a child span `step <name>`.
 - **An inline run** (`runInline`) gets the same `run` span, as a child of the span that called `runInline`. A failure of its body marks the `run` span and the failing `step` span, never the caller's; the caller's span is marked only by whoever owns it, when the rethrown error reaches it.
 - **A run in emit mode** gets a root `run` span too, and publishes its job under it.
-- **Attributes.** The `run` span carries `spina.scheduler.run_id`, `spina.scheduler.schedule`, `spina.scheduler.attempt` and `spina.scheduler.trigger`; a `step` span carries `spina.scheduler.step`. A step answered from the resume map, whose body does not run again, is marked `spina.scheduler.replayed=true`.
+- **Attributes.** The `run` span carries `spina.scheduler.run_id`, `spina.scheduler.schedule`, `spina.scheduler.attempt` and `spina.scheduler.trigger`, and `spina.tenant.id` for a run of a tenant's instance (from the run row: the span starts before any run hook); a `step` span carries `spina.scheduler.step`. A step answered from the resume map, whose body does not run again, is marked `spina.scheduler.replayed=true`.
 - **Links across retries and resumes.** The `traceparent` of each attempt's `run` span is kept in `__scheduler_run_attempt.TraceParent` (migration `Scheduler_2026_11_16_00_00_00`). An automatic retry links to the previous attempt of the same run; a run that resumes another run (`ResumeFrom`) links to that run's last attempt. Both carry `spina.scheduler.resumed=true`. A link holds only the span context of the continued attempt (trace id, span id, trace flags), no attributes. Attempts written before the migration, or while tracing is disabled, have no `TraceParent` and their successors no link.
 - **Failures are recorded by class only.** A step that throws, and a run whose task throws or whose emit fails or times out, set `error.type` to the error's class name and an ERROR status with that name as its message; the error's message, the run's parameters and step results never reach a span. A run ended by a timeout, a lost lease or a cancel settles as aborted and keeps an UNSET `run` span; its reason is in the run's `Reason`. The error's text is in the run's `Error`, in its journal, and in the `run … ended <status>: <Name>: <message>` log line, which is written inside the `run` span and so carries its `traceId` and `spanId`.
 - **Names go onto spans verbatim.** The schedule name is in the `run` span's name and attributes, a step name in the `step` span's name and attributes; a name built from parameters or other input puts that input on a span, so keep names to fixed identifiers.
