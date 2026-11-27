@@ -4,7 +4,7 @@ import { Authorizer, DefaultConditionCompiler, PermissionRegistryImpl, TRUE } fr
 import type { Decision, Vote } from '@spinajs/authz';
 import { fakeEvaluationContext, fakeModelInitContext, userPrincipal } from '@spinajs/authz-testing';
 
-import { AUTHZ_POLICY_TABLE, AbacModel, DbPolicyStore } from '../../src/index.js';
+import { AUTHZ_POLICY_TABLE, AbacModel, DbPolicyStore, PolicyStore } from '../../src/index.js';
 import { DB_KINDS, bootDb } from '../support/db.js';
 import type { TestDb } from '../support/db.js';
 
@@ -33,7 +33,7 @@ for (const kind of DB_KINDS) {
     let db: TestDb;
 
     before(async function () {
-      db = await bootDb(this, kind, 'v4_orm_tq_01h_abac_reload_not_shared');
+      db = await bootDb(this, kind, 'v4_orm_tq_01i_abac_reload_not_started_inside');
     });
     after(async () => {
       await db?.dispose();
@@ -90,6 +90,88 @@ for (const kind of DB_KINDS) {
     };
 
     class Rollback extends Error {}
+
+    /** A third-party store over the same table that does not say whether its reads run inside a transaction. */
+    class OpaqueStore extends PolicyStore {
+      readonly name = 'opaque';
+      constructor(private readonly inner: DbPolicyStore) {
+        super();
+      }
+      load() {
+        return this.inner.load();
+      }
+      version() {
+        return this.inner.version();
+      }
+    }
+
+    const pending = (model: AbacModel): boolean => model.version().endsWith('~');
+
+    if (kind === 'postgres') {
+      it('an invalidate inside a REPEATABLE READ transaction loads nothing on its snapshot: a policy deleted and committed meanwhile stops granting outside (tq-01i)', async () => {
+        const store = new DbPolicyStore();
+        const { model, evaluate } = await setup(store, [OPEN]);
+        let go!: () => void;
+        const gate = new Promise<void>((resolve) => (go = resolve));
+        const b = db.driver.transaction(
+          async () => {
+            await store.load();
+            await gate;
+            model.invalidate(['policy']);
+            await new Promise((resolve) => setTimeout(resolve, 300));
+          },
+          { isolation: 'REPEATABLE READ' },
+        );
+        await db.driver.transaction(() => store.delete('open', { driver: db.driver }));
+        go();
+        await within(DEADLINE, 'the REPEATABLE READ transaction', b);
+        const behind = pending(model);
+        expect(answer(await within(DEADLINE, 'outside', evaluate())), 'outside, after the transaction').to.equal('abstain');
+        expect(behind, 'still behind until the first check outside').to.equal(true);
+        expect(pending(model), 'current after the first check outside').to.equal(false);
+      });
+    }
+
+    it('an invalidate inside a transaction that rolls back loads nothing it wrote: its permit grants nothing outside (tq-01i)', async () => {
+      const store = new DbPolicyStore();
+      const { model, evaluate } = await setup(store);
+      const done = db.driver.transaction(async () => {
+        await store.put(OPEN, alice, { driver: db.driver }, NOW);
+        model.invalidate(['policy']);
+        await new Promise((resolve) => setTimeout(resolve, 300));
+        throw new Rollback();
+      });
+      await within(
+        DEADLINE,
+        'the rolled-back transaction',
+        done.catch((e: unknown) => {
+          if (!(e instanceof Rollback)) throw e;
+        }),
+      );
+      const behind = pending(model);
+      expect(answer(await within(DEADLINE, 'outside', evaluate())), 'outside, after the rollback').to.equal('abstain');
+      expect(behind, 'still behind until the first check outside').to.equal(true);
+      expect(pending(model), 'current after the first check outside').to.equal(false);
+    });
+
+    it('a store that does not say whether it is in a transaction still reloads in the background after an invalidate inside one (tq-01i)', async () => {
+      const inner = new DbPolicyStore();
+      await db.driver.del().from(AUTHZ_POLICY_TABLE);
+      const reg = registry();
+      const model = new AbacModel({ stores: [new OpaqueStore(inner)], retryMs: 600_000 });
+      await model.init(fakeModelInitContext({ permissions: reg, container: db.container }));
+      const ctx = fakeEvaluationContext({ now: NOW, permissions: reg, conditions: new DefaultConditionCompiler() });
+      const evaluate = async () => answer(await model.evaluate({ principal: alice, permission: 'file:read', resource: { type: 'file' }, env: { now: NOW } }, ctx));
+      await db.driver.transaction(() => inner.put(OPEN, alice, { driver: db.driver }, NOW));
+      await db.driver.transaction(async () => {
+        model.invalidate(['policy']);
+      });
+      expect(await evaluate()).to.equal('allow');
+      expect(await evaluate()).to.equal('allow');
+      const started = Date.now();
+      while (pending(model) && Date.now() - started < DEADLINE) await new Promise((resolve) => setTimeout(resolve, 20));
+      expect(pending(model), 'caught up without a check that keeps its read').to.equal(false);
+    });
 
     if (kind === 'postgres') {
       it('a check inside a REPEATABLE READ transaction keeps nothing it read: a policy deleted and committed meanwhile stops granting outside', async () => {

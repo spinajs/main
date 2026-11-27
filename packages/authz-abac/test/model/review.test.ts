@@ -317,6 +317,12 @@ describe('authz-abac: field sets, reloads and decided conditions (review 4-8)', 
       });
       return { state, all: () => Promise.all(checks) };
     };
+    /** As a policy write's invalidation comes after its commit: outside the transaction the checks below run in. */
+    const invalidateOutside = (m: AbacModel, store: HeldStore, tags: readonly string[] = ['policy']): void => {
+      store.inside = false;
+      m.invalidate(tags);
+      store.inside = true;
+    };
 
     it('outside a transaction, overlapping checks wait for the one background reload: one read per invalidation', async () => {
       const store = new HeldStore([policy('read')]);
@@ -342,7 +348,7 @@ describe('authz-abac: field sets, reloads and decided conditions (review 4-8)', 
       const m = await model({ stores: [store] });
       store.hold = 1;
       store.put(policy('no-read', { effect: 'deny' }));
-      m.invalidate(['policy']);
+      invalidateOutside(m, store);
       let loads = store.loads;
       const ten = overlapping(m, 10);
       await settle();
@@ -365,7 +371,7 @@ describe('authz-abac: field sets, reloads and decided conditions (review 4-8)', 
       const store = new HeldStore([policy('read')]);
       const m = await model({ stores: [store] });
       store.hold = 2;
-      m.invalidate(['policy']);
+      invalidateOutside(m, store);
       const first = denies(m);
       await settle();
       store.put(policy('no-read', { effect: 'deny' }));
@@ -380,7 +386,7 @@ describe('authz-abac: field sets, reloads and decided conditions (review 4-8)', 
       const store = new HeldStore([policy('read')]);
       const m = await model({ stores: [store] });
       store.hold = 1;
-      m.invalidate(['policy']);
+      invalidateOutside(m, store);
       store.put(policy('no-read', { effect: 'deny' }));
       m.invalidate(['policy:no-read']);
       expect(await denies(m)).to.equal(true);
@@ -396,7 +402,7 @@ describe('authz-abac: field sets, reloads and decided conditions (review 4-8)', 
       const store = new HeldStore([policy('read')]);
       const m = await model({ stores: [store] });
       store.hold = 2;
-      m.invalidate(['policy']);
+      invalidateOutside(m, store);
       // Stands for a row only this transaction sees: the held background reload read before it.
       store.put(policy('no-read', { effect: 'deny' }));
       const inside = denies(m);
@@ -408,6 +414,26 @@ describe('authz-abac: field sets, reloads and decided conditions (review 4-8)', 
       await settle();
       store.inside = false;
       expect(await denies(m), 'the model holds the background reload, not the inside read').to.equal(false);
+    });
+
+    it('an invalidate inside a transaction starts no reload; the next check outside one starts it and the model catches up (tq-01i)', async () => {
+      const store = new HeldStore([policy('read')]);
+      const m = await model({ stores: [store] });
+      store.put(policy('no-read', { effect: 'deny' }));
+      let loads = store.loads;
+      m.invalidate(['policy']);
+      await settle();
+      expect(store.loads - loads, 'reads an invalidate inside a transaction started').to.equal(0);
+      expect(await denies(m), 'a check inside reads for itself').to.equal(true);
+      expect(m.version()).to.match(/~$/);
+      store.inside = false;
+      loads = store.loads;
+      expect(await denies(m), 'the first check outside').to.equal(true);
+      expect(store.loads - loads, 'reads of the first check outside').to.equal(1);
+      expect(m.version()).to.not.match(/~$/);
+      loads = store.loads;
+      expect(await denies(m)).to.equal(true);
+      expect(store.loads - loads, 'reads once current').to.equal(0);
     });
 
     it('a store that does not say whether it is in a transaction counts as inside: each check reads itself, nothing is kept', async () => {
