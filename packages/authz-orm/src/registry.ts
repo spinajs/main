@@ -26,7 +26,7 @@ export interface ResourceEntry {
   /** Named column relations (`@Relation`), each like `owner`: a user id column, or an id column plus a principal type column. */
   readonly relations?: Readonly<Record<string, OwnerColumns>>;
   readonly idColumn: string;
-  /** Every primary-key column, `idColumn` first. More than one only before a domain boot, which refuses a composite key. */
+  /** Every primary-key column, `idColumn` first. */
   readonly idColumns: readonly string[];
   /** `@AccessResource(type, { rls })`: the table gets row level security from `authz:rls`. */
   readonly rls?: true | 'partial';
