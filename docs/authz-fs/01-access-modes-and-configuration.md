@@ -19,7 +19,7 @@
 | `authz.fs.<name>.list` | `string` | `dir` | `dir`, `each` | `dir`: `list` needs `fs:list` on the directory. `each`: each entry also needs `fs:stat`. |
 | `authz.fs.<name>.signedUrl.defaultTtlSeconds` | `number` | `900` | greater than `0` | Lifetime of a signed URL when the caller asks for none. |
 | `authz.fs.<name>.signedUrl.maxTtlSeconds` | `number` | none | greater than `0` | Cap on the lifetime of any signed URL. |
-| `authz.fsAcl.connection` | `string` | `default` | an ORM connection name | Connection of `OrmFileAclStore` and of the `fs_acl` migration. |
+| `authz.fsAcl.connection` | `string` | `default` | an ORM connection name | Connection of the `fs_acl` migrations and of `OrmFileAclStore`: the alias `db.Aliases['authz-fs-acl']` of the model `FsAclRecord` follows it; see [File ACL](03-file-acl.md#connection). |
 | `authz.fsAcl.relations` | `string[]` | `['owner', 'editor', 'viewer']` | unique names of 1-64 characters | The relations an ACL row may name. `owner` is always served, first. |
 
 ```ts

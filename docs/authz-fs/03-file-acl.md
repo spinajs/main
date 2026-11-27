@@ -13,7 +13,7 @@ The file ACL stores who holds which relation on which path, in the ORM table `fs
 
 ### `fs_acl`
 
-Migration `AuthzFsAcl_2026_10_17_00_00_00`, run on `authz.fsAcl.connection`.
+Migration `AuthzFsAcl_2026_10_17_00_00_00`, run on `authz.fsAcl.connection`. The rows are the ORM model `FsAclRecord`, exported by `@spinajs/authz-fs`; its key `id` is a UUID the store assigns, as text.
 
 | Column | Type | Meaning |
 | --- | --- | --- |
@@ -31,6 +31,18 @@ Migration `AuthzFsAcl_2026_10_17_00_00_00`, run on `authz.fsAcl.connection`.
 - Index `(fs, path_hash, relation)`.
 - Index `(fs, path)`, from migration `AuthzFsAclPathIndex_2026_10_21_00_00_00` (run it on an existing database): the prefix reads of `deleteTree` and `moveTree` use it. `moveTree` still rewrites the moved rows one by one in a transaction, because `path_hash` is computed in Node.
 - `fs`, `path`, `path_hash`, `subject_key` and `relation` are `exact()` columns: the driver's binary collation compares them byte for byte, so `Report.pdf` and `report.pdf` are two paths. Lookups compare `path` itself.
+
+### Connection
+
+`FsAclRecord` is declared on the ORM connection alias `authz-fs-acl` (`FS_ACL_CONNECTION`). The package maps the alias to the connection `authz.fsAcl.connection` names when the ORM boots (`default` when the key is not set), so the model reads and writes where the migrations create the table. To keep the table elsewhere, set the key:
+
+```ts
+{
+  authz: { fsAcl: { connection: 'files' } },
+}
+```
+
+An app may set `db.Aliases['authz-fs-acl']` itself; it must then name the same connection as `authz.fsAcl.connection`. When the two differ, the store throws `AuthzConfigError` on its first call and changes nothing. The key is read once, at the ORM's boot: a later change of it is refused the same way.
 
 ## Services and extension points
 

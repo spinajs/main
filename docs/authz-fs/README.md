@@ -10,7 +10,7 @@ It does **not** wrap providers, build models or create domains: `getFs(name)` is
 npm install @spinajs/authz-fs
 ```
 
-Import the package before the first file action. The import registers `AuthzFsMiddleware` (order 100), the resource adapter for the `fs:*` permissions and the ACL relations, `OrmFileAclStore`, the `fs_acl` migration and `AuthzUploadMiddleware`. The order against `fsService` does not matter: the middleware is resolved on every action.
+Import the package before the first file action. The import registers `AuthzFsMiddleware` (order 100), the resource adapter for the `fs:*` permissions and the ACL relations, `OrmFileAclStore`, the `fs_acl` model `FsAclRecord` with its migrations and `AuthzUploadMiddleware`. The order against `fsService` does not matter: the middleware is resolved on every action.
 
 ## Features
 
