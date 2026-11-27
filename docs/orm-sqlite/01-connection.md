@@ -85,7 +85,7 @@ Keys under `db.Connections[]`. Keys shared by all drivers are described in [Conn
 | `db.Connections[].Migration.*` | | | | Read by the migration service; see [Migrations](../orm/10-migrations.md). |
 | `db.Connections[].AliasSeparator` | `string` | `$` | | Wraps generated table aliases, eg. `` `$users$` ``. |
 
-Ignored by this driver: `Host`, `Port`, `User`, `Password`, `Encoding`, `SSH`, `Options`, `Pool.Min`, `Pool.IdleTimeout`, `Pool.AcquireTimeout`. `Database` is only copied into reflected `Schema` fields.
+Ignored by this driver: `Host`, `Port`, `User`, `Password`, `Encoding`, `SSH`, `Options`, `Pool.Min`, `Pool.IdleTimeout`, `Pool.AcquireTimeout`. `Database`, when set, qualifies every model query: model selects, updates, deletes and inserts address `` `<Database>`.`table` ``, so it must be `main` or the name of an attached database. The write capture's row reads are not qualified yet, so keep a model's table out of `main` when `Database` names another database. It is also copied into reflected `Schema` fields.
 
 ```ts sample
 import { FrameworkConfiguration } from '@spinajs/configuration';
@@ -296,7 +296,7 @@ export async function closedArchiveOrders() {
 
   await driver.schema().raw(`ATTACH DATABASE './data/archive.sqlite' AS archive`);
 
-  // database('archive') renders `archive`.`orders`; from('archive.orders') would quote it as one name
+  // database('archive') renders `archive`.`orders`, in inserts too; from('archive.orders') would quote it as one name
   return await driver.transaction(async () => driver.select().database('archive').from('orders').where('Status', 'closed'));
 }
 ```
