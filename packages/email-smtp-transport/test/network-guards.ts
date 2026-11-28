@@ -29,6 +29,7 @@ export class DnsTripwire {
     const hostname = String(args[0]);
     const callback = args.findLast((arg): arg is (...result: unknown[]) => void => typeof arg === 'function');
     const family = isIP(hostname);
+    // net.Server.listen('::1') looks its literal up; the system resolver answers that without a query, so does this
     if (family !== 0 && callback !== undefined) {
       // net.Server.listen() asks with { all: true } and expects an array; a single address makes it bind to every interface
       const all = typeof args[1] === 'object' && args[1] !== null && Reflect.get(args[1], 'all') === true;
@@ -36,7 +37,7 @@ export class DnsTripwire {
       return undefined;
     }
     this.Asked.push(hostname);
-    const error = Object.assign(new Error('queryA ENOTFOUND'), { code: 'ENOTFOUND' });
+    const error = Object.assign(new Error(`queryA ENOTFOUND ${hostname}`), { code: 'ENOTFOUND', hostname });
     if (callback === undefined) return Promise.reject(error);
     process.nextTick(() => callback(error));
     return undefined;
