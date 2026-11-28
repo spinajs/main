@@ -27,9 +27,12 @@ export class DnsTripwire {
 
   private fail(args: unknown[]): Promise<never> | undefined {
     const hostname = String(args[0]);
-    const callback = args.findLast((arg): arg is (err: Error | null, address?: string, family?: number) => void => typeof arg === 'function');
-    if (isIP(hostname) !== 0 && callback !== undefined) {
-      process.nextTick(() => callback(null, hostname, isIP(hostname)));
+    const callback = args.findLast((arg): arg is (...result: unknown[]) => void => typeof arg === 'function');
+    const family = isIP(hostname);
+    if (family !== 0 && callback !== undefined) {
+      // net.Server.listen() asks with { all: true } and expects an array; a single address makes it bind to every interface
+      const all = typeof args[1] === 'object' && args[1] !== null && Reflect.get(args[1], 'all') === true;
+      process.nextTick(() => (all ? callback(null, [{ address: hostname, family }]) : callback(null, hostname, family)));
       return undefined;
     }
     this.Asked.push(hostname);
