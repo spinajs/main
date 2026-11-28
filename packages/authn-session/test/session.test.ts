@@ -105,5 +105,18 @@ describe('Session provider tests', () => {
       expect(after.Expiration!.toMillis()).to.equal(view.Expiration!.toMillis());
       expect(after.Expiration!.toMillis()).to.be.greaterThan(soon.toMillis());
     });
+
+    it('touch never stores the view object: a later change to the view does not reach the row', async () => {
+      const store = await DI.resolve(MemorySessionStore);
+      await store.truncate();
+      const fixed = DateTime.now().plus({ minutes: 5 });
+      await store.save(new UserSession({ SessionId: 'k-view', Subject: alice, State: 'pending', Expiration: fixed }));
+
+      const view = new UserSession({ SessionId: 'k-view', Subject: alice, State: 'pending', Expiration: fixed });
+      await store.touch(view);
+      view.State = 'active';
+
+      expect((await store.restore('k-view'))!.State).to.equal('pending');
+    });
   });
 });
