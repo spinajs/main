@@ -147,6 +147,11 @@ describe('where() with the in / not in operator', () => {
     expect(() => users().where('id', 'NOT IN', '1,2')).to.throw(InvalidArgument, 'operator NOT IN takes an array, a sub-query or a RawQuery');
   });
 
+  it('keeps the null message of where() for in and not in', () => {
+    expect(() => users().where('id', 'in', null)).to.throw(InvalidArgument, 'operator in cannot be used with null value');
+    expect(() => users().where('id', 'not in', null)).to.throw(InvalidArgument, 'operator not in cannot be used with null value');
+  });
+
   it('does not echo the refused value', () => {
     const large = 'x'.repeat(10_000);
 
