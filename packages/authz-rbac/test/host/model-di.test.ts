@@ -5,6 +5,7 @@ import { ManualClock, fakeModelInitContext, testHost } from '@spinajs/authz-test
 import { Configuration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
+import '@spinajs/log';
 
 import { RbacModel, RbacOptions } from '../../src/index.js';
 import type { RbacExtension, RegisterRbacOptions } from '../../src/index.js';

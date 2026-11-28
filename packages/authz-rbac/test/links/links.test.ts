@@ -5,6 +5,7 @@ import { FakeScopeResolver, fakeEvaluationContext, fakeModelInitContext, testHos
 import { Configuration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
+import '@spinajs/log';
 import * as chai from 'chai';
 import 'mocha';
 

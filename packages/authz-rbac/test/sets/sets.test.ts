@@ -4,6 +4,7 @@ import type { Assignment, AssignmentSubject } from '../../src/contracts.js';
 import { FakeScopeResolver, fakeEvaluationContext, fakeModelInitContext, groupPrincipal, servicePrincipal, userPrincipal, withCeiling } from '@spinajs/authz-testing';
 import * as chai from 'chai';
 import 'mocha';
+import '@spinajs/log';
 import { renderTemplate } from '@spinajs/log-common';
 
 import { DEFAULT_GROUP_PRINCIPAL, LadderExtension, MemoryAssignmentStore, MemoryRoleStore, RbacModel, RbacSubjectResolver, SetsExtension, compileRoles, createRbacExtensions, groupPrincipalConfig, subjectKey } from '../../src/index.js';

@@ -6,6 +6,7 @@ import { testHost } from '@spinajs/authz-testing';
 import { Configuration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
+import '@spinajs/log';
 
 import { AdminAssignmentStore, AdminLinkStore, AdminRuleStore, AssignmentStore, ConfigRoleStore, ConfigRuleStore, DbAssignmentStore, DbLinkStore, DbRuleStore, LinkStore, RoleStore, RuleStore, rbacStoreNames, registerRbacStores } from '../../src/index.js';
 
