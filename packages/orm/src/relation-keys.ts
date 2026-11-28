@@ -1,3 +1,4 @@
+import _ from 'lodash';
 import { RelationType } from './interfaces.js';
 import type { ModelBase } from './model.js';
 
@@ -30,6 +31,21 @@ export function effectiveForeignKeys(model: ModelBase): Map<string, unknown> {
   }
 
   return effective;
+}
+
+/**
+ * The values an UPDATE writes for `changed`. `toSql()` leaves out a relation-managed foreign key that is null while its
+ * relation holds nothing, so that an INSERT lets the column default apply; an UPDATE of that change has to write NULL.
+ */
+export function updateValues(model: ModelBase, changed: readonly string[]): Record<string, unknown> {
+  const values = _.pick(model.toSql() as Record<string, unknown>, changed);
+  for (const column of changed) {
+    if (!(column in values) && Reflect.get(model, column) === null) {
+      values[column] = null;
+    }
+  }
+
+  return values;
 }
 
 /**

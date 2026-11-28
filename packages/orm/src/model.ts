@@ -22,7 +22,7 @@ import { UnitOfWork } from './unit-of-work.js';
 import { quoterOf } from './quoting.js';
 import { registerModelBase } from './model-registry.js';
 import { columnToDb, hydratedKey } from './column-values.js';
-import { effectiveForeignKeys, writeBackRelationKeys } from './relation-keys.js';
+import { effectiveForeignKeys, updateValues, writeBackRelationKeys } from './relation-keys.js';
 
 import { DI, isConstructor, isClass, getInheritedDescriptor } from '@spinajs/di';
 import type { IContainer, Constructor } from '@spinajs/di';
@@ -848,7 +848,7 @@ export class ModelBase<M = unknown> implements IModelBase {
     }
 
     const { query } = this.createUpdateQuery();
-    query.update(withVersion(lock, _.pick(this.toSql() as Record<string, unknown>, changed)));
+    query.update(withVersion(lock, updateValues(this, changed)));
     wherePk(query, this.ModelDescriptor!, this.PrimaryKeyValue);
     whereVersion(lock, query);
 
