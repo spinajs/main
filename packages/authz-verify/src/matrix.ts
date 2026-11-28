@@ -6,7 +6,10 @@ import type { HolderRef, StoredRead } from './graph.js';
 import { explore, reachersOf } from './monotone.js';
 import { matchesHolder } from './verdict.js';
 
-/** `always`: holding it grants the permission over an unconditional path; `conditional`: only through non-monotone parts. */
+/**
+ * `always`: holding it grants the permission over an unconditional path; `conditional`: only through non-monotone
+ * parts, or the permission reaches a part the analysis cannot see.
+ */
 export type Access = 'always' | 'conditional' | 'never';
 
 export interface PermissionMatrix {
@@ -19,7 +22,10 @@ export interface PermissionMatrix {
    * subject set. A holder also has what `everyone` has.
    */
   readonly cells: Record<string, Record<Permission, Access>>;
-  /** Per permission, what every principal holds through an anyone term, whatever its row says; a permission no such term reaches is left out. */
+  /**
+   * Per permission, what every principal holds through an anyone term, whatever its row says, and at least
+   * `conditional` where the permission reaches an opaque term or an undefined name; a permission with neither is left out.
+   */
   readonly everyone: Record<Permission, Access>;
   /** Per permission, the parts the analysis cannot see; permissions without any are left out. */
   readonly opaque: Record<Permission, OpaqueRef[]>;
@@ -85,6 +91,8 @@ export function permissionMatrix(ir: PolicyIR): PermissionMatrix {
     const ex = explore(a, start);
     const refs = [...ir.opaque, ...ex.opaque.map((name): OpaqueRef => ({ kind: 'rewrite', name }))];
     if (refs.length > 0) opaque[permission] = refs;
+    // What answers an opaque term or an undefined name may grant anyone, so never() leaves it undecided.
+    if (ex.opaque.length > 0) everyone[permission] = stronger(own(everyone, permission) ? everyone[permission] : 'never', 'conditional');
     for (const r of reachersOf(ir, permission, ex)) {
       const access: Access = r.conditional ? 'conditional' : 'always';
       record(r.holder, permission, access);
