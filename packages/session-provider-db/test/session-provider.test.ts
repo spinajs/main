@@ -6,6 +6,7 @@ import { DefaultSessionIssuer, UserSession as Session, encodeSessionData, decode
 import type { ISession } from '@spinajs/authn-session';
 import type { AuthnFacts } from '@spinajs/authn/contracts';
 import { DI } from '@spinajs/di';
+import { QueryContext } from '@spinajs/orm';
 import { DateTime } from 'luxon';
 import { runSessionProviderConformance, IConformanceExpiration, SessionProviderFactory } from '../../authn-session/test/conformance/session-provider-conformance.js';
 import { bootStore, disposeStore, sessionConnection } from './support.js';
@@ -373,6 +374,52 @@ describe('db session provider', function () {
       expect(await store.cleanupExpired()).to.equal(1);
       expect(await DbSession.all()).to.deep.equal([]);
     });
+
+    it('the sweep keeps a live pending row while it removes a pending row stored with NULL', async () => {
+      const { store } = await boot();
+      await seed(store, 'k-pending-live', 'pending');
+      await seed(store, 'k-pending-dead', 'pending');
+      await nullExpiration('k-pending-dead');
+
+      expect(await store.cleanupExpired()).to.equal(1);
+      expect((await DbSession.all()).map((r) => r.SessionId), 'a pending login inside its TTL must survive the sweep').to.deep.equal(['k-pending-live']);
+    });
+
+    /** Runs `sql` once, right after the sweep's SELECT of pending rows without an expiration returned. */
+    function afterPendingSelect(connection: unknown, sql: string): { fired(): boolean; restore(): void } {
+      type Executor = { executeOnDb(sql: string, bindings: unknown[], context: QueryContext): Promise<unknown> };
+      const target = connection as Executor;
+      const original = target.executeOnDb.bind(target);
+      let fired = false;
+      target.executeOnDb = async (s, bindings, context) => {
+        const result = await original(s, bindings, context);
+        if (!fired && context === QueryContext.Select && /is null/i.test(s) && /user_sessions/i.test(s)) {
+          fired = true;
+          await original(sql, [], QueryContext.Update);
+        }
+        return result;
+      };
+      return { fired: () => fired, restore: () => void delete (target as Partial<Executor>).executeOnDb };
+    }
+
+    for (const [label, sql] of [
+      ['an expiration', "UPDATE user_sessions SET Expiration = '2999-01-01T00:00:00.000Z' WHERE SessionId = 'k-race'"],
+      ['State active', "UPDATE user_sessions SET State = 'active' WHERE SessionId = 'k-race'"],
+    ] as const) {
+      it(`a pending row stored with NULL that gets ${label} between the sweep's select and delete is kept`, async () => {
+        const { store } = await boot();
+        await seed(store, 'k-race', 'pending');
+        await nullExpiration('k-race');
+        const hook = afterPendingSelect(await sessionConnection(), sql);
+        try {
+          expect(await store.cleanupExpired()).to.equal(0);
+        } finally {
+          hook.restore();
+        }
+        expect(hook.fired()).to.equal(true);
+        expect((await DbSession.all()).map((r) => r.SessionId)).to.deep.equal(['k-race']);
+      });
+    }
 
     it('elevate of a pending row stored with NULL is refused', async () => {
       const { store, issuer } = await boot();

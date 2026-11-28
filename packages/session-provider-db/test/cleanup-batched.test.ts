@@ -106,4 +106,19 @@ describe('db session provider cleanup', function () {
     expect(deletes.count()).to.equal(0);
     expect(await storedKeys()).to.have.length(3);
   });
+
+  it('removes pending sessions stored with NULL in cleanupBatch pages', async () => {
+    const store = await bootStore({ db: { cleanupBatch: 3, cleanupInterval: HOUR } });
+    await store.truncate();
+    for (let i = 0; i < 7; i++) {
+      const id = `n${i}`.padStart(64, '0');
+      await store.save(new UserSession({ SessionId: id, Subject: { type: 'user', id: 'cleanup' }, State: 'pending', Expiration: DateTime.now().plus({ minutes: 5 }), Data: new Map() }));
+      await (await sessionConnection()).update().in('user_sessions').update({ Expiration: null }).where('SessionId', id);
+    }
+    deletes = countDeletes(await sessionConnection());
+
+    expect(await store.cleanupExpired()).to.equal(7);
+
+    expect(deletes.count()).to.equal(3);
+  });
 });
