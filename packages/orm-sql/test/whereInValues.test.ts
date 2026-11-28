@@ -4,6 +4,7 @@ import { expect } from 'chai';
 import '@spinajs/log';
 import { DI } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
+import { InvalidArgument } from '@spinajs/exceptions';
 import { Connection, ICompilerOutput, Json, Model, ModelBase, Orm, Primary, SelectQueryBuilder } from '@spinajs/orm';
 import { DateTime } from 'luxon';
 import { ConnectionConf, FakeSqliteDriver } from './fixture.js';
@@ -80,5 +81,57 @@ describe('whereIn values', () => {
     const query = sqb().select('*').from('users').whereIn('id', [1, 2]);
 
     expect(compiled(query.clone()).expression).to.eq('SELECT * FROM `users` WHERE `id` IN (?,?)');
+  });
+});
+
+describe('whereIn and whereNotIn refuse NaN as where() does', () => {
+  beforeEach(async () => {
+    DI.register(ConnectionConf).as(Configuration);
+    DI.register(FakeSqliteDriver).as('sqlite');
+    await DI.resolve(Orm);
+  });
+
+  afterEach(() => {
+    DI.clearCache();
+  });
+
+  for (const list of [[NaN], [1, NaN], [1, 2, Number.NaN]]) {
+    it(`whereIn([${list.join(', ')}]) throws`, () => {
+      expect(() => sqb().select('*').from('users').whereIn('id', list)).to.throw(InvalidArgument, 'value cannot be NaN');
+    });
+
+    it(`whereNotIn([${list.join(', ')}]) throws`, () => {
+      expect(() => sqb().select('*').from('users').whereNotIn('id', list)).to.throw(InvalidArgument, 'value cannot be NaN');
+    });
+  }
+
+  it('an array value of where({ ... }) throws', () => {
+    expect(() => sqb().select('*').from('users').where({ id: [1, NaN] })).to.throw(InvalidArgument, 'value cannot be NaN');
+  });
+
+  it('where() keeps refusing NaN with the same error', () => {
+    expect(() => sqb().select('*').from('users').where('id', NaN)).to.throw(InvalidArgument, 'value cannot be NaN');
+    expect(() => sqb().select('*').from('users').where('id', '=', NaN)).to.throw(InvalidArgument, 'value cannot be NaN');
+  });
+
+  it('a list of numbers compiles as before', () => {
+    const result = compiled(sqb().select('*').from('users').whereIn('id', [1, 2, 3]));
+
+    expect(result.expression).to.eq('SELECT * FROM `users` WHERE `id` IN (?,?,?)');
+    expect(result.bindings).to.deep.eq([1, 2, 3]);
+  });
+
+  it('a NOT IN list of text compiles as before', () => {
+    const result = compiled(sqb().select('*').from('users').whereNotIn('name', ['a', 'b']));
+
+    expect(result.expression).to.eq('SELECT * FROM `users` WHERE `name` NOT IN (?,?)');
+    expect(result.bindings).to.deep.eq(['a', 'b']);
+  });
+
+  it('null and Infinity in a list are still bound as before', () => {
+    const result = compiled(sqb().select('*').from('users').whereIn('id', [0, null, Infinity]));
+
+    expect(result.expression).to.eq('SELECT * FROM `users` WHERE `id` IN (?,?,?)');
+    expect(result.bindings).to.deep.eq([0, null, Infinity]);
   });
 });

@@ -430,6 +430,11 @@ export abstract class InStatement extends QueryStatement {
   constructor(column: string | Wrap, val: any[], not: boolean, builder: SelectQueryBuilder<any>) {
     super();
 
+    // A driver binds NaN as NULL, and `NOT IN (..., NULL)` matches no row at all.
+    if (val?.some((v) => Number.isNaN(v))) {
+      throw new InvalidArgument(`value cannot be NaN`);
+    }
+
     this._val = val || [];
     this._not = not || false;
     this._column = column || '';
