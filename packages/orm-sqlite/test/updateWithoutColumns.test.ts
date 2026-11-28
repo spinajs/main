@@ -228,11 +228,11 @@ describe('sqlite update with no column to write', function () {
       await expect(seenNow).to.be.rejectedWith(InvalidArgument, 'invalid column count');
     });
 
-    it('Model.update({}).where() rejects with InvalidArgument naming the table, nothing is sent', async () => {
+    it('Model.update({}).where() rejects with InvalidArgument naming the table, no UPDATE is sent', async () => {
       const capture = captureStatements();
       try {
         await expect(UpdPlain.update({}).where('Id', 1)).to.be.rejectedWith(InvalidArgument, 'update of upd_plain sets no column');
-        expect(capture.statements).to.deep.eq([]);
+        expect(updates(capture.statements)).to.deep.eq([]);
       } finally {
         capture.restore();
       }

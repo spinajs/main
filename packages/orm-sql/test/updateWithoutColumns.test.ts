@@ -31,6 +31,10 @@ describe('update without columns', () => {
     expect(() => connection().update().in('users').where('Id', 1).toDB()).to.throw(InvalidArgument, 'update of users sets no column');
   });
 
+  it('still names the missing where clause first', () => {
+    expect(() => connection().update().in('users').update({}).toDB()).to.throw(InvalidArgument, 'update of users has no where clause');
+  });
+
   it('compiles one column as before', () => {
     const result = connection().update().in('users').update({ Name: 'x' }).where('Id', 1).toDB();
 

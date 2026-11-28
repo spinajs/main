@@ -847,8 +847,15 @@ export class ModelBase<M = unknown> implements IModelBase {
       }
     }
 
+    // A change toSql() does not write ( an undefined property on sqlite, a foreign key its relation
+    // leaves unset ) leaves nothing to write either.
+    const values = withVersion(lock, _.pick(this.toSql() as Record<string, unknown>, changed));
+    if (Object.keys(values).length === 0) {
+      return result;
+    }
+
     const { query } = this.createUpdateQuery();
-    query.update(withVersion(lock, _.pick(this.toSql() as Record<string, unknown>, changed)));
+    query.update(values);
     wherePk(query, this.ModelDescriptor!, this.PrimaryKeyValue);
     whereVersion(lock, query);
 
