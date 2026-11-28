@@ -22,7 +22,9 @@ export async function introspectSchema(driver: OrmDriver, tables: readonly strin
     const found = (await driver.tableInfo(name, schema)) as IColumnDescriptor[] | null;
     if (!found) continue;
     columns.set(name, found);
-    const rows = await driver.select<unknown[]>().from(name).take(1);
+    const probe = driver.select<unknown[]>().from(name);
+    if (schema) probe.database(schema);
+    const rows = await probe.take(1);
     extras.set(name, {
       indexes: driver.tableIndexes ? await driver.tableIndexes(name, schema) : undefined,
       foreignKeys: driver.tableForeignKeys ? await driver.tableForeignKeys(name, schema) : undefined,

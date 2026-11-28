@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Configuration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
-import { Connection, createQuery, DefaultMigrationService, InsertBehaviour, InsertQueryBuilder, Model, ModelBase, Orm, Primary, QueryContext, WriteObserver } from '@spinajs/orm';
+import { Connection, createQuery, DefaultMigrationService, InsertBehaviour, InsertQueryBuilder, introspectSchema, Model, ModelBase, Orm, Primary, QueryContext, WriteObserver } from '@spinajs/orm';
 import type { CaptureInterest, CapturedWrite, OrmMigrationService, RowChange, WriteStatement } from '@spinajs/orm';
 import { expect } from 'chai';
 import _ from 'lodash';
@@ -387,6 +387,44 @@ describe('sqlite introspection of a table in an attached database', function () 
         { id: '1', before: { Id: 1, Code: 'a', Name: 'a' }, after: undefined },
         { id: '9', before: undefined, after: { Id: 9, Code: 'a', Name: 'r' } },
       ]);
+    });
+  });
+
+  describe('the schema diff introspection on a connection with Database s, table in main and s', () => {
+    beforeEach(() => boot(AttachedConf, S_UNIQUE_MAIN_PLAIN));
+    afterEach(() => shutdown(AttachedConf));
+
+    const hasRows = async () => (await introspectSchema(sqlite(), ['p_up'])).extras.get('p_up')?.hasRows;
+
+    // Read as empty, a NOT NULL column without a default would be added as a live step and fail on these rows.
+    it('reads the rows of s.p_up when main.p_up is empty', async () => {
+      expect(await rowsOf('SELECT Id FROM main.p_up')).to.deep.equal([]);
+
+      expect(await hasRows()).to.equal(true);
+    });
+
+    it('reads s.p_up as empty when only main.p_up has rows', async () => {
+      await run('DELETE FROM s.p_up');
+      await run("INSERT INTO main.p_up (Id, Code, Name) VALUES (1, 'a', 'a')");
+
+      expect(await hasRows()).to.equal(false);
+    });
+
+    it('probes the rows with a select qualified by s', async () => {
+      expect((await statementsDuring(hasRows)).filter((stmt) => stmt.startsWith('SELECT *'))).to.deep.equal(['SELECT * FROM `s`.`p_up` LIMIT ?']);
+    });
+  });
+
+  describe('the schema diff introspection on a connection without Database, table in main and s', () => {
+    beforeEach(() => boot(ConnectionConf, S_UNIQUE_MAIN_PLAIN));
+    afterEach(() => shutdown(ConnectionConf));
+
+    it('probes the rows of the unqualified table with an unqualified select', async () => {
+      let rows: boolean | undefined;
+      const statements = await statementsDuring(async () => (rows = (await introspectSchema(sqlite(), ['p_up'])).extras.get('p_up')?.hasRows));
+
+      expect(statements.filter((stmt) => stmt.startsWith('SELECT *'))).to.deep.equal(['SELECT * FROM `p_up` LIMIT ?']);
+      expect(rows).to.equal(false);
     });
   });
 });
