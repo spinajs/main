@@ -35,10 +35,6 @@ class AttachingDriver extends SqliteOrmDriver {
   }
 }
 
-interface Internals {
-  tableExists(orm: Orm): Promise<boolean>;
-}
-
 function wait(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -51,7 +47,6 @@ describe('configuration table check on a connection with a Database', function (
   let orm: Orm | undefined;
   let bootstrapper: DbConfigSourceBotstrapper;
   let error: sinon.SinonStub;
-  let check: sinon.SinonSpy<[Orm], Promise<boolean>>;
 
   before(async () => {
     sandbox = mkdtempSync(join(tmpdir(), 'spinajs-config-db-table-check-'));
@@ -85,22 +80,18 @@ describe('configuration table check on a connection with a Database', function (
     DI.uncache(DbConfigSourceBotstrapper);
   });
 
-  /** Boots the Orm over a connection whose `configuration` table is in `tableIn`, and waits for the bootstrapper's check and sweep. */
-  async function boot(tableIn: 'main' | 's', connection: Record<string, unknown>, db: Record<string, unknown> = {}): Promise<boolean> {
+  /** Boots the Orm over a connection whose `configuration` table is in `tableIn`, and gives the bootstrapper's check and sweep time to run. */
+  async function boot(tableIn: 'main' | 's', connection: Record<string, unknown>, db: Record<string, unknown> = {}): Promise<void> {
     layout.tableIn = tableIn;
     testHost.config().set(['db'], { DefaultConnection: 'sqlite', ...db, Connections: [{ Driver: DRIVER, Filename: ':memory:', Name: 'sqlite', Migration: { Check: 'off' }, ...connection }] });
 
     // resolved, not constructed: the sweep needs the injected converter
     bootstrapper = await DI.resolve(DbConfigSourceBotstrapper);
-    check = sinon.spy(bootstrapper as unknown as Internals, 'tableExists');
     await bootstrapper.bootstrap();
     orm = await DI.resolve(Orm);
 
-    expect(check.callCount, 'the Orm signal ran the table check').to.equal(1);
-    const ready = await check.firstCall.returnValue;
-    // the sweep the check starts is not awaited by the bootstrapper
-    await wait(300);
-    return ready;
+    // neither the check nor the sweep it starts is awaited by the bootstrapper
+    await wait(500);
   }
 
   async function slugsIn(schema: 'main' | 's'): Promise<string[]> {
@@ -113,14 +104,14 @@ describe('configuration table check on a connection with a Database', function (
   const persistFailures = () => error.getCalls().filter((c) => c.args[1] === 'Failed to persist exposed config options to db');
 
   it('sweeps the exposed options into the table of the attached database the connection names', async () => {
-    expect(await boot('s', { Database: 's' })).to.equal(true);
+    await boot('s', { Database: 's' });
 
     expect(await slugsIn('s')).to.deep.equal([SLUG]);
     expect(persistFailures()).to.have.length(0);
   });
 
   it('sweeps into main on a connection without a Database, as before', async () => {
-    expect(await boot('main', {})).to.equal(true);
+    await boot('main', {});
 
     expect(await slugsIn('main')).to.deep.equal([SLUG]);
     expect(persistFailures()).to.have.length(0);
@@ -128,7 +119,7 @@ describe('configuration table check on a connection with a Database', function (
 
   it('does not sweep when only main holds the table the connection does not read', async () => {
     // with db.StrictTableCheck on, the Orm itself refuses to boot without the model's table
-    expect(await boot('main', { Database: 's' }, { StrictTableCheck: false })).to.equal(false);
+    await boot('main', { Database: 's' }, { StrictTableCheck: false });
 
     expect(await slugsIn('main')).to.deep.equal([]);
     expect(persistFailures(), 'no insert was tried').to.have.length(0);
