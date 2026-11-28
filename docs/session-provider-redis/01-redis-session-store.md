@@ -37,7 +37,7 @@
 
 1. `SessionProvider.applyRenewedExpiration()` computes the new expiration. A `pending` session keeps its expiration.
 2. `GET session:<SessionId>` reads the row. The touch stops and returns `false` when the key is gone, the row is unreadable, its stored `State` differs from `session.State`, or it is expired.
-3. The store builds the next value from the stored JSON, replacing only `Expiration` and `Data`. A `pending` row replaces only `Data`: it keeps the stored `Expiration` whatever `session.Expiration` holds (absent or later), so a pending session is never extended and never loses its expiry.
+3. The store builds the next value from the stored JSON, replacing only `Expiration` and `Data`. A `pending` row replaces only `Data`: it keeps the stored `Expiration` whatever `session.Expiration` holds (absent, later or earlier), so a pending session is never extended and never loses its expiry. To end a pending session early, delete it (`SessionIssuer.revoke`).
 4. A Lua script (`EVAL`) compares the key with the value read in step 2 and, only when it is unchanged, writes the next value and its `PEXPIREAT` (or `PERSIST`). For a `pending` row the `PEXPIREAT` is the stored instant read in step 2, so the key keeps its expiry; a lost race reads that instant again.
 5. A lost race (the key changed in between) goes back to step 2, 10 attempts in all. The tenth lost race throws `Error('Session touch lost 10 races in a row')`.
 6. It returns `true` when the expiration changed, `false` when it stayed the same (always `false` for a `pending` row). Every `false` and the throw put the old `Expiration` back on `session`.
@@ -158,7 +158,7 @@ Every key is written under `authn.session.redis.keyPrefix`; ioredis adds the pre
 
 - **Liveness is judged in Node.** `restore`, `touch`, `listBySubject` and `deleteBySubject` compare `Expiration` with `DateTime.now()`. The Redis TTL only frees memory, so clock skew between the app and Redis does not matter.
 - **`touch` never re-creates a row.** The compare-and-set writes only over the exact value it read, so a session deleted (logout, ban) between the read and the write stays deleted.
-- **`touch` never extends a pending row,** nor a row that turned `pending` after the caller read it: the stored `State` must equal `session.State`. A pending touch writes `Data` only and keeps the stored expiration and the key's TTL, even when the view carries no `Expiration` or a later one.
+- **`touch` never extends a pending row,** nor a row that turned `pending` after the caller read it: the stored `State` must equal `session.State`. A pending touch writes `Data` only and keeps the stored expiration and the key's TTL, even when the view carries no `Expiration`, a later one or an earlier one.
 - **`save` is an upsert without a compare.** It overwrites whatever the key holds. Only `touch` is guarded.
 - **Revocation catches races.** `deleteBySubject` repeats until a pass finds nothing new, so a rotation that saves a new id during a ban is ended too.
 - **Index sets heal themselves.** A member whose row is gone, unreadable or owned by another subject is removed the next time `listBySubject` or `deleteBySubject` reads that set. Nothing scans the sets in the background.
