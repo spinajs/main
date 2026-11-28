@@ -216,7 +216,7 @@ describe('postgres transaction client (unit)', function () {
 
   it('commits after a statement error the server answered, from pg or from PGlite, that the callback caught', async () => {
     const fake = fakeClient({
-      'SELECT 1 FROM nope': new pg.DatabaseError('relation "nope" does not exist', 0, 'error'),
+      'SELECT 1 FROM nope': Object.assign(new pg.DatabaseError('relation "nope" does not exist', 0, 'error'), { severity: 'ERROR', code: '42P01' }),
       // PGlite's DatabaseError is its own class, with the server's severity and SQLSTATE
       'SELECT 2 FROM nope': Object.assign(new Error('relation "nope" does not exist'), { severity: 'ERROR', code: '42P01' }),
     });
@@ -251,4 +251,32 @@ describe('postgres transaction client (unit)', function () {
     expect(err).to.be.instanceOf(OrmException).with.property('inner', fatal);
     expect(fake.release.args).to.deep.equal([[true]]);
   });
+
+  const unanswered = {
+    // pg-protocol raises it itself for an unknown backend message byte: a desync, not an answer
+    "pg-protocol's own 'received invalid response'": new pg.DatabaseError('received invalid response: 78', 0, 'error'),
+    'a socket error with a code but no severity': Object.assign(new Error('write EPIPE'), { code: 'EPIPE', syscall: 'write' }),
+    'an error whose severity is not a string': Object.assign(new Error('relation "nope" does not exist'), { severity: null, code: '42P01' }),
+  };
+
+  for (const [shape, error] of Object.entries(unanswered)) {
+    it(`refuses the commit after ${shape}, and destroys the client`, async () => {
+      const fake = fakeClient({ 'SELECT 1': error });
+      usePool(fake.client);
+
+      const err = await driver
+        .transaction(async () => {
+          await driver.executeOnDb('SELECT 1', [], QueryContext.Select).catch(() => undefined);
+          return 'the work';
+        })
+        .then(
+          () => undefined,
+          (e: unknown) => e,
+        );
+
+      expect(err).to.be.instanceOf(OrmException).with.property('inner', error);
+      expect(fake.statements).to.deep.equal(['BEGIN', 'SELECT 1', 'ROLLBACK']);
+      expect(fake.release.args).to.deep.equal([[true]]);
+    });
+  }
 });
