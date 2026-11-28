@@ -169,7 +169,7 @@ void customersExport().then((csv) => console.log(csv));
 
 ### Replace the CSV renderer
 
-Write your own `TemplateRenderer` when json2csv does not fit, eg. to stream a large export to disk row by row instead of building one string. Implement `Type`, `Extension`, `render()` and `renderToFile()`, unregister `Csv`, and register yours before `Templates` is first resolved.
+Write your own `TemplateRenderer` when json2csv does not fit, eg. to stream a large export to disk row by row instead of building one string. Implement `Type`, `Extension`, `render()` and `renderToFile()`, unregister `Csv`, and register yours before `Templates` is first resolved. This one takes field names only; it rejects the `{ label, value }` field objects that `Csv` passes to json2csv.
 
 ```ts sample
 import { createWriteStream } from 'fs';
@@ -191,13 +191,14 @@ function cell(value: unknown): string {
 }
 
 function* lines(model: IJsonToCsvOptions): Generator<string> {
-  if (!model || !Array.isArray(model.fields) || !Array.isArray(model.data)) {
+  const fields = model?.fields;
+  if (!Array.isArray(fields) || !fields.every((f): f is string => typeof f === 'string') || !Array.isArray(model.data)) {
     throw new InvalidArgument('csv render model requires { fields: string[], data: object[] }');
   }
 
-  yield model.fields.map(cell).join(',');
+  yield fields.map(cell).join(',');
   for (const row of model.data as Record<string, unknown>[]) {
-    yield model.fields.map((f) => cell(row[f])).join(',');
+    yield fields.map((f) => cell(row[f])).join(',');
   }
 }
 

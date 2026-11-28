@@ -93,7 +93,7 @@ import { randomUUID } from 'node:crypto';
 export class RecordingQueueService extends QueueService {
   public Emitted: IQueueMessage[] = [];
   public Consumed: string[] = [];
-  protected Client = new BlackHoleQueueClient({ name: 'recording', transport: 'none', type: 'job' });
+  protected Client = new BlackHoleQueueClient({ service: 'BlackHoleQueueClient', name: 'recording' });
 
   public async emit(message: IQueueMessage | QueueEvent | QueueJob): Promise<string | undefined> {
     this.Emitted.push(message);
