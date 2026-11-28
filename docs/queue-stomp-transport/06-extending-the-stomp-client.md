@@ -93,6 +93,7 @@ Protected state a subclass can read:
 | `Subscriptions` | `StompQueueClient` | Tracked subscriptions by `subscriptionKey()`, each with the handlers of every message class on it, replayed on connect, cleared by `dispose()` |
 | `PendingEmits` | `StompQueueClient` | Emits buffered while disconnected |
 | `ReadyWaiters` | `StompQueueClient` | Pending `whenReady()` settlers: called with no argument on connect, with an error on `dispose()` |
+| `FirstConnect` | `StompQueueClient` | The settler of the promise `resolve()` returns, until the first connect settles it; `dispose()` rejects it |
 | `Disposing` | `StompQueueClient` | `true` once `dispose()` has started |
 | `EmitPipeline` | `StompQueueClient` | The pipeline from `buildEmitPipeline()` |
 | `Log` | `QueueClient`, `@Logger('queue')` | The `queue` logger |
