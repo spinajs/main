@@ -29,7 +29,7 @@ table itself when it starts.
      its lower-cased `NativeType`;
    - builds `descriptor.Schema` and `descriptor.ResponseSchema` (see
      [JSON schema](11-json-schema.md));
-   - when `tableInfo()` answers `null` (no such table), resets the descriptor's columns to the decorator-declared ones and records the model as missing; at the end, called strict (`migrate-up` does, under `db.StrictTableCheck`), it reads again every other model an earlier read recorded missing, then throws one `OrmException` for every registered model whose table is still missing; otherwise it logs a warning per model read. See [Connections](01-connections.md).
+   - when `tableInfo()` answers `null` (no such table), resets the descriptor's columns to the decorator-declared ones, records the model as missing and sets `descriptor.TableMissing` (not under `db.Models.Source = 'manifest'`), which refuses the model's writes until a read finds the table; at the end, called strict (`migrate-up` does, under `db.StrictTableCheck`), it reads again every other model an earlier read recorded missing, then throws one `OrmException` for every registered model whose table is still missing; otherwise it logs a warning per model read. See [Connections](01-connections.md).
 6. `Orm.wireRelations()` resolves relation targets, and `applyModelMixins()` binds the static query
    API (`get`, `where`, `select`, ...) onto every registered model.
 
@@ -75,6 +75,7 @@ sequenceDiagram
 | `SoftDelete` | `IModelSoftDeleteDescriptor` | `@SoftDelete()` | `DeletedAt` property name, `''` when unset. |
 | `Archived` | `IModelArchivedDescriptor` | `@Archived()` | `ArchivedAt` property name, `''` when unset. |
 | `Columns` | `IColumnDescriptor[]` | `Orm.reloadTableInfo()`, `@Ignore()`, `@Uuid()` | Table columns. |
+| `TableMissing` | `boolean` (optional) | `Orm.reloadTableInfo()` | `true` when the last read found no table and `Columns` holds the declared columns only: `insert`, `update()`, `insertOrUpdate()` and `save()` of the model throw until a read finds the table. |
 | `Converters` | `Map<string, IValueConverterDescriptor>` | converter decorators | Converter class and options per property. See [Converters and hydration](04-converters-and-hydration.md). |
 | `Relations` | `Map<string, IRelationDescriptor>` | relation decorators | See [Relations](06-relations.md). |
 | `JunctionModelProperties` | `IJunctionProperty[]` | `@JunctionTable()` | Properties that receive the junction row of a many-to-many relation. |
