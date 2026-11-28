@@ -107,6 +107,28 @@ Default `__orm_db_value_converters__` map, registered by `Orm.registerDefaultCon
 
 Column lookup lowercases the native type, so only the lowercase keys match a column. The capitalized keys match the class name of a value in a `WHERE` binding or an `UPDATE` `SET` value, which `@spinajs/orm-sql` converts by type.
 
+### A datetime column without `@DateTime()`
+
+With columns read from the database (`db.Models.Source: 'database'`, the default), a `DATETIME`, `TIMESTAMP` or `DATE` column whose property has no `@DateTime()` (or timestamp decorator) gets no converter. The map above has no `datetime` or `date` key on purpose. `Orm.registerManifestConverters()` adds those keys only for the manifest source, because "mysql reports `datetime`/`date` natively too, and `Source = 'database'` must not change which converter those columns get". Under `db.Models.Source: 'manifest'` in `require` mode the same column gets `DatetimeValueConverter`; see [Manifest as model source](23-manifest-model-source.md#converters).
+
+Such a column is written and read as given. Only a `Date` or a luxon `DateTime` is converted, by its class. Measured on SQLite, for a `DATETIME` column, the same on model `insert()` / `update()`, static `insert()` / `update(data)` and the query builder's `insert()` / `update()`:
+
+| Value | Written | `where()` / `whereIn()` | Read back |
+| --- | --- | --- | --- |
+| a valid `DateTime` or `Date` | the dialect's UTC text (`2026-12-01T10:00:00.000Z`) | bound as that text | the text, a `string`, not a `DateTime` |
+| an invalid `DateTime`, an `Invalid Date` | throws `InvalidArgument` (`parameter: …`), nothing written | throws `InvalidArgument` (`column At: …`) | |
+| ISO 8601 or SQL text | as given | as given | the text |
+| any other text (`'next friday'`) | as given | as given | the text |
+| a number | an `INTEGER`; nothing records whether it counts seconds or milliseconds | as given | the number |
+| `Infinity`, `-Infinity` | a `REAL` `Infinity` / `-Infinity` | as given | the number |
+| `NaN` | `NULL` | `where()` throws `InvalidArgument`; `whereIn()` binds `NULL`, which matches no row | `null` |
+| a plain object | insert: the text `[object Object]`; update: fails with `SQLITE_RANGE` | fails with `SQLITE_RANGE` | the text |
+| `null` | `NULL` | `where(column, null)` is `IS NULL` | `null` |
+
+SQLite checks no column type, so every row above is stored. PostgreSQL refuses text that is not a datetime, and a bare number, for a `timestamp` or `date` column. MySQL in strict mode (its default) refuses text that is not a datetime for `DATETIME` and reads a number as `YYYYMMDDhhmmss` digits. The PostgreSQL and MySQL behaviour is taken from their documentation (by reading), not measured by the ORM's tests.
+
+To have such a column converted and checked, put `@DateTime()` on its property (`@DateTime({ nullable: true })` for `DateTime | null`). Values are then converted on write, refused when they are no valid instant, and read back as a `DateTime` in UTC.
+
 ### The `IValueConverter` contract
 
 | Member | Called with | Notes |
@@ -181,7 +203,7 @@ DI.register(JsonValueConverter).asMapValue('__orm_db_value_converters__', 'json'
 - A subclass is resolved by the connection's container on its own, as a singleton keyed by its class name. It does not get the arguments a driver passes to a converter it registers through a factory: MySQL builds its `DatetimeValueConverter` with the session zone, while a subclass of `MySqlDatetimeValueConverter` runs with UTC. Two unregistered subclasses with the same class name on one connection share one instance, the one resolved first.
 - A subclass's `toDB()` must return the database form. A returned `Date`, `DateTime`, `boolean` or `TimeSpan` is converted again, by the driver's converter for that class, when the statement is compiled.
 - A row that a converter's `fromDB()` cannot read rejects the whole query, not that row alone.
-- The native-type lookup never attaches a datetime converter: no lowercase datetime key exists in the default map. Declare `@DateTime()` on datetime columns.
+- The native-type lookup never attaches a datetime converter: no lowercase datetime key exists in the default map. Declare `@DateTime()` on datetime columns. Without it, text, numbers, `Infinity` and objects are stored as given; see [A datetime column without `@DateTime()`](#a-datetime-column-without-datetime).
 - `@DateTime()` reads the emitted design type. `DateTime | null` emits `Object` and throws at class definition unless the decorator is given `nullable: true`. `@CreatedAt()`, `@UpdatedAt()`, `@SoftDelete()` and `@Archived()` keep the strict check and always use seconds.
 - On SQLite a column declared with a numeric type in any case (`INTEGER`, `BIGINT`, `REAL`, `NUMERIC`, ...) receives Unix seconds from `@DateTime()`, `@CreatedAt()`, `@UpdatedAt()`, `@SoftDelete()` and `@Archived()`; they share `DatetimeValueConverter`. A numeric column that holds ISO text written by an earlier version needs a one-time conversion; see [Migration](../orm-sqlite/04-schema-and-ddl.md#migration).
 - A value that is no valid instant throws `InvalidArgument` naming the column (`column ExpiresAt: an Invalid Date is not a valid instant`): an invalid luxon `DateTime` (`DateTime.invalid()`, `DateTime.fromISO('garbage')`), a JS `Invalid Date`, `NaN`, `Infinity`, `-Infinity` and a number outside the range a `DateTime` holds. It throws on every path the converter writes: `insert()`, `update()`, `save()`, upserts, static `insert()` and `update(data)`, `where()`, `whereIn()` and BETWEEN values, `toJSON()` and `dehydrate()`, on every dialect. A raw `executeOnDb` parameter that is a `Date` or `DateTime` is refused too (`parameter: …`); a raw number is bound as given, since nothing says it is a datetime. Only `null`, `undefined` and `''` are written as NULL (on PostgreSQL `undefined` writes the column DEFAULT), so an invalid instant cannot turn an `ExpiresAt` into "never expires". Where NULL is meant for a value that may be invalid, decide it before the write, by the value's type: a luxon `DateTime`: `dt?.isValid ? dt : null`; a JS `Date`: `d && !Number.isNaN(d.getTime()) ? d : null`; a number: `Number.isFinite(n) ? n : null` (a finite number outside the `DateTime` range is refused too). A value read from the database that is no valid datetime still reads as `null`, and `new Model(data)` and `hydrate(data)` still read their input that way, so an invalid value given there is written as NULL.

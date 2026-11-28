@@ -50,6 +50,7 @@ The driver container resolves these converters for model columns, `where()` valu
 - `Date` and `DateTime` bindings of raw SQL (`executeOnDb()`, `RawQuery` bindings) are converted the same way by `SqlDriver.toDriverParams()`.
 - `toJSON()` writes datetimes as ISO 8601 in UTC and booleans as `true` / `false`.
 - Text written by hand in another format (`2026-10-19 12:00:00`) still reads back, but compares as text against the stored ISO form. Write instants through the converter or `driver.now()`.
+- A `DATETIME`, `TIMESTAMP` or `DATE` column whose property has no `@DateTime()` gets no converter. SQLite then stores any text, number, `Infinity` or `[object Object]` it is given, and reads it back as stored; see [A datetime column without `@DateTime()`](../orm/04-converters-and-hydration.md#a-datetime-column-without-datetime).
 
 The converters themselves are described in [Value converters and default values](../orm-sql/05-value-converters-and-defaults.md).
 
