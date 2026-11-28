@@ -84,6 +84,9 @@ export class SqliteOnDuplicateQueryCompiler extends SqlOnDuplicateQueryCompiler 
 
 @NewInstance()
 export class SqliteTableExistsCompiler implements TableExistsCompiler {
+  @Autoinject(IdentifierQuoter)
+  public Quoter: IdentifierQuoter;
+
   constructor(protected builder: TableExistsQueryBuilder) {
     if (builder === null) {
       throw new Error('table exists query builder cannot be null');
@@ -91,9 +94,11 @@ export class SqliteTableExistsCompiler implements TableExistsCompiler {
   }
 
   public compile(): ICompilerOutput {
+    const catalog = this.builder.Database ? `${this.Quoter.quote(this.builder.Database)}.sqlite_master` : 'sqlite_master';
+
     return {
       bindings: [this.builder.Table],
-      expression: `SELECT name FROM sqlite_master WHERE type='table' AND name=? LIMIT 1;`,
+      expression: `SELECT name FROM ${catalog} WHERE type='table' AND name=? LIMIT 1;`,
     };
   }
 }

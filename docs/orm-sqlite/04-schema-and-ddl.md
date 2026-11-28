@@ -109,7 +109,7 @@ Type, nullability and default come from the builder alone, as with MySQL's `MODI
 | Builder | Token | SQLite implementation | Result |
 | --- | --- | --- | --- |
 | `driver.truncate(t)`, `Model.truncate()` | `TruncateTableQueryCompiler` | `SqliteTruncateTableQueryCompiler` | `DELETE FROM t`; the `AUTOINCREMENT` counter is **not** reset |
-| `schema().tableExists(t, schema?)` | `TableExistsCompiler` | `SqliteTableExistsCompiler` | `SELECT name FROM sqlite_master WHERE type='table' AND name=? LIMIT 1`; `schema` is ignored |
+| `schema().tableExists(t, schema?)` | `TableExistsCompiler` | `SqliteTableExistsCompiler` | `SELECT name FROM sqlite_master WHERE type='table' AND name=? LIMIT 1`; with `schema`, `` FROM `<schema>`.sqlite_master ``, and a `schema` that is not attached answers `false` |
 | `driver.lockTableShared(t)` | none, a driver method | `SqliteOrmDriver.lockTableShared()` | `DELETE FROM t WHERE 0` inside the transaction: takes the database's `RESERVED` lock; see [Shared table lock](../orm/08-transactions.md#shared-table-lock) |
 | `schema().createView(v, cb)` | `CreateViewCompiler` | `SqliteCreateViewCompiler` | `CREATE [TEMP] VIEW [IF NOT EXISTS] ...`; `orReplace()`, `algorithm()`, `security()`, `checkOption()` throw `MethodNotImplemented` |
 | `schema().createDatabase(d)` | `CreateDatabaseCompiler` | `SqliteCreateDatabaseQueryCompiler` | throws `NotSupported('sqlite does not support CREATE DATABASE, ...')` |
@@ -306,37 +306,33 @@ export class KeyedSqliteDriver extends SqliteOrmDriver {
 
 ### Table exists: custom implementation
 
-Make `tableExists(name, schema)` look inside an attached database.
+`tableExists()` matches `type='table'` only. Make it find a view of that name too.
 
 ```ts sample
 import { Injectable, NewInstance } from '@spinajs/di';
 import { ICompilerOutput, TableExistsCompiler } from '@spinajs/orm';
-import { escapeIdentifier } from '@spinajs/orm-sql';
 import { SqliteOrmDriver, SqliteTableExistsCompiler } from '@spinajs/orm-sqlite';
 
 @NewInstance()
-export class AttachedTableExistsCompiler extends SqliteTableExistsCompiler {
+export class ViewAwareTableExistsCompiler extends SqliteTableExistsCompiler {
   public compile(): ICompilerOutput {
-    const catalogue = this.builder.Database ? `${escapeIdentifier(this.builder.Database)}.sqlite_master` : 'sqlite_master';
+    const { bindings, expression } = super.compile();
 
-    return {
-      bindings: [this.builder.Table],
-      expression: `SELECT name FROM ${catalogue} WHERE type='table' AND name=? LIMIT 1;`,
-    };
+    return { bindings, expression: expression?.replace("type='table'", "type IN ('table', 'view')") ?? null };
   }
 }
 
-@Injectable('orm-driver-sqlite-attached')
+@Injectable('orm-driver-sqlite-views')
 @NewInstance()
-export class AttachedSqliteDriver extends SqliteOrmDriver {
+export class ViewAwareSqliteDriver extends SqliteOrmDriver {
   public resolve() {
     super.resolve();
-    this.Container.register(AttachedTableExistsCompiler).as(TableExistsCompiler);
+    this.Container.register(ViewAwareTableExistsCompiler).as(TableExistsCompiler);
   }
 }
 ```
 
-The `ATTACH` must be on the handle that runs the check: inside a transaction, or with `Pool.Max: 1`; see [Read handle pool](02-read-pool.md).
+`tableExists(name, schema)` reads an attached database only on the handle that has it attached: inside a transaction, or with `Pool.Max: 1`; see [Read handle pool](02-read-pool.md).
 
 ## Important behaviour
 
