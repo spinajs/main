@@ -1,6 +1,6 @@
 import { DI } from '@spinajs/di';
 import { expect } from 'chai';
-import { DateTime } from 'luxon';
+import { DateTime, Settings } from 'luxon';
 import { SessionProvider } from '../src/contracts.js';
 import type { ISession } from '../src/contracts.js';
 import { MemorySessionStore, UserSession } from '../src/index.js';
@@ -117,6 +117,104 @@ describe('Session provider tests', () => {
       view.State = 'active';
 
       expect((await store.restore('k-view'))!.State).to.equal('pending');
+    });
+  });
+
+  describe('touch of a pending session keeps the stored expiration', () => {
+    const realNow = Settings.now;
+    let now: number;
+
+    beforeEach(() => {
+      now = Date.now();
+      Settings.now = () => now;
+    });
+
+    afterEach(() => {
+      Settings.now = realNow;
+    });
+
+    async function pendingRow(sessionId: string): Promise<{ store: MemorySessionStore; stored: DateTime }> {
+      const store = await DI.resolve(MemorySessionStore);
+      await store.truncate();
+      const stored = DateTime.now().plus({ minutes: 5 });
+      await store.save(new UserSession({ SessionId: sessionId, Subject: alice, State: 'pending', Expiration: stored }));
+      return { store, stored };
+    }
+
+    async function expectStoredKept(store: MemorySessionStore, sessionId: string, stored: DateTime): Promise<void> {
+      const after = (await store.restore(sessionId))!;
+      expect(after.Expiration, 'an absent expiration would mean the pending session never expires').to.not.equal(undefined);
+      expect(after.Expiration!.toMillis()).to.equal(stored.toMillis());
+
+      now = stored.toMillis() + 1;
+      expect(await store.restore(sessionId), 'the pending session must end at its stored expiration').to.equal(null);
+    }
+
+    it('a pending touch without Expiration keeps the stored expiration', async () => {
+      const { store, stored } = await pendingRow('k-pending-bare');
+
+      const view = new UserSession({ SessionId: 'k-pending-bare', Subject: alice, State: 'pending' });
+      view.Data.set('Ip', '203.0.113.7');
+      expect(await store.touch(view)).to.equal(false);
+
+      expect((await store.restore('k-pending-bare'))!.Data.get('Ip')).to.equal('203.0.113.7');
+      await expectStoredKept(store, 'k-pending-bare', stored);
+    });
+
+    it('a pending touch with a later Expiration keeps the stored expiration', async () => {
+      const { store, stored } = await pendingRow('k-pending-later');
+
+      const view = new UserSession({ SessionId: 'k-pending-later', Subject: alice, State: 'pending', Expiration: stored.plus({ minutes: 2 }) });
+      expect(await store.touch(view)).to.equal(false);
+
+      await expectStoredKept(store, 'k-pending-later', stored);
+    });
+
+    it('a pending touch with an earlier Expiration keeps the stored expiration', async () => {
+      const { store, stored } = await pendingRow('k-pending-earlier');
+
+      const view = new UserSession({ SessionId: 'k-pending-earlier', Subject: alice, State: 'pending', Expiration: stored.minus({ minutes: 2 }) });
+      expect(await store.touch(view)).to.equal(false);
+
+      await expectStoredKept(store, 'k-pending-earlier', stored);
+    });
+
+    it('a pending touch with an invalid DateTime keeps the stored expiration and answers false', async () => {
+      const { store, stored } = await pendingRow('k-pending-invalid');
+
+      const view = new UserSession({ SessionId: 'k-pending-invalid', Subject: alice, State: 'pending', Expiration: DateTime.invalid('unreadable') });
+      expect(await store.touch(view)).to.equal(false);
+
+      await expectStoredKept(store, 'k-pending-invalid', stored);
+    });
+
+    it('an active touch still renews through SlidingExpiration', async () => {
+      await withSessionConfig({ authn: { session: { service: 'MemorySessionStore', expiration: { service: 'SlidingExpiration', ttl: 30 } } } });
+      const store = await DI.resolve(MemorySessionStore);
+      await store.truncate();
+      const soon = DateTime.now().plus({ minutes: 1 });
+      await store.save(new UserSession({ SessionId: 'k-active-sliding', Subject: alice, State: 'active', Expiration: soon }));
+
+      const view = new UserSession({ SessionId: 'k-active-sliding', Subject: alice, State: 'active', Expiration: soon });
+      view.Data.set('Ip', '203.0.113.7');
+      expect(await store.touch(view)).to.equal(true);
+
+      const after = (await store.restore('k-active-sliding'))!;
+      expect(after.Expiration!.toMillis()).to.equal(now + 30 * 60_000);
+      expect(after.Data.get('Ip')).to.equal('203.0.113.7');
+    });
+
+    it('an active touch still renews through SlidingCappedExpiration, up to the cap', async () => {
+      await withSessionConfig({ authn: { session: { service: 'MemorySessionStore', expiration: { service: 'SlidingCappedExpiration', ttl: 30, maxLifetime: 40 } } } });
+      const store = await DI.resolve(MemorySessionStore);
+      await store.truncate();
+      const creation = DateTime.now().minus({ minutes: 20 });
+      const soon = DateTime.now().plus({ minutes: 1 });
+      await store.save(new UserSession({ SessionId: 'k-active-capped', Subject: alice, State: 'active', Creation: creation, Expiration: soon }));
+
+      expect(await store.touch(new UserSession({ SessionId: 'k-active-capped', Subject: alice, State: 'active', Creation: creation, Expiration: soon }))).to.equal(true);
+
+      expect((await store.restore('k-active-capped'))!.Expiration!.toMillis()).to.equal(now + 20 * 60_000);
     });
   });
 });

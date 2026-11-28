@@ -84,8 +84,8 @@ export class MemorySessionStore extends SessionProvider<ISession> {
   }
 
   /**
-   * Update-only: writes Expiration and Data onto a row that still exists, is live and is stored in the
-   * caller's State (SR-07), never re-creates a deleted one; the row keeps its own identity fields.
+   * Update-only: writes Data, and Expiration for an active row, onto a row that still exists, is live and is
+   * stored in the caller's State (SR-07), never re-creates a deleted one; the row keeps its own identity fields.
    */
   public async touch(session: ISession): Promise<boolean> {
     const stored = this.Sessions.get(session.SessionId);
@@ -93,10 +93,15 @@ export class MemorySessionStore extends SessionProvider<ISession> {
       return false;
     }
 
+    stored.Data = session.Data;
+    // A pending row keeps the expiration the issuer gave it (A09), whatever the view carries.
+    if (stored.State === 'pending') {
+      return false;
+    }
+
     const current = session.Expiration;
     this.applyRenewedExpiration(session);
     stored.Expiration = session.Expiration;
-    stored.Data = session.Data;
     return !expirationEquals(current, session.Expiration);
   }
 
