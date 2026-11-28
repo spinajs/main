@@ -58,7 +58,7 @@ sequenceDiagram
 | Phase | Method | What it writes |
 | --- | --- | --- |
 | Inserts | `SubjectExecutor.runInserts()` | One `INSERT` per model, in sorted order. Pending foreign keys are read from their targets just before each statement. |
-| Updates | `SubjectExecutor.runUpdates()` | One `UPDATE ... WHERE <pk>` per model with a non-empty diff, primary key columns excluded. Deferred self-references are written here. |
+| Updates | `SubjectExecutor.runUpdates()` | One `UPDATE ... WHERE <pk>` per model with a non-empty diff, primary key columns excluded. A model whose changed columns `toSql()` does not write (an `undefined` property on SQLite) gets no statement and does not count in `Updated`; the same holds for a junction row. Deferred self-references are written here. |
 | Junctions | `SubjectExecutor.runJunctions()` | Per many-to-many delta: junction `INSERT`s first, then junction `DELETE`s scoped to the owner. |
 | Orphans | `SubjectExecutor.runOrphans()` | `nullify` and `soft-delete` as `UPDATE`s first, then `delete` as `DELETE`s. |
 
