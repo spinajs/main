@@ -175,6 +175,18 @@ describe('AncestorObserver', function () {
         expect((await ancestorLinks(driver)).filter((l) => l.startsWith('item:'))).to.deep.equal(['item:i1>org:o2@2', 'item:i1>project:p2@1']);
       });
 
+      it('an upsert the capture cannot key links the children that already name the rows it names', async () => {
+        const Box = (await db.define({ name: 'Box', columns: { code: 'TEXT', kind: 'TEXT' }, decorate: (c) => AccessResource('box')(c) }, dialect)) as M;
+        const Item = (await db.define({ name: 'Item', columns: { box_id: 'TEXT' }, decorate: (c, p) => { AccessResource('item')(c); Parent('box')(p, 'box_id'); } }, dialect)) as M;
+        await db.raw(`CREATE UNIQUE INDEX "ux_${db.table(Box)}" ON "${db.table(Box)}" ("code", "kind")`, [], dialect);
+        await Item.insert({ id: 'i1', box_id: 'b1' });
+        expect((await ancestorLinks(driver)).filter((l) => l.startsWith('item:'))).to.deep.equal([]);
+        const { query } = createQuery(Box, InsertQueryBuilder);
+        query.values({ id: 'b1', code: 'k', kind: 'a' }).onDuplicate(['code', 'kind']).update(['kind']);
+        await query;
+        expect((await ancestorLinks(driver)).filter((l) => l.startsWith('item:'))).to.deep.equal(['item:i1>box:b1@1']);
+      });
+
       it('a replace that deletes a row through a unique column forgets it as a delete does', async function () {
         if (dialect !== 'sqlite') this.skip();
         const Item = (await db.define({ name: 'Item', columns: { code: 'TEXT UNIQUE', project_id: 'TEXT' }, decorate: (c, p) => { AccessResource('item')(c); Parent('project')(p, 'project_id'); } }, dialect)) as M;

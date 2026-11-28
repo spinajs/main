@@ -168,31 +168,85 @@ describe('authz:ancestors-rebuild writes what the write observer wrote, for one 
         expect(out).to.deep.equal(['org: ok', 'project: ok', 'task: ok']);
       });
 
-      it('links no row to a parent id without a row, so a row created later with that id passes nothing to it', async () => {
-        const Org = (await db.define({ name: 'Org', columns: {}, decorate: (c) => AccessResource('org')(c) }, dialect)) as M;
-        const Project = (await db.define({ name: 'Project', columns: { org_id: 'TEXT' }, decorate: (c, p) => { AccessResource('project')(c); Parent('org')(p, 'org_id'); } }, dialect)) as M;
-        const Task = (await db.define({ name: 'Task', columns: { project_id: 'TEXT' }, decorate: (c, p) => { AccessResource('task')(c); Parent('project')(p, 'project_id'); } }, dialect)) as M;
-        const tasks = (links: readonly string[]): string[] => links.filter((l) => l.startsWith('task:'));
+      /** The links the writes left, after verify found no drift and a rebuild of the quiet database wrote the same rows. */
+      const writesAgreeWithRebuild = async (): Promise<string[]> => {
+        const driver = db.driver(dialect);
+        const written = await ancestorLinks(driver);
+        out.length = 0;
+        await verify();
+        expect(out.filter((l) => !l.endsWith(': ok')), 'authz:ancestors-verify').to.deep.equal([]);
+        await rebuild();
+        expect(await ancestorLinks(driver), 'a rebuild of the quiet database').to.deep.equal(written);
+        return written;
+      };
 
+      const chain = async () => ({
+        Org: (await db.define({ name: 'Org', columns: {}, decorate: (c) => AccessResource('org')(c) }, dialect)) as M,
+        Project: (await db.define({ name: 'Project', columns: { org_id: 'TEXT' }, decorate: (c, p) => { AccessResource('project')(c); Parent('org')(p, 'org_id'); } }, dialect)) as M,
+        Task: (await db.define({ name: 'Task', columns: { project_id: 'TEXT' }, decorate: (c, p) => { AccessResource('task')(c); Parent('project')(p, 'project_id'); } }, dialect)) as M,
+      });
+      const tasks = (links: readonly string[]): string[] => links.filter((l) => l.startsWith('task:'));
+
+      it('a row created with the id of a deleted parent inherits the children whose column names it, on both paths alike', async () => {
+        const { Org, Project, Task } = await chain();
         await Org.insert([{ id: 'o1' }, { id: 'o2' }]);
         await Project.insert([{ id: 'p1', org_id: 'o1' }, { id: 'p2', org_id: 'o1' }, { id: 'p3', org_id: 'o1' }]);
         await Task.insert([{ id: 't1', project_id: 'p1' }, { id: 't2', project_id: 'p2' }]);
         await Project.destroy('p1');
+        expect((await writesAgreeWithRebuild()).filter((l) => l.startsWith('task:t1'))).to.deep.equal([]);
+
         // Untracked: project:p3 keeps its own links, which must not reach a child through the missing row.
         await db.raw(`DELETE FROM ${TestDb.quote(db.table(Project), dialect)} WHERE ${TestDb.quote('id', dialect)} = 'p3'`, [], dialect);
         await Task.update({ project_id: 'p1' }).where('id', 't2');
         await Task.insert({ id: 't3', project_id: 'p3' });
-
         const driver = db.driver(dialect);
         const written = await ancestorLinks(driver);
         expect(tasks(written)).to.deep.equal([]);
         expect(written).to.include('project:p3>org:o1@1');
-
         await rebuild();
         expect(await ancestorLinks(driver)).to.deep.equal(written.filter((l) => l !== 'project:p3>org:o1@1'));
 
         await Project.insert({ id: 'p1', org_id: 'o2' });
-        expect(tasks(await ancestorLinks(driver))).to.deep.equal([]);
+        expect(tasks(await writesAgreeWithRebuild())).to.deep.equal(['task:t1>org:o2@2', 'task:t1>project:p1@1', 'task:t2>org:o2@2', 'task:t2>project:p1@1']);
+      });
+
+      it('a child written before its parent is linked when the parent is inserted, in one transaction or not', async () => {
+        const { Org, Project, Task } = await chain();
+        // Two @Parent columns that name one type.
+        const Edge = (await db.define({ name: 'Edge', columns: { from_id: 'TEXT', to_id: 'TEXT' }, decorate: (c, p) => { AccessResource('edge')(c); Parent('project')(p, 'from_id'); Parent('project')(p, 'to_id'); } }, dialect)) as M;
+        await Org.insert({ id: 'o1' });
+        await Project.insert({ id: 'p1', org_id: 'o1' });
+
+        await Task.insert({ id: 't9', project_id: 'p9' });
+        await Edge.insert({ id: 'e1', from_id: 'p1', to_id: 'p9' });
+        expect((await writesAgreeWithRebuild()).filter((l) => l.startsWith('task:') || l.startsWith('edge:'))).to.deep.equal(['edge:e1>org:o1@2', 'edge:e1>project:p1@1']);
+        await Project.insert({ id: 'p9', org_id: 'o1' });
+        expect((await writesAgreeWithRebuild()).filter((l) => l.startsWith('task:t9') || l.startsWith('edge:'))).to.deep.equal(['edge:e1>org:o1@2', 'edge:e1>project:p1@1', 'edge:e1>project:p9@1', 'task:t9>org:o1@2', 'task:t9>project:p9@1']);
+
+        const driver = db.driver(dialect);
+        await driver.transaction(async () => {
+          await Task.insert({ id: 't8', project_id: 'p8' });
+          await Project.insert({ id: 'p8', org_id: 'o1' });
+        });
+        expect((await writesAgreeWithRebuild()).filter((l) => l.startsWith('task:t8'))).to.deep.equal(['task:t8>org:o1@2', 'task:t8>project:p8@1']);
+
+        // A root parent, which declares no @Parent itself.
+        await Project.insert({ id: 'p7', org_id: 'o7' });
+        await Task.insert({ id: 't7', project_id: 'p7' });
+        await Org.insert({ id: 'o7' });
+        expect((await writesAgreeWithRebuild()).filter((l) => l.includes('o7'))).to.deep.equal(['project:p7>org:o7@1', 'task:t7>org:o7@2']);
+      });
+
+      it("a parent deleted with its children's column cleared passes nothing to a reused id", async () => {
+        const { Org, Project, Task } = await chain();
+        await Org.insert([{ id: 'o1' }, { id: 'o2' }]);
+        await Project.insert({ id: 'p1', org_id: 'o1' });
+        await Task.insert({ id: 't1', project_id: 'p1' });
+        await Project.destroy('p1');
+        // What a foreign key with ON DELETE SET NULL does.
+        await db.raw(`UPDATE ${TestDb.quote(db.table(Task), dialect)} SET ${TestDb.quote('project_id', dialect)} = NULL WHERE ${TestDb.quote('id', dialect)} = 't1'`, [], dialect);
+        await Project.insert({ id: 'p1', org_id: 'o2' });
+        expect(tasks(await writesAgreeWithRebuild())).to.deep.equal([]);
       });
     });
   }
