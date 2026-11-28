@@ -156,7 +156,7 @@ describe('sqlite update with no column to write', function () {
 
   describe('a model update whose changes all vanish from the payload behaves as "nothing changed"', () => {
     it('update() with nothing changed sends nothing (the precedent)', async () => {
-      const plain = (await UpdPlain.where('Id', 1).first())!;
+      const plain = (await UpdPlain.where('Id', 1).first());
 
       const seenNow = await observed(() => plain.update());
 
@@ -164,7 +164,7 @@ describe('sqlite update with no column to write', function () {
     });
 
     it('update() after model.Name = undefined resolves without a statement and keeps the row', async () => {
-      const plain = (await UpdPlain.where('Id', 1).first())!;
+      const plain = (await UpdPlain.where('Id', 1).first());
       plain.Name = undefined;
 
       const seenNow = await observed(() => plain.update());
@@ -175,7 +175,7 @@ describe('sqlite update with no column to write', function () {
     });
 
     it('update() after a relation-managed foreign key was set to undefined resolves without a statement', async () => {
-      const owned = (await UpdOwned.where('Id', 1).first())!;
+      const owned = (await UpdOwned.where('Id', 1).first());
       owned.owner_id = undefined;
 
       const seenNow = await observed(() => owned.update());
@@ -185,7 +185,7 @@ describe('sqlite update with no column to write', function () {
     });
 
     it('insertOrUpdate() of a loaded model after model.Name = undefined resolves without a statement', async () => {
-      const plain = (await UpdPlain.where('Id', 1).first())!;
+      const plain = (await UpdPlain.where('Id', 1).first());
       plain.Name = undefined;
 
       const seenNow = await observed(() => plain.insertOrUpdate());
@@ -195,7 +195,7 @@ describe('sqlite update with no column to write', function () {
     });
 
     it('save() after model.Name = undefined writes nothing, as save() with nothing changed', async () => {
-      const plain = (await UpdPlain.where('Id', 1).first())!;
+      const plain = (await UpdPlain.where('Id', 1).first());
       const unchanged = await observed(() => plain.save());
       plain.Name = undefined;
 
@@ -210,7 +210,7 @@ describe('sqlite update with no column to write', function () {
       await UowOrder.insert({ Total: 10 });
       await UowTag.insert({ Name: 'red' });
       await UowOrderTag.insert({ order_id: 1, tag_id: 1, Note: 'first red' });
-      const order = (await UowOrder.where({ Id: 1 }).populate('Tags').first())!;
+      const order = (await UowOrder.where({ Id: 1 }).populate('Tags').first());
       order.Tags.junction<UowOrderTag>(order.Tags[0])!.Note = undefined as unknown as string;
 
       const seenNow = await observed(() => order.save());
@@ -253,7 +253,7 @@ describe('sqlite update with no column to write', function () {
 
   describe('an update with at least one column sends the same SQL as before', () => {
     it('a changed column', async () => {
-      const plain = (await UpdPlain.where('Id', 1).first())!;
+      const plain = (await UpdPlain.where('Id', 1).first());
       plain.Name = 'b';
       const capture = captureStatements();
       try {
@@ -267,7 +267,7 @@ describe('sqlite update with no column to write', function () {
     });
 
     it('a changed column on an @UpdatedAt model, and an undefined one, which still stamps UpdatedAt', async () => {
-      const stamped = (await UpdStamped.where('Id', 1).first())!;
+      const stamped = (await UpdStamped.where('Id', 1).first());
       stamped.Name = 'b';
       const capture = captureStatements();
       try {
@@ -286,7 +286,7 @@ describe('sqlite update with no column to write', function () {
     });
 
     it('an undefined column on an @Version model still moves the version', async () => {
-      const versioned = (await UpdVersioned.where('Id', 1).first())!;
+      const versioned = (await UpdVersioned.where('Id', 1).first());
       versioned.Name = undefined;
       const capture = captureStatements();
       try {
