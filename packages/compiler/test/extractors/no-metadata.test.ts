@@ -129,7 +129,8 @@ describe('what a build without decorator metadata needs from the manifest', () =
     });
 
     it('leaves out a decorator it knows injects by its own arguments', () => {
-      expect(entry('Wrapped')?.properties.map((p) => p.property)).to.not.include('name');
+      const properties = entry('Wrapped')?.properties.map((p) => p.property);
+      for (const name of ['name', 'named', 'namedList']) expect(properties, name).to.not.include(name);
     });
 
     it('records nothing for a package built with decorator metadata: it never needs the table', async () => {

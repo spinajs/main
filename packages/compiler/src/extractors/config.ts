@@ -57,6 +57,9 @@ export const extractConfigModules: Extractor<ConfigModuleEntry> = (ctx, file) =>
   return out;
 };
 
+// Property decorators whose first argument is the configuration path they read.
+const PATH_DECORATORS: ReadonlySet<string> = new Set(['Config', 'AutoinjectService', 'AutoinjectNamedService', 'AutoinjectNamedServices']);
+
 export const extractConfigUsages: Extractor<ConfigUsageEntry> = (ctx, file) => {
   const out: ConfigUsageEntry[] = [];
   const add = (expr: ts.Expression | undefined, node: ts.Node): void => {
@@ -65,7 +68,7 @@ export const extractConfigUsages: Extractor<ConfigUsageEntry> = (ctx, file) => {
   const visit = (node: ts.Node): void => {
     if (ts.isPropertyDeclaration(node)) {
       for (const d of decoratorsOf(node)) {
-        if (d.name === 'Config' || d.name === 'AutoinjectService') add(d.args[0], node);
+        if (PATH_DECORATORS.has(d.name)) add(d.args[0], node);
       }
     }
     if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression) && node.expression.name.text === 'get') {
