@@ -45,7 +45,8 @@
 ### Expired-session sweep, `cleanupExpired()`
 
 1. It selects up to `authn.session.db.cleanupBatch` keys with `Expiration <= now`, oldest first, and deletes them with `DELETE ... WHERE SessionId IN (...) AND Expiration <= now`, so a row renewed meanwhile is not deleted. It repeats until a round selects fewer keys than the batch size.
-2. It returns the number of deleted rows. The timer logs a positive count at `info` level; a thrown error is logged at `error` level and the next tick tries again.
+2. A second pass does the same for pending rows without an expiration: `Expiration IS NULL AND (State IS NULL OR State != 'active')`. `isExpired()` counts such a row as expired, and a `NULL` or unknown `State` reads as `pending`. Each pass is its own query, so both read through the `Expiration` index; one `OR` of the two conditions would scan the whole index.
+3. It returns the number of deleted rows. The timer logs a positive count at `info` level; a thrown error is logged at `error` level and the next tick tries again.
 
 ```mermaid
 sequenceDiagram
@@ -118,7 +119,7 @@ this.Config = _.merge(this.Config, {
 | `deleteBySubject(subject, opts?)` | public | Revokes a subject's sessions; returns the live count. |
 | `listBySubject(subject, opts?)` | public | The subject's live sessions. |
 | `truncate()` | public | Deletes every row through `DbSession.truncate()`. |
-| `cleanupExpired()` | public | Deletes expired rows; returns the count. |
+| `cleanupExpired()` | public | Deletes expired rows and pending rows without an expiration; returns the count. |
 | `resolve()` / `dispose()` | public | Start and stop the sweep timer. |
 | `toSession(row, lenient?)` | protected | Row to `ISession`. Override to read extra columns. |
 | `matching(subject, includeImpersonations?)` | protected | Rows of a subject, expired included. |
@@ -132,7 +133,8 @@ this.Config = _.merge(this.Config, {
 - `touch()` writes `Data` even when it returns `false` because the expiration did not change.
 - The store does not hash ids. It keys rows by whatever `SessionId` it gets; the issuer passes `sha256(rawId)`.
 - `user_sessions` has no foreign key to `users`, so deleting a user does not end the user's sessions; call `SessionIssuer.revokeAll()` first.
-- A session with `Expiration` `NULL` never expires and the sweep never deletes it.
+- An active session with `Expiration` `NULL` never expires and the sweep never deletes it. A pending row with `Expiration` `NULL` counts as expired: `restore()` returns `null` and the sweep deletes it.
+- The second sweep pass reads every row with `Expiration` `NULL` to check its `State`. With a never-expiring strategy every active row has a `NULL` expiration, so each sweep visits all of them.
 - `cleanupExpired()` holds at most `cleanupBatch` keys at a time and reads them through the `user_sessions_expiration_idx` index, so a large backlog costs neither memory nor a table scan, and no single `DELETE` locks the table for long.
 - Each `DbSessionStore` instance runs its own sweep. With several application instances, each sweeps the same table; the deletes are conditional on `Expiration`, so the overlap is harmless.
 
