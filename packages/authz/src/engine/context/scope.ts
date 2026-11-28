@@ -28,7 +28,16 @@ export function loadAncestors(engine: Engine, ref: ResourceRef): MaybePromise<re
   const source = adapter ?? engine.resolverByType.get(ref.type);
   if (!source) return Object.freeze([ref, GLOBAL]);
   const raw = source.ancestors(ref);
-  return isThenable(raw) ? Promise.resolve(raw).then((list) => ancestorList(engine, list, ref)) : ancestorList(engine, raw, ref);
+  return isThenable(raw) ? boundedAncestors(engine, raw, ref) : ancestorList(engine, raw, ref);
+}
+
+/** A read past modelTimeoutMs throws like a failed one; what it answers later is dropped. */
+async function boundedAncestors(engine: Engine, raw: PromiseLike<unknown>, ref: ResourceRef): Promise<readonly ResourceRef[] | null> {
+  const ms = engine.config.modelTimeoutMs;
+  const r = await bounded(() => raw, ms);
+  if (r.kind === 'error') throw r.error;
+  if (r.kind === 'timeout') throw new Error(`ancestors of ${resourceKey(ref)} timed out after ${ms} ms`);
+  return ancestorList(engine, r.value, ref);
 }
 
 export function ancestorList(engine: Engine, list: unknown, ref: ResourceRef): readonly ResourceRef[] | null {
