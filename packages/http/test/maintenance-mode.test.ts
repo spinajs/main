@@ -12,6 +12,7 @@ import { appPort, httpApp } from './common.js';
 import { BaseController, BasePath, Controllers, Get, HttpServer, LifecycleState, MaintenanceMode, Ok } from '../src/index.js';
 import { HTTP_CONFIGURATION_SCHEMA } from '../src/schemas/http.configuration.js';
 import { serverApp } from './support/server-app.js';
+import { closeLoopbackServers, loopbackOrigin } from './support/loopback.js';
 
 chai.use(chaiHttp);
 
@@ -29,23 +30,26 @@ const header = (res: { header: unknown }, name: string) => (res.header as Record
 const errorOf = (res: { body: unknown }) => (res.body as { error: { code: string; message: string } }).error;
 
 const app = (mw: MaintenanceMode) =>
-  serverApp(mw, (_req, res) => {
-    res.json({ ok: true });
-  });
+  loopbackOrigin(
+    serverApp(mw, (_req, res) => {
+      res.json({ ok: true });
+    }),
+  );
 
 describe('MaintenanceMode', () => {
+  afterEach(closeLoopbackServers);
   afterEach(disposeTestApps);
 
   it('passes requests through when http.maintenance is absent', async () => {
     const { mw } = await middleware(undefined);
-    const res = await chai.request(app(mw)).get('/probe');
+    const res = await chai.request(await app(mw)).get('/probe');
     expect(res.status).to.eq(200);
     expect(mw.Active).to.eq(false);
   });
 
   it('answers 503 with Retry-After and the maintenance body when enabled', async () => {
     const { mw } = await middleware({ enabled: true });
-    const res = await chai.request(app(mw)).get('/probe');
+    const res = await chai.request(await app(mw)).get('/probe');
 
     expect(res.status).to.eq(503);
     expect(header(res, 'retry-after')).to.eq('60');
@@ -54,7 +58,7 @@ describe('MaintenanceMode', () => {
 
   it('takes retryAfter and message from the configuration', async () => {
     const { mw } = await middleware({ enabled: true, retryAfter: 300, message: 'Back at noon' });
-    const res = await chai.request(app(mw)).get('/probe');
+    const res = await chai.request(await app(mw)).get('/probe');
 
     expect(header(res, 'retry-after')).to.eq('300');
     expect(errorOf(res)).to.deep.eq({ code: 'maintenance', message: 'Back at noon' });
@@ -62,7 +66,7 @@ describe('MaintenanceMode', () => {
 
   it('lets allowed path prefixes through, on a segment boundary and case-insensitively', async () => {
     const { mw } = await middleware({ enabled: true, allow: ['/health', '/admin/'] });
-    const status = async (path: string) => (await chai.request(app(mw)).get(path)).status;
+    const status = async (path: string) => (await chai.request(await app(mw)).get(path)).status;
 
     expect(await status('/health')).to.eq(200);
     expect(await status('/health/live')).to.eq(200);
@@ -77,28 +81,28 @@ describe('MaintenanceMode', () => {
 
     mw.enable();
     expect(mw.Active).to.eq(true);
-    expect((await chai.request(app(mw)).get('/probe')).status).to.eq(503);
+    expect((await chai.request(await app(mw)).get('/probe')).status).to.eq(503);
 
     mw.disable();
     expect(mw.Active).to.eq(false);
-    expect((await chai.request(app(mw)).get('/probe')).status).to.eq(200);
+    expect((await chai.request(await app(mw)).get('/probe')).status).to.eq(200);
   });
 
   it('disable() wins over an enabled configuration', async () => {
     const { mw } = await middleware({ enabled: true });
     mw.disable();
-    expect((await chai.request(app(mw)).get('/probe')).status).to.eq(200);
+    expect((await chai.request(await app(mw)).get('/probe')).status).to.eq(200);
   });
 
   it('answers every request 503 with Connection: close while the HttpServer is closing, allowed paths too', async () => {
     const { mw, bus } = await middleware({ enabled: false, allow: ['/health'] });
     const server = { State: LifecycleState.Listening };
     bus.emit('http.server.listening', server);
-    expect((await chai.request(app(mw)).get('/health')).status).to.eq(200);
+    expect((await chai.request(await app(mw)).get('/health')).status).to.eq(200);
 
     server.State = LifecycleState.Closing;
     bus.emit('http.server.closing', server);
-    const res = await chai.request(app(mw)).get('/health');
+    const res = await chai.request(await app(mw)).get('/health');
 
     expect(res.status).to.eq(503);
     expect(header(res, 'connection')).to.eq('close');
@@ -107,14 +111,14 @@ describe('MaintenanceMode', () => {
 
     server.State = LifecycleState.Listening;
     bus.emit('http.server.listening', server);
-    expect((await chai.request(app(mw)).get('/health')).status).to.eq(200);
+    expect((await chai.request(await app(mw)).get('/health')).status).to.eq(200);
   });
 
   it('stops listening to the server events on dispose', async () => {
     const { mw, bus } = await middleware({});
     await mw.dispose();
     bus.emit('http.server.closing', { State: LifecycleState.Closing });
-    expect((await chai.request(app(mw)).get('/probe')).status).to.eq(200);
+    expect((await chai.request(await app(mw)).get('/probe')).status).to.eq(200);
   });
 
   it('is always mounted: shutdown answers do not depend on http.maintenance.enabled', async () => {

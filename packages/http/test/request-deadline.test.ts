@@ -19,6 +19,7 @@ import { BaseController, BasePath, ConcurrencyLimit, Controllers, Deadline, Dead
 import type { IActionLocalStoregeContext, IMiddlewareContext, Request } from '../src/index.js';
 import { HTTP_CONFIGURATION_SCHEMA } from '../src/schemas/http.configuration.js';
 import { serverApp } from './support/server-app.js';
+import { closeLoopbackServers, loopbackOrigin } from './support/loopback.js';
 
 chai.use(chaiHttp);
 
@@ -51,6 +52,7 @@ const fakeContext = () => {
 describe('RequestDeadline', () => {
   afterEach(async () => {
     sinon.restore();
+    closeLoopbackServers();
     await disposeTestApps();
   });
 
@@ -64,10 +66,12 @@ describe('RequestDeadline', () => {
     const mw = await middleware({ enabled: true, ms: 1000 });
     let seen: IActionLocalStoregeContext | undefined;
     const before = Date.now();
-    const app = serverApp(mw, (req, res) => {
-      seen = (req as unknown as Request).storage;
-      res.json({ ok: true });
-    });
+    const app = await loopbackOrigin(
+      serverApp(mw, (req, res) => {
+        seen = (req as unknown as Request).storage;
+        res.json({ ok: true });
+      }),
+    );
 
     const res = await chai.request(app).get('/probe');
     expect(res.status).to.eq(200);
@@ -80,9 +84,11 @@ describe('RequestDeadline', () => {
   it('answers 504 when nothing was sent by the deadline, and aborts the signal with a TimeoutError', async () => {
     const mw = await middleware({ enabled: true, ms: 50 });
     let seen: IActionLocalStoregeContext | undefined;
-    const app = serverApp(mw, (req) => {
-      seen = (req as unknown as Request).storage;
-    });
+    const app = await loopbackOrigin(
+      serverApp(mw, (req) => {
+        seen = (req as unknown as Request).storage;
+      }),
+    );
 
     const res = await chai.request(app).get('/probe');
     expect(res.status).to.eq(504);
