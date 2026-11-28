@@ -129,8 +129,13 @@ export class SubjectExecutor {
       }
 
       const lock = versionLock(subject.Model);
+      const values = withVersion(lock, payload);
+      if (Object.keys(values).length === 0) {
+        continue;
+      }
+
       const { query } = this.query(subject.Model.constructor, UpdateQueryBuilder);
-      const update = query.update(withVersion(lock, payload));
+      const update = query.update(values);
       wherePk(update, subject.Descriptor, subject.Model.PrimaryKeyValue);
       whereVersion(lock, update);
       settleVersion(lock, await update, subject.Model);
@@ -322,8 +327,13 @@ export class SubjectExecutor {
         continue;
       }
 
+      const values = _.pick(junction.toSql() as Record<string, unknown>, changed);
+      if (Object.keys(values).length === 0) {
+        continue;
+      }
+
       const { query } = this.query(delta.Descriptor.JunctionModel!, UpdateQueryBuilder);
-      const update = query.update(_.pick(junction.toSql() as Record<string, unknown>, changed));
+      const update = query.update(values);
 
       const pk = junction.PrimaryKeyValue;
       const keyed = Array.isArray(pk) ? pk.every((v) => v !== null && v !== undefined) : pk !== null && pk !== undefined;

@@ -86,7 +86,7 @@ Every builder is lazy: awaiting it executes the query. See [Query builder](05-qu
 | `hydrate(data)` / `dehydrate(options?)` / `dehydrateWithRelations(options?)` / `toJSON()` / `toSql(onlyDirty?)` | Fill the model from data and serialize it. See [Converters and hydration](04-converters-and-hydration.md). |
 | `attach(model)` | Puts `model` into the matching relation. See [Relations](06-relations.md). |
 | `insert(behaviour = InsertBehaviour.None)` | Inserts this model; back-fills a generated key; re-baselines the snapshot. |
-| `update(data?)` | Hydrates `data`, then writes only the changed non-key columns plus `@UpdatedAt`. Resolves `{ RowsAffected: 0, LastInsertId: 0 }` without a query when nothing changed. |
+| `update(data?)` | Hydrates `data`, then writes only the changed non-key columns plus `@UpdatedAt`. Resolves `{ RowsAffected: 0, LastInsertId: 0 }` without a query when nothing changed, and when every changed column is one `toSql()` does not write (an `undefined` property on SQLite, a relation-managed foreign key set to `undefined` while its relation holds no target). On SQLite an `undefined` property is left out and the model stays dirty for it; MySQL, PostgreSQL and MSSQL write it as NULL. Assign `null` to clear a column on every dialect. |
 | `insertOrUpdate()` | `update()` when `PrimaryKeyValue` is truthy, otherwise `insert()`. |
 | `save(options?)` | Persists the model and everything reachable from it in one transaction. See [Unit of work](07-unit-of-work.md). |
 | `destroy()` | Static `destroy()` with this model's key. Resolves `undefined` without a query when a key column is empty. |
