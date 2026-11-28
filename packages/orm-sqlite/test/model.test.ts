@@ -15,6 +15,7 @@ import '@spinajs/log';
 import { ConnectionConf, db, migrations } from './common.js';
 import { Location as LocationModel } from './models/Location.js';
 import '@spinajs/orm-http';
+import './migrations/TestMigration_2022_02_08_01_13_00.js';
 
 const expect = chai.expect;
 chai.use(chaiAsPromised);
