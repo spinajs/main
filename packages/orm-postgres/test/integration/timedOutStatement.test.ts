@@ -117,6 +117,24 @@ describe('postgres integration - a plain transaction whose statement timed out o
     expectNoAnswerRefusal(err);
   });
 
+  it('refuses the commit after a nested transaction opened past the timeout rolled back to its savepoint', async () => {
+    let seen: { n: number }[] = [];
+    const { err, pid } = await inTransaction(async (client) => {
+      await abandonInsert(client);
+      await suite.driver
+        .transaction(async () => {
+          await suite.raw('INSERT INTO sx23b_rows (n) VALUES (3)');
+          throw new Error('the inner work failed');
+        })
+        .catch(() => undefined);
+      seen = await suite.raw<{ n: number }[]>('SELECT n FROM sx23b_rows ORDER BY n');
+    });
+
+    expect(seen, 'the ROLLBACK TO SAVEPOINT reached the server').to.deep.equal([{ n: 1 }, { n: 7 }]);
+    await expectNothingCommittedAndClientDestroyed(pid);
+    expectNoAnswerRefusal(err);
+  });
+
   it('refuses the whole outer transaction when the timeout happened inside a nested one that caught it', async () => {
     const { err, pid } = await inTransaction(async (client) => {
       await suite.driver.transaction(async () => {
