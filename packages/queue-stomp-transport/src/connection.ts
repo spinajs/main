@@ -489,7 +489,13 @@ export class StompQueueClient extends QueueClient {
             if (typeof appHook === 'function') await appHook.call(this.Client);
           } catch (err) {
             // the same un-awaited connect loop as the credential provider's: a throw would hang resolve() and print raw
-            const reason = loggableReason(err, host);
+            let reason: string;
+            try {
+              reason = loggableReason(err, host);
+            } catch {
+              // a thrown value with no string form: `Object.create(null)`, or a toString that throws
+              reason = 'a thrown value that cannot be printed';
+            }
             if (!settled) {
               settled = true;
               void this.Client.deactivate();
