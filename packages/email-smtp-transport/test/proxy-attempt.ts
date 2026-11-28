@@ -1,3 +1,5 @@
+import { spawn } from 'child_process';
+import { fileURLToPath } from 'url';
 import { inspect } from 'util';
 import _ from 'lodash';
 
@@ -57,4 +59,31 @@ export async function attempt(raw: object): Promise<Attempt> {
   );
   sender.close();
   return { thrown, logs, proxy: sender.Proxy, printed: [show(thrown), ...logs.map((call) => show(call.args))].join('\n') };
+}
+
+const PACKAGE = fileURLToPath(new URL('..', import.meta.url));
+const CHILD = fileURLToPath(new URL('./fixtures/proxy-child.ts', import.meta.url));
+
+export interface ChildRun {
+  code: number | null;
+  stdout: string;
+  stderr: string;
+}
+
+/** Runs one attempt with the raw option `key` set to `value` in a fresh process, which installs the tripwire and the socket guard first. */
+export function runChild(key: 'proxy' | 'url', value: string): Promise<ChildRun> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, ['--experimental-specifier-resolution=node', '--loader=ts-node/esm', CHILD, key, value], {
+      cwd: PACKAGE,
+      env: { ...process.env, NODE_OPTIONS: '', TS_NODE_PROJECT: 'tsconfig.json' },
+      stdio: ['ignore', 'pipe', 'pipe'],
+      timeout: 100_000,
+    });
+    let stdout = '';
+    let stderr = '';
+    child.stdout.on('data', (chunk: Buffer) => (stdout += chunk.toString('utf8')));
+    child.stderr.on('data', (chunk: Buffer) => (stderr += chunk.toString('utf8')));
+    child.on('error', reject);
+    child.on('close', (code) => resolve({ code, stdout, stderr }));
+  });
 }
