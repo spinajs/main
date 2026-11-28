@@ -187,7 +187,42 @@ describe('.withFields() when a group of rows is decided by an engine fault', fun
         expectFault(await settle(as(() => authzStorage().run({ ...authzStorage().getStore(), AuthzRowFields: true }, async () => await Task.query().accessible('task:read')))), 1, 2);
       });
 
-      for (const code of ['no_access', 'residual_false', 'unknown_resource', 'invalid_request', 'role_denied']) {
+      it('a list of one group rejects when that group faulted', async () => {
+        answer({ t2: MODEL_ERROR });
+
+        expectFault(await settle(as(() => select(Task).where('flag', 'red').withFields('task:read').unscoped('test'))), 1, 1);
+      });
+
+      it('rejects when the field plan itself is a model_error none plan', async () => {
+        sinon.restore();
+        sinon.stub(service, 'accessPlan').resolves({ kind: 'none', reason: { code: 'model_error', model: 'rbac' } });
+        const checkAll = answer({});
+
+        const out = await listWithFields(Task);
+        if (!('rejected' in out)) throw new Error(`the list resolved: ${JSON.stringify(out.rows)}`);
+        expect(out.rejected.constructor).to.equal(Error);
+        expect(out.rejected.message).to.equal('authz-orm: the readable fields of task rows under task:read could not be decided: the field plan answered model_error (an engine or adapter fault)');
+        expect(checkAll.callCount).to.equal(0);
+      });
+
+      it('keeps a none field plan for an ordinary reason', async () => {
+        sinon.restore();
+        sinon.stub(service, 'accessPlan').resolves({ kind: 'none', reason: { code: 'no_access' } });
+        answer({});
+
+        expect(await listWithFields(Task)).to.deep.equal({ rows: Object.fromEntries(ROWS.map((r) => [r.id, { fields: [], json: '{}' }])) });
+      });
+
+      it('a model_error none field plan over no row resolves empty', async () => {
+        sinon.restore();
+        sinon.stub(service, 'accessPlan').resolves({ kind: 'none', reason: { code: 'model_error', model: 'rbac' } });
+        answer({});
+
+        expect(await settle(as(() => select(Task).where('flag', 'none-such').withFields('task:read').unscoped('test')))).to.deep.equal({ rows: {} });
+      });
+
+      // policy_error: rule codes from configuration are free strings, so a code may end in _error and still be a decided deny.
+      for (const code of ['no_access', 'residual_false', 'unknown_resource', 'invalid_request', 'role_denied', 'policy_error']) {
         it(`keeps an ordinary ${code} deny: that group reads no field, the others theirs`, async () => {
           answer({ t4: { code } });
 
