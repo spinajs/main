@@ -7,7 +7,7 @@ import { DateTime } from 'luxon';
 import 'mocha';
 import * as sinon from 'sinon';
 import '@spinajs/log';
-import { Connection, CreatedAt, DatetimeValueConverter, extractModelDescriptor, Ignore, Model, ModelBase, Orm, ORM_DB_VALUE_CONVERTERS, Primary, SqlDialect, UpdatedAt, Uuid } from '../src/index.js';
+import { Connection, CreatedAt, DatetimeValueConverter, extractModelDescriptor, Ignore, InsertQueryBuilder, Model, ModelBase, Orm, ORM_DB_VALUE_CONVERTERS, Primary, SqlDialect, UpdatedAt, Uuid } from '../src/index.js';
 import type { IColumnDescriptor } from '../src/index.js';
 import { col, live } from './schema-diff/fixture.js';
 import { FakeSqliteDriver, logText } from './misc.js';
@@ -15,6 +15,7 @@ import { FakeSqliteDriver, logText } from './misc.js';
 const CONNECTION = 'manifest-source';
 
 let source: 'database' | 'manifest' = 'manifest';
+let strictTableCheck = true;
 
 /** Live columns per table; a table not listed is missing. */
 const TABLES = new Map<string, IColumnDescriptor[]>();
@@ -31,7 +32,7 @@ class ManifestSourceConf extends FrameworkConfiguration {
     await super.resolve();
     this.Config = {
       logger: { targets: [{ name: 'Empty', type: 'BlackHoleTarget' }], rules: [{ name: '*', level: 'trace', target: 'Empty' }] },
-      db: { Models: { Source: source }, Connections: [{ Driver: 'manifest-source-driver', Name: CONNECTION }] },
+      db: { Models: { Source: source }, StrictTableCheck: strictTableCheck, Connections: [{ Driver: 'manifest-source-driver', Name: CONNECTION }] },
     };
   }
 }
@@ -131,6 +132,7 @@ describe('db.Models.Source = manifest at boot', () => {
 
   beforeEach(() => {
     source = 'manifest';
+    strictTableCheck = true;
     TABLES.clear();
     TABLES.set('flagged', [live('Id', 'INTEGER', { PrimaryKey: true }), live('Ref', 'TEXT'), live('Note', 'TEXT')]);
     TABLES.set('stamped', [live('Id', 'INTEGER', { PrimaryKey: true }), live('At', 'TEXT'), live('Flag', 'INTEGER')]);
@@ -187,6 +189,35 @@ describe('db.Models.Source = manifest at boot', () => {
     expect(extractModelDescriptor(models.Twin)!.Columns.map((c) => `${c.Name}:${c.NativeType}`)).to.deep.equal(['Id:INTEGER', 'Legacy:TEXT']);
     expect(warn.getCalls().map(logText).filter((t) => t.includes('more than one manifest model'))).to.have.length(1);
   });
+
+  for (const [modelSource, refused] of [
+    ['manifest', false],
+    ['database', true],
+  ] as const) {
+    it(`${refused ? 'refuses' : 'runs'} an insert of a model whose table was missing under '${modelSource}'`, async () => {
+      source = modelSource;
+      strictTableCheck = false;
+      TABLES.delete('filled');
+      await boot();
+      // the fake driver compiles no SQL: the builder it is handed shows the columns
+      const executed = sinon.stub(ManifestSourceDriver.prototype, 'execute').resolves({ RowsAffected: 1 });
+
+      const err = await models.Filled.insert({ Id: 1, Plain: 'p' }).then(
+        () => undefined,
+        (e: Error) => e,
+      );
+
+      expect(extractModelDescriptor(models.Filled)!.TableMissing).to.equal(refused);
+      if (refused) {
+        expect(err?.message).to.equal('model Filled: table filled on connection manifest-source was missing when the Orm read it, so the model knows only its declared columns; create or attach the table, then call orm.reloadTableInfo()');
+        expect(executed.called).to.equal(false);
+      } else {
+        expect(err).to.equal(undefined);
+        const builder: unknown = executed.firstCall.args[0];
+        expect(builder instanceof InsertQueryBuilder ? builder.getColumnValues('Plain') : builder).to.deep.equal(['p']);
+      }
+    });
+  }
 
   it('warns about the nullability of a required column unless the ORM fills it on every new instance (@CreatedAt, @Uuid)', async () => {
     TABLES.set('filled', [live('Id', 'INTEGER', { PrimaryKey: true }), ...['Created', 'Updated', 'Ref', 'Plain'].map((name) => live(name, 'TEXT', { Nullable: true, DefaultValue: 'x' }))]);

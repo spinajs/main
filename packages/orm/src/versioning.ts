@@ -1,10 +1,17 @@
 import { InvalidArgument, InvalidOperation } from '@spinajs/exceptions';
-import { OptimisticLockError } from './exceptions.js';
+import { OptimisticLockError, OrmException } from './exceptions.js';
 import { InsertBehaviour } from './interfaces.js';
 import type { IModelDescriptor, IWhereBuilder } from './interfaces.js';
 import type { ModelBase } from './model.js';
 import { pkColumns, pkGeneration } from './primary-keys.js';
 import { createSnapshot } from './snapshot.js';
+
+/** Without the table's columns a write would send the declared ones only and drop the rest of the row. */
+export function refuseWriteOfMissingTable(descriptor: IModelDescriptor): void {
+  if (descriptor.TableMissing) {
+    throw new OrmException(`model ${descriptor.Name}: table ${descriptor.TableName} on connection ${descriptor.Connection} was missing when the Orm read it, so the model knows only its declared columns; create or attach the table, then call orm.reloadTableInfo()`);
+  }
+}
 
 /** The version a model was read at and the one its write sets. NULL is the version of a row written before the column existed. */
 export interface VersionLock {

@@ -32,7 +32,7 @@ import _ from 'lodash';
 import { v4 as uuidv4 } from 'uuid';
 import { extractModelDescriptor, createDefaultModelDescriptor } from './descriptor.js';
 import { assertAssignedKeys, generateClientSideKeys, hasPk, isCompositePk, orderByPk, pkColumns, pkGeneration, pkValueOf, setPkValue, whereAnyPk, wherePk } from './primary-keys.js';
-import { bulkVersionColumn, refuseReplace, settleVersion, startVersion, startVersionOf, versionLock, whereVersion, withVersion } from './versioning.js';
+import { bulkVersionColumn, refuseReplace, refuseWriteOfMissingTable, settleVersion, startVersion, startVersionOf, versionLock, whereVersion, withVersion } from './versioning.js';
 
 /**
  *
@@ -818,6 +818,9 @@ export class ModelBase<M = unknown> implements IModelBase {
    * @param data - optional patch hydrated onto the model first
    */
   public async update(data?: Partial<this>) {
+    // before the change set: without the table's columns it is empty and the update would resolve writing nothing
+    refuseWriteOfMissingTable(this.ModelDescriptor!);
+
     const result = {
       RowsAffected: 0,
       LastInsertId: 0,
@@ -868,6 +871,7 @@ export class ModelBase<M = unknown> implements IModelBase {
   public async insert(insertBehaviour: InsertBehaviour = InsertBehaviour.None) {
     // Both run BEFORE the query is built, so an `assigned` key that was never supplied fails
     // without touching the database.
+    refuseWriteOfMissingTable(this.ModelDescriptor!);
     refuseReplace(this.ModelDescriptor!, insertBehaviour);
     generateClientSideKeys(this, this.ModelDescriptor!);
     assertAssignedKeys(this, this.ModelDescriptor!);
@@ -1358,6 +1362,7 @@ export const MODEL_STATIC_MIXINS = staticMixins({
 
 
     const { query, description, container } = createQuery(this, InsertQueryBuilder);
+    refuseWriteOfMissingTable(description);
     refuseReplace(description, insertBehaviour);
 
     const converter = container.resolve(ObjectToSqlConverter);

@@ -13,7 +13,7 @@ import { OrphanPolicy, ServerResponseMapper } from './interfaces.js';
 import type { ISaveOptions, ISaveResult } from './interfaces.js';
 import { assertAssignedKeys, generateClientSideKeys, pkColumns, pkGeneration, setPkValue, whereAnyPk, wherePk } from './primary-keys.js';
 import type { ISortedPlan } from './subject-sorter.js';
-import { settleVersion, startVersion, versionLock, whereVersion, withVersion } from './versioning.js';
+import { refuseWriteOfMissingTable, settleVersion, startVersion, versionLock, whereVersion, withVersion } from './versioning.js';
 import type { IJunctionDelta, IOrphanDelta, Subject } from './subject.js';
 
 /** Rows per batched statement when the caller does not say. */
@@ -89,6 +89,7 @@ export class SubjectExecutor {
   protected async insertOne(subject: Subject): Promise<void> {
     const descriptor = subject.Descriptor;
     const model: any = subject.Model;
+    refuseWriteOfMissingTable(descriptor);
 
     // Both run BEFORE the query is built, so an `assigned` key that was never supplied fails
     // without touching the database.
@@ -149,6 +150,8 @@ export class SubjectExecutor {
    * @param subject - an update subject, or an insert subject with deferred foreign keys
    */
   protected updatePayload(subject: Subject): Record<string, unknown> | null {
+    refuseWriteOfMissingTable(subject.Descriptor);
+
     // Resolve every foreign key onto the model first, so the diff below sees them. The join
     // column is read, not `PrimaryKeyValue` — a relation decides its foreign key from
     // `Relation.PrimaryKey`, and writing the numeric key here would baseline a value the
