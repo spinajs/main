@@ -81,8 +81,8 @@ describe('DateTimeHydrator', () => {
       expect(at.invalidReason).to.eq('no iso or unix timestamp');
     });
 
-    it('reads null and an empty text as the epoch, as before', async () => {
-      for (const input of [null, '']) {
+    it('reads null, an empty text and 0 as the epoch', async () => {
+      for (const input of [null, '', 0, '0']) {
         const at = await new DateTimeHydrator().hydrate(input, AT);
 
         expect(at.toMillis()).to.eq(0);
@@ -111,6 +111,11 @@ class DateTimeArgsController extends BaseController {
   @Post('body')
   public body(@Body() at: DateTime, @Body() note: string) {
     return new Ok({ millis: at.toMillis(), note });
+  }
+
+  @Post('only-body')
+  public onlyBody(@Body() at: DateTime) {
+    return new Ok({ millis: at.toMillis() });
   }
 }
 
@@ -150,6 +155,8 @@ describe('DateTimeHydrator through a route', function () {
       req().get('datetime-hydrator/param/garbage'),
       req().get('datetime-hydrator/header').set('x-at', 'Date: garbage'),
       req().post('datetime-hydrator/body').send({ at: 1e20, note: 'n' }),
+      // The only @Body() argument receives the whole body when it has no field of that name.
+      req().post('datetime-hydrator/only-body').send({}),
     ];
 
     for (const pending of refused) {
@@ -172,6 +179,10 @@ describe('DateTimeHydrator through a route', function () {
     const body = await req().post('datetime-hydrator/body').send({ at: 1656367511, note: 'n' }).set('Accept', 'application/json');
     expect(body.status, body.text).to.eq(200);
     expect(body.body).to.deep.eq({ millis: 1656367511000, note: 'n' });
+
+    const onlyBody = await req().post('datetime-hydrator/only-body').send({ at: 1656367511 }).set('Accept', 'application/json');
+    expect(onlyBody.status, onlyBody.text).to.eq(200);
+    expect(onlyBody.body).to.deep.eq({ millis: 1656367511000 });
 
     const absent = await req().get('datetime-hydrator/query').set('Accept', 'application/json');
     expect(absent.status, absent.text).to.eq(200);
