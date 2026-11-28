@@ -574,6 +574,9 @@ export class StompQueueClient extends QueueClient {
           first.reject(new UnexpectedServerError(`Cannot connect to queue server at ${broker}, websocket error: ${reason}`, socketFailure(err, reason)));
         }
 
+        // dispose() closed a socket that was still connecting: that is not a failure
+        if (this.Disposing) return;
+
         try {
           this.Log.error({ reason, clientId: this.ClientId }, 'Websocket error: ${reason}, client-id: ${clientId}');
         } catch {
