@@ -17,6 +17,8 @@ const expect = chai.expect;
 
 const COUNT = 2500;
 
+type M = typeof ModelBase & { insert(v: object): Promise<unknown> };
+
 /** The result of `fn` and the number of statements `driver` executed while it ran. */
 async function statements<T>(driver: OrmDriver, fn: () => Promise<T>): Promise<{ result: T; count: number }> {
   const spied = driver as unknown as { execute: (this: unknown, ...args: unknown[]) => Promise<unknown> };
@@ -115,6 +117,33 @@ describe('reads of many resources', function () {
         // the rows below the tasks (none), the delete
         expect((await statements(d, () => removeNodes(d, tasks()))).count).to.equal(2);
         expect(await ancestorLinks(d)).to.deep.equal([]);
+      });
+
+      it('reads which parents exist in one more statement per class table of a registered parent type', async () => {
+        const Project = await db.define({ name: 'Project', columns: {}, decorate: (c) => AccessResource('project')(c) }, dialect);
+        const ids = Array.from({ length: COUNT - 1 }, (_, i) => `p${i + 1}`);
+        await db.raw(`INSERT INTO "${db.table(Project)}" ("id") VALUES ${ids.map((_, i) => (dialect === 'postgres' ? `($${i + 1})` : '(?)')).join(', ')}`, ids, dialect);
+        const d = db.driver(dialect);
+        // the tasks' parents, which of the projects exist, the tasks' own rows and their projects' rows, the delete, the insert
+        expect((await statements(d, () => rebuildNodes(d, tasks()))).count).to.equal(6);
+
+        const links = await ancestorLinks(d);
+        expect(links).to.have.length(COUNT - 1);
+        expect(links).to.include('task:2499>project:p2499@1');
+        expect(links.filter((l) => l.startsWith('task:2500>'))).to.deep.equal([]);
+      });
+
+      it('an insert of a type a @Parent column names reads that column once more', async () => {
+        const Project = (await db.define({ name: 'Project', columns: {}, decorate: (c) => AccessResource('project')(c) }, dialect)) as M;
+        const Note = (await db.define({ name: 'Note', columns: {}, decorate: (c) => AccessResource('note')(c) }, dialect)) as M;
+        const d = db.driver(dialect);
+        const note = (await statements(d, () => Note.insert({ id: 'n1' }))).count;
+        // A root type no column names is not observed. One that a column names: the capture's key read, then the children (no task names p0).
+        expect((await statements(d, () => Project.insert({ id: 'p0' }))).count).to.equal(note + 2);
+
+        const task = (await statements(d, () => (Task as M).insert({ id: 9001, project_id: 'p0' }))).count;
+        await db.define({ name: 'Step', columns: { task_id: 'INTEGER' }, decorate: (c, p) => { AccessResource('step')(c); Parent('task')(p, 'task_id'); } }, dialect);
+        expect((await statements(d, () => (Task as M).insert({ id: 9002, project_id: 'p0' }))).count).to.equal(task + 1);
       });
     });
   }

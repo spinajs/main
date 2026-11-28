@@ -4,9 +4,9 @@ import type { OrmDriver } from '@spinajs/orm';
 
 import { closeOver } from './closure.js';
 import type { Link } from './closure.js';
-import { undeclaredAncestorTypes, undeclaredLinks } from './full.js';
+import { existingParentsOnly, undeclaredAncestorTypes, undeclaredLinks } from './full.js';
 import { readAncestors } from './read.js';
-import { deleteRowsOf, readDescendants, readParents, replaceAncestors } from './store.js';
+import { deleteRowsOf, readDescendants, readExisting, readParents, replaceAncestors } from './store.js';
 import type { AncestorRow } from './table.js';
 
 function unique(refs: readonly ResourceRef[], skip: ReadonlySet<string> = new Set()): ResourceRef[] {
@@ -23,8 +23,12 @@ export async function rebuildNodes(driver: OrmDriver, nodes: readonly ResourceRe
   const list = unique(nodes, gone);
   if (list.length === 0) return 0;
   const keys = new Set(list.map((n) => resourceKey(n)));
-  const parents = await readParents(driver, list);
-  const outsideRefs = unique([...parents.values()].flat(), new Set([...keys, ...gone]));
+  const skip = new Set([...keys, ...gone]);
+  const named = await readParents(driver, list);
+  // Not readAncestors: a root parent has no rows there.
+  const existing = await readExisting(driver, unique([...named.values()].flat(), skip));
+  const parents = existingParentsOnly(named, new Set([...keys, ...existing]));
+  const outsideRefs = unique([...parents.values()].flat(), skip);
   const rows = await readAncestors([...list, ...outsideRefs]);
   refuseToDropUndeclared(list, rows);
   const outside = new Map<string, Link[]>();

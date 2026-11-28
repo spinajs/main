@@ -258,8 +258,7 @@ describe('authz:ancestors-rebuild while the application writes', function () {
             await hold.done;
           }
           expect(err).to.deep.equal([]);
-          // What the writes alone leave. A rebuild of the quiet database links t1 and t2 to the deleted id p1 again (see "A rebuild links children to a deleted parent").
-          expect(await ancestorLinks(driver)).to.deep.equal(['project:p2>org:o2@1']);
+          expect(await expectQuietRebuildAgrees()).to.deep.equal(['project:p2>org:o2@1']);
         });
 
         it('two rebuilds at once: the second waits for the first, both succeed', async () => {

@@ -2,15 +2,16 @@ import { AuthzConfigError } from '@spinajs/authz';
 import type { ResourceRef } from '@spinajs/authz';
 import { Injectable } from '@spinajs/di';
 import { WriteObserver, upsertKeys } from '@spinajs/orm';
-import type { CaptureInterest, CapturedWrite, WriteStatement } from '@spinajs/orm';
+import type { CaptureInterest, CapturedWrite, OrmDriver, WriteStatement } from '@spinajs/orm';
 
 import { ormLog } from '../host.js';
 import { requireConnection } from '../records.js';
-import { entryOf, nameOf } from '../registry.js';
+import { entryOf, hasChildTypes, nameOf } from '../registry.js';
 import type { ModelClass, ResourceEntry } from '../registry.js';
 import { cleanupDeleted } from './cleanup.js';
 import { AncestorRecord } from './record.js';
 import { rebuildFrom, removeNodes } from './rebuild.js';
+import { readChildrenNaming } from './store.js';
 
 interface Work {
   readonly kind: 'insert' | 'update' | 'delete';
@@ -24,7 +25,8 @@ function workOf(statement: WriteStatement): Work | undefined {
   const entry = entryOf(model);
   if (!entry) return undefined;
   if (statement.kind === 'delete') return { kind: 'delete', model, entry, transactional: true };
-  if (entry.parents.length === 0) return undefined;
+  // An insert of a type that other types name in @Parent links the children already naming the new row.
+  if (entry.parents.length === 0 && (statement.kind !== 'insert' || !hasChildTypes(entry.type))) return undefined;
   if (statement.kind === 'insert') {
     const { query } = statement;
     return { kind: 'insert', model, entry, transactional: query.Ignore === true || query.Replace || query.Update };
@@ -64,18 +66,23 @@ export class AncestorObserver extends WriteObserver {
     if (write.unknownKeys) {
       this.insertWithoutIds(work);
       // An upsert still names the keys of rows it may have moved under another parent; access must not keep the old one.
-      if (write.kind === 'insert') await rebuildFrom(write.driver, refsOf(upsertKeys(write.query, work.entry.idColumn)));
+      if (write.kind === 'insert') await this.inserted(write.driver, work, refsOf(upsertKeys(write.query, work.entry.idColumn)));
       return;
     }
     if (work.kind === 'update') {
       await rebuildFrom(write.driver, refsOf(write.rows.map((r) => r.id)));
       return;
     }
-    if (work.kind === 'insert') await rebuildFrom(write.driver, refsOf(write.rows.filter((r) => r.after !== undefined).map((r) => r.id)));
+    if (work.kind === 'insert') await this.inserted(write.driver, work, refsOf(write.rows.filter((r) => r.after !== undefined).map((r) => r.id)));
     // A delete, or the rows a replace deleted through a unique column.
     const gone = refsOf(write.rows.filter((r) => r.after === undefined).map((r) => r.id));
     await removeNodes(write.driver, gone);
     await cleanupDeleted(write.driver, gone);
+  }
+
+  /** A row written through a class without `@Parent` gets no links of its own (01c0d), but the children naming it do. */
+  private async inserted(driver: OrmDriver, work: Work, rows: readonly ResourceRef[]): Promise<void> {
+    await rebuildFrom(driver, [...(work.entry.parents.length > 0 ? rows : []), ...(await readChildrenNaming(driver, rows))]);
   }
 
   private workOf(statement: WriteStatement): Work | undefined {
