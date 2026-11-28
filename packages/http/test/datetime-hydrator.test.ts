@@ -156,7 +156,7 @@ describe('DateTimeHydrator through a route', function () {
       const res = await pending.set('Accept', 'application/json');
 
       expect(res.status, res.text).to.eq(400);
-      expect(res.body.detail).to.eq(NOT_A_DATE);
+      expect(res.body).to.have.property('detail', NOT_A_DATE);
     }
   });
 
