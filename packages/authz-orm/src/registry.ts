@@ -347,6 +347,11 @@ export function typesAbove(type: ResourceType): ResourceType[] {
   return out;
 }
 
+/** Whether a class of some registered type declares `@Parent(type)`. */
+export function hasChildTypes(type: ResourceType): boolean {
+  return registeredTypes().some((t) => classesOf(t).some((c) => entryOf(c)?.parents.some((p) => p.type === type)));
+}
+
 /** Test seam: forget a class's registration. Its decorated properties stay, so it can register again. */
 export function unregisterResource(model: ModelClass): void {
   registrations.delete(model);

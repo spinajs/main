@@ -4,7 +4,8 @@ import type { OrmDriver } from '@spinajs/orm';
 
 import { idLookup, idText, tableOf } from '../ids.js';
 import { selectFrom } from '../records.js';
-import { classesOf, entryOf } from '../registry.js';
+import { classesOf, entryOf, registeredTypes } from '../registry.js';
+import type { ModelClass } from '../registry.js';
 import type { Link } from './closure.js';
 import { groupIds } from './read.js';
 import { AncestorRecord } from './record.js';
@@ -97,4 +98,33 @@ export async function replaceAncestors(nodes: readonly ResourceRef[], closure: R
     for (const l of closure.get(resourceKey(n)) ?? []) rows.push({ resource_type: n.type, resource_id: String(n.id), ancestor_type: l.type, ancestor_id: l.id, depth: l.depth });
   }
   if (rows.length > 0) await AncestorRecord.insert(rows);
+}
+
+/** The resources whose `@Parent` column names one of `refs`, read from their class tables through `driver`. */
+export async function readChildrenNaming(driver: OrmDriver, refs: readonly ResourceRef[]): Promise<ResourceRef[]> {
+  const out = new Map<string, ResourceRef>();
+  for (const [type, ids] of groupIds(refs)) {
+    for (const childType of registeredTypes()) {
+      const read = new Set<string>();
+      // spinajs-orm-ignore ORM102: one whereIn query per class table and parent column that names the type
+      for (const cls of classesOf(childType)) {
+        const entry = entryOf(cls);
+        if (entry === undefined) continue;
+        for (const column of new Set(entry.parents.filter((p) => p.type === type).map((p) => p.column))) {
+          const at = `${tableOf(cls)}.${column}`;
+          if (read.has(at)) continue;
+          read.add(at);
+          for (const id of await readIdsWhere(driver, cls, entry.idColumn, column, ids)) out.set(resourceKey({ type: childType, id }), { type: childType, id });
+        }
+      }
+    }
+  }
+  return [...out.values()];
+}
+
+async function readIdsWhere(driver: OrmDriver, cls: ModelClass, idColumn: string, column: string, ids: readonly string[]): Promise<string[]> {
+  const values = ids.map((id) => idLookup(cls, column, id)).filter((v) => v !== undefined);
+  if (values.length === 0) return [];
+  const rows = (await driver.select().from(tableOf(cls)).columns([idColumn]).whereIn(column, values)) as Record<string, unknown>[];
+  return rows.map((row) => idText(row[idColumn])).filter((id) => id !== undefined);
 }
