@@ -18,6 +18,7 @@ import sinon from 'sinon';
 import { Location as LocationModel } from './models/Location.js';
 import { LocationNetwork } from './models/LocationNetwork.js';
 import { LocationNetworkMetadata } from './models/LocationNetworkMetadata.js';
+import './migrations/TestMigration_2022_02_08_01_13_00.js';
 
 const expect = chai.expect;
 chai.use(chaiAsPromised);
