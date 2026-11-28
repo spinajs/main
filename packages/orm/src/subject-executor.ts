@@ -12,6 +12,7 @@ import { OrmException } from './exceptions.js';
 import { OrphanPolicy, ServerResponseMapper } from './interfaces.js';
 import type { ISaveOptions, ISaveResult } from './interfaces.js';
 import { assertAssignedKeys, generateClientSideKeys, pkColumns, pkGeneration, setPkValue, whereAnyPk, wherePk } from './primary-keys.js';
+import { updateValues } from './relation-keys.js';
 import type { ISortedPlan } from './subject-sorter.js';
 import { settleVersion, startVersion, versionLock, whereVersion, withVersion } from './versioning.js';
 import type { IJunctionDelta, IOrphanDelta, Subject } from './subject.js';
@@ -180,7 +181,7 @@ export class SubjectExecutor {
 
     subject.ChangedColumns = changed;
 
-    return _.pick(subject.Model.toSql() as Record<string, unknown>, changed);
+    return updateValues(subject.Model, changed);
   }
 
   /**

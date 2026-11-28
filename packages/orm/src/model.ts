@@ -22,7 +22,7 @@ import { UnitOfWork } from './unit-of-work.js';
 import { quoterOf } from './quoting.js';
 import { registerModelBase } from './model-registry.js';
 import { columnToDb, hydratedKey } from './column-values.js';
-import { effectiveForeignKeys, writeBackRelationKeys } from './relation-keys.js';
+import { effectiveForeignKeys, updateValues, writeBackRelationKeys } from './relation-keys.js';
 
 import { DI, isConstructor, isClass, getInheritedDescriptor } from '@spinajs/di';
 import type { IContainer, Constructor } from '@spinajs/di';
@@ -849,7 +849,7 @@ export class ModelBase<M = unknown> implements IModelBase {
 
     // A change toSql() does not write ( an undefined property on sqlite, a foreign key its relation
     // leaves unset ) leaves nothing to write either.
-    const values = withVersion(lock, _.pick(this.toSql() as Record<string, unknown>, changed));
+    const values = withVersion(lock, updateValues(this, changed));
     if (Object.keys(values).length === 0) {
       return result;
     }

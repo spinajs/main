@@ -143,6 +143,8 @@ Relation (list) methods, from `IRelation` and the abstract `Relation` class:
 | `remove()` | yes | `detach()`, `Value.destroy()`, `owner.update()`, in one transaction. |
 | `populate(callback?)` | no (reads) | Loads the target where `<PrimaryKey> = owner.<ForeignKey>`. |
 
+Setting the foreign-key column to `null` on a model whose relation holds nothing detaches it for `update()` and `save()`: NULL is written. An insert leaves such a column out, so its default applies.
+
 ## Important behaviour
 
 - **A `where()` in a belongs-to populate callback filters the parent rows.** The relation query is merged into the parent query. Wrap conditions in `whereOnJoin()` to put them in the `LEFT JOIN ... ON` clause instead.
