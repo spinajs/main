@@ -12,6 +12,7 @@ import type { KitKeyPair } from '@spinajs/authn-testing';
 import { StrictJwsVerifier } from '../src/jws/index.js';
 import { HttpSignatureStrategy, JwsAssertionStrategy, assertionIssuer, nonceKey } from '../src/index.js';
 import { keysOptionsFor } from './support/keys-options.js';
+import { bootSqlite } from './db.js';
 import { KIT_AUDIENCE, keysParts } from './harness.js';
 import type { KeysParts, StoreKind } from './harness.js';
 
@@ -118,6 +119,8 @@ describe('key strategies resolve the core NonceStore', () => {
     const clock = new FakeClock();
     const p = await keysParts({}, 'memory');
     const { kp, kid, ctx, nowS } = await registered(p, clock);
+    // The DI-built strategy reads @Config('authn.keys') from the root Configuration; bootSqlite registers and resolves it.
+    await bootSqlite();
     await withNonceStore(MemoryNonceStore, p.registry, async () => {
       const strategy = await DI.resolve(HttpSignatureStrategy);
       assert.ok((strategy as unknown as { nonces: NonceStore }).nonces instanceof MemoryNonceStore);
