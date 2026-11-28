@@ -118,9 +118,9 @@ describe('sqlite tableExists of a table in an attached database', function () {
       expect(await exists('t_s', 'nope')).to.equal(false);
     });
 
-    it('quotes a schema name and binds a table name that hold a quote, a backtick, a dot and a space', async () => {
-      const schema = 's "q`. x';
-      const table = 't "q`. DROP TABLE t_main; --';
+    it('quotes a schema name and binds a table name that hold quotes, a backtick, a dot and a space', async () => {
+      const schema = `s "q'\`. x`;
+      const table = `t "q'\`. DROP TABLE t_main; --`;
       files += 1;
       await run(`ATTACH DATABASE ? AS ${quote(schema)}`, [join(sandbox, `s-${files}.sqlite`)]);
       try {

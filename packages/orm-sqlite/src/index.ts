@@ -23,7 +23,7 @@ export * from './explain.js';
 // orm-foundation; ConnectionState / IPoolMetrics are the connection-resilience additions from
 // orm-infra. QueryBuilder / TransactionCallback / ITransaction went with the old
 // `{ commit, rollback }` shape.
-import { ORM_DB_VALUE_CONVERTERS, DatetimeValueConverter, IColumnDescriptor, QueryContext, ColumnQueryCompiler, AlterColumnQueryCompiler, TableQueryCompiler, OrmDriver, OrderByQueryCompiler, JoinStatement, OnDuplicateQueryCompiler, InsertQueryCompiler, TableExistsCompiler, DefaultValueBuilder, TruncateTableQueryCompiler, ModelToSqlConverter, OrmException, ValueConverter, ServerResponseMapper, ISupportedFeature, IsolationLevel, ITransactionContext, ITransactionOptions, ConnectionState, IPoolMetrics, InSetStatement, InStatement, StartsWithStatement, backoffDelay, IdentifierQuoter, LimitQueryCompiler, RecursiveQueryCompiler, AlterTableQueryCompiler, CreateDatabaseCompiler, DropDatabaseCompiler, CreateViewCompiler, LiteralQuoter, EventQueryCompiler, DropEventQueryCompiler, NowExpression, SqlExpressions, IndexQueryCompiler, Builder, AlterTableQueryBuilder, AlterColumnQueryBuilder, ColumnAlterationType, LiveForeignKey, LiveIndex, compareByName, referentialRule, SqlDialect, RawQuery, StreamNotSupported } from '@spinajs/orm';
+import { ORM_DB_VALUE_CONVERTERS, DatetimeValueConverter, IColumnDescriptor, QueryContext, ColumnQueryCompiler, AlterColumnQueryCompiler, TableQueryCompiler, OrmDriver, OrderByQueryCompiler, JoinStatement, OnDuplicateQueryCompiler, InsertQueryCompiler, TableExistsCompiler, DefaultValueBuilder, TruncateTableQueryCompiler, ModelToSqlConverter, OrmException, ValueConverter, ServerResponseMapper, ISupportedFeature, IsolationLevel, ITransactionContext, ITransactionOptions, ConnectionState, IPoolMetrics, InSetStatement, InStatement, StartsWithStatement, backoffDelay, IdentifierQuoter, LimitQueryCompiler, RecursiveQueryCompiler, AlterTableQueryCompiler, CreateDatabaseCompiler, DropDatabaseCompiler, CreateViewCompiler, LiteralQuoter, EventQueryCompiler, DropEventQueryCompiler, NowExpression, SqlExpressions, IndexQueryCompiler, Builder, AlterTableQueryBuilder, AlterColumnQueryBuilder, TableExistsQueryBuilder, ColumnAlterationType, LiveForeignKey, LiveIndex, compareByName, referentialRule, SqlDialect, RawQuery, StreamNotSupported } from '@spinajs/orm';
 import { SQLITE_SQL_DIALECT } from './sql-dialect.js';
 export { SQLITE_SQL_DIALECT } from './sql-dialect.js';
 import sqlite3 from 'sqlite3';
@@ -647,7 +647,15 @@ export class SqliteOrmDriver extends SqlDriver {
     if (builder instanceof AlterTableQueryBuilder && builder.Columns.some((c) => (c as AlterColumnQueryBuilder).AlterType === ColumnAlterationType.Modify)) {
       return this.modifyByRebuild(builder);
     }
+    if (builder instanceof TableExistsQueryBuilder) {
+      return this.tableExistsIfAttached(builder);
+    }
     return super.execute(builder);
+  }
+
+  // A qualified `sqlite_master` of a database that is not attached fails with "unknown database"; `tableInfo()` reads it as holding no table.
+  private async tableExistsIfAttached(builder: TableExistsQueryBuilder): Promise<unknown> {
+    return (await this.isAttached(builder.Database)) ? super.execute(builder) : [];
   }
 
   protected async modifyByRebuild(builder: AlterTableQueryBuilder): Promise<void> {
