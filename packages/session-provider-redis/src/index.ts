@@ -162,11 +162,15 @@ export class RedisSessionStore extends SessionProvider {
         return false;
       }
 
-      // The row keeps its own identity fields.
-      const next = JSON.stringify({ ...(JSON.parse(raw) as IStoredSession), Expiration: session.Expiration?.toISO() ?? undefined, Data: encodeSessionData(session.Data) });
-      const written = await this.Client.eval(TOUCH_SCRIPT, 1, key, raw, next, session.Expiration ? String(session.Expiration.toMillis()) : '');
+      // The row keeps its own identity fields. A pending row also keeps its stored expiration whatever the view
+      // carries (A09); it comes from `raw`, the value the script compares, so a concurrent write cannot slip in.
+      const pending = row.State === 'pending';
+      const expiration = pending ? row.Expiration : session.Expiration;
+      const storedRow = JSON.parse(raw) as IStoredSession;
+      const next = JSON.stringify({ ...storedRow, Expiration: pending ? storedRow.Expiration : (session.Expiration?.toISO() ?? undefined), Data: encodeSessionData(session.Data) });
+      const written = await this.Client.eval(TOUCH_SCRIPT, 1, key, raw, next, expiration ? String(expiration.toMillis()) : '');
       if (Number(written) === 1) {
-        return !this.expirationEquals(current, session.Expiration);
+        return !pending && !this.expirationEquals(current, session.Expiration);
       }
     }
 
