@@ -138,6 +138,22 @@ describe('accessOf and never() on the same policy', function () {
     expect(accessOf(m, 'doc#viewer', 'doc:read')).to.equal('never');
   });
 
+  it('prints a role row without the anyone terms everyone carries, and no row for a role that reaches nothing', () => {
+    const roles = { auditor: ['doc#viewer', 'doc#commenter'], reader: ['doc#commenter'], guest: ['doc#blocked'] };
+    const ir = policy(roles, { union: [{ computed: 'commenter' }, { intersection: [] }] });
+    ir.types.doc.relations.blocked = tuples(['user']);
+    const m = permissionMatrix(ir);
+    expect(m.holders.map(holderKey)).to.deep.equal(['anyone:doc#read', 'doc#commenter', 'doc#viewer', 'role:auditor@doc', 'role:reader@doc']);
+    expect(m.cells).to.deep.equal({
+      'anyone:doc#read': { 'doc:read': 'always' },
+      'doc#commenter': { 'doc:read': 'always' },
+      'doc#viewer': { 'doc:read': 'never' },
+      'role:auditor@doc': { 'doc:read': 'always' },
+      'role:reader@doc': { 'doc:read': 'always' },
+    });
+    expect(m.everyone).to.deep.equal({ 'doc:read': 'always' });
+  });
+
   it('agrees with never() on every selector and permission of seeded policies', async () => {
     const tally = { holds: 0, violated: 0, unknown: 0 };
     for (let seed = 1; seed <= 16; seed++) {
