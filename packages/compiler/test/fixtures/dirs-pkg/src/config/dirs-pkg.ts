@@ -7,6 +7,7 @@ export default {
     dirs: {
       controllers: [...dir('controllers')],
       schedules: [] as string[],
+      workflows: [...dir('workflows')],
     },
   },
 };

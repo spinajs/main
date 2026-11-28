@@ -48,7 +48,7 @@ export interface AppSources {
   packageName: string;
 }
 
-// A scan imports every file of a section. These two then read the exports of what it imported; the other three register
+// A scan imports every file of a section. These two then read the exports of what it imported; the other four register
 // themselves as their module is evaluated, so whatever that import loads counts, exported or not.
 const READ_FROM_EXPORTS: ReadonlySet<DirSection> = new Set(['controllers', 'commands']);
 
@@ -154,9 +154,12 @@ export function discoveredBy({ effectiveDirs, defaultDirs = {}, requireAppDirs, 
         return { ...entry, mountedBy: 'di' };
       });
 
-      const loadedFiles = new Set(marked.filter((e) => e.mountedBy === undefined).map((e) => e.source.file));
-      for (const file of scanned.map(inApp).filter((f) => !loadedFiles.has(f))) {
-        scanFiles.push({ section, source: { file, line: 1, col: 1, package: sources.packageName } });
+      // The runtime finds workflow files by a directory scan in every manifest mode, so the manifest lists none.
+      if (section !== 'workflows') {
+        const loadedFiles = new Set(marked.filter((e) => e.mountedBy === undefined).map((e) => e.source.file));
+        for (const file of scanned.map(inApp).filter((f) => !loadedFiles.has(f))) {
+          scanFiles.push({ section, source: { file, line: 1, col: 1, package: sources.packageName } });
+        }
       }
       return marked;
     },

@@ -37,15 +37,15 @@ export interface AnalyzeOptions extends Partial<AppDirs> {
   /** Derive JSON Schemas from TypeScript types (default true). */
   schemaDerivation?: boolean;
   /**
-   * For a package that others depend on: list a controller, socket controller, schedule, command or migration only when its
-   * file is under a dir the package's own config declares for that section. Directory discovery finds exactly those; the
-   * rest is registered by importing the package, or not at all (an opt-in subpath, an abstract base).
+   * For a package that others depend on: list a controller, socket controller, schedule, command, migration or workflow
+   * only when its file is under a dir the package's own config declares for that section. Directory discovery finds exactly
+   * those; the rest is registered by importing the package, or not at all (an opt-in subpath, an abstract base).
    */
   declaredDirsOnly?: boolean;
   /**
-   * For an app: with `effectiveDirs`, mark a controller, socket controller, schedule, command or migration `mountedBy` unless
-   * a file under those dirs exports it. The dirs map back to the sources through the tsconfig `outDir` and `rootDir`.
-   * Without them nothing is marked.
+   * For an app: with `effectiveDirs`, mark a controller, socket controller, schedule, command, migration or workflow
+   * `mountedBy` unless a scan of those dirs brings it in. The dirs map back to the sources through the tsconfig `outDir`
+   * and `rootDir`. Without them nothing is marked.
    */
 }
 
@@ -134,8 +134,8 @@ export function analyzePackage(options: AnalyzeOptions): Promise<ManifestFragmen
   const migrations = scanned('migrations', extractMigrations);
   const schedules = scanned('schedules', extractSchedules);
   const commands = scanned('commands', extractCommands);
-  const workflows = run(extractWorkflows);
-  discovered?.requireDirs(controllers.length + socketControllers.length + migrations.length + schedules.length + commands.length);
+  const workflows = scanned('workflows', extractWorkflows);
+  discovered?.requireDirs(controllers.length + socketControllers.length + migrations.length + schedules.length + commands.length + workflows.length);
   const marked = <T extends ScannedEntry>(section: DirSection, entries: T[]): T[] => (discovered ? discovered.filter(section, entries) : entries);
   const extracted = run(extractModels);
   const tenantModels = tenantModelsOf(ctx, files, extracted);
@@ -174,7 +174,7 @@ export function analyzePackage(options: AnalyzeOptions): Promise<ManifestFragmen
     commands: marked('commands', commands),
     ...(discovered?.scanFiles.length ? { scanFiles: discovered.scanFiles } : {}),
     queueMessages,
-    ...(workflows.length ? { workflows } : {}),
+    ...(workflows.length ? { workflows: marked('workflows', workflows) } : {}),
     ...(sqlQueries.length ? { sqlQueries } : {}),
     ...(sqlDialects.length ? { sqlDialects } : {}),
     ...(authz ? { authz } : {}),

@@ -2,7 +2,7 @@ import ts from 'typescript';
 import { join, relative } from 'node:path';
 
 /** Manifest sections that discovery fills by scanning a `system.dirs.*` key. */
-export const DIR_SECTIONS = { controllers: 'controllers', socketControllers: 'socketControllers', schedules: 'schedules', cli: 'commands', migrations: 'migrations' } as const;
+export const DIR_SECTIONS = { controllers: 'controllers', socketControllers: 'socketControllers', schedules: 'schedules', cli: 'commands', migrations: 'migrations', workflows: 'workflows' } as const;
 
 export type DirSection = (typeof DIR_SECTIONS)[keyof typeof DIR_SECTIONS];
 
