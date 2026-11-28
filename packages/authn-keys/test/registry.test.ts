@@ -10,6 +10,7 @@ import { FakeBackoffThrottle, FakeClock, MemorySecretStore, RecordingEventListen
 import type { KitKeyPair } from '@spinajs/authn-testing';
 import { challengeSecretPurpose, parseChallengeId, signChallenge } from '../src/challenge/index.js';
 import { keysOptionsFor } from './support/keys-options.js';
+import { bootSqlite } from './db.js';
 import { DefaultKeyRegistry, KeyStore, MemoryKeyStore } from '../src/registry/index.js';
 import { StrictJwsVerifier } from '../src/jws/index.js';
 import { HttpSignatureStrategy, JwsAssertionStrategy } from '../src/strategies/index.js';
@@ -270,7 +271,7 @@ describe('DefaultKeyRegistry', () => {
     class TwoStamps extends DefaultKeyRegistry {
       protected override readonly maxStamped = 2;
     }
-    const registry = new TwoStamps({ store: new CountingStore() });
+    const registry = new TwoStamps({ store: new CountingStore(), options: keysOptionsFor() });
     const at = new Date(1_800_000_000_000);
     for (const kid of ['a', 'b', 'a', 'c', 'b', 'a']) {
       await registry.touch(kid, at);
@@ -297,6 +298,8 @@ describe('DefaultKeyRegistry', () => {
       public async resolve(): Promise<void> {}
     }
     const types = [MemoryKeyStore, MemorySecretStore, TestThrottle, SpySink, MemoryNonceStore, UncheckedAssertion];
+    // AuthnAudit and the registry read @Config from the root Configuration; bootSqlite registers and resolves it.
+    await bootSqlite();
     DI.register(MemoryKeyStore).as(KeyStore);
     DI.register(MemoryNonceStore).as(NonceStore);
     DI.register(MemorySecretStore).as(SecretStore);
