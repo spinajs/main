@@ -52,10 +52,13 @@ class DnsTripwire {
 
   private fail(args: unknown[]): Promise<never> | undefined {
     const hostname = String(args[0]);
-    const callback = args.findLast((arg): arg is (err: Error | null, address?: string, family?: number) => void => typeof arg === 'function');
+    const callback = args.findLast((arg): arg is (...result: unknown[]) => void => typeof arg === 'function');
+    const family = isIP(hostname);
     // net.Server.listen('::1') looks its literal up; the system resolver answers that without a query, so does this
-    if (isIP(hostname) !== 0 && callback !== undefined) {
-      process.nextTick(() => callback(null, hostname, isIP(hostname)));
+    if (family !== 0 && callback !== undefined) {
+      // net.Server.listen() asks with { all: true } and expects an array; a single address makes it bind to every interface
+      const all = typeof args[1] === 'object' && args[1] !== null && Reflect.get(args[1], 'all') === true;
+      process.nextTick(() => (all ? callback(null, [{ address: hostname, family }]) : callback(null, hostname, family)));
       return undefined;
     }
     this.Asked.push(hostname);
@@ -72,6 +75,8 @@ class FakeSmtpServer {
 
   public Port = 0;
 
+  public Address = '';
+
   private Server: Server = createServer((socket) => this.serve(socket));
 
   public async listen(host: string): Promise<void> {
@@ -81,6 +86,7 @@ class FakeSmtpServer {
     });
     const address = this.Server.address();
     this.Port = typeof address === 'object' && address !== null ? address.port : 0;
+    this.Address = typeof address === 'object' && address !== null ? address.address : '';
   }
 
   public close(): Promise<void> {
@@ -172,6 +178,22 @@ describe('smtp transport - a host that is not a host name is refused before any 
   beforeEach(() => {
     tripwire.Asked = [];
     server.Sessions = [];
+  });
+
+  it('listens the fake SMTP servers on loopback only', async function () {
+    expect(server.Address).to.eq('127.0.0.1');
+
+    const server6 = new FakeSmtpServer();
+    try {
+      await server6.listen('::1');
+    } catch {
+      this.skip();
+    }
+    try {
+      expect(server6.Address).to.eq('::1');
+    } finally {
+      await server6.close();
+    }
   });
 
   const refused: Array<[form: string, options: () => Partial<EmailConnectionOptions>]> = [
