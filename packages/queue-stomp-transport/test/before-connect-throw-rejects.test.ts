@@ -112,6 +112,7 @@ async function closedPort(): Promise<number> {
   const address = server.address();
   await new Promise<void>((resolve) => server.close(() => resolve()));
   if (address === null || typeof address === 'string') throw new Error('the listener has no port');
+  if (address.address !== '127.0.0.1') throw new Error(`the listener is bound to ${address.address}, not 127.0.0.1`);
   return address.port;
 }
 
@@ -174,17 +175,38 @@ describe('stomp transport - an options.beforeConnect that throws rejects resolve
     for (const listener of savedListeners) process.on('unhandledRejection', listener);
   });
 
-  const failing: Array<[what: string, hook: (port: number) => () => void | Promise<void>]> = [
+  const printed = 'Error: cannot fetch a token for ws://127.0.0.1:';
+  const unprintable = 'a thrown value that cannot be printed';
+  const failing: Array<[what: string, hook: (port: number) => () => void | Promise<void>, reason: string]> = [
     [
       'throws',
       (port) => () => {
         throw hookError(port);
       },
+      printed,
     ],
-    ['returns a rejected promise', (port) => () => Promise.reject(hookError(port))],
+    ['returns a rejected promise', (port) => () => Promise.reject(hookError(port)), printed],
+    [
+      'throws a value with no string form',
+      () => () => {
+        throw Object.create(null);
+      },
+      unprintable,
+    ],
+    [
+      'throws a value whose toString throws an error quoting the broker url',
+      (port) => () => {
+        throw {
+          toString: () => {
+            throw hookError(port);
+          },
+        };
+      },
+      unprintable,
+    ],
   ];
 
-  for (const [what, hook] of failing) {
+  for (const [what, hook, reason] of failing) {
     it(`rejects at once when options.beforeConnect ${what}, redacted, deactivated and raising no unhandled rejection`, async () => {
       const port = await closedPort();
       const stderr = captureStderr();
@@ -203,12 +225,12 @@ describe('stomp transport - an options.beforeConnect that throws rejects resolve
       const disposed = await settledWithin(client.dispose(), 1000);
       stderr.stop();
 
-      expect(outcome.state).to.equal('rejected');
       const error = outcome.state === 'rejected' ? outcome.error : undefined;
       const everything = [fullText(error), error instanceof Error ? (error.stack ?? '') : '', fullText(error instanceof Error ? error.cause : undefined), fullText(client.calls), fullText(unhandled), stderr.text()].join('\n');
-      expect(PLANTED_RUNS.filter((run) => everything.includes(run))).to.deep.equal([]);
+      // one assertion, so a failure shows all three at once
+      expect({ state: outcome.state, unhandled: unhandled.length, planted: PLANTED_RUNS.filter((run) => everything.includes(run)) }).to.deep.equal({ state: 'rejected', unhandled: 0, planted: [] });
       expect(error).to.be.instanceOf(InvalidArgument);
-      expect(error instanceof Error ? error.message : '').to.contain('Queue connection stomp-before-connect: options.beforeConnect failed: Error: cannot fetch a token for ws://127.0.0.1:');
+      expect(error instanceof Error ? error.message : '').to.contain(`Queue connection stomp-before-connect: options.beforeConnect failed: ${reason}`);
       expect(error instanceof Error ? error.cause : 'no error').to.equal(undefined);
       expect(unhandled).to.have.length(0);
       expect(hookCalls).to.equal(1);
