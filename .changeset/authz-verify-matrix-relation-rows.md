@@ -1,0 +1,5 @@
+---
+"@spinajs/authz-verify": minor
+---
+
+`permissionMatrix(ir)` gains rows, and `accessOf` now agrees with `never()` on every selector. The new rows appear only in hand-written IRs: a `role:<r>@<t>` row for a role that shares its relation with a role earlier in sort order, and a `<t>#<rel>` row for each relation of a role that holds two or more relations of one type. A role's row and those relation rows also count their relations' public members, as `never()` does, so a role on a relation that reaches a wildcard (`user:*`), directly or through a subject set (`tenant#member@group:g1#member` with `group:g1#member@user:*`), now has a row, or a stronger one; `accessOf` already counted those members through the `public:` row. Before, `accessOf` answered `never` for such a second role, and for such a relation, where `never()` on the same policy was violated. IRs compiled by `rbacToIR` give each role its own relation, one per type, so their matrices do not change. Minor, because the output of an existing function gains rows for existing policies. No gate and no `spinajs authz:verify` command reads the matrix.
