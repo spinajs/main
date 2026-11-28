@@ -77,7 +77,7 @@ Protected helpers for stores: `applyInitialExpiration(s)`, `applyRenewedExpirati
 
 - Keeps live `ISession` objects in a `Map` keyed by `SessionId`; nothing is serialized, so `Data` values keep their identity.
 - `restore` deletes an expired row when it meets it, then answers `null`.
-- `touch` answers `false` and writes nothing when the stored row is in another `State` than the session it is given, so a `touch` never activates a pending session (SR-07). Otherwise it writes only that session's `Expiration` and `Data` onto the stored row: `Subject`, `Impersonator`, `State`, `Creation` and `ExternalKey` stay as stored, as in the db, Redis and DynamoDB stores.
+- `touch` answers `false` and writes nothing when the stored row is in another `State` than the session it is given, so a `touch` never activates a pending session (SR-07). Otherwise it writes only that session's `Data`, and its `Expiration` for an active row, onto the stored row: `Subject`, `Impersonator`, `State`, `Creation` and `ExternalKey` stay as stored, as in the db, Redis and DynamoDB stores. A pending row keeps the expiration the issuer gave it whatever the session carries (none, a later, an earlier or an invalid one), and `touch` answers `false` for it; end a pending login early with `SessionIssuer.revoke`.
 - Every 256th `save` also drops every expired row, so abandoned sessions that are never restored again do not pile up.
 - `deleteBySubject` and `listBySubject` scan every row.
 - It is per process: two app instances do not see each other's sessions, and a restart logs everyone out.
