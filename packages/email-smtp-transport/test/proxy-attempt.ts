@@ -44,9 +44,9 @@ export interface Attempt {
 
 const show = (value: unknown): string => inspect(value, { depth: null, showHidden: true });
 
-/** Resolves an SMTP sender whose connection goes through `proxy` and records what it threw and logged. */
-export async function attempt(proxy: unknown): Promise<Attempt> {
-  const options: Partial<EmailConnectionOptions> = { host: '127.0.0.1', port: 2525, options: { proxy } };
+/** Resolves an SMTP sender for 127.0.0.1:2525 with these raw nodemailer options and records what it threw and logged. */
+export async function attempt(raw: object): Promise<Attempt> {
+  const options: Partial<EmailConnectionOptions> = { host: '127.0.0.1', port: 2525, options: raw };
   const sender = new ProxySender({ service: 'EmailSenderSmtp', name: 'orders-mail', resilience: { retries: 0, timeout: 3000 }, ...options });
   const logs: LogCall[] = [];
   const record = (level: string) => (...args: unknown[]) => void logs.push({ level, args });

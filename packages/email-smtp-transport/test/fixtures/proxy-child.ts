@@ -11,7 +11,8 @@ process.on('warning', (warning: Error & { code?: string }) => warnings.push(warn
 
 const { attempt, configure } = await import('../proxy-attempt.js');
 await configure();
-const { thrown, logs, printed } = await attempt(process.argv[2]);
+const [key, value] = process.argv.slice(2);
+const { thrown, logs, printed } = await attempt({ [key]: value });
 
 const report = {
   thrown: thrown instanceof Error ? thrown.constructor.name : typeof thrown,
