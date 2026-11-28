@@ -18,7 +18,7 @@ const REFUSAL =
   'Email smtp connection orders-mail has a host that is not a host name: set host to the server name or IP address alone (no scheme, port or brackets; the port goes in port), and the user name and password in user / password';
 
 const URL_REFUSAL =
-  "Email smtp connection orders-mail has an options.url that is not a URL: percent-encode a '/', '?', '#' or '@' in its user name, password or query (%2F, %3F, %23, %40), or set user / password";
+  "Email smtp connection orders-mail has an options.url that is not a URL: percent-encode a '/', '?', '#', '@' or '\\' in its user name, password or query (%2F, %3F, %23, %40, %5C), or set user / password";
 
 class ConnectionConf extends FrameworkConfiguration {
   protected onLoad(): unknown {

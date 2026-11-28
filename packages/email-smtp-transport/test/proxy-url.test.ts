@@ -1,14 +1,12 @@
 import 'mocha';
 import { expect } from 'chai';
-import { spawn } from 'child_process';
 import { randomBytes } from 'crypto';
 import { createServer } from 'net';
-import { fileURLToPath } from 'url';
 
 import { InvalidArgument, UnexpectedServerError } from '@spinajs/exceptions';
 
 import { DnsTripwire, Dial, secretRuns, SocketGuard } from './network-guards.js';
-import { attempt, configure } from './proxy-attempt.js';
+import { attempt, configure, runChild } from './proxy-attempt.js';
 
 const random = (prefix: string, bytes: number): string => `${prefix}${randomBytes(bytes).toString('hex')}`;
 const USER = random('u', 6);
@@ -17,7 +15,7 @@ const TAIL = random('q', 5);
 const PROXY = 'proxy.example.invalid';
 
 const PROXY_REFUSAL =
-  "Email smtp connection orders-mail has an options.proxy (or a proxy in options.url) that is not a URL: percent-encode a '/', '?', '#' or '@' in its user name, password or query (%2F, %3F, %23, %40)";
+  "Email smtp connection orders-mail has an options.proxy (or a proxy in options.url) that is not a URL: percent-encode a '/', '?', '#', '@' or '\\' in its user name, password or query (%2F, %3F, %23, %40, %5C)";
 
 /** The user name, the password and each of its halves, so no run of 8 characters of either may be printed. */
 const SECRETS = [USER, HEAD, TAIL, `${HEAD}/${TAIL}`, `${HEAD}?${TAIL}`, `${HEAD}#${TAIL}`, `${HEAD}@${TAIL}`, `${HEAD}/@${TAIL}`];
@@ -164,33 +162,6 @@ describe('smtp transport - an options.proxy that url.parse misreads is refused b
     });
   }
 });
-
-const PACKAGE = fileURLToPath(new URL('..', import.meta.url));
-const CHILD = fileURLToPath(new URL('./fixtures/proxy-child.ts', import.meta.url));
-
-interface ChildRun {
-  code: number | null;
-  stdout: string;
-  stderr: string;
-}
-
-/** Runs one attempt with the raw option `key` set to `value` in a fresh process, which installs the tripwire and the socket guard first. */
-function runChild(key: 'proxy' | 'url', value: string): Promise<ChildRun> {
-  return new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, ['--experimental-specifier-resolution=node', '--loader=ts-node/esm', CHILD, key, value], {
-      cwd: PACKAGE,
-      env: { ...process.env, NODE_OPTIONS: '', TS_NODE_PROJECT: 'tsconfig.json' },
-      stdio: ['ignore', 'pipe', 'pipe'],
-      timeout: 100_000,
-    });
-    let stdout = '';
-    let stderr = '';
-    child.stdout.on('data', (chunk: Buffer) => (stdout += chunk.toString('utf8')));
-    child.stderr.on('data', (chunk: Buffer) => (stderr += chunk.toString('utf8')));
-    child.on('error', reject);
-    child.on('close', (code) => resolve({ code, stdout, stderr }));
-  });
-}
 
 describe('smtp transport - a refused options.proxy prints nothing to stderr', function () {
   this.timeout(120000);

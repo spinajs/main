@@ -49,20 +49,31 @@ export interface Dial {
   port: number;
 }
 
-/** Destroys every socket before it can look a name up or connect, and records where it was meant to go. */
+/** Destroys every socket before it can look a name up or connect, except one to 127.0.0.1 at an allowed port, and records where each was meant to go. */
 export class SocketGuard {
   public Dialled: Dial[] = [];
+
+  /** Ports of fake servers the test itself opened on 127.0.0.1. */
+  public AllowedPorts = new Set<number>();
 
   private Saved: PropertyDescriptor | undefined;
 
   public install(): void {
-    this.Saved = Object.getOwnPropertyDescriptor(Socket.prototype, 'connect');
-    const record = (dial: Dial) => this.Dialled.push(dial);
+    const saved = Object.getOwnPropertyDescriptor(Socket.prototype, 'connect');
+    this.Saved = saved;
+    const connect: unknown = saved?.value;
+    const admit = (dial: Dial): boolean => {
+      this.Dialled.push(dial);
+      return dial.host === '127.0.0.1' && this.AllowedPorts.has(dial.port);
+    };
     Object.defineProperty(Socket.prototype, 'connect', {
       configurable: true,
       writable: true,
       value: function (this: Socket, ...args: unknown[]): Socket {
-        record(target(args));
+        if (admit(target(args)) && typeof connect === 'function') {
+          Reflect.apply(connect, this, args);
+          return this;
+        }
         // the message names no host: the host may be a user name that nodemailer misread
         process.nextTick(() => this.destroy(Object.assign(new Error('connection refused by the socket guard'), { code: 'ECONNREFUSED' })));
         return this;

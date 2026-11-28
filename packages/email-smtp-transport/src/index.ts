@@ -15,6 +15,8 @@ const NOT_A_HOST_NAME = /[@:/\\?#\s]/;
 
 /** nodemailer reads `url` with the legacy url.parse(), which takes the user name of a broken-up userinfo for the host. */
 function isDialledAsWritten(url: string): boolean {
+  // url.parse() reads a backslash in the userinfo as '/' and takes the user name for the host; new URL() does not, for an smtp:, socks: or registered scheme
+  if (url.slice(0, url.lastIndexOf('@') + 1).includes('\\')) return false;
   try {
     const parsed = new URL(url);
     return !`${parsed.pathname}${parsed.search}${parsed.hash}`.includes('@');
@@ -26,6 +28,12 @@ function isDialledAsWritten(url: string): boolean {
 /** nodemailer parses only a non-empty string proxy, with url.parse() as well, and ignores every other value. */
 function isMisreadProxy(proxy: unknown): boolean {
   return typeof proxy === 'string' && proxy !== '' && !isDialledAsWritten(proxy);
+}
+
+/** nodemailer's SMTP transport parses a `url` in the query of options.url again, with url.parse(), and dials that one. */
+function isMisreadNestedUrl(url: string): boolean {
+  const nested = new URL(url).searchParams.get('url');
+  return nested !== null && nested !== '' && !isDialledAsWritten(nested);
 }
 
 /** With a url, nodemailer takes every option, the proxy too, from the url and ignores options.proxy. */
@@ -101,14 +109,14 @@ export class EmailSenderSmtp extends EmailSender {
     // nodemailer dials a non-empty url and ignores host, port and auth then
     const option: unknown = _.get(options, 'url');
     const url = typeof option === 'string' && option !== '' ? option : undefined;
-    if (url !== undefined && !isDialledAsWritten(url)) {
+    if (url !== undefined && (!isDialledAsWritten(url) || isMisreadNestedUrl(url))) {
       throw new InvalidArgument(
-        `Email smtp connection ${this.Options.name} has an options.url that is not a URL: percent-encode a '/', '?', '#' or '@' in its user name, password or query (%2F, %3F, %23, %40), or set user / password`,
+        `Email smtp connection ${this.Options.name} has an options.url that is not a URL: percent-encode a '/', '?', '#', '@' or '\\' in its user name, password or query (%2F, %3F, %23, %40, %5C), or set user / password`,
       );
     }
     if (isMisreadProxy(proxyOf(url, options))) {
       throw new InvalidArgument(
-        `Email smtp connection ${this.Options.name} has an options.proxy (or a proxy in options.url) that is not a URL: percent-encode a '/', '?', '#' or '@' in its user name, password or query (%2F, %3F, %23, %40)`,
+        `Email smtp connection ${this.Options.name} has an options.proxy (or a proxy in options.url) that is not a URL: percent-encode a '/', '?', '#', '@' or '\\' in its user name, password or query (%2F, %3F, %23, %40, %5C)`,
       );
     }
     const host: unknown = options.host;
