@@ -1,4 +1,4 @@
-import { IOFail, UnexpectedServerError } from '@spinajs/exceptions';
+import { InvalidArgument, IOFail, UnexpectedServerError } from '@spinajs/exceptions';
 import { Autoinject, Injectable, NewInstance } from '@spinajs/di';
 import { Log, Logger } from '@spinajs/log';
 import { IEmail, EmailSender, EmailConnectionOptions, IEmailAttachement, attachmentFile, redactError } from '@spinajs/email';
@@ -6,7 +6,31 @@ import { Templates } from '@spinajs/templates';
 import { BackoffType, ResiliencePipeline, ResiliencePipelineBuilder } from '@spinajs/util';
 import * as nodemailer from 'nodemailer';
 import { fs, getFs } from '@spinajs/fs';
+import { isIP } from 'net';
 import _ from 'lodash';
+import { loggableEndpoint } from './loggable-endpoint.js';
+
+// nodemailer sends `host` as written to the DNS servers, so a scheme, userinfo, port, path or query in it would be a DNS question
+const NOT_A_HOST_NAME = /[@:/\\?#\s]/;
+
+/** nodemailer reads `url` with the legacy url.parse(), which takes the user name of a broken-up userinfo for the host. */
+function isDialledAsWritten(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    return !`${parsed.pathname}${parsed.search}${parsed.hash}`.includes('@');
+  } catch {
+    return false;
+  }
+}
+
+/** The server as logs and errors print it: scheme, host and port, never the credentials or the query of a url. */
+function loggableServer(url: string | undefined, host: unknown, port: unknown, secure: unknown): string {
+  if (url !== undefined) return loggableEndpoint(url);
+  const name = typeof host === 'string' && host !== '' ? host : 'localhost';
+  const scheme = secure === true ? 'smtps' : 'smtp';
+  // resolve() refused every host with userinfo, a path or a query before this runs
+  return `${scheme}://${isIP(name) === 6 ? `[${name}]` : name}${typeof port === 'number' ? `:${port}` : ''}`;
+}
 
 @Injectable(EmailSender)
 @NewInstance()
@@ -64,10 +88,23 @@ export class EmailSenderSmtp extends EmailSender {
       this.Options.options,
     );
 
-    this.Log.info(
-      { user: options.auth?.user, host: options.host, port: options.port, secure: options.secure },
-      'Creating connection to smtp: ${user}@${host}:${port}, secure: ${secure}',
-    );
+    // nodemailer dials a non-empty url and ignores host, port and auth then
+    const option: unknown = _.get(options, 'url');
+    const url = typeof option === 'string' && option !== '' ? option : undefined;
+    if (url !== undefined && !isDialledAsWritten(url)) {
+      throw new InvalidArgument(
+        `Email smtp connection ${this.Options.name} has an options.url that is not a URL: percent-encode a '/', '?', '#' or '@' in its user name, password or query (%2F, %3F, %23, %40), or set user / password`,
+      );
+    }
+    const host: unknown = options.host;
+    if (url === undefined && typeof host === 'string' && isIP(host) === 0 && NOT_A_HOST_NAME.test(host)) {
+      throw new InvalidArgument(
+        `Email smtp connection ${this.Options.name} has a host that is not a host name: set host to the server name or IP address alone (no scheme, port or brackets; the port goes in port), and the user name and password in user / password`,
+      );
+    }
+    const server = loggableServer(url, host, options.port, options.secure);
+
+    this.Log.info({ user: options.auth?.user, host: server, secure: options.secure }, 'Creating connection to smtp: ${user} at ${host}, secure: ${secure}');
 
     // create reusable transporter object using the default SMTP transport
     this.Transporter = nodemailer.createTransport(options);
@@ -81,11 +118,11 @@ export class EmailSenderSmtp extends EmailSender {
       // we must catch exception
       await this.Transporter.verify();
     } catch (err) {
-      this.Log.error({ error: err, connection: this.Options.name, host: this.Options.host, port: this.Options.port }, 'Cannot verify smtp connection ${connection} (${host}:${port})');
-      throw new UnexpectedServerError(`Cannot verify smtp connection ${this.Options.name} (${this.Options.host}:${this.Options.port})`, err);
+      this.Log.error({ error: err, connection: this.Options.name, host: server }, 'Cannot verify smtp connection ${connection} (${host})');
+      throw new UnexpectedServerError(`Cannot verify smtp connection ${this.Options.name} (${server})`, err);
     }
 
-    this.Log.success({ connection: this.Options.name, host: this.Options.host }, 'Email smtp connection ${connection} on host ${host} established !');
+    this.Log.success({ connection: this.Options.name, host: server }, 'Email smtp connection ${connection} on host ${host} established !');
   }
 
   public async send(email: IEmail): Promise<void> {

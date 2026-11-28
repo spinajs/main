@@ -9,10 +9,10 @@ Each entry in `email.connections` with `service: 'EmailSenderSmtp'` becomes one 
 3. **Construction.** `new EmailSenderSmtp(options)` stores the entry in `Options`. `ServiceName` returns `Options.name`, so the `Senders` map is keyed by connection name.
 4. **`EmailSender.resolve()`.** The base class reads `email.templateFs` and looks up that filesystem with `getFs()`. A name that is not registered throws `ResolveException`.
 5. **`EmailSenderSmtp.resolve()` builds the transporter options.** `host`, `port`, `secure` (from `ssl`) and, when `user` or `password` is set, `auth: { user, pass }` are merged with `Object.assign` with the entry's `options` object, which wins.
-6. **Logs and creates the transporter.** It logs `Creating connection to smtp: <user>@<host>:<port>` at `info`, then calls `nodemailer.createTransport(options)`.
+6. **Checks the host, logs and creates the transporter.** A `host` that is not a host name or IP address rejects with `InvalidArgument`; see [Host and url](#host-and-url). It logs `Creating connection to smtp: <user> at <server>` at `info`, `<server>` being `smtp://<host>:<port>` (`smtps://` with `ssl`), then calls `nodemailer.createTransport(options)`.
 7. **Builds the send pipeline.** `buildSendPipeline()` creates the timeout and retry pipeline; see [Send resilience](03-send-resilience.md).
-8. **Verifies.** `Transporter.verify()` opens a connection, runs `EHLO`, TLS and authentication, and closes it. On failure it logs at `error` and throws `UnexpectedServerError('Cannot verify smtp connection <name> (<host>:<port>)')` with the `nodemailer` error as its cause.
-9. **Ready.** It logs `Email smtp connection <name> on host <host> established !` at `success`.
+8. **Verifies.** `Transporter.verify()` opens a connection, runs `EHLO`, TLS and authentication, and closes it. On failure it logs at `error` and throws `UnexpectedServerError('Cannot verify smtp connection <name> (<server>)')` with the `nodemailer` error as its cause.
+9. **Ready.** It logs `Email smtp connection <name> on host <server> established !` at `success`.
 
 ```mermaid
 sequenceDiagram
@@ -41,7 +41,7 @@ Keys of one entry in `email.connections`. The JSON schema of `@spinajs/email` va
 | --- | --- | --- | --- | --- |
 | `email.connections[].service` | `string` | none, required | `'EmailSenderSmtp'`, or the class name of any other `EmailSender` registration | Selects the transport class. |
 | `email.connections[].name` | `string` | none, required | unique among connections | Connection name; `IEmail.connection` refers to it. |
-| `email.connections[].host` | `string` | `nodemailer` default (`localhost`) | host name or IP | SMTP server. |
+| `email.connections[].host` | `string` | `nodemailer` default (`localhost`) | host name or IP address alone | SMTP server. See [Host and url](#host-and-url). |
 | `email.connections[].port` | `number` | `nodemailer` default (`587`, or `465` when `ssl` is `true`) | TCP port | SMTP port. |
 | `email.connections[].ssl` | `boolean` | `false` | `true`, `false` | Passed as `secure`. `true` opens TLS at connect (port 465). `false` connects in plain text and upgrades with `STARTTLS` when the server offers it. |
 | `email.connections[].user` | `string` | none | any | SMTP user, passed as `auth.user`. |
@@ -93,6 +93,10 @@ export default {
 
 An `auth` object in `options` replaces the one built from `user` and `password` as a whole.
 
+### Host and url
+
+`nodemailer` looks a `host` that is not an IP address up as written (c-ares `resolve4` / `resolve6`, which query the configured DNS servers, then `dns.lookup`). So `resolve()` rejects a `host` that holds an `@`, `:` (other than in an IPv6 literal), `/`, `\`, `?`, `#` or whitespace with `InvalidArgument('Email smtp connection <name> has a host that is not a host name: ...')`, before any lookup or connection: write the server name or IP address alone in `host`, the port in `port`, an IPv6 address without brackets, and the credentials in `user` / `password`. An `options.url` (`smtps://user:password@smtp.example.com:465`) is dialled instead of `host`, `port` and `auth`; one that `new URL()` rejects or that has an `@` after the host is refused the same way, so percent-encode a `/`, `?`, `#` or `@` in its user name, password or query (`%2F`, `%3F`, `%23`, `%40`).
+
 ## Services and extension points
 
 | Service | DI token and lifetime | Default implementation | Alternatives | How to replace or extend |
@@ -107,7 +111,7 @@ An `auth` object in `options` replaces the one built from `user` and `password` 
 - `service` is matched against the class name, not against a string token. A subclass is selected by its own class name.
 - `@NewInstance()`: two entries with `service: 'EmailSenderSmtp'` get two senders and two transporters. `DI.resolve(EmailSenderSmtp, [entry])` outside `EmailService` also builds and verifies a new one each time.
 - Without `user` and `password` no `auth` is passed, so the sender does not log in, even on a server that advertises `AUTH`.
-- The `info` connect log line includes the SMTP user name. The password is never logged.
+- The `info` connect log line includes the SMTP user name. The package does not log the configured password, and prints an `options.url` without its user name, password and query. A server whose authentication error quotes the client's `AUTH` line puts the base64 of the credentials into the error that is logged at `error` and set as the cause of `UnexpectedServerError`.
 - The transporter is never closed. With `pool: true` the pooled sockets stay open until the process exits.
 
 ## Best practices
