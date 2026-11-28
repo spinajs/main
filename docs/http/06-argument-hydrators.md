@@ -23,7 +23,7 @@ Primitive types (`string`, `number`, `bigint`, `boolean`) never use a hydrator.
 | any other string | `DateTime.fromISO(value.trim())` |
 | anything else | `DateTime.invalid('no iso or unix timestamp')` |
 
-A value that was sent but does not give a valid `DateTime` (garbage text, an SQL or RFC 2822 date, seconds out of luxon's range, `Infinity`, a repeated query key, an object) throws `BadRequest` "Argument '<name>' is not a valid date", which answers 400; the message does not echo the value. An absent argument (`undefined`: no query key, no header) is not refused and reaches the action as `DateTime.invalid('no iso or unix timestamp')`; `null` and an empty string are read as `0`, the epoch.
+A value that was sent but does not give a valid `DateTime` (garbage text, an SQL or RFC 2822 date, seconds out of luxon's range, `Infinity`, a repeated query key, an object) throws `BadRequest` "Argument '<name>' is not a valid date", which answers 400; the message does not echo the value. An absent argument (`undefined`: no query key, no header) is not refused and reaches the action as `DateTime.invalid('no iso or unix timestamp')`; `null` and an empty string are read as `0`, the epoch. A single `@Body()` `DateTime` argument without a body field of its name receives the whole body (see [route arguments](04-route-arguments.md)), which is not a date: `{}` or `{"other": 1}` answers 400. Declare a second `@Body()` argument, or a DTO, for an optional body date.
 
 A number is always read as seconds, also for a model column declared `@DateTime({ unit: 'milliseconds' })` in `@spinajs/orm`. Clients that send epoch milliseconds need a custom hydrator, see [below](#datetimehydrator-custom-implementation).
 
