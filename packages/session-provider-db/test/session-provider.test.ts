@@ -1,6 +1,7 @@
 import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 import { DbSession } from '../src/models/DbSession.js';
+import type { DbSessionStore } from '../src/index.js';
 import { DefaultSessionIssuer, UserSession as Session, encodeSessionData, decodeSessionData, storageKeyOf } from '@spinajs/authn-session';
 import type { ISession } from '@spinajs/authn-session';
 import type { AuthnFacts } from '@spinajs/authn/contracts';
@@ -342,10 +343,36 @@ describe('db session provider', function () {
     const nullExpiration = async (sessionId: string) => (await sessionConnection()).update().in('user_sessions').update({ Expiration: null }).where('SessionId', sessionId);
 
     async function boot() {
-      const store = await bootStore({ expiration: { service: 'AbsoluteExpiration', ttl: 60 }, pendingTtlSeconds: 300 });
+      // The store's own sweep must not run while a test seeds rows.
+      const store = await bootStore({ expiration: { service: 'AbsoluteExpiration', ttl: 60 }, pendingTtlSeconds: 300, db: { cleanupInterval: 3_600_000 } });
       await store.truncate();
       return { store, issuer: await DI.resolve(DefaultSessionIssuer) };
     }
+
+    const seed = (store: DbSessionStore, sessionId: string, state: 'active' | 'pending') => store.save(new Session({ SessionId: sessionId, Subject: user('u-sweep'), State: state, Expiration: DateTime.now().plus({ minutes: 5 }), Data: new Map() }));
+
+    it('a pending row stored with NULL is not restored, not listed, and swept', async () => {
+      const { store } = await boot();
+      await seed(store, 'k-pending-null', 'pending');
+      await seed(store, 'k-active-null', 'active');
+      await nullExpiration('k-pending-null');
+      await nullExpiration('k-active-null');
+
+      expect(await store.restore('k-pending-null')).to.be.null;
+      expect((await store.listBySubject(user('u-sweep'))).map((s) => s.SessionId)).to.deep.equal(['k-active-null']);
+      expect(await store.cleanupExpired(), 'a pending row without an expiration is never swept otherwise').to.equal(1);
+      expect((await DbSession.all()).map((r) => r.SessionId), 'a never-expiring active session is kept').to.deep.equal(['k-active-null']);
+    });
+
+    it('a row with a NULL State and a NULL Expiration is swept, as it is read back as pending', async () => {
+      const { store } = await boot();
+      await seed(store, 'k-state-null', 'active');
+      await (await sessionConnection()).update().in('user_sessions').update({ State: null, Expiration: null }).where('SessionId', 'k-state-null');
+
+      expect(await store.restore('k-state-null')).to.be.null;
+      expect(await store.cleanupExpired()).to.equal(1);
+      expect(await DbSession.all()).to.deep.equal([]);
+    });
 
     it('elevate of a pending row stored with NULL is refused', async () => {
       const { store, issuer } = await boot();

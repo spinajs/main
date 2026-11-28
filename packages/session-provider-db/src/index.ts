@@ -5,7 +5,7 @@ import { Injectable } from '@spinajs/di';
 import { Logger, Log } from '@spinajs/log';
 import { DbSession } from './models/DbSession.js';
 import { InsertBehaviour } from '@spinajs/orm';
-import type { IUpdateResult } from '@spinajs/orm';
+import type { IUpdateResult, WhereFunction } from '@spinajs/orm';
 import { Config } from '@spinajs/configuration';
 import '@spinajs/authn-session/register-schema';
 import { DateTime } from 'luxon';
@@ -21,6 +21,16 @@ const sameRef = (a: IdentityRef | undefined, b: IdentityRef) => !!a && a.type ==
 const belongsTo = (s: ISession, subject: IdentityRef, includeImpersonations?: boolean) => sameRef(s.Subject, subject) || (includeImpersonations === true && sameRef(s.Impersonator, subject));
 
 const rowsAffected = (result: unknown) => (result as IUpdateResult | undefined)?.RowsAffected ?? 0;
+
+/** The rows isExpired judges expired at `now`; toSession reads a NULL or unknown State as pending. */
+const expiredAt = (now: DateTime): WhereFunction<DbSession> =>
+  function () {
+    this.where('Expiration', '<=', now).orWhere(function () {
+      this.whereNull('Expiration').where(function () {
+        this.whereNull('State').orWhere('State', '!=', 'active');
+      });
+    });
+  };
 
 /**
  * Relational-db backed session store. Subject, Impersonator and State live in
@@ -66,7 +76,8 @@ export class DbSessionStore extends SessionProvider {
   }
 
   /**
-   * Removes every session whose expiration has passed, `cleanupBatch` rows per DELETE.
+   * Removes every session whose expiration has passed, and every pending one without an expiration (isExpired
+   * counts it as expired), `cleanupBatch` rows per DELETE.
    *
    * @returns how many sessions were removed
    */
@@ -78,12 +89,12 @@ export class DbSessionStore extends SessionProvider {
     for (;;) {
       const now = DateTime.now();
       // Ordered by the indexed column; MSSQL pages with OFFSET ... FETCH, which needs an ORDER BY.
-      const ids = (await DbSession.query().columns(['SessionId']).where('Expiration', '<=', now).orderBy('Expiration').take(batch)).map((r) => r.SessionId);
+      const ids = (await DbSession.query().columns(['SessionId']).where(expiredAt(now)).orderBy('Expiration').take(batch)).map((r) => r.SessionId);
       if (ids.length === 0) {
         break;
       }
 
-      const deleted = rowsAffected(await DbSession.destroy().whereIn('SessionId', ids).where('Expiration', '<=', now));
+      const deleted = rowsAffected(await DbSession.destroy().whereIn('SessionId', ids).where(expiredAt(now)));
       removed += deleted;
       if (ids.length < batch || deleted === 0) {
         break;
