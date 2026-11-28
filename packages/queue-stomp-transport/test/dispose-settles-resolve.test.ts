@@ -1,6 +1,7 @@
 import 'mocha';
 import { expect } from 'chai';
 import { createHook } from 'node:async_hooks';
+import { createServer, Socket } from 'node:net';
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
 import { UnexpectedServerError } from '@spinajs/exceptions';
@@ -201,6 +202,48 @@ describe('stomp transport - dispose() settles resolve()', function () {
       expect(leftOpen).to.equal(0);
     } finally {
       await listener.close();
+    }
+  });
+
+  it('rejects resolve() with the dispose error, not a websocket error, when dispose() lands while the socket is still connecting', async () => {
+    const sockets: Socket[] = [];
+    const silent = createServer((socket) => sockets.push(socket));
+    await new Promise<void>((resolve) => silent.listen(0, '127.0.0.1', resolve));
+    const address = silent.address();
+    if (address === null || typeof address === 'string') throw new Error('the listener has no port');
+    expect(address.address).to.equal('127.0.0.1');
+    const client = new ProbeClient(options(address.port));
+    try {
+      const resolving = client.resolve();
+      await until(() => sockets.length === 1);
+      expect((await settledWithin(client.dispose(), 1000)).state).to.equal('resolved');
+      const outcome = await settledWithin(resolving, 1000);
+
+      expect({ state: outcome.state, message: messageOf(outcome), unhandled: unhandled.length }).to.deep.equal({ state: 'rejected', message: DISPOSED, unhandled: 0 });
+      // dispose() closing a socket that was still connecting is not a network failure
+      expect(client.errorsStartingWith('Websocket error')).to.deep.equal([]);
+    } finally {
+      for (const socket of sockets) socket.destroy();
+      await new Promise<void>((resolve) => silent.close(() => resolve()));
+    }
+  });
+
+  it('still logs a websocket error when the first connect is refused without dispose()', async () => {
+    const closed = createServer();
+    await new Promise<void>((resolve) => closed.listen(0, '127.0.0.1', resolve));
+    const address = closed.address();
+    await new Promise<void>((resolve) => closed.close(() => resolve()));
+    if (address === null || typeof address === 'string') throw new Error('the listener has no port');
+    expect(address.address).to.equal('127.0.0.1');
+    const client = new ProbeClient(options(address.port));
+    try {
+      const outcome = await settledWithin(client.resolve(), 5000);
+
+      expect(outcome.state).to.equal('rejected');
+      expect(messageOf(outcome)).to.contain('websocket error');
+      expect(client.errorsStartingWith('Websocket error')).to.have.length(1);
+    } finally {
+      await settledWithin(client.dispose(), 1000);
     }
   });
 
