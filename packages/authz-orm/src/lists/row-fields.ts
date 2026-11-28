@@ -8,7 +8,9 @@ import { planTermCompilers } from './terms.js';
 
 type Where = IWhereBuilder<unknown>;
 
-export const fieldsColumn = (i: number): string => `__authz_fields_${i}`;
+const ENGINE_FAULT_CODE = 'model_error';
+
+export const fieldsColumn =(i: number): string => `__authz_fields_${i}`;
 
 /** The terms a row's field set can depend on: every permit and deny term, split by its compiler's atoms(). */
 function atomsOf(terms: readonly PlanTerm[], compilers: ReadonlyMap<string, PlanTermCompiler>): PlanTerm[] {
@@ -96,6 +98,9 @@ export class RowFieldsMiddleware implements IBuilderMiddleware {
     // A group without an id has no row to decide on: it reads nothing.
     const decided = none ? [] : [...groups.values()].filter((g) => g.id !== undefined);
     const decisions = decided.length === 0 ? [] : await service.checkAll(principal, decided.map((g) => ({ permission, resource: { type, id: g.id! } })));
+    // A model_error deny is an engine or adapter fault that checkAll answers instead of throwing; read as "no field", its rows would come back blank.
+    const faulted = decisions.filter((d) => d !== undefined && !d.allowed && d.reason?.code === ENGINE_FAULT_CODE).length;
+    if (faulted > 0) throw new Error(`authz-orm: the readable fields of ${faulted} of ${decided.length} ${type} row group(s) under ${permission} could not be decided: the engine answered ${ENGINE_FAULT_CODE} (an engine or adapter fault)`);
     const read = new Map(decided.map((g, i) => [g, decisions[i]?.allowed === true ? decisions[i].fields.read : []]));
     for (const group of groups.values()) for (const model of group.models) attachRowFields(model, read.get(group) ?? []);
   }
