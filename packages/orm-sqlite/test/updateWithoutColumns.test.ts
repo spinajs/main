@@ -184,6 +184,20 @@ describe('sqlite update with no column to write', function () {
       expect(await rows('upd_owned')).to.deep.eq([{ Id: 1, owner_id: 1 }]);
     });
 
+    it('update() after a relation-managed foreign key was set to null writes NULL', async () => {
+      const owned = await UpdOwned.where('Id', 1).first();
+      owned.owner_id = null;
+      const capture = captureStatements();
+      try {
+        await owned.update();
+      } finally {
+        capture.restore();
+      }
+
+      expect(updates(capture.statements)).to.deep.eq([['UPDATE `upd_owned` SET `owner_id` = ? WHERE `Id` = ?', [null, 1]]]);
+      expect(await rows('upd_owned')).to.deep.eq([{ Id: 1, owner_id: null }]);
+    });
+
     it('insertOrUpdate() of a loaded model after model.Name = undefined resolves without a statement', async () => {
       const plain = (await UpdPlain.where('Id', 1).first());
       plain.Name = undefined;
@@ -211,7 +225,7 @@ describe('sqlite update with no column to write', function () {
       await UowTag.insert({ Name: 'red' });
       await UowOrderTag.insert({ order_id: 1, tag_id: 1, Note: 'first red' });
       const order = (await UowOrder.where({ Id: 1 }).populate('Tags').first());
-      order.Tags.junction<UowOrderTag>(order.Tags[0])!.Note = undefined as unknown as string;
+      Reflect.set(order.Tags.junction<UowOrderTag>(order.Tags[0])!, 'Note', undefined);
 
       const seenNow = await observed(() => order.save());
 
@@ -278,7 +292,7 @@ describe('sqlite update with no column to write', function () {
         capture.restore();
       }
 
-      const stamps = capture.statements.map((s) => s.bindings.find((b: unknown) => typeof b === 'string' && b.includes('T')) as string);
+      const stamps = capture.statements.map((s) => s.bindings.find((b: unknown) => typeof b === 'string' && b.includes('T')));
       expect(updates(capture.statements)).to.deep.eq([
         ['UPDATE `upd_stamped` SET `Name` = ?,`UpdatedAt` = ? WHERE `Id` = ?', ['b', stamps[0], 1]],
         ['UPDATE `upd_stamped` SET `UpdatedAt` = ? WHERE `Id` = ?', [stamps[1], 1]],
@@ -291,6 +305,19 @@ describe('sqlite update with no column to write', function () {
       const capture = captureStatements();
       try {
         await versioned.update();
+      } finally {
+        capture.restore();
+      }
+
+      expect(updates(capture.statements)).to.deep.eq([['UPDATE `upd_versioned` SET `Ver` = ? WHERE `Id` = ? AND `Ver` = ?', [2, 1, 1]]]);
+    });
+
+    it('save() of an @Version model with an undefined column moves the version, as update() does', async () => {
+      const versioned = await UpdVersioned.where('Id', 1).first();
+      versioned.Name = undefined;
+      const capture = captureStatements();
+      try {
+        await versioned.save();
       } finally {
         capture.restore();
       }
