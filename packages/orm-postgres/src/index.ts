@@ -46,11 +46,12 @@ const PG_RETRYABLE_CODES = new Set(['08000', '08001', '08003', '08004', '08006',
 /**
  * The server answered and the session lives on: pg's DatabaseError, or PGlite's own class (not a pg.DatabaseError at
  * run time), which carries the server's severity and SQLSTATE code. A FATAL or PANIC answer ends the session.
+ * Every server answer carries a severity; pg-protocol's own "received invalid response" is a DatabaseError without one.
  */
 function answeredByServer(err: unknown): boolean {
   const severity = err instanceof Error && 'severity' in err ? err.severity : undefined;
-  if (severity === 'FATAL' || severity === 'PANIC') return false;
-  return err instanceof pg.DatabaseError || (err instanceof Error && typeof severity === 'string' && 'code' in err && typeof err.code === 'string');
+  if (typeof severity !== 'string' || severity === 'FATAL' || severity === 'PANIC') return false;
+  return err instanceof pg.DatabaseError || (err instanceof Error && 'code' in err && typeof err.code === 'string');
 }
 
 /**
