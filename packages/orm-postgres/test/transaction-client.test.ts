@@ -252,6 +252,59 @@ describe('postgres transaction client (unit)', function () {
     expect(fake.release.args).to.deep.equal([[true]]);
   });
 
+  it('still refuses the commit after a statement got no answer, when a later nested call rolled back to its savepoint', async () => {
+    const timeout = new Error('Query read timeout');
+    const fake = fakeClient({ 'SELECT pg_sleep(2)': timeout });
+    usePool(fake.client);
+
+    const err = await driver
+      .transaction(async () => {
+        await driver.executeOnDb('SELECT pg_sleep(2)', [], QueryContext.Select).catch(() => undefined);
+        await driver
+          .transaction(async () => {
+            throw new Error('the inner work failed');
+          })
+          .catch(() => undefined);
+        return 'the work';
+      })
+      .then(
+        () => undefined,
+        (e: unknown) => e,
+      );
+
+    expect(err).to.be.instanceOf(OrmException).with.property('inner', timeout);
+    expect(fake.statements).to.deep.equal(['BEGIN', 'SELECT pg_sleep(2)', 'SAVEPOINT "sp_1"', 'ROLLBACK TO SAVEPOINT "sp_1"', 'ROLLBACK']);
+    expect(fake.release.args).to.deep.equal([[true]]);
+  });
+
+  it('names the failed nested ROLLBACK TO SAVEPOINT when a statement also got no answer', async () => {
+    const timeout = new Error('Query read timeout');
+    const lost = new Error('Query read timeout');
+    const fake = fakeClient({ 'SELECT pg_sleep(2)': timeout, 'ROLLBACK TO SAVEPOINT "sp_1"': lost });
+    usePool(fake.client);
+
+    const err = await driver
+      .transaction(async () => {
+        await driver.executeOnDb('SELECT pg_sleep(2)', [], QueryContext.Select).catch(() => undefined);
+        await driver
+          .transaction(async () => {
+            throw new Error('the inner work failed');
+          })
+          .catch(() => undefined);
+        return 'the work';
+      })
+      .then(
+        () => undefined,
+        (e: unknown) => e,
+      );
+
+    expect(err).to.be.instanceOf(OrmException);
+    expect((err as OrmException).message).to.contain('ROLLBACK TO SAVEPOINT of a nested transaction failed');
+    expect(err).to.have.property('inner', lost);
+    expect(fake.statements).to.deep.equal(['BEGIN', 'SELECT pg_sleep(2)', 'SAVEPOINT "sp_1"', 'ROLLBACK TO SAVEPOINT "sp_1"', 'ROLLBACK']);
+    expect(fake.release.args).to.deep.equal([[true]]);
+  });
+
   const unanswered = {
     // pg-protocol raises it itself for an unknown backend message byte: a desync, not an answer
     "pg-protocol's own 'received invalid response'": new pg.DatabaseError('received invalid response: 78', 0, 'error'),
