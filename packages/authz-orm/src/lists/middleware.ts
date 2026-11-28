@@ -96,7 +96,7 @@ function cloneInto(parent: QueryBuilder, statement: IQueryStatement): IQueryStat
 /**
  * The keys of the rows `conditions` still reach in the model of `query`, read as the write capture reads a write's
  * keys: as SYSTEM, so no guard or list fires on the read, soft-deleted and archived rows included, on the statement's
- * connection and so in its transaction, with these conditions only (none a middleware added to the select at creation).
+ * connection and so in its transaction, in the database the statement names, with these conditions only (none a middleware added to the select at creation).
  * A locking read: under MySQL REPEATABLE READ a plain one returns the transaction's snapshot and misses a row another
  * transaction committed after it. No aggregate, as PostgreSQL refuses one with a row lock.
  */
@@ -105,6 +105,7 @@ function rowsLeft(query: SyncStatement, conditions: readonly IQueryStatement[], 
   if (!model) throw new AuthzConfigError('authz-orm: a sync() statement without a model cannot be counted');
   return captureReadScope().run(async () => {
     const { query: select } = createQuery(model, SelectQueryBuilder, true, query.Driver);
+    if (query.Database) select.database(query.Database);
     select.withDeleted().withArchived().onPrimary();
     // MSSQL has no row lock clause; its READ COMMITTED reads see committed rows anyway.
     if (supportsRowLocks(query.Driver)) select.forShare();
