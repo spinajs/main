@@ -214,14 +214,17 @@ describe('authz:ancestors-rebuild writes what the write observer wrote, for one 
         const { Org, Project, Task } = await chain();
         // Two @Parent columns that name one type.
         const Edge = (await db.define({ name: 'Edge', columns: { from_id: 'TEXT', to_id: 'TEXT' }, decorate: (c, p) => { AccessResource('edge')(c); Parent('project')(p, 'from_id'); Parent('project')(p, 'to_id'); } }, dialect)) as M;
+        // A second class of the child type, on a table of its own.
+        const ArchivedTask = (await db.define({ name: 'ArchivedTask', columns: { project_id: 'TEXT' }, decorate: (c, p) => { AccessResource('task')(c); Parent('project')(p, 'project_id'); } }, dialect)) as M;
         await Org.insert({ id: 'o1' });
         await Project.insert({ id: 'p1', org_id: 'o1' });
 
         await Task.insert({ id: 't9', project_id: 'p9' });
+        await ArchivedTask.insert({ id: 'a9', project_id: 'p9' });
         await Edge.insert({ id: 'e1', from_id: 'p1', to_id: 'p9' });
         expect((await writesAgreeWithRebuild()).filter((l) => l.startsWith('task:') || l.startsWith('edge:'))).to.deep.equal(['edge:e1>org:o1@2', 'edge:e1>project:p1@1']);
         await Project.insert({ id: 'p9', org_id: 'o1' });
-        expect((await writesAgreeWithRebuild()).filter((l) => l.startsWith('task:t9') || l.startsWith('edge:'))).to.deep.equal(['edge:e1>org:o1@2', 'edge:e1>project:p1@1', 'edge:e1>project:p9@1', 'task:t9>org:o1@2', 'task:t9>project:p9@1']);
+        expect((await writesAgreeWithRebuild()).filter((l) => l.startsWith('task:t9') || l.startsWith('task:a9') || l.startsWith('edge:'))).to.deep.equal(['edge:e1>org:o1@2', 'edge:e1>project:p1@1', 'edge:e1>project:p9@1', 'task:a9>org:o1@2', 'task:a9>project:p9@1', 'task:t9>org:o1@2', 'task:t9>project:p9@1']);
 
         const driver = db.driver(dialect);
         await driver.transaction(async () => {
