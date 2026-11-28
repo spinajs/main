@@ -126,6 +126,25 @@ describe('DefaultSessionIssuer hardening', () => {
       c.tick(301_000);
       expect(await rejects(issuer.elevate(pd, { mfa: ['totp'] }))).to.be.true;
     });
+
+    it('elevate of a pending row stored with NULL is refused', async () => {
+      const { issuer, store } = await setup();
+      const pd = await issuer.issue(alice, facts(), { pending: { steps: ['totp'] } });
+      rowOf(store, pd)!.Expiration = undefined;
+
+      expect(await rejects(issuer.elevate(pd, { mfa: ['totp'] })), 'one MFA code would give an aal2 session that never expires').to.be.true;
+      expect(await issuer.restore(pd.id)).to.be.null;
+      expect(await store.listBySubject(alice)).to.deep.equal([]);
+    });
+
+    it('an active row stored without Expiration stays live', async () => {
+      const { issuer, store } = await setup();
+      const active = await issuer.issue(alice, facts());
+      rowOf(store, active)!.Expiration = undefined;
+
+      expect(await issuer.restore(active.id)).to.not.be.null;
+      expect(await store.listBySubject(alice)).to.have.length(1);
+    });
   });
 
   describe('SR-07 pending sessions (store part)', () => {

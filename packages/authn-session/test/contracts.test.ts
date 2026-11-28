@@ -333,6 +333,15 @@ describe('@spinajs/authn-session contracts', function () {
       await store.save(session('d', { Expiration: DateTime.now().minus({ seconds: 1 }) }));
       expect(await store.restore('d')).to.eq(null);
     });
+
+    it('isExpired: a pending session without Expiration is expired; an active one is not', () => {
+      const store = new MemoryStore();
+      expect(store.expired(session('p1', { State: 'pending' })), 'one MFA code would turn it into an aal2 session at any later time').to.eq(true);
+      expect(store.expired(session('p2', { State: 'pending', Expiration: DateTime.now().plus({ minutes: 5 }) }))).to.eq(false);
+      expect(store.expired(session('a1')), 'a never-expiring active session stays live').to.eq(false);
+      expect(store.expired(Object.assign(session('p3', { State: 'pending' }), { Expiration: null })), 'a literal null from untyped store code').to.eq(true);
+      expect(store.expired(Object.assign(session('a2'), { Expiration: null })), 'an active session with null stays live').to.eq(false);
+    });
   });
 
   describe('source shape', () => {

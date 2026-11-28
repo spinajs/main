@@ -69,7 +69,7 @@ The `SessionProvider` contract:
 | `deleteBySubject(subject, { includeImpersonations?, except? })` | `number` | Deletes rows of `Subject`, and with `includeImpersonations` rows of `Impersonator`; `except` is a storage key to keep. Returns the count of live rows deleted |
 | `listBySubject(subject, { includeImpersonations? })` | `ISession[]` | Live rows only, same matching as `deleteBySubject` |
 | `truncate()` | `void` | Deletes every row |
-| `isExpired(session)` | `boolean` | `true` when `Expiration` is set and at or before now. Public, so `DefaultSessionIssuer` judges a row the way its store does |
+| `isExpired(session)` | `boolean` | `true` when `Expiration` is set and at or before now, and for a pending row without `Expiration`. Public, so `DefaultSessionIssuer` judges a row the way its store does |
 
 Protected helpers for stores: `applyInitialExpiration(s)`, `applyRenewedExpiration(s)` and the injected `Expiration` strategy.
 

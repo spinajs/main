@@ -1,7 +1,9 @@
 import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
-import { UserSession as Session, decodeSessionData } from '@spinajs/authn-session';
+import { DefaultSessionIssuer, UserSession as Session, decodeSessionData, storageKeyOf } from '@spinajs/authn-session';
 import type { ISession } from '@spinajs/authn-session';
+import type { AuthnFacts } from '@spinajs/authn/contracts';
+import { DI } from '@spinajs/di';
 import { DateTime } from 'luxon';
 import { runSessionProviderConformance, IConformanceExpiration, SessionProviderFactory } from '../../authn-session/test/conformance/session-provider-conformance.js';
 import { bootStore, disposeStore, fake, storedKeys } from './support.js';
@@ -256,5 +258,34 @@ describe('dynamodb session provider', function () {
       expect(await store.listBySubject(user('u-exp'))).to.deep.equal([]);
     });
 
+  });
+
+  describe('an item stored without Expiration', () => {
+    const facts = (): AuthnFacts => ({ method: 'password', strategy: 'local', assurance: 'aal1', mfa: [], authenticatedAt: new Date() });
+
+    async function boot() {
+      const store = await bootStore({ expiration: ABSOLUTE, pendingTtlSeconds: 300 });
+      await store.truncate();
+      return { store, issuer: await DI.resolve(DefaultSessionIssuer) };
+    }
+
+    it('elevate of a pending row stored with NULL is refused', async () => {
+      const { store, issuer } = await boot();
+      const pd = await issuer.issue(user('u-null'), facts(), { pending: { steps: ['totp'] } });
+      delete item(storageKeyOf(pd.id)).Expiration;
+
+      await expect(issuer.elevate(pd, { mfa: ['totp'] }), 'one MFA code would give an aal2 session that never expires').to.be.rejected;
+      expect(await issuer.restore(pd.id)).to.be.null;
+      expect(await store.listBySubject(user('u-null'))).to.deep.equal([]);
+    });
+
+    it('an active row stored without Expiration stays live', async () => {
+      const { store, issuer } = await boot();
+      const active = await issuer.issue(user('u-forever'), facts());
+      delete item(storageKeyOf(active.id)).Expiration;
+
+      expect(await issuer.restore(active.id)).to.not.be.null;
+      expect(await store.listBySubject(user('u-forever'))).to.have.length(1);
+    });
   });
 });

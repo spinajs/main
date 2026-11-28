@@ -1,8 +1,10 @@
 import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 import { DbSession } from '../src/models/DbSession.js';
-import { UserSession as Session, encodeSessionData, decodeSessionData } from '@spinajs/authn-session';
+import { DefaultSessionIssuer, UserSession as Session, encodeSessionData, decodeSessionData, storageKeyOf } from '@spinajs/authn-session';
 import type { ISession } from '@spinajs/authn-session';
+import type { AuthnFacts } from '@spinajs/authn/contracts';
+import { DI } from '@spinajs/di';
 import { DateTime } from 'luxon';
 import { runSessionProviderConformance, IConformanceExpiration, SessionProviderFactory } from '../../authn-session/test/conformance/session-provider-conformance.js';
 import { bootStore, disposeStore, sessionConnection } from './support.js';
@@ -330,6 +332,38 @@ describe('db session provider', function () {
 
       expect(restored, 'session must come back').to.not.be.null;
       assertPayload(restored!.Data, 'write -> read round trip');
+    });
+  });
+
+  describe('a row stored with a NULL Expiration', () => {
+    const facts = (): AuthnFacts => ({ method: 'password', strategy: 'local', assurance: 'aal1', mfa: [], authenticatedAt: new Date() });
+
+    /** As code before the store fixes or a hand edit left it. */
+    const nullExpiration = async (sessionId: string) => (await sessionConnection()).update().in('user_sessions').update({ Expiration: null }).where('SessionId', sessionId);
+
+    async function boot() {
+      const store = await bootStore({ expiration: { service: 'AbsoluteExpiration', ttl: 60 }, pendingTtlSeconds: 300 });
+      await store.truncate();
+      return { store, issuer: await DI.resolve(DefaultSessionIssuer) };
+    }
+
+    it('elevate of a pending row stored with NULL is refused', async () => {
+      const { store, issuer } = await boot();
+      const pd = await issuer.issue(user('u-null'), facts(), { pending: { steps: ['totp'] } });
+      await nullExpiration(storageKeyOf(pd.id));
+
+      await expect(issuer.elevate(pd, { mfa: ['totp'] }), 'one MFA code would give an aal2 session that never expires').to.be.rejected;
+      expect(await issuer.restore(pd.id)).to.be.null;
+      expect(await store.listBySubject(user('u-null'))).to.deep.equal([]);
+    });
+
+    it('an active row stored with NULL stays live', async () => {
+      const { store, issuer } = await boot();
+      const active = await issuer.issue(user('u-forever'), facts());
+      await nullExpiration(storageKeyOf(active.id));
+
+      expect(await issuer.restore(active.id)).to.not.be.null;
+      expect(await store.listBySubject(user('u-forever'))).to.have.length(1);
     });
   });
 });
