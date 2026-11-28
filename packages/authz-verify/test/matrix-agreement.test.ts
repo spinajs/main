@@ -68,6 +68,14 @@ describe('accessOf and never() on the same policy', function () {
     }
   });
 
+  it('reads ir.opaque as never() does: it does not make accessOf conditional', async () => {
+    const ir: PolicyIR = { ...policy({ auditor: ['doc#viewer'] }), opaque: [{ kind: 'model', name: 'legacy' }] };
+    const m = permissionMatrix(ir);
+    expect(m.everyone).to.deep.equal({});
+    expect(await verifyAssertion(ir, never('doc#commenter'), noSolver)).to.include({ result: 'holds', engine: 'exact' });
+    expect(accessOf(m, 'doc#commenter', 'doc:read')).to.equal('never');
+  });
+
   it('keeps always where a holder reaches the permission beside an opaque term', async () => {
     const ir = policy({}, { union: [viewer, { opaque: 'model:legacy' }] });
     expect(await verifyAssertion(ir, never('doc#viewer'), noSolver)).to.include({ result: 'violated', engine: 'exact' });
