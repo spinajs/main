@@ -86,8 +86,9 @@ class TestableMySqlDriver extends MySqlOrmDriver {
       timeStart: () => undefined,
       timeEnd: () => 0,
       write: () => Promise.resolve(),
-      warn: () => undefined,
       trace: () => undefined,
+      info: () => undefined,
+      warn: () => undefined,
     };
   }
 
