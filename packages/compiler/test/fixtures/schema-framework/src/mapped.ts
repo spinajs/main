@@ -55,6 +55,14 @@ export class MappedController extends BaseController {
   public async eDataAlias(): Promise<Ok<EditorialData[]>> {
     return new Ok([]);
   }
+  @Get('a-null-data-alias')
+  public async aNullDataAlias(): Promise<DataOf<Author> | null> {
+    return null;
+  }
+  @Get('a-null-data')
+  public async aNullData(): Promise<ModelData<Author> | null> {
+    return null;
+  }
   @Get('a-array')
   public async aArray(): Promise<Ok<Partial<Author>[]>> {
     return new Ok([]);

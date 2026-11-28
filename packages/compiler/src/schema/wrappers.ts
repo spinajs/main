@@ -65,7 +65,10 @@ function singleWrapperName(checker: ts.TypeChecker, type: ts.Type): string | und
 /** A union is a wrapper when every member is one (`Ok | Unauthorized`): one schema cannot describe several responses. */
 export function wrapperName(checker: ts.TypeChecker, type: ts.Type): string | undefined {
   if (!type.isUnion()) return singleWrapperName(checker, type);
-  const names = type.types.filter((member) => !isNullish(member)).map((member) => singleWrapperName(checker, member));
+  const members = type.types.filter((member) => !isNullish(member));
+  // `ModelData<M> | null` is nullable data, not a choice between responses: it derives member by member.
+  if (members.length && members.every((member) => ormModelDataArgument(checker, member))) return undefined;
+  const names = members.map((member) => singleWrapperName(checker, member));
   if (!names.length || names.some((name) => name === undefined)) return undefined;
   return [...new Set(names)].join(' | ');
 }

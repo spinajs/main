@@ -60,7 +60,11 @@ describe('reply wrappers are http responses by their declaring package', () => {
       OkUserData: payload.Ok,
       DataAgain: payload.Ok,
       Swap: payload.Ok,
+      Middle: payload.Ok,
     });
+  });
+  it('follows a chain of up to 15 aliases to ModelData', () => {
+    expect(refsOf('ModelDataAliasChains')).to.deep.equal({ H15: payload.Ok, H16: { text: 'H16<Payload>' } });
   });
   it('leaves an alias that passes ModelData anything but its own parameter as it is', () => {
     expect(refsOf('ModelDataListAlias')).to.deep.equal({ ListData: { text: 'ListData<Payload>' } });
