@@ -10,6 +10,7 @@ import { controller, mountRoutes } from './support/route-index.js';
 import { HTTP_CONFIGURATION_SCHEMA } from '../src/schemas/http.configuration.js';
 import { configurationViolations, createTestApp, disposeTestApps, readingFrom } from '@spinajs/testing';
 import { serverApp } from './support/server-app.js';
+import { closeLoopbackServers, loopbackOrigin } from './support/loopback.js';
 
 chai.use(chaiHttp);
 
@@ -76,12 +77,14 @@ async function guardWith(csrf: Record<string, unknown> = {}, http: Record<string
 }
 
 function appOf(guard: TestGuard) {
-  return serverApp(
-    guard,
-    (_req, res) => {
-      res.json({ ran: true });
-    },
-    guard.routes,
+  return loopbackOrigin(
+    serverApp(
+      guard,
+      (_req, res) => {
+        res.json({ ran: true });
+      },
+      guard.routes,
+    ),
   );
 }
 
@@ -91,7 +94,7 @@ interface Sent {
 }
 
 async function send(guard: TestGuard, method: 'get' | 'post' | 'put' | 'delete' | 'patch', path: string, headers: Record<string, string> = {}): Promise<Sent> {
-  let r = chai.request(appOf(guard))[method](path).set('Host', HOST);
+  let r = chai.request(await appOf(guard))[method](path).set('Host', HOST);
   for (const [name, value] of Object.entries(headers)) r = r.set(name, value);
   const res = await r;
   return { status: res.status, body: res.body };
@@ -109,6 +112,7 @@ const refused = (s: Sent): void => {
 
 describe('CsrfGuard (X1-X3)', function () {
   this.timeout(20000);
+  afterEach(closeLoopbackServers);
   afterEach(disposeTestApps);
 
   it('is a ServerMiddleware at Order 4, registered by @spinajs/http', () => {
@@ -234,7 +238,7 @@ describe('CsrfGuard (X1-X3)', function () {
 
   it('picks up a controller added after the server started', async () => {
       const guard = await guardWith();
-      const app = appOf(guard);
+      const app = await appOf(guard);
       const put = () => chai.request(app).put('/callbacks/1').set('Host', HOST).set('Origin', EVIL);
       expect((await put()).status).to.eq(403);
       guard.mount([controller(CsrfCallbacksController)]);

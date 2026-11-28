@@ -29,6 +29,7 @@ import {
 } from '../src/index.js';
 import type { BotCheckInput, BotVerdict, IControllerDescriptor } from '../src/index.js';
 import { createTestApp, disposeTestApps } from '@spinajs/testing';
+import { closeLoopbackServers, loopbackOrigin } from './support/loopback.js';
 
 chai.use(chaiHttp);
 chai.use(chaiAsPromised);
@@ -130,7 +131,7 @@ describe('http: bot check', function () {
 
   async function start(bot: unknown) {
     await createTestApp(botAppOptions(bot));
-    return app();
+    return loopbackOrigin(await app());
   }
 
   beforeEach(() => {
@@ -141,6 +142,7 @@ describe('http: bot check', function () {
 
   afterEach(async () => {
     sinon.restore();
+    closeLoopbackServers();
     await disposeTestApps();
   });
 

@@ -6,10 +6,13 @@ import express from 'express';
 
 // The built config: ts-node's type check rejects the default helmet import that the build accepts.
 import shipped from '../lib/config/http.js';
+import { closeLoopbackServers, loopbackOrigin } from './support/loopback.js';
 
 chai.use(chaiHttp);
 
 describe('shipped http config', () => {
+  after(closeLoopbackServers);
+
   it('sends Referrer-Policy strict-origin-when-cross-origin, so same-origin form posts keep their Origin (A22)', async () => {
     const app = express();
     for (const m of shipped.http.middlewares) app.use(m as express.RequestHandler);
@@ -17,7 +20,7 @@ describe('shipped http config', () => {
       res.json({ ok: true });
     });
 
-    const res = await chai.request(app).get('/probe');
+    const res = await chai.request(await loopbackOrigin(app)).get('/probe');
     expect(res.status).to.eq(200);
     expect(res.header['referrer-policy']).to.eq('strict-origin-when-cross-origin');
     // The other helmet defaults stay.

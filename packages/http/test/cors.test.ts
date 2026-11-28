@@ -12,6 +12,7 @@ import { Cors, CorsMiddleware, parseOrigin } from '../src/middlewares/Cors.js';
 import { HTTP_CONFIGURATION_SCHEMA } from '../src/schemas/http.configuration.js';
 import { configurationViolations, createTestApp, disposeTestApps, readingFrom } from '@spinajs/testing';
 import { serverApp } from './support/server-app.js';
+import { closeLoopbackServers, loopbackOrigin } from './support/loopback.js';
 
 chai.use(chaiHttp);
 
@@ -29,10 +30,12 @@ async function middleware(cors: unknown, type: new () => CorsMiddleware = CorsMi
 }
 
 async function app(cors: unknown, type?: new () => CorsMiddleware) {
-  return serverApp((await middleware(cors, type)).mw, (req, res, next) => {
-    if (req.path !== '/probe') return next();
-    res.json({ ok: true });
-  });
+  return loopbackOrigin(
+    serverApp((await middleware(cors, type)).mw, (req, res, next) => {
+      if (req.path !== '/probe') return next();
+      res.json({ ok: true });
+    }),
+  );
 }
 
 const simple = async (cors: unknown, origin: string) => chai.request(await app(cors)).get('/probe').set('Origin', origin);
@@ -42,6 +45,7 @@ const preflight = async (cors: unknown, origin: string) =>
 const acHeaders = (res: { header: Record<string, string> }) => Object.keys(res.header).filter((n) => n.startsWith('access-control-'));
 
 describe('CorsMiddleware (A31)', () => {
+  afterEach(closeLoopbackServers);
   afterEach(disposeTestApps);
 
   it('A31 without http.cors sends no CORS headers outside @Cors routes, and warns', async () => {
@@ -333,13 +337,15 @@ async function routedMiddleware(cors: unknown, type?: new () => CorsMiddleware) 
 
 async function routedApp(cors: unknown, options: RoutedOptions = {}) {
   const { mw, routes } = await routedMiddleware(cors, options.type);
-  return serverApp(
-    mw,
-    (req, res, next) => {
-      if (options.raw) res.json({ reached: true });
-      else sendReply(req, res, new RawJsonResponse(200, { reached: true })).catch(next);
-    },
-    routes,
+  return loopbackOrigin(
+    serverApp(
+      mw,
+      (req, res, next) => {
+        if (options.raw) res.json({ reached: true });
+        else sendReply(req, res, new RawJsonResponse(200, { reached: true })).catch(next);
+      },
+      routes,
+    ),
   );
 }
 
@@ -348,6 +354,7 @@ const askPreflight = async (cors: unknown, path: string, origin: string, method 
   chai.request(await routedApp(cors, options)).options(path).set('Origin', origin).set('Access-Control-Request-Method', method);
 
 describe('@Cors per route', () => {
+  afterEach(closeLoopbackServers);
   afterEach(disposeTestApps);
 
   const GLOBAL = { origins: [PARTNER], exposedHeaders: ['x-request-id'] };
@@ -455,7 +462,7 @@ describe('@Cors per route', () => {
 
   it('logs every mounted route with a @Cors policy, once per change of the mounted routes', async () => {
     const { mw, info, routes } = await routedMiddleware(GLOBAL);
-    const app = serverApp(mw, (req, res, next) => void sendReply(req, res, new RawJsonResponse(200, {})).catch(next), routes);
+    const app = await loopbackOrigin(serverApp(mw, (req, res, next) => void sendReply(req, res, new RawJsonResponse(200, {})).catch(next), routes));
     await chai.request(app).post('/api/orders').set('Origin', SHOP);
     await chai.request(app).post('/api/orders').set('Origin', SHOP);
     const logged = info.getCalls().map((c) => (c.args[0] as { route: string }).route);
@@ -471,7 +478,7 @@ describe('@Cors per route', () => {
     Object.defineProperty(mw, 'Routes', { value: routes });
     const matchAll = sinon.spy(routes, 'matchAll');
     const match = sinon.spy(routes, 'match');
-    const app = serverApp(mw, (req, res, next) => void sendReply(req, res, new RawJsonResponse(200, {})).catch(next), routes);
+    const app = await loopbackOrigin(serverApp(mw, (req, res, next) => void sendReply(req, res, new RawJsonResponse(200, {})).catch(next), routes));
     await chai.request(app).post('/plain/write').set('Origin', SHOP);
     await chai.request(app).options('/plain/write').set('Origin', SHOP).set('Access-Control-Request-Method', 'POST');
     expect(matchAll.called || match.called).to.eq(false);
