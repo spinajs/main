@@ -27,7 +27,7 @@
 
 ### Touch, `touch(session)`
 
-1. `SessionProvider.applyRenewedExpiration()` computes the new expiration of an `active` session. A `pending` session is never extended: its row keeps the expiration it was issued with, whatever `Expiration` the view carries (later, earlier, absent or not a valid `DateTime`).
+1. `SessionProvider.applyRenewedExpiration()` computes the new expiration of an `active` session. A `pending` session is never extended: its row keeps the expiration it was issued with, whatever `Expiration` the view carries (later, earlier, absent or not a valid `DateTime`). To end a pending session early, delete it (`SessionIssuer.revoke`).
 2. One `UPDATE` writes `Data`, and `Expiration` only for an `active` session, where `SessionId` matches, the stored `State` equals `session.State`, and the stored `Expiration` is `NULL` or in the future.
 3. When no row was updated, the store restores `session.Expiration` to its old value and returns `false`.
 4. Otherwise it returns `true` when the expiration changed, `false` when it stayed the same (always for a `pending` session).
