@@ -624,6 +624,12 @@ export interface IModelDescriptor {
   Columns: IColumnDescriptor[];
 
   /**
+   * Set by `Orm.reloadTableInfo()`: the table was missing and `Columns` holds the declared columns only, so a write
+   * whose column list comes from them is refused. Cleared when a read finds the table.
+   */
+  TableMissing?: boolean;
+
+  /**
    * Converters attached to fields
    */
   Converters: Map<string, IValueConverterDescriptor>;

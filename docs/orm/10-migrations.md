@@ -209,7 +209,7 @@ sequenceDiagram
 - The class name is the migration's identity: it is stored in the `Migration` column and must match `MIGRATION_FILE_REGEXP`, `<Name>_yyyy_MM_dd_HH_mm_ss`. The timestamp is the only ordering the runner has; equal timestamps fall back to the name.
 - `transaction = false` is read from the instance, the prototype or a static property.
 - Use the `OrmDriver` passed to `up()` and `down()`. Its schema builder is described in [Schema builder](09-schema-builder.md).
-- `up()` runs in the migration tool, over an `Orm` that resolved before the run. The models' columns were read at that resolve, before `up()` created or changed their tables, and are re-read only after the last `up()` of the run. Change the schema through `connection` in `up()`; model work belongs in `data()`.
+- `up()` runs in the migration tool, over an `Orm` that resolved before the run. The models' columns were read at that resolve, before `up()` created or changed their tables, and are re-read only after the last `up()` of the run. Change the schema through `connection` in `up()`; model work belongs in `data()`. A model write in `up()` to a table that did not exist when the `Orm` resolved throws (`model <Model>: table <table> ... was missing when the Orm read it ...`) and fails the migration; `connection.insert().into('<table>')` names its own columns and runs.
 - `data()` runs after the touched models were re-read and may resolve any service that injects the `Orm`, such as a users or token store.
 - Prefer the schema builder over raw SQL: raw SQL makes the run re-read every model of the connection.
 
@@ -558,7 +558,7 @@ DI.register(MaintenanceWindowMigrationService).as('maintenance-window-migrations
 
 - `Orm.resolve()` never applies a migration and never runs `data()`. With `'fail'` (the default) it refuses to boot until `migrate-up` ran; with `'warn'` or `'off'` it boots on whatever schema it finds.
 - The boot check reads the tracking tables only. An application that changed the database by hand without recording it, or a migration on a connection that is not configured, is not reported.
-- `migrate()` re-reads only the touched models. `Runner.up()` reads no table info: models of the tables it created have no reflected columns until you call `orm.reloadTableInfo()`.
+- `migrate()` re-reads only the touched models. `Runner.up()` reads no table info: models of the tables it created have no reflected columns, and their writes are refused, until you call `orm.reloadTableInfo()`.
 - A re-read model holds what its table holds after the run: a column a migration dropped or renamed leaves the model. See [Models](02-models.md#how-it-works).
 - A migration on a `db.Aliases` name whose target connection does not exist is skipped with a warning, like one on an unknown connection.
 - `data()` runs in `OrmMigrator.migrate()` (`migrate-up`), for the migrations that call applied, never with `fake` or `skipSeed`, and in `OrmMigrator.seed()` (`migrate-seed`). `Runner.up()` never calls it.

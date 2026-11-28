@@ -9,6 +9,7 @@ import { SingleRelation } from './relation-objects.js';
 import type { Relation } from './relation-objects.js';
 import { OrmException } from './exceptions.js';
 import { Subject, SubjectOperation, SubjectSet } from './subject.js';
+import { refuseWriteOfMissingTable } from './versioning.js';
 import type { IJunctionDelta, IOrphanDelta, IRelationDelta } from './subject.js';
 
 /**
@@ -130,6 +131,9 @@ export class SubjectBuilder {
       if (!descriptor) {
         continue;
       }
+
+      // before classify(): without the table's columns a changed model reads as unchanged and would be skipped
+      refuseWriteOfMissingTable(descriptor);
 
       const subject = new Subject(model, descriptor, classify(model));
 
