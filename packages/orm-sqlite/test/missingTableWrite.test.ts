@@ -3,9 +3,10 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
-import { Connection, extractModelDescriptor, Migration, Model, ModelBase, Orm, OrmDriver, OrmException, OrmMigration, Primary, QueryContext, resolveMigrationTool, Uuid } from '@spinajs/orm';
+import { Archived, Connection, extractModelDescriptor, Migration, Model, ModelBase, Orm, OrmDriver, OrmException, OrmMigration, Primary, QueryContext, resolveMigrationTool, Uuid } from '@spinajs/orm';
 import { expect } from 'chai';
 import _ from 'lodash';
+import { DateTime } from 'luxon';
 import 'mocha';
 import sinon from 'sinon';
 import '@spinajs/log';
@@ -37,6 +38,21 @@ class RDec extends ModelBase<RDec> {
 
   @Uuid()
   public Ref: string;
+
+  public Name: string;
+}
+
+@Connection('sqlite')
+@Model('r_arch')
+class RArch extends ModelBase<RArch> {
+  @Primary()
+  public Id: number;
+
+  @Uuid()
+  public Ref: string;
+
+  @Archived()
+  public ArchivedAt: DateTime;
 
   public Name: string;
 }
@@ -159,6 +175,17 @@ describe('sqlite: a write through a model whose table was missing when the Orm r
         expect(await rowsOf('s.r_dec')).to.deep.equal([{ Id: 10, Name: 'seed' }]);
       });
     }
+
+    it('refuses archive() of a fetched model instead of resolving with ArchivedAt unset', async () => {
+      await run('CREATE TABLE s.r_arch (Id INTEGER PRIMARY KEY, Ref TEXT, ArchivedAt TEXT, Name TEXT)');
+      await run("INSERT INTO s.r_arch (Id, Ref, Name) VALUES (1, 'r', 'seed')");
+      const m = await RArch.where('Id', 1).first();
+
+      const err = await rejection(m.archive());
+
+      expect((err as Error)?.message).to.match(/^model RArch: table r_arch on connection sqlite was missing when the Orm read it/);
+      expect(await sqlite().executeOnDb('SELECT ArchivedAt FROM s.r_arch', [], QueryContext.Select)).to.deep.equal([{ ArchivedAt: null }]);
+    });
 
     it('still runs a static update and a destroy: their statements name their own columns', async () => {
       const statements = await statementsDuring(async () => {

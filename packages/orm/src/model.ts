@@ -778,6 +778,7 @@ export class ModelBase<M = unknown> implements IModelBase {
     if (!this.ModelDescriptor!.Archived) {
       throw new OrmException('archived at column not exists in model');
     }
+    refuseWriteOfMissingTable(this.ModelDescriptor!);
 
     const archivedAt = this.ModelDescriptor!.Archived.ArchivedAt;
     const previous: unknown = Reflect.get(this, archivedAt);
