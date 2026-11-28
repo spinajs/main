@@ -23,6 +23,11 @@ function isDialledAsWritten(url: string): boolean {
   }
 }
 
+/** nodemailer parses only a non-empty string proxy, with url.parse() as well, and ignores every other value. */
+function isMisreadProxy(proxy: unknown): boolean {
+  return typeof proxy === 'string' && proxy !== '' && !isDialledAsWritten(proxy);
+}
+
 /** The server as logs and errors print it: scheme, host and port, never the credentials or the query of a url. */
 function loggableServer(url: string | undefined, host: unknown, port: unknown, secure: unknown): string {
   if (url !== undefined) return loggableEndpoint(url);
@@ -94,6 +99,11 @@ export class EmailSenderSmtp extends EmailSender {
     if (url !== undefined && !isDialledAsWritten(url)) {
       throw new InvalidArgument(
         `Email smtp connection ${this.Options.name} has an options.url that is not a URL: percent-encode a '/', '?', '#' or '@' in its user name, password or query (%2F, %3F, %23, %40), or set user / password`,
+      );
+    }
+    if (isMisreadProxy(_.get(options, 'proxy'))) {
+      throw new InvalidArgument(
+        `Email smtp connection ${this.Options.name} has an options.proxy that is not a URL: percent-encode a '/', '?', '#' or '@' in its user name, password or query (%2F, %3F, %23, %40)`,
       );
     }
     const host: unknown = options.host;
