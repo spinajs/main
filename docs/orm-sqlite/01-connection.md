@@ -52,7 +52,7 @@ Every `QueryContext` goes through the same mapping, `Schema` and `Transaction` i
 
 ### Table reflection
 
-`Orm.reloadTableInfo()` calls `tableInfo(name, schema?)` for every model on this connection, with the connection's `Database` as `schema`, so a model reflects the table of the database its queries address. `tableInfo`, `tableIndexes` and `tableForeignKeys` read a given `schema` through the qualified pragmas (`` PRAGMA "<schema>".table_info("<table>") `` and the same for `index_list`, `index_info` and `foreign_key_list`) and read the unqualified table without one. A `schema` that is not attached reads as holding no table: attach it, then call `reloadTableInfo()`. `tableInfo` returns `null` when the table does not exist, otherwise one `IColumnDescriptor` per column:
+`Orm.reloadTableInfo()` calls `tableInfo(name, schema?)` for every model on this connection, with the connection's `Database` as `schema`, so a model reflects the table of the database its queries address. `tableInfo`, `tableIndexes` and `tableForeignKeys` read a given `schema` through the qualified pragmas (`` PRAGMA "<schema>".table_info("<table>") `` and the same for `index_list`, `index_info` and `foreign_key_list`) and read the unqualified table without one. A `schema` that is not attached reads as holding no table: attach it, then call `reloadTableInfo()`. `schema().tableExists(name, schema)` reads `` `<schema>`.sqlite_master `` by the same rules, and `tableExists(name)` reads the unqualified `sqlite_master` of `main`, whatever the connection's `Database`, where an unqualified `CREATE TABLE` puts the table. `tableInfo` returns `null` when the table does not exist, otherwise one `IColumnDescriptor` per column:
 
 | Field | Source |
 | --- | --- |
