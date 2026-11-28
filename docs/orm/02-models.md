@@ -75,7 +75,7 @@ sequenceDiagram
 | `SoftDelete` | `IModelSoftDeleteDescriptor` | `@SoftDelete()` | `DeletedAt` property name, `''` when unset. |
 | `Archived` | `IModelArchivedDescriptor` | `@Archived()` | `ArchivedAt` property name, `''` when unset. |
 | `Columns` | `IColumnDescriptor[]` | `Orm.reloadTableInfo()`, `@Ignore()`, `@Uuid()` | Table columns. |
-| `TableMissing` | `boolean` (optional) | `Orm.reloadTableInfo()` | `true` when the last read found no table and `Columns` holds the declared columns only: `insert`, `update()`, `insertOrUpdate()` and `save()` of the model throw until a read finds the table. |
+| `TableMissing` | `boolean` (optional) | `Orm.reloadTableInfo()` | `true` when the last read found no table and `Columns` holds the declared columns only: `insert`, `update()`, `insertOrUpdate()`, `save()` and `archive()` of the model, and the junction writes of a junction model, throw until a read finds the table. |
 | `Converters` | `Map<string, IValueConverterDescriptor>` | converter decorators | Converter class and options per property. See [Converters and hydration](04-converters-and-hydration.md). |
 | `Relations` | `Map<string, IRelationDescriptor>` | relation decorators | See [Relations](06-relations.md). |
 | `JunctionModelProperties` | `IJunctionProperty[]` | `@JunctionTable()` | Properties that receive the junction row of a many-to-many relation. |
