@@ -11,11 +11,11 @@ Boot, when `DefaultQueueService` from `@spinajs/queue` resolves:
    1. it reads `app.name` (default `'no-app'`) and `process.env.APP_ENV` (default `'development'`) from `Configuration`, or throws `InvalidOperation` when there is no `Configuration`;
    2. it calls `new StompQueueClient({ ...entry, clientId: entry.clientId ?? '<app.name>-<APP_ENV>-<entry.name>' })`;
    3. it awaits `client.resolve()` and returns the client.
-3. `StompQueueClient.resolve()` rejects with `InvalidArgument` when `host` is empty, or, unless `options.webSocketFactory` is set, when `ws` cannot open it: not a URL, a scheme other than `ws:`, `wss:`, `http:`, `https:` or `ws+unix:`, a `#fragment`, or a `ws+unix:` URL without a socket path. Otherwise it builds the `stompjs` `Client` through `createClient(config)`:
+3. `StompQueueClient.resolve()` rejects with `InvalidArgument` when `host` is empty, or, unless `options.webSocketFactory` is a function, when `ws` cannot open it: not a URL, a scheme other than `ws:`, `wss:`, `http:`, `https:` or `ws+unix:`, a `#fragment`, or a `ws+unix:` URL without a socket path. Otherwise it builds the `stompjs` `Client` through `createClient(config)`:
    - `brokerURL` is `host`; `connectHeaders` carry `login`, `passcode` (from `password`) and `client-id`;
    - `reconnectDelay`, `heartbeatIncoming`, `heartbeatOutgoing` and `connectionTimeout` come from the entry or their defaults;
-   - `webSocketFactory` calls `createWebSocket()`, which opens `new WebSocket(host, <STOMP protocol versions>)` from `ws`;
-   - every key of `entry.options` is spread last and overrides the values above.
+   - every key of `entry.options` is spread over the values above;
+   - `webSocketFactory` comes after that spread. It calls `options.webSocketFactory` when that is a function, else `createWebSocket()`, which opens `new WebSocket(host, <STOMP protocol versions>)` from `ws`. Any other value of `options.webSocketFactory`, `null` included, counts as unset. A throw from either, or a value that is not a socket, is caught; see "Important behaviour".
 4. It sets `client.debug` to log `stompjs` output at `trace`, or at `debug` when `entry.debug` is `true`.
 5. When `entry.credentialProvider` is set, it installs `beforeConnect`, which asks the [credential provider](04-credential-providers.md) for fresh credentials before every connect. A provider that fails before the first connect deactivates the client and rejects `resolve()` with `UnexpectedServerError`; after it, the reconnect goes ahead with the previous credentials.
 6. It installs `onConnect`, `onStompError`, `onWebSocketError`, `onWebSocketClose`, `onDisconnect` and `onUnhandledMessage`, then calls `client.activate()`.
@@ -75,7 +75,7 @@ Each entry of `queue.connections` that uses this transport:
 | `queue.connections[].defaultQueueChannel` | `string` | `undefined` | STOMP destination | Channel for jobs with no `queue.routing` entry. |
 | `queue.connections[].defaultTopicChannel` | `string` | `undefined` | STOMP destination | Channel for events with no `queue.routing` entry. |
 | `queue.connections[].defaultQueueDeadLetterChannel` | `string` | `undefined` | STOMP destination | Dead-letter channel when the route has none. |
-| `queue.connections[].options` | `object` | `{}` | any `stompjs` `StompConfig` key, plus the keys below | Spread last into the `stompjs` config, so it overrides every value above. |
+| `queue.connections[].options` | `object` | `{}` | any `stompjs` `StompConfig` key, plus the keys below | Spread into the `stompjs` config, so it overrides every value above. A `webSocketFactory` function is wrapped, not replaced; see step 3. |
 | `queue.connections[].options.emitRetries` | `number` | `3` | `>= 0` | Publish retries after the first attempt; see [Publishing](02-publishing-messages.md). |
 | `queue.connections[].options.emitReconnectTimeout` | `number` (ms) | `60000` | `> 0` | How long a publish attempt that finds the connection down waits for the reconnect; see [Publishing](02-publishing-messages.md). |
 | `queue.connections[].options.prefetch` | `number` or numeric string | `1` | integer `>= 1` | `activemq.prefetchSize` of every subscription on the connection; see [Consuming](03-consuming-retries-and-dead-letters.md). Any other value rejects `resolve()` with `InvalidArgument`. |
@@ -129,7 +129,7 @@ export default {
 
 ### WebSocket: TLS and handshake options without a subclass
 
-`options` is spread into the `stompjs` config last, so `options.webSocketFactory` replaces `createWebSocket()`. Config files are code, so a factory can live there. Use a subclass instead when several connections need it; see [Extending the STOMP client](06-extending-the-stomp-client.md#websocket-custom-tls-and-handshake-headers).
+An `options.webSocketFactory` function is called in place of `createWebSocket()`. Config files are code, so a factory can live there. Use a subclass instead when several connections need it; see [Extending the STOMP client](06-extending-the-stomp-client.md#websocket-custom-tls-and-handshake-headers).
 
 ```ts sample
 import WebSocket from 'ws';
@@ -183,7 +183,10 @@ export const config = {
 - `@PerInstanceCheck()` matches instances by `name`. Two entries with the same `name` share one instance when built without the factory.
 - The shipped factory creates a new client on every resolve. `DI.get(StompQueueClient)` does not return it; get a connection with `QueueService.get(name)`.
 - A broker `ERROR` frame at boot rejects `resolve()` with the broker's message. When ActiveMQ refuses a `client-id` already in use, the error says to give each replica a unique `QUEUE_INSTANCE_ID` or `options.clientIdSuffix`. A websocket failure at boot rejects with the `ws` reason and code (`ECONNREFUSED`, `ECONNRESET`, or a connection timeout); the error's cause is an `Error` with that `name`, message and `code`, not the socket event. The cause of an `ERROR`-frame rejection is an `Error` with the broker's message and the frame's text in `body`.
-- An entry without `host`, a `host` that `ws` cannot open (see step 3; the error names the broker without its userinfo, query or fragment, and nothing is dialled), an invalid `options.prefetch`, or a credential provider that throws or is not registered at boot, rejects `resolve()`. A `createWebSocket()` override that throws still runs inside the un-awaited `stompjs` connect loop: the error is an unhandled promise rejection and `resolve()` never settles.
+- An entry without `host`, a `host` that `ws` cannot open (see step 3; the error names the broker without its userinfo, query or fragment, and nothing is dialled), an invalid `options.prefetch`, or a credential provider that throws or is not registered at boot, rejects `resolve()`.
+- A websocket factory that throws or does not return a socket (it returns nothing, a non-socket or a promise: an `async` factory is not supported), either an `options.webSocketFactory` or a `createWebSocket()` override, rejects `resolve()` at once before the first connect. The error is `InvalidArgument("Queue connection <name> cannot open a websocket to <broker>: <reason>")`, and the broker's userinfo, query and secret path parts are masked in the reason too. A throw on a later reconnect is logged at `error` the same way, and the client tries again after `reconnectDelay`.
+- `stompjs` arms its `connectionTimeout` watcher before it opens each socket, and its `deactivate()` does not clear it. After a first connect that failed (a factory that throws, a refused connection), the watcher stays alive for up to `connectionTimeout` ms, after `dispose()` too. A process that ends after a failed boot exits up to that much later. A host refused in step 3 creates no client, so it leaves nothing behind.
+- An `options.beforeConnect` (without a `credentialProvider`) that throws or rejects still runs inside the un-awaited `stompjs` connect loop: the error is an unhandled promise rejection and `resolve()` never settles. Catch inside it, or use a [credential provider](04-credential-providers.md).
 - `stompjs` frames log at `trace` with the `client-id` and connection name; `debug: true` lifts them to `debug` so they show under a typical logger config.
 
 ## Best practices

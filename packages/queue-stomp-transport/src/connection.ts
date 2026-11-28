@@ -75,6 +75,37 @@ function unopenableHost(host: string): string | undefined {
   return undefined;
 }
 
+/** Why stompjs cannot drive what a websocket factory returned, or `undefined` when it can. */
+function notASocket(value: unknown): string | undefined {
+  if (typeof value !== 'object' || value === null) return 'the websocket factory returned no socket';
+  if ('then' in value && typeof value.then === 'function') return 'the websocket factory returned a promise; it must return the socket itself';
+  if (!('close' in value) || typeof value.close !== 'function' || !('send' in value) || typeof value.send !== 'function') return 'the websocket factory returned an object that is not a websocket';
+  return undefined;
+}
+
+function isSocket(value: unknown): value is Stomp.IStompSocket {
+  return notASocket(value) === undefined;
+}
+
+/** Stands in for a socket the factory could not create: stompjs sees it close, and reconnects while it is active. */
+function closedSocket(): Stomp.IStompSocket {
+  const socket: Stomp.IStompSocket = {
+    binaryType: 'arraybuffer',
+    readyState: Stomp.StompSocketState.CLOSED,
+    onclose: null,
+    onerror: null,
+    onmessage: null,
+    onopen: null,
+    close: () => undefined,
+    send: () => undefined,
+  };
+  // stompjs installs its handlers after the factory returns
+  setImmediate(() => {
+    socket.onclose?.({ code: 1006, reason: 'the websocket could not be created' });
+  });
+  return socket;
+}
+
 // stompjs prints every frame it sends, the CONNECT frame with its passcode header too. Not `.*$`: `.` stops at a CR,
 // U+2028 or U+2029, which an unescaped CONNECT header can carry.
 const PASSCODE_HEADER = /^passcode:[^\n]*/gm;
@@ -152,7 +183,7 @@ interface IStompTransportOptions {
   emitRetries?: number;
   prefetch?: unknown;
   virtualTopics?: unknown;
-  webSocketFactory?: unknown;
+  webSocketFactory?: (() => Stomp.IStompSocket) | null;
 }
 
 interface IReadyWaiter {
@@ -309,14 +340,15 @@ export class StompQueueClient extends QueueClient {
   }
 
   public async resolve() {
-    // createWebSocket() runs inside stompjs's un-awaited connect loop, where a throw would be
-    // an unhandled rejection and leave this promise pending
+    // refused before a stompjs client exists: once activate() has run, stompjs's connection watcher stays armed
+    // after a failed first connect, because its deactivate() does not clear it
     const host = this.Options.host;
     if (!host) {
       throw new InvalidArgument(`Queue connection ${this.Options.name} has no host configured`);
     }
 
-    const unopenable = this.TransportOptions?.webSocketFactory === undefined ? unopenableHost(host) : undefined;
+    const appFactory = this.TransportOptions?.webSocketFactory;
+    const unopenable = typeof appFactory === 'function' ? undefined : unopenableHost(host);
     if (unopenable) {
       throw new InvalidArgument(`Queue connection ${this.Options.name} cannot open a websocket to ${loggableEndpoint(host)}: ${unopenable}`);
     }
@@ -326,6 +358,8 @@ export class StompQueueClient extends QueueClient {
 
     const broker = loggableEndpoint(host);
     this.Log.info({ host: broker, clientId: this.ClientId }, 'Connecting to STOMP queue at ${host} with client-id: ${clientId} ...');
+
+    let socketFailed: (err: unknown) => void;
 
     this.Client = this.createClient({
       brokerURL: host,
@@ -339,14 +373,43 @@ export class StompQueueClient extends QueueClient {
       heartbeatOutgoing: this.Options.heartbeatOutgoing ?? DEFAULT_HEARTBEAT_MS,
       connectionTimeout: this.Options.connectionTimeout ?? DEFAULT_CONNECTION_TIMEOUT_MS,
 
+      // additional options ( may override any of the defaults above )
+      ...this.Options.options,
+
       // `ws` instead of the `websocket` package's W3C shim: the shim swallows the
       // connect-failure reason ( ECONNREFUSED / ETIMEDOUT / 401 / TLS ) and hands stompjs an
       // event whose `target` walks into the TLSSocket, so nothing about WHY a connection
       // failed ever reached the log. `ws` surfaces the real Error in `ErrorEvent.error`.
-      webSocketFactory: () => this.createWebSocket(),
+      // After the spread, so that an application's options.webSocketFactory is wrapped too: the factory runs inside
+      // stompjs's un-awaited connect loop, where a throw is an unhandled rejection with no socket close, so resolve()
+      // would never settle and no reconnect would be scheduled.
+      webSocketFactory: () => {
+        let socket: unknown;
+        try {
+          // stompjs calls an application's factory with its client as `this`
+          socket = typeof appFactory === 'function' ? appFactory.call(this.Client) : this.createWebSocket();
+        } catch (err) {
+          socketFailed(err);
+          return closedSocket();
+        }
+        if (isSocket(socket)) return socket;
 
-      // additional options ( may override any of the defaults above )
-      ...this.Options.options,
+        // an async factory: its rejection would be unhandled, and a socket it resolves to late would stay open
+        if (socket instanceof Promise) {
+          socket
+            .then((late: unknown) => {
+              if (isSocket(late)) {
+                // `ws` reports closing a socket that is still connecting as an error event: unheard, it is an uncaught exception
+                late.onerror = () => undefined;
+                late.close();
+              }
+              return undefined;
+            })
+            .catch(() => undefined);
+        }
+        socketFailed(new Error(notASocket(socket)));
+        return closedSocket();
+      },
     });
 
     // stompjs is chatty; keep it at trace unless the connection asks for debug output
@@ -378,6 +441,18 @@ export class StompQueueClient extends QueueClient {
       // ensures we settle the initial-connect promise exactly once, and that a
       // broker / websocket error only rejects BEFORE the first successful connect
       let settled = false;
+
+      socketFailed = (err) => {
+        const reason = loggableReason(err, host);
+        if (!settled) {
+          settled = true;
+          void this.Client.deactivate();
+          reject(new InvalidArgument(`Queue connection ${this.Options.name} cannot open a websocket to ${broker}: ${reason}`));
+          return;
+        }
+
+        this.Log.error({ broker, reason, clientId: this.ClientId }, 'Cannot open a websocket to ${broker}: ${reason}, client-id: ${clientId} ( will auto-reconnect if active )');
+      };
 
       // if a credential provider is configured, refresh credentials right before
       // every ( re )connect - supports rotating secrets / token based auth
