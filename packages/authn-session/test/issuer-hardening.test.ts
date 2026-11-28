@@ -7,7 +7,7 @@ import { SessionIssuer } from '@spinajs/authn/contracts';
 import { AUTHN_SESSION_CONFIGURATION_SCHEMA } from '../src/schema.js';
 import type { AuthnFacts, IdentityRef, SessionHandle } from '@spinajs/authn/contracts';
 import { FakeClock } from '@spinajs/authn-testing';
-import { DefaultSessionIssuer, MemorySessionStore, SESSION_PENDING_STEPS_KEY } from '../src/index.js';
+import { DefaultSessionIssuer, MemorySessionStore, SESSION_PENDING_STEPS_KEY, UserSession } from '../src/index.js';
 import type { ISession } from '../src/index.js';
 import shipped from '../src/config/session.js';
 import { uncacheOwned, withSessionConfig } from './support.js';
@@ -150,6 +150,19 @@ describe('DefaultSessionIssuer hardening', () => {
       }
       c.tick(6_000);
       expect(await issuer.restore(pd.id)).to.be.null;
+    });
+
+    it('SR-07 a store touch with an active view leaves the session pending for the issuer', async () => {
+      const { issuer, store } = await setup();
+      const pd = await issuer.issue(alice, facts(), { pending: { steps: ['totp'] } });
+      const row = rowOf(store, pd)!;
+
+      const forged = new UserSession({ SessionId: row.SessionId, Subject: row.Subject, State: 'active', Expiration: row.Expiration, Data: new Map(row.Data) });
+      const touched = await store.touch(forged);
+
+      expect((await issuer.restore(pd.id))!.handle.state).to.equal('pending');
+      expect(await issuer.list(alice)).to.deep.equal([]);
+      expect(touched).to.equal(false);
     });
   });
 

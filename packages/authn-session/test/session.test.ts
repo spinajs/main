@@ -56,4 +56,67 @@ describe('Session provider tests', () => {
     expect(rows().has('k-live')).to.equal(true);
     expect(await store.listBySubject(alice)).to.have.length(257);
   });
+
+  describe('touch of a view that is not the stored object', () => {
+    const carol = { type: 'user', id: 'carol' } as const;
+    const mallory = { type: 'user', id: 'mallory' } as const;
+
+    it('touch with an active view never activates a row stored as pending', async () => {
+      const store = await DI.resolve(MemorySessionStore);
+      await store.truncate();
+      const fixed = DateTime.now().plus({ minutes: 5 });
+      await store.save(new UserSession({ SessionId: 'k-pending', Subject: alice, State: 'pending', Expiration: fixed }));
+
+      const view = new UserSession({ SessionId: 'k-pending', Subject: alice, State: 'active', Expiration: fixed });
+      expect(await store.touch(view)).to.equal(false);
+
+      const after = (await store.restore('k-pending'))!;
+      expect(after.State, 'a pre-MFA session must never become active through touch (SR-07)').to.equal('pending');
+      expect(after.Expiration!.toMillis()).to.equal(fixed.toMillis());
+    });
+
+    it('touch keeps the stored Subject and Impersonator', async () => {
+      const store = await DI.resolve(MemorySessionStore);
+      await store.truncate();
+      const creation = DateTime.now().minus({ minutes: 1 });
+      await store.save(new UserSession({ SessionId: 'k-identity', Subject: alice, Impersonator: carol, State: 'active', Creation: creation, ExternalKey: 'ext-1' }));
+
+      await store.touch(new UserSession({ SessionId: 'k-identity', Subject: mallory, State: 'active', ExternalKey: 'ext-2' }));
+
+      const after = (await store.restore('k-identity'))!;
+      expect(after.Subject).to.deep.equal(alice);
+      expect(after.Impersonator).to.deep.equal(carol);
+      expect(after.Creation.toMillis()).to.equal(creation.toMillis());
+      expect(after.ExternalKey).to.equal('ext-1');
+    });
+
+    it('touch of a view in the stored State writes its Data and the renewed Expiration', async () => {
+      const store = await DI.resolve(MemorySessionStore);
+      await store.truncate();
+      const soon = DateTime.now().plus({ minutes: 1 });
+      await store.save(new UserSession({ SessionId: 'k-write', Subject: alice, State: 'active', Expiration: soon }));
+
+      const view = new UserSession({ SessionId: 'k-write', Subject: alice, State: 'active', Expiration: soon });
+      view.Data.set('Ip', '203.0.113.7');
+      expect(await store.touch(view)).to.equal(true);
+
+      const after = (await store.restore('k-write'))!;
+      expect(after.Data.get('Ip')).to.equal('203.0.113.7');
+      expect(after.Expiration!.toMillis()).to.equal(view.Expiration!.toMillis());
+      expect(after.Expiration!.toMillis()).to.be.greaterThan(soon.toMillis());
+    });
+
+    it('touch never stores the view object: a later change to the view does not reach the row', async () => {
+      const store = await DI.resolve(MemorySessionStore);
+      await store.truncate();
+      const fixed = DateTime.now().plus({ minutes: 5 });
+      await store.save(new UserSession({ SessionId: 'k-view', Subject: alice, State: 'pending', Expiration: fixed }));
+
+      const view = new UserSession({ SessionId: 'k-view', Subject: alice, State: 'pending', Expiration: fixed });
+      await store.touch(view);
+      view.State = 'active';
+
+      expect((await store.restore('k-view'))!.State).to.equal('pending');
+    });
+  });
 });
