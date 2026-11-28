@@ -1,5 +1,5 @@
 import { resourceKey } from '@spinajs/authz';
-import type { ResourceRef } from '@spinajs/authz';
+import type { ResourceRef, ResourceType } from '@spinajs/authz';
 import type { OrmDriver } from '@spinajs/orm';
 
 import { idLookup, idText, tableOf } from '../ids.js';
@@ -108,23 +108,29 @@ export async function readChildrenNaming(driver: OrmDriver, refs: readonly Resou
       const read = new Set<string>();
       // spinajs-orm-ignore ORM102: one whereIn query per class table and parent column that names the type
       for (const cls of classesOf(childType)) {
-        const entry = entryOf(cls);
-        if (entry === undefined) continue;
-        for (const column of new Set(entry.parents.filter((p) => p.type === type).map((p) => p.column))) {
-          const at = `${tableOf(cls)}.${column}`;
-          if (read.has(at)) continue;
-          read.add(at);
-          for (const id of await readIdsWhere(driver, cls, entry.idColumn, column, ids)) out.set(resourceKey({ type: childType, id }), { type: childType, id });
-        }
+        for (const id of await readChildIds(driver, cls, type, ids, read)) out.set(resourceKey({ type: childType, id }), { type: childType, id });
       }
     }
   }
   return [...out.values()];
 }
 
-async function readIdsWhere(driver: OrmDriver, cls: ModelClass, idColumn: string, column: string, ids: readonly string[]): Promise<string[]> {
-  const values = ids.map((id) => idLookup(cls, column, id)).filter((v) => v !== undefined);
-  if (values.length === 0) return [];
-  const rows = (await driver.select().from(tableOf(cls)).columns([idColumn]).whereIn(column, values)) as Record<string, unknown>[];
-  return rows.map((row) => idText(row[idColumn])).filter((id) => id !== undefined);
+/** The ids of the rows of `cls` whose `@Parent` columns of `type` name one of `ids`; a table column in `read` is not read again. */
+async function readChildIds(driver: OrmDriver, cls: ModelClass, type: ResourceType, ids: readonly string[], read: Set<string>): Promise<string[]> {
+  const entry = entryOf(cls);
+  if (entry === undefined) return [];
+  const found: string[] = [];
+  // spinajs-orm-ignore ORM102: one whereIn query per parent column that names the type
+  for (const column of new Set(entry.parents.filter((p) => p.type === type).map((p) => p.column))) {
+    const at = `${tableOf(cls)}.${column}`;
+    const values = ids.map((id) => idLookup(cls, column, id)).filter((v) => v !== undefined);
+    if (read.has(at) || values.length === 0) continue;
+    read.add(at);
+    const rows = (await driver.select().from(tableOf(cls)).columns([entry.idColumn]).whereIn(column, values)) as Record<string, unknown>[];
+    for (const row of rows) {
+      const id = idText(row[entry.idColumn]);
+      if (id !== undefined) found.push(id);
+    }
+  }
+  return found;
 }
