@@ -481,6 +481,25 @@ export class StompQueueClient extends QueueClient {
             this.Log.error({ error: err, provider: this.Options.credentialProvider, clientId: this.ClientId }, 'Credential provider ${provider} failed, reconnecting with previous credentials, client-id: ${clientId}');
           }
         };
+      } else {
+        // an options.beforeConnect lands here through the spread; the config's value can be anything, stompjs calls it blindly
+        const appHook: (() => void | Promise<void>) | null | undefined = this.Client.beforeConnect;
+        this.Client.beforeConnect = async () => {
+          try {
+            if (typeof appHook === 'function') await appHook.call(this.Client);
+          } catch (err) {
+            // the same un-awaited connect loop as the credential provider's: a throw would hang resolve() and print raw
+            const reason = loggableReason(err, host);
+            if (!settled) {
+              settled = true;
+              void this.Client.deactivate();
+              reject(new InvalidArgument(`Queue connection ${this.Options.name}: options.beforeConnect failed: ${reason}`));
+              return;
+            }
+
+            this.Log.error({ reason, clientId: this.ClientId }, 'options.beforeConnect failed: ${reason}, client-id: ${clientId} ( connecting anyway )');
+          }
+        };
       }
 
       // onConnect fires on EVERY ( re )connect - this is where we replay
