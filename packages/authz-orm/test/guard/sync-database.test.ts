@@ -8,7 +8,7 @@ import { RecordingAudit, testHost } from '@spinajs/authz-testing';
 import { DI } from '@spinajs/di';
 import { Log } from '@spinajs/log-common';
 import { DeleteQueryBuilder, HasMany, ModelBase, QueryMiddleware, Relation, SelectQueryBuilder } from '@spinajs/orm';
-import type { ICompilerOutput, QueryBuilder } from '@spinajs/orm';
+import type { QueryBuilder } from '@spinajs/orm';
 
 import { AccessResource, PlanTermCompiler } from '../../src/index.js';
 import { TestDb } from '../support/db.js';
@@ -102,7 +102,7 @@ describe('authz-orm guard: a sync() statement that names a database', function (
       afterQueryCreation(): void {}
       beforeQueryExecution(): void {}
       afterQueryExecution(query: QueryBuilder): void {
-        if (query.Model === target && (query instanceof SelectQueryBuilder || query instanceof DeleteQueryBuilder)) executed.push((query.toDB() as ICompilerOutput).expression ?? '');
+        if (query.Model === target && (query instanceof SelectQueryBuilder || query instanceof DeleteQueryBuilder)) executed.push(query.toDB().expression ?? '');
       }
     }
     DI.register(SqlRecorder).as(QueryMiddleware);
