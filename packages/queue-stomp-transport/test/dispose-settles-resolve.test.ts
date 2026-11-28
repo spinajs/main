@@ -213,7 +213,7 @@ describe('stomp transport - dispose() settles resolve()', function () {
         beforeConnect: () => {
           hookCalls++;
           if (hookCalls === 1) return undefined;
-          return new Promise<void>((_, reject) => {
+          return new Promise<void>((_resolve, reject) => {
             fail = () => reject(new Error('the token service is down'));
           });
         },
