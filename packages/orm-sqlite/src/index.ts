@@ -653,7 +653,7 @@ export class SqliteOrmDriver extends SqlDriver {
     return super.execute(builder);
   }
 
-  // A qualified `sqlite_master` of a database that is not attached fails with "unknown database"; `tableInfo()` reads it as holding no table.
+  // `<schema>.sqlite_master` of a database that is not attached fails with "no such table"; `tableInfo()` reads such a schema as holding no table.
   private async tableExistsIfAttached(builder: TableExistsQueryBuilder): Promise<unknown> {
     return (await this.isAttached(builder.Database)) ? super.execute(builder) : [];
   }
