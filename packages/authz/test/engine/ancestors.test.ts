@@ -136,6 +136,12 @@ describe('Authorizer: the per-ref ancestors read is bounded by modelTimeoutMs', 
     expect(unhandled).to.deep.equal([]);
   });
 
+  it('a read that rejects in time throws the adapter error, not the timeout', async () => {
+    const r = await race(make(new SlowAncestors(() => Promise.reject(new Error('ancestor store down')))).check({ principal: alice, permission: 'doc:read', resource: D1 }));
+    expect(r.kind).to.equal('error');
+    if (r.kind === 'error') expect(r.error).to.be.instanceOf(Error).with.property('message', 'ancestor store down');
+  });
+
   it('a read that settles in time answers as before and leaves no timer behind', async () => {
     const a = make(new SlowAncestors((_, list) => Promise.resolve(list)), 60_000);
     // A first check starts one long-lived timer outside the read path; count after it.
