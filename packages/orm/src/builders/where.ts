@@ -25,6 +25,10 @@ function isBetweenOperator(lowerCaseOperator: string): boolean {
   return lowerCaseOperator === String(SqlOperator.BETWEEN) || lowerCaseOperator === String(SqlOperator.NOT_BETWEEN);
 }
 
+function isInOperator(lowerCaseOperator: string): boolean {
+  return lowerCaseOperator === String(SqlOperator.IN) || lowerCaseOperator === String(SqlOperator.NOT_IN);
+}
+
 /** A RawQuery bound would be bound as an object: the statement emits a plain `?` for each member. */
 function isRangePair(value: unknown): boolean {
   return Array.isArray(value) && value.length === 2 && value.every((x) => x !== null && x !== undefined && !Number.isNaN(x) && !(x instanceof RawQuery));
@@ -289,6 +293,10 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
         throw new InvalidArgument(`operator ${o} cannot be used with null value ( only =, !=, <> are allowed )`);
       }
 
+      if (isInOperator(op) && !(sVal instanceof RawQuery)) {
+        return _handleIn(c, o, op === String(SqlOperator.NOT_IN), sVal);
+      }
+
       if (isBetweenOperator(op) && !(sVal instanceof RawQuery) && !isRangePair(sVal)) {
         throw new InvalidArgument(`operator ${o} takes a RawQuery or an array of exactly two values, none of them null, undefined, NaN or a RawQuery`);
       }
@@ -296,6 +304,15 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
       self.pushStatement(self._container.resolve<WhereStatement>(WhereStatement, [c, o, sVal, self]));
 
       return self;
+    }
+
+    /** A WhereStatement would bind the whole list as one parameter. */
+    function _handleIn(c: string | Wrap, o: string, not: boolean, v: unknown) {
+      if (!Array.isArray(v) && !isSelectQuery(v)) {
+        throw new InvalidArgument(`operator ${o} takes an array, a sub-query or a RawQuery`);
+      }
+
+      return not ? self.whereNotIn(c, v) : self.whereIn(c, v);
     }
   }
 
