@@ -44,8 +44,9 @@ sequenceDiagram
 
 - `executeOnDb()` retries reads and writes. A retry happens only on a transport failure, where the statement never reached the server.
 - `isRetryableError()` returns `false` inside a transaction: replaying one statement on a new connection would apply it outside the transaction.
-- Outside a transaction it returns `true` for the shared codes of `isRetryableErrorCode()` from `@spinajs/orm`: `ECONNRESET`, `ECONNREFUSED`, `EPIPE`, `ETIMEDOUT`, `EHOSTUNREACH`, `ENETUNREACH`, `ENOTFOUND`, `PROTOCOL_CONNECTION_LOST`, `PROTOCOL_SEQUENCE_TIMEOUT`, `PROTOCOL_ENQUEUE_AFTER_FATAL_ERROR`, `PROTOCOL_ENQUEUE_AFTER_QUIT`, `ER_CON_COUNT_ERROR`, `ER_LOCK_WAIT_TIMEOUT`.
+- Outside a transaction it returns `true` for the shared codes of `isRetryableErrorCode()` from `@spinajs/orm`: `ECONNRESET`, `ECONNREFUSED`, `EPIPE`, `ETIMEDOUT`, `EHOSTUNREACH`, `ENETUNREACH`, `ENOTFOUND`, `PROTOCOL_CONNECTION_LOST`, `PROTOCOL_SEQUENCE_TIMEOUT`, `PROTOCOL_ENQUEUE_AFTER_FATAL_ERROR`, `PROTOCOL_ENQUEUE_AFTER_QUIT`, `ER_CON_COUNT_ERROR`.
 - It also returns `true` for any error whose `fatal` flag is `true`. `mysql2` marks connection-level failures fatal. The `inner` / `cause` chain is walked up to 5 levels.
+- A lock wait timeout (`ER_LOCK_WAIT_TIMEOUT`, 1205) and a deadlock (`ER_LOCK_DEADLOCK`, 1213) are server answers, not transport failures. `executeOnDb()` rejects on the first attempt: a lock wait after one `innodb_lock_wait_timeout`, a deadlock as soon as InnoDB detects it. It does not reconnect, and the pool keeps its connections and their session settings.
 - Between attempts `withReconnect()` waits `RetryDelay * 2^attempt` ms (capped at `MaxRetryDelay`) and calls `connect()`. See [Observability and resilience](../orm/13-observability-and-resilience.md).
 
 ### Errors

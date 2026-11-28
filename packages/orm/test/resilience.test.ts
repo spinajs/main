@@ -3,7 +3,7 @@ import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 import 'mocha';
 import * as sinon from 'sinon';
-import { backoffDelay, ConnectionState } from '../src/resilience.js';
+import { backoffDelay, ConnectionState, isRetryableErrorCode } from '../src/resilience.js';
 import { OrmDriver } from '../src/driver.js';
 import { IColumnDescriptor, ISupportedFeature, ITransactionContext, ITransactionOptions } from '../src/interfaces.js';
 import { Builder } from '../src/builders.js';
@@ -161,6 +161,28 @@ describe('connection resilience', () => {
     await d.run();
 
     expect(d.states).to.include(ConnectionState.Degraded);
+    expect(d.State).to.equal(ConnectionState.Connected);
+  });
+
+  it('treats a lock wait timeout as a statement error, and a lost or reset connection as a transport failure', () => {
+    expect(isRetryableErrorCode({ code: 'ER_LOCK_WAIT_TIMEOUT', errno: 1205 })).to.equal(false);
+    expect(isRetryableErrorCode({ inner: { code: 'ER_LOCK_WAIT_TIMEOUT', errno: 1205 } })).to.equal(false);
+    expect(isRetryableErrorCode({ code: 'ECONNRESET' })).to.equal(true);
+    expect(isRetryableErrorCode({ inner: { code: 'PROTOCOL_CONNECTION_LOST' } })).to.equal(true);
+  });
+
+  it('surfaces a lock wait timeout on the first attempt without reconnecting or leaving Connected', async () => {
+    const d = driver();
+    await d.run();
+    d.attempts = 0;
+    d.states = [];
+    d.failTimes = 99;
+    d.failCode = 'ER_LOCK_WAIT_TIMEOUT';
+
+    await expect(d.run()).to.be.rejectedWith('transport down');
+    expect(d.attempts).to.equal(1);
+    expect(d.connectCalls).to.equal(0);
+    expect(d.states).to.deep.equal([]);
     expect(d.State).to.equal(ConnectionState.Connected);
   });
 

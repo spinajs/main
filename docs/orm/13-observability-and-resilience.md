@@ -240,7 +240,7 @@ db: {
 | `OrmDriver.publishPoolMetrics()` | Sets the four gauges. Never throws. | Base implementation, run on every probe tick | Call it yourself when the probe is disabled. |
 | `OrmDriver.isRetryableError(err)` (protected) | Decides whether the retry loop retries. | `isRetryableErrorCode(err)` | Override in a driver subclass to add dialect codes. MySQL and Postgres return `false` inside a transaction. |
 | `isRetryableErrorCode(err)` | Walks `err` and its `inner` / `cause` chain (5 levels) for a `code` or `errno` in `RETRYABLE_ERROR_CODES`. | | Not overridden. |
-| `RETRYABLE_ERROR_CODES` | `ECONNRESET`, `ECONNREFUSED`, `EPIPE`, `ETIMEDOUT`, `EHOSTUNREACH`, `ENETUNREACH`, `ENOTFOUND`, `PROTOCOL_CONNECTION_LOST`, `PROTOCOL_SEQUENCE_TIMEOUT`, `PROTOCOL_ENQUEUE_AFTER_FATAL_ERROR`, `PROTOCOL_ENQUEUE_AFTER_QUIT`, `ER_CON_COUNT_ERROR`, `ER_LOCK_WAIT_TIMEOUT`, `SQLITE_BUSY` | | Read-only set. |
+| `RETRYABLE_ERROR_CODES` | `ECONNRESET`, `ECONNREFUSED`, `EPIPE`, `ETIMEDOUT`, `EHOSTUNREACH`, `ENETUNREACH`, `ENOTFOUND`, `PROTOCOL_CONNECTION_LOST`, `PROTOCOL_SEQUENCE_TIMEOUT`, `PROTOCOL_ENQUEUE_AFTER_FATAL_ERROR`, `PROTOCOL_ENQUEUE_AFTER_QUIT`, `ER_CON_COUNT_ERROR`, `SQLITE_BUSY` | | Read-only set. |
 | `backoffDelay(attempt, base, max)` | `min(base * 2^attempt, max)`. | | Not overridden. |
 | `delay(ms)` | Promise-based sleep. | | Not overridden. |
 
@@ -267,6 +267,7 @@ DI.register(ShopMySqlDriver).as('orm-driver-mysql');
 - Only errors matched by `isRetryableError()` are retried: codes in `RETRYABLE_ERROR_CODES`, plus driver additions (MySQL: any error flagged `fatal`; Postgres: its own code set). Any other error is thrown on the first attempt.
 - MySQL and Postgres never retry inside `transaction()`: replaying one statement on a fresh connection would apply it outside the transaction.
 - The retry loop re-runs writes too. It retries only on transport-level errors, where the driver treats the statement as not having reached the server.
+- A lock wait timeout (MySQL `ER_LOCK_WAIT_TIMEOUT`, 1205) and a deadlock (`ER_LOCK_DEADLOCK`, 1213) are not retried: the server answered the statement. The caller gets the error on the first attempt; the state, the pool and its session settings stay as they were. Retry lock contention in your own code if you need to, and retry the whole transaction after a deadlock.
 - `SQLITE_BUSY` is in `RETRYABLE_ERROR_CODES`, but `SqliteOrmDriver` does not run the retry loop, so it does not retry.
 - Pool gauges are published only on the probe tick. With `HealthCheckInterval: 0` they are never set unless code calls `publishPoolMetrics()`.
 - Gauge values are up to `HealthCheckInterval` ms old.

@@ -36,7 +36,8 @@ export interface IConnectionResilienceOptions {
  * Error codes that mean the transport died rather than the statement being wrong. Retrying a
  * statement that the server rejected only multiplies the failure, so this set is deliberately
  * narrow: connection-level Node socket errors plus the mysql2 protocol codes for a lost or
- * exhausted connection.
+ * exhausted connection. A lock wait timeout (`ER_LOCK_WAIT_TIMEOUT`) is not one: the server answered, and treating it
+ * as a lost connection replaced the pool and waited for the lock again on every retry.
  */
 export const RETRYABLE_ERROR_CODES: ReadonlySet<string> = new Set([
   'ECONNRESET',
@@ -51,7 +52,6 @@ export const RETRYABLE_ERROR_CODES: ReadonlySet<string> = new Set([
   'PROTOCOL_ENQUEUE_AFTER_FATAL_ERROR',
   'PROTOCOL_ENQUEUE_AFTER_QUIT',
   'ER_CON_COUNT_ERROR',
-  'ER_LOCK_WAIT_TIMEOUT',
   'SQLITE_BUSY',
 ]);
 
