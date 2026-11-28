@@ -62,6 +62,7 @@ describe('smtp transport - a backslash before the last @ and a url in the query 
     ['an options.url with a \\ in the password', () => ({ url: backslashUrl(server.Port) }), URL_REFUSAL],
     ['an smtps options.url with a \\ in the password', () => ({ url: `smtps://${USER}:${HEAD}\\${TAIL}@127.0.0.1:${server.Port}` }), URL_REFUSAL],
     ['an options.url with a \\ in the user name', () => ({ url: `smtp://${USER}\\x:${HEAD}@127.0.0.1:${server.Port}` }), URL_REFUSAL],
+    ['an options.url with an @ and then a \\ in the password', () => ({ url: `smtp://${USER}:${HEAD}@127.0.0.1:${server.Port}\\${TAIL}@mail.example.invalid:25` }), URL_REFUSAL],
     ['a url in the query of options.url with an unencoded / in the password', () => ({ url: nestedMisread(server.Port) }), URL_REFUSAL],
     ['a url in the query of options.url with a \\ in the password', () => ({ url: `smtp://127.0.0.1:2525/?url=${encodeURIComponent(backslashUrl(server.Port))}` }), URL_REFUSAL],
     ['a socks5 options.proxy with a \\ in the password', () => ({ proxy: backslashProxy }), PROXY_REFUSAL],
