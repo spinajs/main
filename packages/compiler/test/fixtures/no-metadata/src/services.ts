@@ -1,4 +1,4 @@
-import { AutoinjectService, Config } from '@spinajs/configuration';
+import { AutoinjectNamedService, AutoinjectNamedServices, AutoinjectService, Config } from '@spinajs/configuration';
 import { Autoinject, Injectable, LazyInject, Singleton } from '@spinajs/di';
 
 export class Db {}
@@ -84,6 +84,12 @@ export class Wrapped {
 
   @Config('app.name')
   public name: string;
+
+  @AutoinjectNamedService('app.plugin', Plugin)
+  public named: Plugin;
+
+  @AutoinjectNamedServices('app.plugins', Plugin, { lineage: true, keyBy: 'name' })
+  public namedList: Map<string, Plugin>;
 }
 
 export abstract class Base {
