@@ -91,6 +91,11 @@ const DESCRIPTOR_WRITES: Record<string, () => PromiseLike<unknown>> = {
   },
   'update(data) of a model with a key': () => new RDec({ Id: 10, Ref: 'seed', Name: 'seed' }).update({ Name: 'changed' }),
   'save()': () => new RDec({ Id: 3, Ref: 'r', Name: 'given' }).save(),
+  'save() of a fetched model': async () => {
+    const m = await RDec.where('Id', 10).first();
+    m.Name = 'changed';
+    await m.save();
+  },
 };
 
 describe('sqlite: a write through a model whose table was missing when the Orm read it', function () {
