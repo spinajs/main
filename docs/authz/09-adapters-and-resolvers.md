@@ -158,7 +158,7 @@ export class TasksContributor extends AuthzContributor {
 
 - **An adapter or resolver registered after boot is not seen.** The engine indexes them by type at boot; a type an adapter starts listing later throws until a reboot.
 - **Ancestors are the whole path.** The engine does not ask a parent for its own ancestors; return every level up to `GLOBAL`.
-- **Failures fail closed.** A throwing `ancestors()` or attribute load makes the asking model indeterminate; a load past `authz.engine.modelTimeoutMs` makes the node unknown.
+- **Failures fail closed.** A throwing `ancestors()` or attribute load makes the asking model indeterminate; an attribute load past `authz.engine.modelTimeoutMs` makes the node unknown, and an `ancestors()` read past it fails like a throwing one.
 - **Permissions of an adapter register only in the domain that registers the adapter**; child domains inherit them through the parent's registry.
 
 ## Related
