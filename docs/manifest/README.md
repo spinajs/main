@@ -81,11 +81,11 @@ With a manifest in `require` mode the boot skips: the `node_modules/@spinajs/*` 
 
 `packages/compiler/test/e2e/boot-from-manifest.test.ts` proves this on the `app-basic` fixture: it installs the compiled fixture next to only the `@spinajs` packages it depends on, boots it in `require` mode in a fresh process, and compares what it serves with an `off` boot that scans. Both boots serve the same controllers, schedules, commands, socket commands and migrations; only the order of the migrations differs (discovery lists the app's dir first, the manifest by package).
 
-The manifest holds what discovery finds. A dependency's fragment (built with `declaredDirsOnly`, as `scripts/build-fragments.mjs` does) lists a controller, socket controller, schedule, command or migration only when its file is under a `system.dirs.*` dir that the package's own config declares for that section; classes outside them are registered by importing the package (migrations, `AccessPushSocket`) or by an opt-in subpath (`@spinajs/upload/scheduler`), or are not served at all. Abstract classes are never listed.
+The manifest holds what discovery finds. A dependency's fragment (built with `declaredDirsOnly`, as `scripts/build-fragments.mjs` does) lists a controller, socket controller, schedule, command, migration or workflow only when its file is under a `system.dirs.*` dir that the package's own config declares for that section; classes outside them are registered by importing the package (migrations, `AccessPushSocket`) or by an opt-in subpath (`@spinajs/upload/scheduler`), or are not served at all. Abstract classes are never listed.
 
 ### The app's own classes
 
-`spinajs build` checks the app's controllers, socket controllers, schedules, CLI commands and migrations against the `system.dirs.*` the app runs with. A class discovery never loads is not loaded from the manifest in `prefer` or `require` either. These five are the sections discovery scans; models and queue messages have no `system.dirs` scan and stay as they are.
+`spinajs build` checks the app's controllers, socket controllers, schedules, CLI commands, migrations and workflows against the `system.dirs.*` the app runs with. A class discovery never loads is not loaded from the manifest in `prefer` or `require` either. These six are the sections discovery scans; models and queue messages have no `system.dirs` scan and stay as they are. Workflows are found by a scan of `system.dirs.workflows` in every manifest mode, so the manifest loads none and lists no `scanFiles` for them; their `mountedBy` marks what that scan does not load.
 
 1. The CLI boots `Configuration` and reads `system.dirs`. That value holds the app's config for this `APP_ENV` and the dirs `--app`, `--apppath` and `--config-path` add. An empty `system.dirs.migrations` falls back to the dirs the orm scans in that case (`defaultMigrationDirs()`).
 2. It hands them to the compiler as data (`buildAppManifest({ effectiveDirs, defaultDirs, requireAppDirs })`); the compiler never evaluates config. Each dir maps back to the sources through the `tsconfig` `outDir` and `rootDir`, so `lib/controllers` becomes `src/controllers`. A dir above the `outDir` or the `rootDir` covers all sources. A dir outside the app, such as a package's, or one with no source folder behind it, maps nothing.
@@ -94,7 +94,7 @@ The manifest holds what discovery finds. A dependency's fragment (built with `de
 | Section | What discovery serves |
 | --- | --- |
 | Controllers, CLI commands | A class a file under the dirs **exports at runtime**, wherever it is declared. A barrel, `export *` and `export const Served = X` count, with the module rules for a name collision: a local export wins over a star, and two stars with different classes export neither. A non-exported class does not count, and neither do the forms that emit nothing: `export type { X }`, `export type *`, `export { type X }`, and `export { X }` of an `import type` |
-| Schedules, socket controllers, migrations | A class in **any file that import loads**: under the dirs, or reached from there by an import that survives compilation. These register themselves as their module is evaluated, so an export is not needed. An import used only as a type is elided, and brings nothing in |
+| Schedules, socket controllers, migrations, workflows | A class in **any file that import loads**: under the dirs, or reached from there by an import that survives compilation. These register themselves as their module is evaluated, so an export is not needed. An import used only as a type is elided, and brings nothing in |
 
 File names count too, as in a scan. Every section but migrations matches `.ts` and `.js` files that are not `.d`, so a `.json` or `.mts` file under a dir is not scanned. A migrations dir also matches `.mts`, `.cts`, `.mjs` and `.cjs` files. Its file must have a name with no dot, or one ending in `.<env>` compared literally with the normalized `APP_ENV`, whatever the rest looks like: `legacy.old.ts`, `helper.util.ts` and `Foo_2026_07_29_10_00_00.test.ts` belong to environments called `old`, `util` and `test`. The environment is known only at boot, so the manifest applies that test there, to entries and scan files alike, and such a file stays out of every other environment. A migration that only a tagged file imports gets `mountedBy`, because it must not load in the others.
 
@@ -107,7 +107,7 @@ An entry with `mountedBy` keeps the class's metadata, but nothing imports the cl
 
 A scan also imports files with no class of their own, and those run: `src/controllers/register.ts` with `DI.register(X).as(BaseController)`, or `src/schedules/index.ts` with `import '../elsewhere/Task.js'`. The manifest lists them in `scanFiles`, per section, and importing a section imports them too, unless the file was not built. Only the app's own `scanFiles` count.
 
-A class in a module that does not export it, in the three sections that register on import, is recorded with `exported: false`. Any other listed class missing from its module means a stale manifest and fails with `ManifestMissing`, in all five sections: rebuild.
+A class in a module that does not export it, in the four sections that register on import, is recorded with `exported: false`. Any other listed class missing from its module means a stale manifest and fails with `ManifestMissing`, in all five sections the manifest loads: rebuild.
 
 The build does not follow `await import()`, because such a call may never run. A class only that loads gets `CMP006`, and it still runs when the call does: the entry keeps its metadata, so only the warning is wrong.
 
@@ -124,9 +124,9 @@ The build does not follow `await import()`, because such a call may never run. A
 | Case | Result |
 | --- | --- |
 | Some section's configured dirs map into the app | The config was read. A section with no dir is empty: its classes get `mountedBy`, each with `CMP006` |
-| No configured dir of any section maps into the app, and the app has at least one class in the five sections | The build stops with `CMP007`, exit code 1, and writes nothing, naming what it searched. The orm's default migration dirs do not count: they exist without any config. Usual causes: `lib/config` is not compiled, the build runs from another folder, or it lacks the `--app`, `--apppath` or `--config-path` the app runs with |
+| No configured dir of any section maps into the app, and the app has at least one class in the six sections | The build stops with `CMP007`, exit code 1, and writes nothing, naming what it searched. The orm's default migration dirs do not count: they exist without any config. Usual causes: `lib/config` is not compiled, the build runs from another folder, or it lacks the `--app`, `--apppath` or `--config-path` the app runs with |
 | The same, with `--allow-no-dirs` | For an app that really declares no dirs. The build goes on and every class except those under the default migration dirs gets `mountedBy`: nothing loads from the manifest, as nothing loads in discovery |
-| No class in the five sections | Nothing to filter, so the build goes on: a config-only app of framework packages needs no dirs |
+| No class in the six sections | Nothing to filter, so the build goes on: a config-only app of framework packages needs no dirs |
 
 **The manifest reflects the config of the build's `APP_ENV`.** A config file of another environment (`*.prod.js`) that adds a dir counts only in a build under that environment. Run `spinajs build` with the `APP_ENV` (or `--env`) and the `--app`, `--apppath` and `--config-path` of the deployment, after compiling: the CLI reads `lib/config`, not `src/config`.
 
