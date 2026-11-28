@@ -292,9 +292,9 @@ describe('stomp transport - an options.beforeConnect that throws rejects resolve
         settle();
         await pause(6 * RECONNECT_DELAY);
 
-        // dispose() before the first connect leaves resolve() pending on its own (a separate defect); here it must not connect
         const settled = await outcome;
-        expect(settled.state).to.not.equal('resolved');
+        expect({ state: settled.state, message: settled.state === 'rejected' && settled.error instanceof Error ? settled.error.message : '' }).to.deep.equal({ state: 'rejected', message: 'Queue connection stomp-before-connect was disposed before it connected' });
+        expect(client.calls.filter(([level, , template]) => level === 'error' && typeof template === 'string' && template.startsWith('options.beforeConnect failed'))).to.deep.equal([]);
         expect(client.attempts).to.equal(0);
         expect(listener.connections()).to.equal(0);
         expect(unhandled).to.have.length(0);

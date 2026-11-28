@@ -191,6 +191,11 @@ interface IReadyWaiter {
   reject: (err: unknown) => void;
 }
 
+interface IFirstConnect {
+  resolve: () => void;
+  reject: (err: Error) => void;
+}
+
 const DEFAULT_EMIT_RECONNECT_TIMEOUT_MS = 60000;
 
 @PerInstanceCheck()
@@ -204,6 +209,9 @@ export class StompQueueClient extends QueueClient {
 
   // settlers waiting for the connection to come up ( see whenReady ), rejected on dispose
   protected ReadyWaiters: IReadyWaiter[] = [];
+
+  // settles the promise resolve() returns until the first connect settles it; dispose() rejects it
+  protected FirstConnect: IFirstConnect | undefined;
 
   protected Disposing = false;
   protected PrefetchSize = DEFAULT_PREFETCH;
@@ -441,16 +449,30 @@ export class StompQueueClient extends QueueClient {
       // ensures we settle the initial-connect promise exactly once, and that a
       // broker / websocket error only rejects BEFORE the first successful connect
       let settled = false;
+      const first: IFirstConnect = {
+        resolve: () => {
+          settled = true;
+          if (this.FirstConnect === first) this.FirstConnect = undefined;
+          resolve();
+        },
+        reject: (err) => {
+          settled = true;
+          if (this.FirstConnect === first) this.FirstConnect = undefined;
+          reject(err);
+        },
+      };
+      this.FirstConnect = first;
 
       socketFailed = (err) => {
         const reason = loggableReason(err, host);
         if (!settled) {
-          settled = true;
           void this.Client.deactivate();
-          reject(new InvalidArgument(`Queue connection ${this.Options.name} cannot open a websocket to ${broker}: ${reason}`));
+          first.reject(new InvalidArgument(`Queue connection ${this.Options.name} cannot open a websocket to ${broker}: ${reason}`));
           return;
         }
 
+        // disposed while the factory ran: stompjs does not reconnect
+        if (!this.Client.active) return;
         this.Log.error({ broker, reason, clientId: this.ClientId }, 'Cannot open a websocket to ${broker}: ${reason}, client-id: ${clientId} ( will auto-reconnect if active )');
       };
 
@@ -471,9 +493,8 @@ export class StompQueueClient extends QueueClient {
             // stompjs does not await its connect loop: a throw here would be an unhandled rejection
             // with no socket close, so no reconnect would ever be scheduled
             if (!settled) {
-              settled = true;
               void this.Client.deactivate();
-              reject(new UnexpectedServerError(`Cannot get credentials for queue connection ${this.Options.name} from provider ${this.Options.credentialProvider}`, err));
+              first.reject(new UnexpectedServerError(`Cannot get credentials for queue connection ${this.Options.name} from provider ${this.Options.credentialProvider}`, err));
               return;
             }
 
@@ -497,12 +518,13 @@ export class StompQueueClient extends QueueClient {
               reason = 'a thrown value that cannot be printed';
             }
             if (!settled) {
-              settled = true;
               void this.Client.deactivate();
-              reject(new InvalidArgument(`Queue connection ${this.Options.name}: options.beforeConnect failed: ${reason}`));
+              first.reject(new InvalidArgument(`Queue connection ${this.Options.name}: options.beforeConnect failed: ${reason}`));
               return;
             }
 
+            // disposed while the hook ran: stompjs does not connect
+            if (!this.Client.active) return;
             this.Log.error({ reason, clientId: this.ClientId }, 'options.beforeConnect failed: ${reason}, client-id: ${clientId} ( connecting anyway )');
           }
         };
@@ -521,8 +543,7 @@ export class StompQueueClient extends QueueClient {
         this.flushReadyWaiters();
 
         if (!settled) {
-          settled = true;
-          resolve();
+          first.resolve();
         }
       };
 
@@ -535,10 +556,9 @@ export class StompQueueClient extends QueueClient {
         this.Log.error({ details }, 'Additional details: ${details}');
 
         if (!settled) {
-          settled = true;
           const hint = /already connected|InvalidClientID/i.test(brokerMessage) ? ` - client-id ${this.ClientId} is in use by another connection; give every replica a stable, unique QUEUE_INSTANCE_ID ( or options.clientIdSuffix )` : '';
           this.Client.deactivate();
-          reject(new UnexpectedServerError(`Cannot connect to queue server at ${broker}: ${brokerMessage}${hint}`, Object.assign(new Error(brokerMessage), { body: details })));
+          first.reject(new UnexpectedServerError(`Cannot connect to queue server at ${broker}: ${brokerMessage}${hint}`, Object.assign(new Error(brokerMessage), { body: details })));
         }
       };
 
@@ -550,10 +570,12 @@ export class StompQueueClient extends QueueClient {
         const reason = loggableReason(describeWebSocketError(err), host);
 
         if (!settled) {
-          settled = true;
           void this.Client.deactivate();
-          reject(new UnexpectedServerError(`Cannot connect to queue server at ${broker}, websocket error: ${reason}`, socketFailure(err, reason)));
+          first.reject(new UnexpectedServerError(`Cannot connect to queue server at ${broker}, websocket error: ${reason}`, socketFailure(err, reason)));
         }
+
+        // dispose() closed a socket that was still connecting: that is not a failure
+        if (this.Disposing) return;
 
         try {
           this.Log.error({ reason, clientId: this.ClientId }, 'Websocket error: ${reason}, client-id: ${clientId}');
@@ -583,6 +605,9 @@ export class StompQueueClient extends QueueClient {
     for (const w of waiters) {
       w.reject(new UnexpectedServerError(`Queue connection ${this.Options.name} disposed before it became ready`));
     }
+
+    // stompjs does not connect once deactivated, so nothing else would settle it
+    this.FirstConnect?.reject(new UnexpectedServerError(`Queue connection ${this.Options.name} was disposed before it connected`));
 
     // the live subscriptions end with the socket; deactivate() sends no UNSUBSCRIBE, so durable ones stay on the broker
     this.Subscriptions.clear();
