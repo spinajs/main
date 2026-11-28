@@ -15,7 +15,7 @@
 
 1. When `session.Expiration` is `undefined`, `SessionProvider.applyInitialExpiration()` asks the configured `SessionExpirationProvider` for the initial expiration. A `pending` session without an expiration throws `InvalidOperation`: the issuer must set it from `authn.session.pendingTtlSeconds`.
 2. `DbSession.getOrNew({ SessionId })` loads the row or builds a new one.
-3. The store sets every column: `Subject`, `ImpersonatorId` and `State` as [principal keys](#principal-keys), `Data` through `encodeSessionData()`, and `Expiration` (`NULL` for a never-expiring session). Only an absent (`undefined`) `Expiration` is written as `NULL`: a present value that is not a valid luxon `DateTime` (an invalid `DateTime`, a JS `Date`, a string, a number, `null`) is written as the epoch, so the session is expired, and `touch()` of a `pending` session writes its `Expiration` the same way.
+3. The store sets every column: `Subject`, `ImpersonatorId` and `State` as [principal keys](#principal-keys), `Data` through `encodeSessionData()`, and `Expiration` (`NULL` for a never-expiring session). Only an absent (`undefined`) `Expiration` is written as `NULL`: a present value that is not a valid luxon `DateTime` (an invalid `DateTime`, a JS `Date`, a string, a number, `null`) is written as the epoch, so the session is expired. `touch()` of an `active` session writes its renewed `Expiration` the same way; `touch()` of a `pending` session never writes it.
 4. `insert(InsertBehaviour.InsertOrUpdate)` writes the row as an upsert.
 
 ### Restore, `restore(sessionId)`
@@ -27,10 +27,10 @@
 
 ### Touch, `touch(session)`
 
-1. `SessionProvider.applyRenewedExpiration()` computes the new expiration. A `pending` session keeps its expiration: when its view carries none (`undefined`), the `UPDATE` writes only `Data` and the row keeps the stored `Expiration`.
-2. One `UPDATE` writes `Data`, and `Expiration` except in the case above, where `SessionId` matches, the stored `State` equals `session.State`, and the stored `Expiration` is `NULL` or in the future.
+1. `SessionProvider.applyRenewedExpiration()` computes the new expiration of an `active` session. A `pending` session is never extended: its row keeps the expiration it was issued with, whatever `Expiration` the view carries (later, earlier, absent or not a valid `DateTime`). To end a pending session early, delete it (`SessionIssuer.revoke`).
+2. One `UPDATE` writes `Data`, and `Expiration` only for an `active` session, where `SessionId` matches, the stored `State` equals `session.State`, and the stored `Expiration` is `NULL` or in the future.
 3. When no row was updated, the store restores `session.Expiration` to its old value and returns `false`.
-4. Otherwise it returns `true` when the expiration changed, `false` when it stayed the same.
+4. Otherwise it returns `true` when the expiration changed, `false` when it stayed the same (always for a `pending` session).
 
 ### Revocation, `deleteBySubject(subject, opts)`
 
