@@ -132,6 +132,47 @@ export interface ModelDataReplies {
   OkModelDataWithRelationData: Http.Ok<ModelDataWithRelationData<Payload>>;
 }
 
+type DataOf<T> = ModelData<T>;
+type RelDataOf<T> = ModelDataWithRelationData<T>;
+type UserData = ModelData<Payload>;
+type DataAgain<T> = DataOf<T>;
+type Swap<A, B> = ModelData<B>;
+type Middle<A, B, C> = ModelData<B>;
+type ListData<T> = ModelData<T[]>;
+type H1<T> = ModelData<T>;
+type H2<T> = H1<T>;
+type H3<T> = H2<T>;
+type H4<T> = H3<T>;
+type H5<T> = H4<T>;
+type H6<T> = H5<T>;
+type H7<T> = H6<T>;
+type H8<T> = H7<T>;
+type H9<T> = H8<T>;
+type H10<T> = H9<T>;
+type H11<T> = H10<T>;
+type H12<T> = H11<T>;
+type H13<T> = H12<T>;
+type H14<T> = H13<T>;
+type H15<T> = H14<T>;
+type H16<T> = H15<T>;
+export interface ModelDataAliases {
+  DataOf: DataOf<Payload>;
+  PromisedDataOf: Promise<DataOf<Payload>>;
+  RelDataOf: RelDataOf<Payload>;
+  UserData: UserData;
+  OkUserData: Http.Ok<UserData>;
+  DataAgain: DataAgain<Payload>;
+  Swap: Swap<string, Payload>;
+  Middle: Middle<string, Payload, number>;
+}
+export interface ModelDataListAlias {
+  ListData: ListData<Payload>;
+}
+export interface ModelDataAliasChains {
+  H15: H15<Payload>;
+  H16: H16<Payload>;
+}
+
 type AsyncOk<T> = Promise<Http.Ok<T>>;
 type PromiseList<T> = Promise<T[]>;
 type PromisedPayload = Promise<Payload>;
@@ -142,10 +183,12 @@ export interface PromiseAliases {
 }
 
 type LookAsync<T> = Look.Promise<T>;
+type LookData<T> = Look.ModelData<T>;
 export interface WrapperLookalikes {
   Promise: Look.Promise<Payload>;
   AliasedPromise: LookAsync<Payload>;
   ModelData: Look.ModelData<Payload>;
+  AliasedModelData: LookData<Payload>;
   ModelDataWithRelationData: Look.ModelDataWithRelationData<Payload>;
 }
 

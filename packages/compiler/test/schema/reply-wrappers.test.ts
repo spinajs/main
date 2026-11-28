@@ -51,6 +51,24 @@ describe('reply wrappers are http responses by their declaring package', () => {
       OkModelDataWithRelationData: model,
     });
   });
+  it('follows a type alias of ModelData to the model, through aliases of aliases and the parameter it passes', () => {
+    expect(refsOf('ModelDataAliases')).to.deep.equal({
+      DataOf: payload.Ok,
+      PromisedDataOf: payload.Ok,
+      RelDataOf: payload.Ok,
+      UserData: payload.Ok,
+      OkUserData: payload.Ok,
+      DataAgain: payload.Ok,
+      Swap: payload.Ok,
+      Middle: payload.Ok,
+    });
+  });
+  it('follows a chain of up to 15 aliases to ModelData', () => {
+    expect(refsOf('ModelDataAliasChains')).to.deep.equal({ H15: payload.Ok, H16: { text: 'H16<Payload>' } });
+  });
+  it('leaves an alias that passes ModelData anything but its own parameter as it is', () => {
+    expect(refsOf('ModelDataListAlias')).to.deep.equal({ ListData: { text: 'ListData<Payload>' } });
+  });
   it('follows a type alias of Promise to its payload', () => {
     expect(refsOf('PromiseAliases')).to.deep.equal({ AsyncOk: payload.Ok, PromiseList: { text: 'Payload[]' }, PromisedPayload: payload.Ok });
   });
@@ -65,6 +83,7 @@ describe('reply wrappers are http responses by their declaring package', () => {
       Promise: { text: 'Promise<Payload>', schema: 'spinajs/unit/Promise_Payload' },
       AliasedPromise: { text: 'LookAsync<Payload>', schema: 'spinajs/unit/Promise_Payload' },
       ModelData: { text: 'ModelData<Payload>', schema: 'spinajs/unit/ModelData_Payload' },
+      AliasedModelData: { text: 'LookData<Payload>', schema: 'spinajs/unit/LookData_Payload' },
       ModelDataWithRelationData: { text: 'ModelDataWithRelationData<Payload>', schema: 'spinajs/unit/ModelDataWithRelationData_Payload' },
     });
   });
