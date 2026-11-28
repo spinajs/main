@@ -14,7 +14,7 @@ Every `OrmDriver` tracks a `ConnectionState`, probes its database on a timer, an
 
 ### Retry on transport failure
 
-1. A driver that opts in runs each statement through the protected `withReconnect()` loop. `MySqlOrmDriver` and `PostgresOrmDriver` do; `SqliteOrmDriver` and `MsSqlOrmDriver` do not.
+1. A driver that opts in runs each statement through the protected `withReconnect()` loop. `MySqlOrmDriver` and `PostgresOrmDriver` do. `SqliteOrmDriver` overrides it with a loop that retries `SQLITE_BUSY` on the same handle and never reconnects (see [Important behaviour](#important-behaviour)). `MsSqlOrmDriver` has none.
 2. On success the state becomes `Connected` and the result is returned.
 3. On an error, `isRetryableError(err)` decides. A non-retryable error (a syntax error, a constraint violation) is rethrown at once, untouched.
 4. On a retryable error the state becomes `Degraded`. The driver waits `backoffDelay(attempt, RetryDelay, MaxRetryDelay)` ms, sets `Connecting`, calls `connect()`, and runs the statement again. A failed `connect()` sets `Degraded` and the loop continues.
@@ -70,7 +70,7 @@ Metrics go into the `Metrics` singleton from `@spinajs/telemetry-common`. `@spin
 | --- | --- | --- | --- | --- |
 | `MySqlOrmDriver` | yes | yes | yes | yes |
 | `PostgresOrmDriver` | yes | yes | yes | yes |
-| `SqliteOrmDriver` | no | `Size` only; `InUse` and `Waiting` are always `0` | no | yes |
+| `SqliteOrmDriver` | own: `SQLITE_BUSY` only, same handle, no reconnect | `Size` only; `InUse` and `Waiting` are always `0` | no | yes |
 | `MsSqlOrmDriver` | no | no (base: all `0`) | no | no |
 
 ### Query spans
@@ -268,7 +268,7 @@ DI.register(ShopMySqlDriver).as('orm-driver-mysql');
 - MySQL and Postgres never retry inside `transaction()`: replaying one statement on a fresh connection would apply it outside the transaction.
 - The retry loop re-runs writes too. It retries only on transport-level errors, where the driver treats the statement as not having reached the server.
 - A lock wait timeout (MySQL `ER_LOCK_WAIT_TIMEOUT`, 1205) and a deadlock (`ER_LOCK_DEADLOCK`, 1213) are not retried: the server answered the statement. The caller gets the error on the first attempt; the state, the pool and its session settings stay as they were. Retry lock contention in your own code if you need to, and retry the whole transaction after a deadlock.
-- `SQLITE_BUSY` is in `RETRYABLE_ERROR_CODES`, but `SqliteOrmDriver` does not run the retry loop, so it does not retry.
+- `SQLITE_BUSY` is in `RETRYABLE_ERROR_CODES`. `SqliteOrmDriver` retries it outside a transaction on the same handle, without reopening the database, up to `Resilience.MaxRetries` times with the same back-off; it never calls `connect()` and does not change the connection state. Each attempt first waits `sqlite3`'s own busy timeout (1000 ms), so with the defaults a statement whose lock is never released fails with `SQLITE_BUSY` after about 12 s (6 waits of 1 s plus 0.2 + 0.4 + 0.8 + 1.6 + 3.2 s of back-off). Inside a transaction it fails after one busy timeout. The driver's own `BEGIN`, `COMMIT` and `ROLLBACK` run outside the transaction's context and are retried the same way; a `COMMIT` that fails with `SQLITE_BUSY` leaves the transaction open, so running it again is safe. See [SQLite connection](../orm-sqlite/01-connection.md#errors).
 - Pool gauges are published only on the probe tick. With `HealthCheckInterval: 0` they are never set unless code calls `publishPoolMetrics()`.
 - Gauge values are up to `HealthCheckInterval` ms old.
 - `default` and alias entries share their driver, so a connection is labelled once, by its `Name`.
