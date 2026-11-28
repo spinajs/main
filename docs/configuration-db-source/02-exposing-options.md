@@ -8,7 +8,7 @@ Use it for settings an operator changes at runtime: sender addresses, limits, fe
 
 1. `@Config(path, options)` from `@spinajs/configuration` registers `{ path, options }` in DI under the value list `__configuration_property__`. The DI container emits `di.registered.__configuration_property__`.
 2. `DbConfigSourceBotstrapper.bootstrap()` runs with the other bootstrappers. It registers the `configuration_db_source` schema and subscribes to the DI events below, dropping the subscriptions of an earlier `bootstrap()` first. It does no database work. `di.dispose` removes the subscriptions.
-3. **When the `configuration` table is ready**, the bootstrapper sweeps the exposed options into it once. It is ready on `di.resolved.Orm` when `driver.schema().tableExists('configuration')` answers `true` on `DbConfig`'s connection. The `Orm` resolves only once its migrations are applied ([`npx spinajs migrate-up`](../orm/10-migrations.md#deploying-migrations) creates the table), so the table exists by then. It may not when the connection's `Migration.Check` is `warn` or `off`, or when the `Orm` is a migration tool's, which resolves before it migrates: that boot sweeps nothing, so restart the app after `migrate-up`.
+3. **When the `configuration` table is ready**, the bootstrapper sweeps the exposed options into it once. It is ready on `di.resolved.Orm` when `driver.tableInfo('configuration', driver.Options.Database)` finds the table on `DbConfig`'s connection: the call the `Orm` makes to reflect the model, in the database `DbConfig`'s queries use (on SQLite with `Database: 's'`, the attached database `s`, not `main`). The `Orm` resolves only once its migrations are applied ([`npx spinajs migrate-up`](../orm/10-migrations.md#deploying-migrations) creates the table), so the table exists by then. It may not when the connection's `Migration.Check` is `warn` or `off`, or when the `Orm` is a migration tool's, which resolves before it migrates: that boot sweeps nothing, so restart the app after `migrate-up`.
 
    The sweep reads every `__configuration_property__` entry with `expose: true`:
    1. `normalizeFileEntryOptions()` checks each entry; a `type: 'file'` entry without `meta.file.fs` throws. See [File entries](05-file-entries-and-validators.md).
@@ -37,7 +37,7 @@ sequenceDiagram
   D->>DI: register { path, options } as __configuration_property__
   B->>DI: on(di.registered...), on(di.resolved.Orm), on(di.dispose)
   DI-->>B: di.resolved.Orm (the boot check passed)
-  B->>DB: tableExists('configuration')
+  B->>DB: tableInfo('configuration', Options.Database)
   B->>DB: INSERT OR IGNORE each exposed option
   B->>DB: UPDATE metadata where it differs
   D->>DI: late registration (after the sweep)

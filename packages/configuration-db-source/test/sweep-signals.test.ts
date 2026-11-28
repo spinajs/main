@@ -26,7 +26,7 @@ function wait(ms: number): Promise<void> {
 /** A container holding one exposed option and an Orm whose `configuration` table does not exist. */
 function containerWithoutTable(): IContainer {
   const orm = {
-    Connections: new Map([['default', { schema: () => ({ tableExists: async () => false }) }]]),
+    Connections: new Map([['default', { Options: {}, tableInfo: async () => null }]]),
   };
   const vars = [{ path: 'swept', options: { expose: true, exposeOptions: { type: 'string', group: 'g' } } }];
 
@@ -61,6 +61,20 @@ describe('DbConfigSourceBotstrapper signals', function () {
     expect(swept).to.have.length(0);
     expect(DI.listenerCount('di.resolved.OrmMigrator')).to.equal(0);
     expect(DI.listenerCount('di.resolved.OrmMigrationGuard')).to.equal(0);
+  });
+
+  it('looks for the table in the connection database the way postgres maps it, not as a schema of that name', async () => {
+    // postgres: the connection's own Database is its default schema to tableInfo(), but a schema name to tableExists()
+    const driver = {
+      Options: { Database: 'app' },
+      tableInfo: async (_name: string, schema?: string) => (schema === 'app' ? [{ Name: 'Id' }] : null),
+      schema: () => ({ tableExists: async (_name: string, schema?: string) => schema === undefined }),
+    };
+
+    DI.emit('di.resolved.Orm', DI.RootContainer, { Connections: new Map([['default', driver]]) });
+    await wait(50);
+
+    expect(swept).to.have.length(1);
   });
 
   it('removes the DI listeners it added once the container is disposed', async () => {
