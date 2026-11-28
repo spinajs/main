@@ -10,7 +10,7 @@ type Where = IWhereBuilder<unknown>;
 
 const ENGINE_FAULT_CODE = 'model_error';
 
-export const fieldsColumn =(i: number): string => `__authz_fields_${i}`;
+export const fieldsColumn = (i: number): string => `__authz_fields_${i}`;
 
 /** The terms a row's field set can depend on: every permit and deny term, split by its compiler's atoms(). */
 function atomsOf(terms: readonly PlanTerm[], compilers: ReadonlyMap<string, PlanTermCompiler>): PlanTerm[] {
