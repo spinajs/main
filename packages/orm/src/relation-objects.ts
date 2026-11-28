@@ -15,7 +15,7 @@ import type { OrmDriver } from './driver.js';
 import { extractModelDescriptor } from './descriptor.js';
 import { hydratedKey, hydratedValue } from './column-values.js';
 import { assertAssignedKeys, generateClientSideKeys, isCompositePk, pkColumns, pkKeyStringFor, pkValueOf, setPkValue, whereNotAnyPk } from './primary-keys.js';
-import { startVersion, startVersionOf } from './versioning.js';
+import { refuseWriteOfMissingTable, startVersion, startVersionOf } from './versioning.js';
 import { OrmException } from './exceptions.js';
 
 const relationSyncs = new WeakMap<object, { readonly relation: string; readonly owner: Constructor<ModelBase> }>();
@@ -643,6 +643,9 @@ export class ManyToManyRelationList<T extends ModelBase, O extends ModelBase> ex
    * the link.
    */
   protected async _update() {
+    // before the read of existing links, whose where() on a junction key column the model does not know fails with a misleading message
+    refuseWriteOfMissingTable(this.junctionModelDescriptor!);
+
     // Soft-deleted and archived junction rows count as links too, so they are not inserted a second time.
     const existingQuery = this.ownStatement(this.junctionQuery(SelectQueryBuilder<unknown>)).withDeleted().withArchived().onPrimary().where(this.Relation.JunctionModelSourceModelFKey_Name!, this.OwnerJoinValue);
     const existingRows = (await existingQuery.asRaw<Record<string, unknown>[]>()) ?? [];

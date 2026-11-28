@@ -4,6 +4,7 @@ import type { IModelDescriptor } from './interfaces.js';
 import type { ModelBase } from './model.js';
 import { pkColumns, pkGeneration } from './primary-keys.js';
 import { writeBackRelationKeys } from './relation-keys.js';
+import { refuseWriteOfMissingTable } from './versioning.js';
 
 /** The two key columns of a many-to-many junction table. */
 export interface IJunctionColumns {
@@ -26,6 +27,8 @@ export const autoKeyColumns = (descriptor: IModelDescriptor): string[] => pkColu
  * came from another link.
  */
 export function junctionRow(descriptor: IModelDescriptor, columns: IJunctionColumns, link: IJunctionLink): Record<string, unknown> {
+  // the link's own columns come from the junction model's toSql(), which knows only its declared columns
+  if (link.junction) refuseWriteOfMissingTable(descriptor);
   const own = link.junction ? _.omit(link.junction.toSql() as Record<string, unknown>, autoKeyColumns(descriptor)) : {};
 
   return {
