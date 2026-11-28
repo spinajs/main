@@ -110,7 +110,8 @@ export class DbConfigSourceBotstrapper extends Bootstrapper {
       return false;
     }
 
-    return await driver.schema().tableExists(descriptor.TableName);
+    // where DbConfig's queries go and the Orm reflects it; tableExists(name, Database) would read a schema on postgres
+    return (await driver.tableInfo(descriptor.TableName, driver.Options.Database)) !== null;
   }
 
   /** Persists every exposed option registered so far and starts the watch timer; once per process. */
