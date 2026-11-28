@@ -231,7 +231,22 @@ describe('dynamodb session provider', function () {
       }
     });
 
-    it('an active touch that a never-expiring strategy renews still removes the stored expiration', async () => {
+    it('a pending touch whose Expiration is not a valid instant writes Data only and returns false', async () => {
+      const store = await makeProvider(SLIDING);
+      await store.truncate();
+
+      const fixed = DateTime.now().plus({ minutes: 5 });
+      await store.save(session({ SessionId: 't-pending-invalid', State: 'pending', Expiration: fixed }));
+      const stored = item('t-pending-invalid').Expiration;
+      fake.sent.length = 0;
+
+      expect(await store.touch(session({ SessionId: 't-pending-invalid', State: 'pending', Expiration: DateTime.invalid('test') }))).to.be.false;
+
+      expect(item('t-pending-invalid').Expiration).to.deep.equal(stored);
+      expect(lastUpdate().UpdateExpression).to.equal('SET #data = :data');
+    });
+
+    it('an active touch whose renewal has no expiration still removes the stored expiration', async () => {
       const store = await makeProvider(ABSOLUTE);
       await store.truncate();
 

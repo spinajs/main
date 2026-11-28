@@ -232,7 +232,7 @@ export class DynamoDbSessionProvider extends SessionProvider {
       throw err;
     }
 
-    return !this.expirationEquals(current, session.Expiration);
+    return session.State !== 'pending' && !this.expirationEquals(current, session.Expiration);
   }
 
   public async delete(sessionId: string): Promise<boolean> {
