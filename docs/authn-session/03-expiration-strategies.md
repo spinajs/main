@@ -8,7 +8,7 @@ The strategy is a `SessionExpirationProvider` with two methods. `SessionProvider
 
 1. `SessionProvider.save()` of a row with no `Expiration` calls `applyInitialExpiration()`, which sets `Expiration = strategy.initial(row)`. A row that already has an `Expiration` is stored as is.
 2. `SessionProvider.touch()` calls `applyRenewedExpiration()`, which sets `Expiration = strategy.renew(row)` for an active row. A pending row keeps its expiration.
-3. `SessionProvider.restore()` answers `null` for a row whose `Expiration` is at or before now. A row with no `Expiration` never expires.
+3. `SessionProvider.restore()` answers `null` for a row whose `Expiration` is at or before now. An active row with no `Expiration` never expires; a pending row with no `Expiration` counts as expired.
 
 When each step runs:
 
@@ -102,7 +102,7 @@ Keep settings of your own under a config path your app owns, as `terminals.closi
 - **`AbsoluteExpiration.renew()` changes nothing**, so `touch` reports no change. A `restore` then writes only to record the last-seen time, once per `touchThresholdSeconds`.
 - **The issuer asks the strategy too.** Before it decides whether to `touch`, `DefaultSessionIssuer` calls `renew()` itself to see where the expiry would move. A strategy's `renew()` must therefore have no side effects.
 - **Missing values expire at once.** A `ttl` or `maxLifetime` that is missing at runtime (set past the schema) makes `initial()` return `Creation` or earlier: the session is born expired instead of living forever. The same holds for a missing `pendingTtlSeconds`.
-- **A pending row needs its own expiration.** `applyInitialExpiration()` throws `InvalidOperation('A pending session must carry its own expiration (authn.session.pendingTtlSeconds)')` for a pending row without one.
+- **A pending row needs its own expiration.** `applyInitialExpiration()` throws `InvalidOperation('A pending session must carry its own expiration (authn.session.pendingTtlSeconds)')` for a pending row without one. A pending row that is already stored without one (written by older code or by hand) counts as expired: `isExpired()` answers `true`, so it is never restored, listed or elevated. One MFA code would otherwise turn it into an aal2 session at any later time.
 - **Process clock.** The strategies and `SessionProvider.isExpired()` use `DateTime.now()` of the Node process, not the clock of a database. `isExpired()` is public: `DefaultSessionIssuer` judges a row with its store's `isExpired()`, so a store that overrides it is honoured by the issuer too.
 - **Rotation keeps the deadline.** `rotate` copies `Expiration`, so a role switch never extends a session.
 
