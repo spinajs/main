@@ -23,7 +23,7 @@ export interface ISession {
 
   Creation: DateTime;
 
-  /** Absolute expiration instant. `undefined` = never expires. */
+  /** Absolute expiration instant. `undefined` = never expires; a pending session without one counts as expired. */
   Expiration?: DateTime;
 
   /** Opaque to the store: SessionIssuer.set values plus the issuer's own entries (facts, pending steps). */
@@ -94,8 +94,14 @@ export abstract class SessionProvider<T extends ISession = ISession> extends Asy
     s.Expiration = this.Expiration.renew(s);
   }
 
-  /** Public so SessionIssuer judges a row the way its store does. */
+  /**
+   * Public so SessionIssuer judges a row the way its store does. A pending row without an Expiration is expired: one
+   * MFA code would turn it into an aal2 session, and the issuer never stores one without its TTL.
+   */
   public isExpired(s: ISession): boolean {
+    if (s.State !== 'active' && s.Expiration === undefined) {
+      return true;
+    }
     return !!s.Expiration && s.Expiration <= DateTime.now();
   }
 }
