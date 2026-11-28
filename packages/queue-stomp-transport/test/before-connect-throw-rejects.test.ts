@@ -196,11 +196,13 @@ describe('stomp transport - an options.beforeConnect that throws rejects resolve
     [
       'throws a value whose toString throws an error quoting the broker url',
       (port) => () => {
-        throw {
+        // what an application can throw: any value, not only an Error
+        const thrown: unknown = {
           toString: () => {
             throw hookError(port);
           },
         };
+        throw thrown;
       },
       unprintable,
     ],
