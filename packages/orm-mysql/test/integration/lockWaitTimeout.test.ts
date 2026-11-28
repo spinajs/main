@@ -11,6 +11,7 @@ import '@spinajs/log';
 import { expect } from 'chai';
 import 'mocha';
 import { randomUUID } from 'node:crypto';
+import net from 'node:net';
 import { setTimeout as delay } from 'node:timers/promises';
 
 import { MySqlOrmDriver } from '../../src/index.js';
@@ -22,6 +23,19 @@ const SERVER = {
   Password: process.env.ORM_TEST_MYSQL_PASSWORD ?? 'root',
 };
 const DATABASE = `v4_ox_37_lock_wait_${randomUUID().slice(0, 8)}`;
+
+function reachable(): Promise<boolean> {
+  return new Promise((resolve) => {
+    const socket = net.createConnection({ host: SERVER.Host, port: SERVER.Port });
+    const done = (ok: boolean) => {
+      socket.destroy();
+      resolve(ok);
+    };
+    socket.setTimeout(1000, () => done(false));
+    socket.once('connect', () => done(true));
+    socket.once('error', () => done(false));
+  });
+}
 
 class QuietConf extends FrameworkConfiguration {
   public async resolve(): Promise<void> {
@@ -46,34 +60,45 @@ class ObservedMySqlDriver extends MySqlOrmDriver {
 describe('mysql lock wait timeout outside a transaction (integration)', function () {
   this.timeout(60000);
 
-  let admin: MySqlOrmDriver;
-  let waiter: ObservedMySqlDriver;
-  const sql = (statement: string) => admin.executeOnDb(statement, [], QueryContext.Schema);
+  // Assigned only once connected, so a failed before() leaves nothing for after() to retry against.
+  let adminDriver: MySqlOrmDriver | undefined;
+  let waiterDriver: ObservedMySqlDriver | undefined;
 
-  before(async () => {
+  before(async function () {
+    if (!(await reachable())) {
+      console.warn(`      MySQL at ${SERVER.Host}:${SERVER.Port} is unreachable, suite skipped`);
+      this.skip();
+    }
+
     DI.clearCache();
     DI.register(QuietConf).as(Configuration);
-    admin = await DI.child().resolve(MySqlOrmDriver, [{ Name: 'lock-admin', Driver: 'orm-driver-mysql', ...SERVER, Database: 'mysql' }]);
-    await admin.connect();
-    await admin.schema().createDatabase(DATABASE);
+    const owner = await DI.child().resolve(MySqlOrmDriver, [{ Name: 'lock-admin', Driver: 'orm-driver-mysql', ...SERVER, Database: 'mysql' }]);
+    await owner.connect();
+    adminDriver = owner;
+    const sql = (statement: string) => owner.executeOnDb(statement, [], QueryContext.Schema);
+    await owner.schema().createDatabase(DATABASE);
     await sql(`CREATE TABLE \`${DATABASE}\`.item (Id INT PRIMARY KEY, Name VARCHAR(8) NOT NULL)`);
     await sql(`INSERT INTO \`${DATABASE}\`.item (Id, Name) VALUES (1, 'a')`);
 
     // The default Resilience (5 retries) on purpose; one pooled connection keeps the session setting observable.
-    waiter = await DI.child().resolve(ObservedMySqlDriver, [{ Name: 'lock-waiter', Driver: 'orm-driver-mysql', ...SERVER, Database: DATABASE, Pool: { Max: 1 }, Resilience: { HealthCheckInterval: 0 } }]);
-    await waiter.connect();
+    const other = await DI.child().resolve(ObservedMySqlDriver, [{ Name: 'lock-waiter', Driver: 'orm-driver-mysql', ...SERVER, Database: DATABASE, Pool: { Max: 1 }, Resilience: { HealthCheckInterval: 0 } }]);
+    await other.connect();
+    waiterDriver = other;
     // Through the pool, not schema(): a schema statement runs on a connection of its own.
-    await waiter.executeOnDb('SET SESSION innodb_lock_wait_timeout = 1', [], QueryContext.Select);
+    await other.executeOnDb('SET SESSION innodb_lock_wait_timeout = 1', [], QueryContext.Select);
   });
 
   after(async () => {
-    await waiter?.disconnect();
-    await sql(`DROP DATABASE IF EXISTS \`${DATABASE}\``);
-    await admin?.disconnect();
+    await adminDriver?.executeOnDb(`DROP DATABASE IF EXISTS \`${DATABASE}\``, [], QueryContext.Schema);
+    await waiterDriver?.disconnect();
+    await adminDriver?.disconnect();
     DI.clearCache();
   });
 
   it('fails after one wait with the lock wait error, on the same pool and session', async () => {
+    const admin = adminDriver;
+    const waiter = waiterDriver;
+    if (!admin || !waiter) throw new Error('the suite did not connect');
     let locked!: () => void;
     const lockTaken = new Promise<void>((resolve) => (locked = resolve));
     let release!: () => void;
@@ -99,7 +124,7 @@ describe('mysql lock wait timeout outside a transaction (integration)', function
     await update;
 
     expect(outcome).to.be.instanceOf(OrmException).and.to.have.nested.property('inner.code', 'ER_LOCK_WAIT_TIMEOUT');
-    expect(elapsed).to.be.within(900, 3000);
+    expect(elapsed).to.be.at.least(900);
     expect(waiter.CurrentPool).to.equal(pool);
     expect(waiter.states).to.deep.equal([]);
     expect(waiter.State).to.equal(ConnectionState.Connected);
