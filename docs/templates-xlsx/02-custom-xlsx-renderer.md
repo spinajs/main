@@ -131,7 +131,7 @@ This command writes a number as a formatted amount: `#! MONEY invoice.total PLN`
 ```ts sample
 import { DI } from '@spinajs/di';
 import { IOFail } from '@spinajs/exceptions';
-import { TemplateRenderer, Templates } from '@spinajs/templates';
+import { TemplateRenderer, Templates, ensureParentDir } from '@spinajs/templates';
 import { XlsxRenderer } from '@spinajs/templates-xlsx';
 import { Renderer } from 'xlsx-renderer';
 import { CellTemplatePool } from 'xlsx-renderer/lib/CellTemplatePool.js';
@@ -194,7 +194,7 @@ Give a subclass its own `Type` to keep `XlsxRenderer` and add a variant you pick
 
 ```ts sample
 import { DI, Injectable } from '@spinajs/di';
-import { TemplateRenderer, Templates } from '@spinajs/templates';
+import { TemplateRenderer, Templates, ensureParentDir } from '@spinajs/templates';
 import { XlsxRenderer } from '@spinajs/templates-xlsx';
 
 @Injectable(TemplateRenderer)
