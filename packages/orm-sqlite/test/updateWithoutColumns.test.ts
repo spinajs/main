@@ -292,7 +292,7 @@ describe('sqlite update with no column to write', function () {
         capture.restore();
       }
 
-      const stamps = capture.statements.map((s) => s.bindings.find((b: unknown) => typeof b === 'string' && b.includes('T')));
+      const stamps = capture.statements.map((s) => s.bindings.find((b: unknown): b is string => typeof b === 'string' && b.includes('T')));
       expect(updates(capture.statements)).to.deep.eq([
         ['UPDATE `upd_stamped` SET `Name` = ?,`UpdatedAt` = ? WHERE `Id` = ?', ['b', stamps[0], 1]],
         ['UPDATE `upd_stamped` SET `UpdatedAt` = ? WHERE `Id` = ?', [stamps[1], 1]],
