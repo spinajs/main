@@ -269,8 +269,7 @@ export async function invoiceJobIsPersistentAndCorrelated() {
   await DI.resolve(Configuration);
 
   const client = new InMemoryStompClient({
-    transport: 'stomp',
-    type: 'job',
+    service: 'InMemoryStompClient',
     name: 'test',
     host: 'ws://unused',
     defaultQueueChannel: '/queue/test',
