@@ -44,6 +44,7 @@ sequenceDiagram
 | `.accessible(permission, { env?, onNone? })` | select, update, delete | Rows the plan of `permission` allows. One permission per query. `onNone`: `'deny'` (default) throws `AccessDenied` on a `none` plan, `'empty'` matches no row. `env` passes request facts to the models (ABAC). |
 | `.within(ref \| refs)` | select, update, delete | Rows that are one of the refs or lie below one. The refs of one call are OR-ed; chained calls are AND-ed. Narrows only: it authorizes nothing. |
 | `.withAccess(permissions, { env? })` | select | One boolean per permission on every row, under `authz.orm.accessField` (default `$access`). Each permission needs `list: true`. |
+| `.withFields(permission, { env? })` | select | Gives every row the fields `permission` lets the principal read (`rowFieldsOf(row)`), which `redact()` then keeps. Rows matching the same plan atoms form one group and get one decision of one batched `checkAll()`; `.accessible(permission)` does the same under a `fields: 'filter-rows'` request. A group denied for an ordinary reason (`no_access` and the like) reads no field. A group denied with `model_error` (an engine or adapter fault) fails the whole list with an `Error` naming the type, the permission and the number of faulted groups, so a fault never comes back as rows without fields. |
 | `.unscoped(reason)` | select, update, delete | No filter; writes an `unscoped` audit entry (`authz.audit.unscoped`). Excludes `.accessible()`. |
 
 `.within()` refs:
