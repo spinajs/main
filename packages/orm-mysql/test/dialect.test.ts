@@ -4,6 +4,7 @@ import { expect } from 'chai';
 import { DI } from '@spinajs/di';
 import { InvalidArgument, InvalidOperation } from '@spinajs/exceptions';
 import { IdentifierQuoter, InSetStatement, SchemaQueryBuilder, WhereBoolean } from '@spinajs/orm';
+import '@spinajs/log';
 
 import { MySqlOrmDriver } from '../src/index.js';
 import { MySqlInSetStatement } from '../src/statements.js';
