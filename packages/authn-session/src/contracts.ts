@@ -91,7 +91,7 @@ export abstract class SessionProvider<T extends ISession = ISession> extends Asy
     if (s.State === 'pending') {
       return;
     }
-    s.Expiration = this.Expiration.renew(s);
+    s.Expiration = this.Expiration.renew(s) ?? this.Expiration.initial(s);
   }
 
   /** Public so SessionIssuer judges a row the way its store does. */

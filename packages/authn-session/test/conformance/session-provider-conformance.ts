@@ -1,6 +1,6 @@
 import { expect } from 'chai';
 import { randomBytes } from 'node:crypto';
-import { DateTime } from 'luxon';
+import { DateTime, Settings } from 'luxon';
 import type { IdentityRef } from '@spinajs/authn/contracts';
 import type { ISession, SessionProvider } from '../../src/contracts.js';
 
@@ -328,6 +328,28 @@ export function runSessionProviderConformance(makeProvider: SessionProviderFacto
         expect(changed, 'absolute touch should report no change').to.be.false;
         const restored = await provider.restore(session.SessionId);
         expect(restored!.Expiration!.toMillis()).to.equal(fixed.toMillis());
+      });
+
+      it('absolute: a touch of a view without Expiration never makes the session immortal', async () => {
+        const provider = await makeProvider(ABSOLUTE);
+        await provider.truncate();
+
+        const session = makeSession();
+        await provider.save(session);
+        const restored = (await provider.restore(session.SessionId))!;
+        // A view rebuilt without its expiration; the return of touch is not the subject here.
+        await provider.touch({ ...restored, Data: new Map(restored.Data), Expiration: undefined });
+
+        const after = await provider.restore(session.SessionId);
+        expect(after, 'the session is alive before its end').to.not.be.null;
+        closeTo(after!.Expiration, restored.Creation.plus({ minutes: 60 }));
+        const at = Date.now() + 61 * 60_000;
+        Settings.now = () => at;
+        try {
+          expect(await provider.restore(session.SessionId), 'the session is gone after Creation + ttl').to.be.null;
+        } finally {
+          Settings.now = () => Date.now();
+        }
       });
 
       it('capped: clamps the renewed expiration to Creation + maxLifetime', async () => {

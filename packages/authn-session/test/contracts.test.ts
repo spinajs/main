@@ -316,6 +316,13 @@ describe('@spinajs/authn-session contracts', function () {
       expect(s.Expiration).to.eq(until);
     });
 
+    it('a renewal never gives a pending view without an expiration the active TTL (A09)', () => {
+      const store = new MemoryStore();
+      const s = session('p3', { State: 'pending' });
+      store.renewed(s);
+      expect(s.Expiration).to.eq(undefined);
+    });
+
     it('a pending session without its own expiration is refused, not given the active TTL', async () => {
       const store = new MemoryStore();
       expect(() => store.initial(session('p1', { State: 'pending' }))).to.throw(/pendingTtlSeconds/);
