@@ -7,7 +7,7 @@ An expiration strategy decides when a session dies: a fixed time after login (ab
 The strategy is a `SessionExpirationProvider` with two methods. `SessionProvider` calls them; the issuer never does.
 
 1. `SessionProvider.save()` of a row with no `Expiration` calls `applyInitialExpiration()`, which sets `Expiration = strategy.initial(row)`. A row that already has an `Expiration` is stored as is.
-2. `SessionProvider.touch()` calls `applyRenewedExpiration()`, which sets `Expiration = strategy.renew(row)` for an active row. A pending row keeps its expiration.
+2. `SessionProvider.touch()` calls `applyRenewedExpiration()`, which sets `Expiration = strategy.renew(row)` for an active row. When the strategy renews to `undefined` but its `initial()` for the session is an instant, the store takes `initial()`: a finite strategy never renews a session into one that never expires. A pending row keeps its expiration.
 3. `SessionProvider.restore()` answers `null` for a row whose `Expiration` is at or before now. A row with no `Expiration` never expires.
 
 When each step runs:

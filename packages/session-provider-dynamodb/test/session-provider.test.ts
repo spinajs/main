@@ -1,7 +1,8 @@
 import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
-import { UserSession as Session, decodeSessionData } from '@spinajs/authn-session';
+import { UserSession as Session, SessionExpirationProvider, decodeSessionData } from '@spinajs/authn-session';
 import type { ISession } from '@spinajs/authn-session';
+import { Injectable } from '@spinajs/di';
 import { DateTime } from 'luxon';
 import { runSessionProviderConformance, IConformanceExpiration, SessionProviderFactory } from '../../authn-session/test/conformance/session-provider-conformance.js';
 import { bootStore, disposeStore, fake, storedKeys } from './support.js';
@@ -24,6 +25,17 @@ const session = (over: Partial<ISession>) => new Session({ Subject: user('u-1'),
 
 const item = (id: string) => fake.items.get(id)!;
 const ids = (list: ISession[]) => list.map((s) => s.SessionId).sort();
+
+@Injectable(SessionExpirationProvider)
+class NeverExpiration extends SessionExpirationProvider {
+  public initial(): DateTime | undefined {
+    return undefined;
+  }
+
+  public renew(): DateTime | undefined {
+    return undefined;
+  }
+}
 
 /** Runs `between` once, right before the first `command` of the store reaches the table. */
 function before(command: string, between: () => void): void {
@@ -108,7 +120,8 @@ describe('dynamodb session provider', function () {
     });
 
     it('touch keeps a never-expiring row never-expiring and still writes its Data', async () => {
-      const store = await makeProvider(ABSOLUTE);
+      // Never-expiring only under a strategy that never expires: a finite one gives such a row its end (next case).
+      const store = await bootStore({ expiration: { service: NeverExpiration.name } });
       await store.truncate();
 
       await store.save(session({ SessionId: 't-forever' }));
@@ -120,6 +133,21 @@ describe('dynamodb session provider', function () {
       expect(await store.touch(view)).to.be.false;
       expect(item('t-forever')).to.not.have.property('Expiration');
       expect(decodeSessionData(item('t-forever').Data.S).get('Ip')).to.equal('203.0.113.4');
+    });
+
+    it('touch under AbsoluteExpiration gives a row stored without Expiration the end Creation + ttl and still writes its Data', async () => {
+      const store = await makeProvider(ABSOLUTE);
+      await store.truncate();
+
+      await store.save(session({ SessionId: 't-forever-abs' }));
+      delete fake.items.get('t-forever-abs')!.Expiration;
+      const view = (await store.restore('t-forever-abs'))!;
+      expect(view.Expiration).to.equal(undefined);
+      view.Data.set('Ip', '203.0.113.4');
+
+      await store.touch(view);
+      expect(item('t-forever-abs').Expiration).to.deep.equal({ N: `${view.Creation.plus({ minutes: 60 }).toMillis() / 1000}` });
+      expect(decodeSessionData(item('t-forever-abs').Data.S).get('Ip')).to.equal('203.0.113.4');
     });
 
     it('SR-session idle timeout: touch never extends a row whose Expiration passed while DynamoDB still holds the item', async () => {
