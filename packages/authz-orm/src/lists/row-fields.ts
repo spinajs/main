@@ -1,5 +1,5 @@
 import { attachRowFields } from '@spinajs/authz';
-import type { AccessPlan, AuthzService, Permission, PlanTerm, Principal, ResourceType } from '@spinajs/authz';
+import type { AccessPlan, AuthzService, DenyReason, Permission, PlanTerm, Principal, ResourceType } from '@spinajs/authz';
 import type { IBuilderMiddleware, IWhereBuilder, ModelBase } from '@spinajs/orm';
 
 import type { PlanRow, PlanTermCompiler } from '../plan/index.js';
@@ -7,6 +7,8 @@ import { planFilter } from './render.js';
 import { planTermCompilers } from './terms.js';
 
 type Where = IWhereBuilder<unknown>;
+
+const ENGINE_FAULT_CODE = 'model_error';
 
 export const fieldsColumn = (i: number): string => `__authz_fields_${i}`;
 
@@ -41,8 +43,8 @@ export interface RowFieldsRequest {
   readonly permission: Permission;
   readonly type: ResourceType;
   readonly idColumn: string;
-  /** The plan is `none`: every row reads nothing, no decision needed. */
-  readonly none?: boolean;
+  /** The plan is `none`, for this reason: every row reads nothing, no decision needed. */
+  readonly none?: DenyReason;
 }
 
 const on = (v: unknown): boolean => v === true || v === 1 || v === '1' || v === 't';
@@ -93,9 +95,13 @@ export class RowFieldsMiddleware implements IBuilderMiddleware {
       group.models.push(model);
     });
     const { service, principal, permission, type, none } = this.request;
+    if (none?.code === ENGINE_FAULT_CODE && models.length > 0) throw new Error(`authz-orm: the readable fields of ${type} rows under ${permission} could not be decided: the field plan answered ${ENGINE_FAULT_CODE} (an engine or adapter fault)`);
     // A group without an id has no row to decide on: it reads nothing.
     const decided = none ? [] : [...groups.values()].filter((g) => g.id !== undefined);
     const decisions = decided.length === 0 ? [] : await service.checkAll(principal, decided.map((g) => ({ permission, resource: { type, id: g.id! } })));
+    // A model_error deny is an engine or adapter fault that checkAll answers instead of throwing; read as "no field", its rows would come back blank.
+    const faulted = decisions.filter((d) => d !== undefined && !d.allowed && d.reason?.code === ENGINE_FAULT_CODE).length;
+    if (faulted > 0) throw new Error(`authz-orm: the readable fields of ${faulted} of ${decided.length} ${type} row group(s) under ${permission} could not be decided: the engine answered ${ENGINE_FAULT_CODE} (an engine or adapter fault)`);
     const read = new Map(decided.map((g, i) => [g, decisions[i]?.allowed === true ? decisions[i].fields.read : []]));
     for (const group of groups.values()) for (const model of group.models) attachRowFields(model, read.get(group) ?? []);
   }

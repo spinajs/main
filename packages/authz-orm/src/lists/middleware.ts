@@ -207,7 +207,7 @@ export class AccessListMiddleware extends QueryMiddleware {
     const plan = await run.service.accessPlan(run.principal, permission, run.entry.type, run.marks.env);
     const applies = plan.kind === 'filter' ? fieldConditions(plan, row) : [];
     const conditions = applies.map((apply) => detached(query, apply));
-    const request = { service: run.service, principal: run.principal, permission, type: run.entry.type, idColumn: run.entry.idColumn, ...(plan.kind === 'none' ? { none: true } : {}) };
+    const request = { service: run.service, principal: run.principal, permission, type: run.entry.type, idColumn: run.entry.idColumn, ...(plan.kind === 'none' ? { none: plan.reason } : {}) };
     return { conditions, middleware: new RowFieldsMiddleware(conditions.length, request) };
   }
 
